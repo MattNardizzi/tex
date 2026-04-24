@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import {
   VERDICT_META,
-  BOUNTY_AMOUNT,
   ASI_DISPLAY,
   ASI_INFLUENCE_STYLE,
 } from "../lib/rounds";
@@ -199,82 +198,102 @@ export default function VerdictReveal({
         )}
       </div>
 
-      {/* Closest-you-got meter — on non-wins */}
+      {/* Closest-you-got meter — the near-miss dopamine hit.
+          This is the primary visual reward for non-wins in v5. */}
       {!isWin && (
         <div
-          className="px-5 py-4 border-y border-[var(--color-hairline-2)]"
-          style={{ background: "var(--color-bg-3)" }}
+          className="px-5 py-5 border-y border-[var(--color-hairline-2)]"
+          style={{
+            background:
+              "linear-gradient(90deg, var(--color-bg-3) 0%, var(--color-bg-2) 100%)",
+          }}
         >
-          <div className="flex items-baseline justify-between mb-2">
+          <div className="flex items-baseline justify-between mb-3">
             <span className="t-label text-[var(--color-ink-dim)]">
-              How close you got
-              {improved && (
-                <span
-                  className="ml-2 t-micro"
-                  style={{ color: "var(--color-cyan)" }}
-                >
-                  ★ New best
-                </span>
-              )}
+              HOW CLOSE YOU GOT
             </span>
+            {improved && (
+              <span
+                className="t-micro inline-flex items-center gap-1 new-best-pop"
+                style={{
+                  color: "var(--color-cyan)",
+                  textShadow: "0 0 10px rgba(95, 240, 255, 0.6)",
+                }}
+              >
+                ★ NEW BEST
+              </span>
+            )}
+          </div>
+          <div className="flex items-baseline gap-3 mb-3">
             <span
-              className="t-display text-[22px] sm:text-[26px] leading-none"
+              className={`t-display leading-[0.85] ${improved ? "new-best-pop" : ""}`}
               style={{
+                fontSize: "clamp(3rem, 10vw, 5.5rem)",
                 color: "#fff",
-                textShadow: "0 0 10px rgba(95, 240, 255, 0.45)",
+                textShadow:
+                  "0 0 18px rgba(95, 240, 255, 0.55), 0 0 44px rgba(95, 240, 255, 0.25)",
               }}
             >
-              {proximityPct}%
+              {proximityPct}<span style={{ fontSize: "0.5em", color: "var(--color-cyan)" }}>%</span>
+            </span>
+            <span
+              className="t-label text-[var(--color-ink-dim)] mb-2"
+              style={{ letterSpacing: "0.18em" }}
+            >
+              past the policy
             </span>
           </div>
-          <div className="h-1.5 bg-[var(--color-hairline)] relative overflow-hidden">
+          <div className="h-2 bg-[var(--color-hairline)] relative overflow-hidden rounded-full">
             <div
-              className="absolute inset-y-0 left-0 transition-all duration-1000 ease-out"
+              className="absolute inset-y-0 left-0 transition-all duration-1000 ease-out rounded-full"
               style={{
                 width: `${proximityPct}%`,
                 background:
-                  "linear-gradient(90deg, var(--color-pink) 0%, var(--color-cyan) 100%)",
-                boxShadow: "0 0 8px rgba(95, 240, 255, 0.5)",
+                  "linear-gradient(90deg, var(--color-pink) 0%, var(--color-violet) 50%, var(--color-cyan) 100%)",
+                boxShadow: "0 0 12px rgba(95, 240, 255, 0.55)",
               }}
             />
           </div>
           <p
-            className="mt-2 text-[12px] sm:text-[13px] italic text-[var(--color-ink-faint)] leading-[1.4]"
+            className="mt-3 text-[12px] sm:text-[13px] italic text-[var(--color-ink-faint)] leading-[1.4]"
             style={{ fontFamily: "var(--font-serif)" }}
           >
             {isDraw
               ? "Tex escalated for human review. One more tweak could push this over the line."
+              : improved
+              ? "You beat your own record on this round. Try again — you're onto something."
               : "You scored above floor. Rewrite and target the weakest link you spotted."}
           </p>
         </div>
       )}
 
-      {/* BOUNTY CTA — on R7 PERMIT */}
+      {/* HALL OF FAME CTA — on R7 PERMIT */}
       {isBounty && (
         <div
           className="mx-5 my-4 border p-4 text-center"
           style={{
-            borderColor: "var(--color-gold)",
+            borderColor: "var(--color-yellow)",
             background:
-              "linear-gradient(135deg, rgba(245, 185, 61, 0.14) 0%, rgba(245, 185, 61, 0.04) 100%)",
-            boxShadow: "0 0 20px rgba(245, 185, 61, 0.25)",
+              "linear-gradient(135deg, rgba(255, 225, 74, 0.14) 0%, rgba(255, 61, 122, 0.08) 100%)",
+            boxShadow: "0 0 24px rgba(255, 225, 74, 0.3), 0 0 48px rgba(255, 61, 122, 0.12)",
             borderRadius: "2px",
           }}
         >
-          <div className="t-micro mb-1.5" style={{ color: "var(--color-gold)" }}>
-            ★ ${BOUNTY_AMOUNT} Bounty Triggered ★
+          <div className="t-micro mb-1.5" style={{ color: "var(--color-yellow)" }}>
+            ★ HALL OF FAME · UNLOCKED ★
           </div>
           <p className="text-[13px] sm:text-[14px] text-[var(--color-ink)] leading-[1.5] mb-3">
             You beat <span className="font-bold">The Warden</span>. If a human
-            reviewer confirms the submission is genuinely malicious, we send
-            you a ${BOUNTY_AMOUNT} Starbucks gift card.
+            reviewer confirms your submission is genuinely malicious, you get
+            three unlocks: Hall of Fame entry, a signed Founding Bypass
+            certificate, and Founders' Tier API access.
           </p>
           <button
             onClick={onClaimBounty}
-            className="chip-gold inline-flex items-center gap-2"
+            className="chip-yellow inline-flex items-center gap-2"
             style={{ fontSize: "12px", padding: "0.65rem 1.25rem" }}
           >
-            Claim your ${BOUNTY_AMOUNT}{" "}
+            Claim your unlock{" "}
             <ArrowUpRight className="w-4 h-4" strokeWidth={2.5} />
           </button>
         </div>

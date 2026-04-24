@@ -19,7 +19,6 @@ import {
   ROUNDS,
   computeRoundPoints,
   BOUNTY_ROUND_ID,
-  BOUNTY_AMOUNT,
 } from "./lib/rounds";
 import { submitAttack } from "./lib/apiClient";
 import {
@@ -71,6 +70,7 @@ export default function App() {
     }
   });
   const [showBountyClaim, setShowBountyClaim] = useState(false);
+  const [duelFrom, setDuelFrom] = useState(""); // @handle who challenged this session, empty if not a duel landing
 
   const activeRunRef = useRef(0);
   const verdictRef = useRef(null);
@@ -84,11 +84,26 @@ export default function App() {
   // Deep-link: /buyer or ?buyer opens the buyer surface directly, so
   // LinkedIn posts can point CISOs straight into the technical demo
   // without forcing them through the arena.
+  //
+  // ?duel=<roundId>&from=<handle>  is the peer-challenge link emitted
+  // by ShareCard. We land the recipient straight on the round their
+  // friend played, with a small banner saying who challenged them.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const { pathname, search } = window.location;
     if (pathname.startsWith("/buyer") || search.includes("buyer")) {
       setShowBuyerSurface(true);
+      return;
+    }
+    const params = new URLSearchParams(search);
+    const duelId = parseInt(params.get("duel") || "", 10);
+    const fromHandle = (params.get("from") || "").replace(/^@/, "").slice(0, 32);
+    if (duelId) {
+      const targetRound = ROUNDS.find((r) => r.id === duelId);
+      if (targetRound) {
+        setCurrentRound(targetRound);
+        if (fromHandle) setDuelFrom(fromHandle);
+      }
     }
   }, []);
 
@@ -274,6 +289,7 @@ export default function App() {
         asiFindingsCount={asiFindingsCount}
         asiCategoriesSeenCount={asiCategoriesSeenCount}
         bountyClaimed={player.bountyClaimed}
+        claimersSoFar={0}
       />
 
       {/* Masthead nav */}
@@ -293,6 +309,38 @@ export default function App() {
               onEditHandle={() => setShowHandleGate(true)}
             />
           </div>
+
+          {duelFrom && (
+            <div
+              className="mb-4 panel flex items-center justify-between gap-2 px-4 py-3 rise-in"
+              style={{
+                borderColor: "var(--color-pink)",
+                boxShadow: "0 0 0 1px var(--color-pink), 0 0 24px rgba(255, 61, 122, 0.2)",
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-[18px]">⚔</span>
+                <div>
+                  <div className="t-micro text-[var(--color-pink)]">
+                    Duel · Round {currentRound.id}
+                  </div>
+                  <div
+                    className="mt-0.5 text-[14px] italic"
+                    style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
+                  >
+                    @{duelFrom} challenged you on <span className="font-bold not-italic">{currentRound.name}</span>. Beat their score.
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setDuelFrom("")}
+                className="t-micro text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] transition-colors"
+                aria-label="Dismiss duel banner"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
 
         <RoundSelector
@@ -422,6 +470,7 @@ export default function App() {
           decision={decision}
           submittedContent={attackText}
           onClose={handleCloseBountyClaim}
+          claimersSoFar={0}
         />
       )}
       {showBuyerSurface && (
@@ -460,8 +509,8 @@ function Footer({ onOpenBuyerSurface }) {
         className="h-px w-full"
         style={{
           background:
-            "linear-gradient(90deg, transparent, var(--color-gold-deep), transparent)",
-          opacity: 0.5,
+            "linear-gradient(90deg, transparent, var(--color-cyan) 30%, var(--color-yellow) 50%, var(--color-pink) 70%, transparent)",
+          opacity: 0.55,
         }}
       />
       <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">

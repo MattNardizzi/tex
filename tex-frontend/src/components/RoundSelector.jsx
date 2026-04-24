@@ -76,17 +76,17 @@ function OpponentTile({ round, isActive, isWon, record, onSelect }) {
         <div
           className="absolute -top-[10px] left-3 right-3 h-[20px] flex items-center justify-center"
           style={{
-            background: "linear-gradient(180deg, #f5b93d 0%, #d69923 100%)",
-            color: "#1a0d00",
+            background: "linear-gradient(180deg, #ffe14a 0%, #d4b820 100%)",
+            color: "#120a00",
             fontFamily: "var(--font-mono)",
             fontSize: "9px",
             fontWeight: 700,
             letterSpacing: "0.22em",
             textTransform: "uppercase",
-            boxShadow: "0 4px 12px rgba(245, 185, 61, 0.3)",
+            boxShadow: "0 4px 16px rgba(255, 225, 74, 0.35)",
           }}
         >
-          ★ $10 STARBUCKS BOUNTY ★
+          ★ HALL OF FAME · UNCLAIMED ★
         </div>
       )}
 

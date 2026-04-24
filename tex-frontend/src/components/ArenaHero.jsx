@@ -1,20 +1,26 @@
 import React from "react";
-import { Volume2, VolumeX, ArrowRight, Briefcase } from "lucide-react";
-import { BOUNTY_AMOUNT, ASI_COVERED_COUNT, ASI_TOTAL_COUNT } from "../lib/rounds";
+import { Volume2, VolumeX, ArrowRight, Briefcase, Trophy } from "lucide-react";
+import {
+  ASI_COVERED_COUNT,
+  ASI_TOTAL_COUNT,
+  symbolicBountyAmount,
+} from "../lib/rounds";
 
 /*
-  ARENA HERO — v4 "ASI-first poster"
+  ARENA HERO — v5 "NEON ARCADE / CABINET MODE"
   ─────────────────────────────────────
-  Same boxing-promotion treatment. Two new pieces in this revision:
-
-   1. Live counter is now "ASI 2026 findings attributed" — the thing
-      nobody else in the landscape has. Pulled from per-player local
-      storage; aggregated across sessions via the player object that
-      App.jsx passes in.
-
-   2. "I'm a buyer, not a player" button, rendered beside the primary
-      CTA. Sends the visitor to the buyer surface without burning them
-      through the arena.
+  Key changes from v4:
+    • Starbucks is gone. The reward is Hall of Fame + Founding Bypass
+      certificate + Founders' Tier API access.
+    • Ticker is now HIGH-CONTRAST, larger, and the copy cycles through
+      hooks aimed at builders/CISOs, not casual scrollers.
+    • Scanlines + synthwave grid-floor decoration — the page actually
+      looks like an arcade cabinet now.
+    • Live counter promotes ASI Pokédex progress (YOU vs total) as the
+      primary social-proof number, because "X of 6 categories unlocked"
+      is inherently curiosity-gap shaped.
+    • The symbolic bounty number is prominent but framed as "current bounty
+      pot: $X — doubles per claim" so it's a story, not a promise to pay.
 */
 
 export default function ArenaHero({
@@ -27,33 +33,40 @@ export default function ArenaHero({
   asiFindingsCount,
   asiCategoriesSeenCount,
   bountyClaimed,
+  claimersSoFar = 0, // reserved for backend wiring
 }) {
+  const bountyNow = symbolicBountyAmount(claimersSoFar);
+
   return (
-    <section className="stage grain-warm relative safe-top">
+    <section className="stage scanlines relative safe-top">
+      <div className="grid-floor" />
       <TopBar onToggleSound={onToggleSound} soundOn={soundOn} onAbout={onAbout} />
 
       <Ticker />
 
-      <div className="relative mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pt-8 sm:pt-12 lg:pt-10 pb-0">
+      <div className="relative mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pt-8 sm:pt-12 lg:pt-10 pb-0 z-10">
         <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_1fr] gap-6 lg:gap-12 items-end min-h-[72vh] lg:min-h-[78vh]">
 
           {/* LEFT — Copy */}
           <div className="relative z-10 order-2 lg:order-1 pb-10 sm:pb-16 lg:pb-20">
-            <div className="mb-5 sm:mb-7 rise-1">
-              <span className="chip-gold">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#1a0d00]" />
-                WIN&nbsp;${BOUNTY_AMOUNT}&nbsp;STARBUCKS
+            <div className="mb-5 sm:mb-7 rise-1 flex flex-wrap items-center gap-2">
+              <span className="chip-yellow">
+                <Trophy className="w-3 h-3" strokeWidth={2.5} />
+                HALL OF FAME · UNCLAIMED
               </span>
-              <span className="chip-ghost ml-2 align-middle hidden sm:inline-flex">
-                {bountyClaimed ? "Claimed" : "Unclaimed"}
+              <span className="chip-cyan">
+                OWASP ASI 2026
+              </span>
+              <span className="chip-ghost">
+                {bountyClaimed ? "You're in" : "No login"}
               </span>
             </div>
 
             <div
-              className="t-kicker mb-3 sm:mb-4 rise-2 glow-cyan"
+              className="t-kicker mb-3 sm:mb-4 rise-2 glow-cyan neon-flicker"
               style={{ color: "var(--color-cyan)" }}
             >
-              Red-Team Challenge · 7 Rounds · OWASP ASI 2026
+              Red-Team Challenge · 7 Rounds · Content-Layer Agent Gate
             </div>
 
             <h1
@@ -61,7 +74,7 @@ export default function ArenaHero({
               style={{
                 letterSpacing: "-0.02em",
                 textShadow:
-                  "0 2px 0 rgba(0,0,0,0.5), 0 18px 40px rgba(0,0,0,0.6)",
+                  "0 0 18px rgba(95, 240, 255, 0.35), 0 0 48px rgba(255, 61, 122, 0.25), 0 2px 0 rgba(0,0,0,0.5)",
               }}
             >
               Can&nbsp;you
@@ -72,24 +85,26 @@ export default function ArenaHero({
                   className="absolute left-0 right-0 bottom-[0.08em] h-[0.12em] -z-0"
                   style={{
                     background:
-                      "linear-gradient(90deg, var(--color-pink), transparent 70%)",
-                    opacity: 0.65,
+                      "linear-gradient(90deg, var(--color-pink) 0%, var(--color-cyan) 70%, transparent 100%)",
+                    opacity: 0.85,
+                    filter: "blur(2px)",
                   }}
                 />
               </span>
             </h1>
 
-            <p className="mt-5 sm:mt-7 max-w-[48ch] text-[15px] sm:text-[17px] leading-[1.55] text-[var(--color-ink-dim)] rise-4">
+            <p className="mt-5 sm:mt-7 max-w-[52ch] text-[15px] sm:text-[17px] leading-[1.55] text-[var(--color-ink-dim)] rise-4">
               Tex is a content gate for AI agents. Try to sneak a malicious
               message past him — every loss is mapped to{" "}
-              <span className="text-[var(--color-ink)]">
+              <span className="text-[var(--color-ink)] font-semibold">
                 OWASP ASI 2026
               </span>
               , the new standard for agent risk.{" "}
-              <span className="text-[var(--color-ink)]">
-                Pull it off on Round 7 and we send you a ${BOUNTY_AMOUNT}{" "}
-                Starbucks card.
-              </span>
+              <span className="text-[var(--color-ink)] font-semibold">
+                Beat The Warden
+              </span>{" "}
+              and you get your name on the Hall of Fame, a signed Founding
+              Bypass certificate, and API access.
             </p>
 
             {/* CTA row */}
@@ -115,31 +130,32 @@ export default function ArenaHero({
               </button>
             </div>
 
-            {/* Live counter — ASI findings edition */}
+            {/* Live counter — the Pokédex leads because curiosity-gap
+                ("X of 6 you've seen") is the most click-through number */}
             <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] font-mono uppercase tracking-[0.22em] rise-5">
               <span className="inline-flex items-center gap-1.5 text-[var(--color-ink-dim)]">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-permit)] animate-pulse" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-permit)] streak-pulse" />
                 Live
               </span>
               <span className="text-[var(--color-ink-faint)]">·</span>
               <span className="text-[var(--color-ink-dim)]">
-                {formatCount(asiFindingsCount)}{" "}
+                <span className="text-[var(--color-violet)] font-bold">
+                  {asiCategoriesSeenCount || 0}
+                </span>
                 <span className="text-[var(--color-ink-faint)]">
-                  ASI findings attributed
+                  /{ASI_COVERED_COUNT} categories you've unlocked
                 </span>
               </span>
               <span className="text-[var(--color-ink-faint)]">·</span>
               <span className="text-[var(--color-ink-dim)]">
                 {formatCount(totalAttempts)}{" "}
-                <span className="text-[var(--color-ink-faint)]">attacks</span>
+                <span className="text-[var(--color-ink-faint)]">attacks thrown</span>
               </span>
               <span className="text-[var(--color-ink-faint)]">·</span>
               <span className="text-[var(--color-ink-dim)]">
-                <span className="text-[var(--color-gold)]">
-                  {asiCategoriesSeenCount || 0}
-                </span>
+                {formatCount(asiFindingsCount)}{" "}
                 <span className="text-[var(--color-ink-faint)]">
-                  /{ASI_COVERED_COUNT} you've seen
+                  ASI findings
                 </span>
               </span>
             </div>
@@ -154,7 +170,7 @@ export default function ArenaHero({
               />
               <RuleBeat
                 n="03"
-                label={`Every loss = a real OWASP ASI category. Beat Round 7 → $${BOUNTY_AMOUNT}`}
+                label={`Beat Round 7 → Hall of Fame + API access`}
                 withDivider
                 highlight
               />
@@ -167,11 +183,12 @@ export default function ArenaHero({
               Tex covers {ASI_COVERED_COUNT} of {ASI_TOTAL_COUNT} OWASP ASI
               2026 categories at the content layer. The other{" "}
               {ASI_TOTAL_COUNT - ASI_COVERED_COUNT} belong to the identity
-              and infrastructure layers.
+              and infrastructure layers. Current bounty pot: ${bountyNow}
+              {" "}· doubles per confirmed bypass.
             </p>
           </div>
 
-          {/* RIGHT — Tex on gold spotlight stage */}
+          {/* RIGHT — Tex on spotlight stage */}
           <div className="relative order-1 lg:order-2 h-[360px] sm:h-[500px] lg:h-auto lg:self-stretch flex items-end justify-center">
             <TexStage />
           </div>
@@ -179,7 +196,7 @@ export default function ArenaHero({
       </div>
 
       <div className="relative">
-        <div className="h-px bg-gradient-to-r from-transparent via-[var(--color-gold-deep)] to-transparent opacity-60" />
+        <div className="h-px bg-gradient-to-r from-transparent via-[var(--color-cyan)] to-transparent opacity-50" />
       </div>
     </section>
   );
@@ -191,7 +208,7 @@ function TopBar({ onToggleSound, soundOn, onAbout }) {
   return (
     <div className="relative z-20 mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pt-4 sm:pt-5 flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-permit)] animate-pulse" />
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-permit)] streak-pulse" />
         <span className="t-label text-[var(--color-ink-dim)]">
           Tex Arena{" "}
           <span className="text-[var(--color-ink-faint)]">· Live</span>
@@ -200,13 +217,13 @@ function TopBar({ onToggleSound, soundOn, onAbout }) {
       <div className="flex items-center gap-2 sm:gap-3">
         <button
           onClick={onAbout}
-          className="t-label text-[var(--color-ink-dim)] hover:text-[var(--color-ink)] transition-colors"
+          className="t-label text-[var(--color-ink-dim)] hover:text-[var(--color-cyan)] transition-colors"
         >
           What is Tex?
         </button>
         <button
           onClick={onToggleSound}
-          className="p-1.5 border border-[var(--color-hairline-2)] text-[var(--color-ink-dim)] hover:text-[var(--color-ink)] hover:border-[var(--color-ink-dim)] transition-colors rounded-sm"
+          className="p-1.5 border border-[var(--color-hairline-2)] text-[var(--color-ink-dim)] hover:text-[var(--color-cyan)] hover:border-[var(--color-cyan)] transition-colors rounded-sm"
           aria-label={soundOn ? "Mute sound" : "Enable sound"}
         >
           {soundOn ? (
@@ -220,23 +237,49 @@ function TopBar({ onToggleSound, soundOn, onAbout }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────── */
+/*  Ticker — v5                                                        */
+/*  Old version used ink-faint gray-brown at 12px. It was invisible.   */
+/*  New version: bigger, high-contrast cyan text with a subtle flicker */
+/*  accent on the diamonds. Copy alternates between challenge, social  */
+/*  proof, and curiosity hooks — every segment works as a standalone   */
+/*  piece of thumb-stopping attention bait.                            */
+/* ─────────────────────────────────────────────────────────────────── */
+
+const TICKER_SEGMENTS = [
+  { text: "NOBODY HAS BEATEN TEX", tone: "pink" },
+  { text: "HALL OF FAME · UNCLAIMED", tone: "yellow" },
+  { text: "7 OPPONENTS · 1 BELT", tone: "cyan" },
+  { text: "FREE · NO LOGIN · < 2MS VERDICTS", tone: "cyan" },
+  { text: "OWASP ASI 2026 · CONTENT LAYER", tone: "violet" },
+  { text: "EVERY LOSS = ONE REAL ASI FINDING", tone: "cyan" },
+  { text: "BEAT THE WARDEN · UNLOCK THE API", tone: "pink" },
+  { text: "POST YOUR GRID · CHALLENGE A FRIEND", tone: "violet" },
+];
+
 function Ticker() {
-  const phrases = [
-    "NOBODY HAS BEATEN TEX",
-    "$10 STARBUCKS BOUNTY",
-    "7 OPPONENTS · 1 BELT",
-    "FREE TO PLAY · NO LOGIN",
-    "OWASP ASI 2026 · CONTENT LAYER",
-    "EVERY LOSS · ONE REAL ASI FINDING",
-  ];
-  const all = [...phrases, ...phrases, ...phrases];
+  const all = [...TICKER_SEGMENTS, ...TICKER_SEGMENTS, ...TICKER_SEGMENTS];
   return (
-    <div className="relative overflow-hidden border-y border-[var(--color-hairline-2)] mt-4 bg-[var(--color-bg-2)]/50">
-      <div className="marquee-track py-2 text-[12px] sm:text-[13px] font-mono uppercase tracking-[0.3em] text-[var(--color-ink-faint)] whitespace-nowrap">
-        {all.map((p, i) => (
-          <span key={i} className="px-6 sm:px-10 flex-shrink-0">
-            {p}
-            <span className="ml-6 sm:ml-10 text-[var(--color-gold-deep)]">
+    <div
+      className="relative overflow-hidden border-y border-[var(--color-hairline-2)] mt-4"
+      style={{
+        background:
+          "linear-gradient(90deg, rgba(12,14,34,0.95) 0%, rgba(20,24,51,0.8) 50%, rgba(12,14,34,0.95) 100%)",
+      }}
+    >
+      <div className="marquee-track py-2.5 text-[13px] sm:text-[15px] font-mono uppercase tracking-[0.28em] whitespace-nowrap">
+        {all.map((seg, i) => (
+          <span key={i} className="px-6 sm:px-10 flex-shrink-0 inline-flex items-center gap-4">
+            <span style={{ color: toneColor(seg.tone) }}>
+              {seg.text}
+            </span>
+            <span
+              className="text-base"
+              style={{
+                color: "var(--color-yellow)",
+                textShadow: "0 0 8px rgba(255, 225, 74, 0.6)",
+              }}
+            >
               ◆
             </span>
           </span>
@@ -244,6 +287,16 @@ function Ticker() {
       </div>
     </div>
   );
+}
+
+function toneColor(tone) {
+  switch (tone) {
+    case "pink": return "var(--color-pink)";
+    case "cyan": return "var(--color-cyan)";
+    case "yellow": return "var(--color-yellow)";
+    case "violet": return "var(--color-violet)";
+    default: return "var(--color-ink-dim)";
+  }
 }
 
 function RuleBeat({ n, label, withDivider, highlight }) {
@@ -256,7 +309,7 @@ function RuleBeat({ n, label, withDivider, highlight }) {
       <div
         className="font-mono text-[10px] sm:text-[11px] tracking-[0.2em]"
         style={{
-          color: highlight ? "var(--color-gold)" : "var(--color-ink-faint)",
+          color: highlight ? "var(--color-yellow)" : "var(--color-ink-faint)",
         }}
       >
         {n}
@@ -288,7 +341,7 @@ function TexStage() {
         style={{
           inset: "15% 0% 0% 0%",
           background:
-            "radial-gradient(ellipse 45% 40% at 55% 35%, rgba(95, 240, 255, 0.18) 0%, transparent 65%)",
+            "radial-gradient(ellipse 45% 40% at 55% 35%, rgba(95, 240, 255, 0.22) 0%, transparent 65%)",
           filter: "blur(10px)",
         }}
       />
@@ -299,7 +352,7 @@ function TexStage() {
           width: "82%",
           height: "36px",
           background:
-            "radial-gradient(ellipse at center, rgba(245, 185, 61, 0.45) 0%, rgba(245, 185, 61, 0.15) 35%, transparent 70%)",
+            "radial-gradient(ellipse at center, rgba(255, 61, 122, 0.45) 0%, rgba(255, 61, 122, 0.15) 35%, transparent 70%)",
           filter: "blur(8px)",
         }}
       />
@@ -326,7 +379,7 @@ function TexStage() {
           className="block w-full h-auto fighter-in-right"
           style={{
             filter:
-              "drop-shadow(0 20px 30px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 60px rgba(245, 185, 61, 0.12))",
+              "drop-shadow(0 20px 30px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 60px rgba(95, 240, 255, 0.18))",
           }}
         />
       </picture>
@@ -348,7 +401,7 @@ function TexStage() {
           className="t-display text-[40px] sm:text-[56px] leading-[0.9] text-white mt-0.5"
           style={{
             textShadow:
-              "0 0 24px rgba(95, 240, 255, 0.35), 0 2px 0 rgba(0,0,0,0.6)",
+              "0 0 24px rgba(95, 240, 255, 0.55), 0 0 56px rgba(95, 240, 255, 0.28), 0 2px 0 rgba(0,0,0,0.6)",
           }}
         >
           TEX

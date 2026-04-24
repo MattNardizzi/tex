@@ -1,6 +1,5 @@
 import React from "react";
 import { Flame, Target, Info } from "lucide-react";
-import { BOUNTY_AMOUNT } from "../lib/rounds";
 
 /*
   BRIEF CARD — v3 "Fight Card Brief"
@@ -97,7 +96,7 @@ export default function BriefCard({ round, record }) {
           >
             {isBounty ? (
               <>
-                <span>★</span> ${BOUNTY_AMOUNT} Starbucks Bounty <span>★</span>
+                <span>★</span> Hall of Fame · Unclaimed <span>★</span>
               </>
             ) : (
               "Your Mission"

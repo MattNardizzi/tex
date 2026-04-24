@@ -1,72 +1,115 @@
 import React from "react";
-import { Pencil, Flame, Target, Clock } from "lucide-react";
-import { rankForPoints } from "../lib/storage.js";
+import { Pencil, Flame, Clock, Target, Shield } from "lucide-react";
+import { tierFor } from "../lib/scoring.js";
+import { BOUNTY_CASE_ID } from "../lib/cases.js";
 
 /*
-  InvestigatorBadge
-  ─────────────────
-  Player identity card. Replaces FighterCard. Shows the four numbers
-  that matter in interrogation mode:
-    1. handle + rank
-    2. cases cleared (of 7)
-    3. streak days
-    4. total points
+  InvestigatorBadge v7 — "Your identity"
+  ──────────────────────────────────────
+  Tier-driven. This is the thing the player is building toward.
+  It shows:
+    • Handle (editable inline)
+    • Current clearance tier (named, colored, glowing)
+    • Cases cleared / 7
+    • Best catch time
+    • Streak
 
-  Kept the rank-frame-N CSS classes from v5 so the visual upgrade on
-  rank-up still works.
+  Visual: a landscape card, rank-frame-N glow via CSS. The tier chip
+  on the left reads as a real ID card.
 */
 
 export default function InvestigatorBadge({ player, onEditHandle }) {
-  const rank = rankForPoints(player.totalPoints || 0);
-  const handleDisplay = player.handle ? `@${player.handle}` : "@anonymous";
   const cleared = player.clearedCaseIds?.length || 0;
+  const bountyCaught = player.clearedCaseIds?.includes(BOUNTY_CASE_ID);
+  const tier = tierFor(cleared, bountyCaught);
+  const handleDisplay = player.handle ? `@${player.handle}` : "@anonymous";
   const streak = player.streakDays || 0;
   const bestCatches = Object.values(player.perCase || {})
     .filter((r) => r.bestCatchMs != null)
     .map((r) => r.bestCatchMs);
   const fastestMs = bestCatches.length ? Math.min(...bestCatches) : null;
 
-  const progressPct = Math.round((rank.progressToNext || 0) * 100);
-
   return (
     <section
-      className={`panel rank-frame-${rank.current.tier} overflow-hidden transition-all duration-500`}
+      className="panel overflow-hidden transition-all duration-500"
+      style={{
+        borderColor: tier.current.color,
+        boxShadow: `0 0 32px ${tier.current.glowColor}`,
+      }}
     >
-      <div className="px-4 sm:px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
-        {/* Left: handle + rank */}
+      <div className="px-4 sm:px-5 py-4 grid grid-cols-1 md:grid-cols-[auto_1fr_auto] items-center gap-4">
+        {/* LEFT — tier chip */}
         <div className="flex items-center gap-3 min-w-0">
           <div
-            className="shrink-0 w-12 h-12 rounded-sm flex items-center justify-center t-display"
+            className="shrink-0 w-14 h-14 rounded-sm flex flex-col items-center justify-center t-display"
             style={{
-              background: rank.current.color,
+              background: tier.current.color,
               color: "#060714",
-              fontSize: "18px",
-              letterSpacing: "0.02em",
+              letterSpacing: "0.04em",
+              boxShadow: `0 0 16px ${tier.current.glowColor}`,
             }}
           >
-            {(player.handle || "A").slice(0, 1).toUpperCase()}
+            <div style={{ fontSize: "10px", opacity: 0.8 }}>TIER</div>
+            <div style={{ fontSize: "18px", marginTop: "-2px" }}>{tier.current.short}</div>
           </div>
           <div className="min-w-0">
             <button
               onClick={onEditHandle}
-              className="t-display text-[16px] text-[var(--color-ink)] hover:text-[var(--color-cyan)] transition-colors inline-flex items-center gap-1.5"
+              className="t-display text-[17px] text-[var(--color-ink)] hover:text-[var(--color-cyan)] transition-colors inline-flex items-center gap-1.5"
               style={{ letterSpacing: "0.02em" }}
             >
               {handleDisplay}
               <Pencil className="w-3 h-3 text-[var(--color-ink-faint)]" />
             </button>
-            <div className="t-micro mt-0.5" style={{ color: rank.current.color }}>
-              {rank.current.name}
-              <span className="text-[var(--color-ink-faint)] ml-1">
-                &middot; {(player.totalPoints || 0).toLocaleString()} pts
-              </span>
+            <div
+              className="t-display text-[13px] mt-0.5 inline-flex items-center gap-1.5"
+              style={{ color: tier.current.color, letterSpacing: "0.03em" }}
+            >
+              <Shield className="w-3 h-3" />
+              {tier.current.name}
             </div>
           </div>
         </div>
 
-        {/* Right: stats grid */}
-        <div className="flex items-center gap-4 sm:gap-6">
-          <Stat icon={<Target className="w-3 h-3" />} label="CLEARED" value={`${cleared}/7`} color="var(--color-cyan)" />
+        {/* MIDDLE — progress toward next tier */}
+        {tier.next ? (
+          <div className="min-w-0 w-full">
+            <div className="flex items-baseline justify-between t-micro text-[var(--color-ink-faint)] mb-1">
+              <span>NEXT: {tier.next.name}</span>
+              <span className="tabular-nums">{cleared}/{tier.next.min}</span>
+            </div>
+            <div className="h-1.5 bg-[var(--color-bg-3)] rounded-full overflow-hidden">
+              <div
+                className="h-full transition-all duration-700"
+                style={{
+                  width: `${Math.min(100, Math.round((cleared / tier.next.min) * 100))}%`,
+                  background: `linear-gradient(90deg, ${tier.current.color}, ${tier.next.color})`,
+                  boxShadow: `0 0 10px ${tier.next.glowColor}`,
+                }}
+              />
+            </div>
+            <div
+              className="mt-1 text-[11px] text-[var(--color-ink-dim)] italic"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              {tier.current.unlockCopy}
+            </div>
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <div className="t-display text-[14px] glow-gold">MAX TIER</div>
+            <div
+              className="text-[11px] text-[var(--color-ink-dim)] italic mt-1"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              You've done it all. Legend status.
+            </div>
+          </div>
+        )}
+
+        {/* RIGHT — stats */}
+        <div className="flex items-center gap-4 sm:gap-5">
+          <Stat icon={<Target className="w-3 h-3" />} label="CASES" value={`${cleared}/7`} color="var(--color-cyan)" />
           <Stat
             icon={<Flame className="w-3 h-3" />}
             label="STREAK"
@@ -82,26 +125,6 @@ export default function InvestigatorBadge({ player, onEditHandle }) {
           />
         </div>
       </div>
-
-      {/* Progress to next rank */}
-      {rank.next && (
-        <div className="px-4 sm:px-5 pb-3">
-          <div className="flex items-center justify-between t-micro text-[var(--color-ink-faint)] mb-1">
-            <span>NEXT: {rank.next.name}</span>
-            <span>{progressPct}%</span>
-          </div>
-          <div className="h-1 bg-[var(--color-bg-3)] rounded-full overflow-hidden">
-            <div
-              className="h-full transition-all duration-700"
-              style={{
-                width: `${progressPct}%`,
-                background: `linear-gradient(90deg, ${rank.current.color}, ${rank.next.color})`,
-                boxShadow: `0 0 12px ${rank.next.color}`,
-              }}
-            />
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -109,10 +132,13 @@ export default function InvestigatorBadge({ player, onEditHandle }) {
 function Stat({ icon, label, value, color, pulse }) {
   return (
     <div className={`text-center ${pulse ? "streak-pulse" : ""}`}>
-      <div className="t-micro text-[var(--color-ink-faint)] flex items-center gap-1 justify-center" style={{ color }}>
+      <div className="t-micro flex items-center gap-1 justify-center" style={{ color }}>
         {icon} {label}
       </div>
-      <div className="t-display text-[18px] sm:text-[22px] mt-0.5 text-[var(--color-ink)] tabular-nums" style={{ letterSpacing: "0.02em" }}>
+      <div
+        className="t-display text-[18px] mt-0.5 text-[var(--color-ink)] tabular-nums"
+        style={{ letterSpacing: "0.02em" }}
+      >
         {value}
       </div>
     </div>

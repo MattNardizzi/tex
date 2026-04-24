@@ -42,18 +42,18 @@ export default function HandleGate({ onSet, onSkip }) {
         </button>
 
         <div className="px-5 py-4 border-b border-[var(--color-hairline)]">
-          <div className="t-kicker text-[var(--color-cyan)] mb-1.5">Pick a handle</div>
+          <div className="t-kicker text-[var(--color-cyan)] mb-1.5">CLAIM YOUR BADGE</div>
           <div
-            className="t-display text-[28px] leading-none text-[var(--color-ink)]"
+            className="t-display text-[26px] leading-none text-[var(--color-ink)]"
             style={{ letterSpacing: "-0.01em", textShadow: "0 0 12px rgba(95, 240, 255, 0.3)" }}
           >
-            Sign the card
+            Pick a handle
           </div>
           <p
             className="mt-2 text-[13px] italic text-[var(--color-ink-dim)] leading-snug"
             style={{ fontFamily: "var(--font-serif)" }}
           >
-            Put your name on your fight card. Optional, skippable, stored on this device only.
+            Your catches go on a public Investigator record. Optional, skippable, stored on this device only.
           </p>
         </div>
 

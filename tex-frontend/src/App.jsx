@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ArenaHero from "./components/ArenaHero";
 import Masthead from "./components/Masthead";
 import CaseLadder from "./components/CaseLadder";
@@ -15,61 +15,49 @@ import BuyerSurface from "./components/BuyerSurface";
 
 import { CASES, BOUNTY_CASE_ID, getCaseById } from "./lib/cases.js";
 import { nextUnclearedCase, isCaseUnlocked, allCasesCleared } from "./lib/progression.js";
-import { computeCaseScore } from "./lib/scoring.js";
+import { computeCaseScore, tierFor } from "./lib/scoring.js";
 import {
-  getPlayer,
-  savePlayer,
-  setHandle as setPlayerHandle,
-  recordCaseResult,
-  claimBounty as claimBountyState,
+  getPlayer, savePlayer, setHandle as setPlayerHandle,
+  recordCaseResult, claimBounty as claimBountyState,
 } from "./lib/storage.js";
 import {
   isSoundEnabled, setSoundEnabled,
   bellSound, winFanfare, loseSting, drawChime, coinSound, rankUpSound,
 } from "./lib/sound.js";
-import { rankForPoints } from "./lib/scoring.js";
 
 /*
-  App.jsx — v6 "Interrogation"
-  ────────────────────────────
-  Top-level controller. Owns:
-   - player state (localStorage-backed)
-   - active case (the currently-playing one)
-   - current session outcome (catch result or miss)
-   - overlay state (dojo, about, handle, bounty, buyer, duel)
+  App.jsx v7 — "Real Tex, real flow, real reward"
+  ───────────────────────────────────────────────
+  State model:
+    phase: "idle" | "brief" | "live" | "done"
+      idle  → hero + ladder visible, play region shows a "choose a case" nudge
+      brief → case file + interrogation chat ready (before first question)
+      live  → interrogation in progress (chat active)
+      done  → fullscreen verdict overlay is shown
 
-  Flow:
-   Hero → CaseLadder (choose unlocked case or start current) →
-   CaseFile + InterrogationChat → Tex verdict fires → VerdictMoment →
-   Next Case / Replay / Dare Friend / See Evidence.
+  The verdict overlay is modal. It freezes the world. That's the payoff.
 
-  Deep-link behavior:
-   - /buyer or ?buyer  → opens BuyerSurface
-   - ?duel=<id>&from=<handle>&ms=<ms>  → lands on that case with a
-     duel banner showing the friend's time.
+  Deep-links:
+    /buyer or ?buyer          → BuyerSurface
+    ?duel=<id>&from=<h>&ms=<n> → lands on that case with duel banner
 */
 
 export default function App() {
   const [player, setPlayer] = useState(() => getPlayer());
+  // Snapshot of player state BEFORE the last recorded case result.
+  // Used to detect tier promotions. Updated in recordCaseResult flow.
+  const [playerBefore, setPlayerBefore] = useState(null);
 
-  // The "active" case is the one the player is currently playing or
-  // about to play. Defaults to the next uncleared case.
   const [activeCase, setActiveCase] = useState(() => {
     const p = getPlayer();
     return nextUnclearedCase(p.clearedCaseIds) || CASES[CASES.length - 1];
   });
 
-  // Phase of the current case session:
-  //   "idle"  — hero / ladder view, no session running
-  //   "brief" — case file shown, interrogation chat ready
-  //   "live"  — interrogation in progress
-  //   "done"  — verdict moment shown
   const [phase, setPhase] = useState("idle");
-
-  // Outcome of the last session (catch or miss).
   const [sessionOutcome, setSessionOutcome] = useState(null);
   const [scoreResult, setScoreResult] = useState(null);
   const [priorBest, setPriorBest] = useState(null);
+  const [sessionTranscript, setSessionTranscript] = useState([]);
 
   // Overlays
   const [showDojo, setShowDojo] = useState(false);
@@ -79,23 +67,20 @@ export default function App() {
   const [showBuyer, setShowBuyer] = useState(false);
   const [showDuel, setShowDuel] = useState(false);
 
-  // Duel landing banner — set from ?duel param
+  // Duel landing state
   const [duelFrom, setDuelFrom] = useState("");
   const [duelTargetMs, setDuelTargetMs] = useState(null);
 
-  // Sound
   const [soundOn, setSoundOn] = useState(() =>
     typeof window !== "undefined" ? isSoundEnabled() : false
   );
 
-  // Refs for scroll-into-view
   const ladderRef = useRef(null);
   const playRef = useRef(null);
 
-  // Persist player
   useEffect(() => { savePlayer(player); }, [player]);
 
-  // Deep-links: /buyer, ?duel=
+  // Deep-link handling — runs once on mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     const { pathname, search } = window.location;
@@ -109,28 +94,27 @@ export default function App() {
     const msParam = parseInt(params.get("ms") || "", 10);
     if (duelId) {
       const target = getCaseById(duelId);
-      if (target && isCaseUnlocked(target.id, player.clearedCaseIds)) {
+      const p = getPlayer();
+      if (target && isCaseUnlocked(target.id, p.clearedCaseIds)) {
         setActiveCase(target);
         setPhase("brief");
         if (fromHandle) setDuelFrom(fromHandle);
         if (Number.isFinite(msParam)) setDuelTargetMs(msParam);
-        // Scroll to play region after a tick
         setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
       } else if (target) {
-        // Friend sent a link to a case the player hasn't unlocked yet.
-        // Land them on their next-available case with a soft explainer.
+        // Case not unlocked — show explainer banner
         setDuelFrom(fromHandle);
-        setDuelTargetMs(null);
+        setDuelTargetMs(Number.isFinite(msParam) ? msParam : null);
       }
     }
-    // We intentionally don't depend on `player` — this runs once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const currentCase = activeCase;
   const perCase = player.perCase?.[currentCase.id];
   const isLastCase = currentCase.id === CASES[CASES.length - 1].id;
-  const bountyWon = player.clearedCaseIds?.includes(BOUNTY_CASE_ID);
+
+  // ── Handlers ─────────────────────────────────────────────────────────
 
   function handleToggleSound() {
     const next = !soundOn;
@@ -140,12 +124,12 @@ export default function App() {
   }
 
   function handleStartFromHero() {
-    // "Start Case 001" (or resume current). Move to brief + scroll down.
     const target = nextUnclearedCase(player.clearedCaseIds) || currentCase;
     setActiveCase(target);
     setPhase("brief");
     resetSessionState();
     setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    bellSound();
   }
 
   function scrollToLadder() {
@@ -160,8 +144,7 @@ export default function App() {
     bellSound();
   }
 
-  function handleLockedTap(caseDef) {
-    // Soft feedback. We could add a toast; for now, just play a drum beat.
+  function handleLockedTap() {
     drawChime();
   }
 
@@ -169,14 +152,13 @@ export default function App() {
     setSessionOutcome(null);
     setScoreResult(null);
     setPriorBest(null);
+    setSessionTranscript([]);
   }
 
-  // ── Core session callbacks from InterrogationChat ────────────────────
-
-  function handleCatch(decision, { catchMs, questionsUsed }) {
-    // Compute score.
+  function handleCatch(decision, { catchMs, questionsUsed }, transcript) {
     const prior = perCase?.bestScore ?? 0;
     setPriorBest(prior);
+    setSessionTranscript(transcript || []);
 
     const result = computeCaseScore({
       verdict: decision.verdict,
@@ -186,16 +168,9 @@ export default function App() {
       streakDays: player.streakDays || 0,
     });
 
-    const outcome = {
-      verdict: decision.verdict,
-      decision,
-      catchMs,
-      questionsUsed,
-    };
-
+    const outcome = { verdict: decision.verdict, decision, catchMs, questionsUsed };
     setSessionOutcome(outcome);
     setScoreResult(result);
-    setPhase("done");
 
     // Sounds
     if (decision.verdict === "FORBID") {
@@ -205,8 +180,13 @@ export default function App() {
       drawChime();
     }
 
-    // Persist
-    const prevTier = rankForPoints(player.totalPoints || 0).current.tier;
+    // Snapshot before, record, check tier promotion
+    const before = player;
+    setPlayerBefore(before);
+    const beforeClearedCount = before.clearedCaseIds?.length || 0;
+    const beforeBounty = before.clearedCaseIds?.includes(BOUNTY_CASE_ID);
+    const beforeTier = tierFor(beforeClearedCount, beforeBounty).current;
+
     const nextPlayer = recordCaseResult(player, {
       caseId: currentCase.id,
       verdict: decision.verdict,
@@ -215,19 +195,34 @@ export default function App() {
       questionsUsed,
       decision,
     });
-    const nextTier = rankForPoints(nextPlayer.totalPoints || 0).current.tier;
-    if (nextTier > prevTier) setTimeout(rankUpSound, 1200);
-    setPlayer(nextPlayer);
 
-    // Bounty prompt if this was the Warden
+    const afterClearedCount = nextPlayer.clearedCaseIds?.length || 0;
+    const afterBounty = nextPlayer.clearedCaseIds?.includes(BOUNTY_CASE_ID);
+    const afterTier = tierFor(afterClearedCount, afterBounty).current;
+
+    if (afterTier.name !== beforeTier.name) {
+      setTimeout(rankUpSound, 1200);
+    }
+    setPlayer(nextPlayer);
+    setPhase("done");
+
+    // First-catch handle prompt — fires after the verdict lands, at the
+    // emotional peak. Only prompts on FORBID (the real win) and only
+    // if they don't already have a handle. Delayed so it doesn't
+    // compete with the verdict overlay animation.
+    const isFirstCatch =
+      (before.clearedCaseIds?.length || 0) === 0 &&
+      (nextPlayer.clearedCaseIds?.length || 0) === 1;
+    if (isFirstCatch && decision.verdict === "FORBID" && !player.handle) {
+      setTimeout(() => setShowHandleGate(true), 2600);
+    }
+
     if (currentCase.id === BOUNTY_CASE_ID && decision.verdict === "FORBID" && !player.bountyClaimed) {
-      setTimeout(() => setShowBountyClaim(true), 1800);
+      setTimeout(() => setShowBountyClaim(true), 2400);
     }
   }
 
-  function handleSessionEnd(info) {
-    // No catch. PERMIT-only or timeout. The case is NOT cleared.
-    // Still record an attempt for streak + perCase.attempts.
+  function handleSessionEnd(info, transcript) {
     loseSting();
     const outcome = {
       verdict: "PERMIT",
@@ -245,8 +240,10 @@ export default function App() {
       streakDays: player.streakDays || 0,
     }));
     setPriorBest(perCase?.bestScore ?? 0);
-    setPhase("done");
+    setSessionTranscript(transcript || []);
 
+    const before = player;
+    setPlayerBefore(before);
     setPlayer((p) => recordCaseResult(p, {
       caseId: currentCase.id,
       verdict: "PERMIT",
@@ -255,10 +252,10 @@ export default function App() {
       questionsUsed: outcome.questionsUsed,
       decision: null,
     }));
+    setPhase("done");
   }
 
-  // ── Verdict-moment CTAs ──────────────────────────────────────────────
-
+  // Verdict CTAs
   function handleNextCase() {
     const next = CASES.find((c) => c.id === currentCase.id + 1);
     if (next && isCaseUnlocked(next.id, player.clearedCaseIds)) {
@@ -267,15 +264,21 @@ export default function App() {
       resetSessionState();
       setDuelFrom(""); setDuelTargetMs(null);
       bellSound();
+      setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } else {
-      // Can happen if they cleared their way; fall back to ladder scroll.
       setPhase("idle");
+      resetSessionState();
       scrollToLadder();
     }
   }
 
   function handleReplay() {
     setPhase("brief");
+    resetSessionState();
+  }
+
+  function handleCloseVerdict() {
+    setPhase("idle");
     resetSessionState();
   }
 
@@ -287,27 +290,17 @@ export default function App() {
     }
     setShowDuel(true);
   }
-
   function handleClaimBounty() { setShowBountyClaim(true); }
   function handleCloseBountyClaim() {
     setShowBountyClaim(false);
     if (!player.bountyClaimed) setPlayer((p) => claimBountyState(p));
   }
-
   function handleSetHandle(h) {
     setPlayer((p) => setPlayerHandle(p, h));
     setShowHandleGate(false);
   }
-  function handleSkipHandle() {
-    setShowHandleGate(false);
-  }
-
+  function handleSkipHandle() { setShowHandleGate(false); }
   function handleOpenBuyer() { setShowBuyer(true); }
-
-  // ── Render ───────────────────────────────────────────────────────────
-
-  const hasStartedAnyCase =
-    phase !== "idle" || (player.clearedCaseIds?.length || 0) > 0;
 
   return (
     <div className="min-h-screen">
@@ -318,7 +311,7 @@ export default function App() {
         soundOn={soundOn}
       />
 
-      {/* HERO — always visible at top */}
+      {/* HERO */}
       <ArenaHero
         player={player}
         currentCase={currentCase}
@@ -327,20 +320,30 @@ export default function App() {
         allCleared={allCasesCleared(player.clearedCaseIds)}
       />
 
-      <main className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pb-10 space-y-6">
-        {/* Investigator badge */}
+      <main className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pb-10 space-y-6 mt-[-6px]">
+        {/* Investigator identity strip */}
         <InvestigatorBadge
           player={player}
           onEditHandle={() => setShowHandleGate(true)}
         />
 
-        {/* Duel banner when arriving via ?duel= */}
+        {/* Ladder (horizontal on desktop) */}
+        <div ref={ladderRef}>
+          <CaseLadder
+            player={player}
+            activeCaseId={currentCase.id}
+            onSelect={handleSelectFromLadder}
+            onLockedTap={handleLockedTap}
+          />
+        </div>
+
+        {/* Duel banner — only show if there's a duelFrom */}
         {duelFrom && (
           <div
             className="panel flex items-center justify-between gap-3 px-4 py-3 rise-in"
             style={{
               borderLeft: "4px solid var(--color-pink)",
-              background: "linear-gradient(90deg, rgba(255,61,122,0.08), transparent 60%)",
+              background: "linear-gradient(90deg, rgba(255,61,122,0.1), transparent 60%)",
             }}
           >
             <div className="flex items-center gap-2.5 min-w-0">
@@ -353,7 +356,8 @@ export default function App() {
                   className="mt-0.5 text-[14px] italic truncate"
                   style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
                 >
-                  @{duelFrom} caught {currentCase.name} {duelTargetMs != null ? (<>in <span className="glow-gold not-italic font-bold">{duelTargetMs}ms</span>.</>) : "."} Beat that.
+                  @{duelFrom} caught <span className="not-italic font-bold">{currentCase.name}</span>
+                  {duelTargetMs != null ? (<> in <span className="glow-gold not-italic font-bold">{duelTargetMs}ms</span>.</>) : "."} Beat that.
                 </div>
               </div>
             </div>
@@ -366,75 +370,68 @@ export default function App() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* LEFT — ladder */}
-          <div ref={ladderRef} className="lg:col-span-5 xl:col-span-4">
-            <CaseLadder
-              player={player}
-              activeCaseId={currentCase.id}
-              onSelect={handleSelectFromLadder}
-              onLockedTap={handleLockedTap}
+        {/* Play region */}
+        <div ref={playRef}>
+          {phase === "idle" && (
+            <IdleNudge
+              onStart={handleStartFromHero}
+              currentCase={currentCase}
+              hasStarted={(player.clearedCaseIds?.length || 0) > 0}
             />
-          </div>
-
-          {/* RIGHT — play region */}
-          <div ref={playRef} className="lg:col-span-7 xl:col-span-8 space-y-4">
-            {phase === "idle" && (
-              <IdleNudge
-                onStart={handleStartFromHero}
-                currentCase={currentCase}
-                hasStarted={hasStartedAnyCase}
-              />
-            )}
-
-            {(phase === "brief" || phase === "live") && (
-              <>
+          )}
+          {(phase === "brief" || phase === "live" || phase === "done") && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+              <div className="lg:col-span-5">
                 <CaseFile caseDef={currentCase} perCase={perCase} />
+              </div>
+              <div className="lg:col-span-7">
+                {/* Interrogation chat is shown for brief/live. Once phase="done",
+                    the verdict overlay takes over and we freeze the chat in
+                    place behind it so the animation has somewhere to land. */}
                 <InterrogationChat
+                  key={`${currentCase.id}-${phase === "done" ? "done" : "live"}`}
                   caseDef={currentCase}
                   onCatch={handleCatch}
                   onSessionEnd={handleSessionEnd}
                 />
-              </>
-            )}
-
-            {phase === "done" && sessionOutcome && (
-              <>
-                <VerdictMoment
-                  caseDef={currentCase}
-                  outcome={sessionOutcome}
-                  scoreResult={scoreResult}
-                  priorBest={priorBest}
-                  onNextCase={handleNextCase}
-                  onReplay={handleReplay}
-                  onOpenDojo={handleOpenDojo}
-                  onShareDuel={handleShareDuel}
-                  onClaimBounty={
-                    currentCase.id === BOUNTY_CASE_ID &&
-                    sessionOutcome.verdict === "FORBID" &&
-                    !player.bountyClaimed
-                      ? handleClaimBounty
-                      : null
-                  }
-                  isLastCase={isLastCase}
-                  isBountyWin={
-                    currentCase.id === BOUNTY_CASE_ID &&
-                    sessionOutcome.verdict === "FORBID"
-                  }
-                />
-                {/* Playback — the agent's caught message for share context */}
-                {sessionOutcome.decision && (
-                  <CaughtMessageCard decision={sessionOutcome.decision} caseDef={currentCase} />
-                )}
-              </>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
       <Footer onOpenBuyer={handleOpenBuyer} />
 
-      {/* Overlays */}
+      {/* FULLSCREEN VERDICT OVERLAY */}
+      {phase === "done" && sessionOutcome && (
+        <VerdictMoment
+          caseDef={currentCase}
+          outcome={sessionOutcome}
+          scoreResult={scoreResult}
+          priorBest={priorBest}
+          transcript={sessionTranscript}
+          player={player}
+          playerBefore={playerBefore}
+          onNextCase={handleNextCase}
+          onReplay={handleReplay}
+          onOpenDojo={handleOpenDojo}
+          onShareDuel={handleShareDuel}
+          onClaimBounty={
+            currentCase.id === BOUNTY_CASE_ID &&
+            sessionOutcome.verdict === "FORBID" &&
+            !player.bountyClaimed
+              ? handleClaimBounty
+              : null
+          }
+          onClose={handleCloseVerdict}
+          isLastCase={isLastCase}
+          isBountyWin={
+            currentCase.id === BOUNTY_CASE_ID && sessionOutcome.verdict === "FORBID"
+          }
+        />
+      )}
+
+      {/* Other overlays */}
       {showDojo && (
         <Dojo
           decision={sessionOutcome?.decision || null}
@@ -449,17 +446,13 @@ export default function App() {
       {showBountyClaim && sessionOutcome?.decision && (
         <BountyClaim
           decision={sessionOutcome.decision}
-          submittedContent={
-            sessionOutcome?.decision
-              ? "(see interrogation transcript above)"
-              : ""
-          }
+          submittedContent="(see interrogation transcript)"
           onClose={handleCloseBountyClaim}
           claimersSoFar={0}
         />
       )}
       {showBuyer && <BuyerSurface onClose={() => setShowBuyer(false)} />}
-      {showDuel && sessionOutcome?.verdict !== "PERMIT" && (
+      {showDuel && sessionOutcome?.verdict === "FORBID" && (
         <DuelCard
           caseDef={currentCase}
           outcome={sessionOutcome}
@@ -476,66 +469,33 @@ export default function App() {
 function IdleNudge({ onStart, currentCase, hasStarted }) {
   return (
     <section
-      className="panel px-5 py-8 sm:px-6 sm:py-10 text-center overflow-hidden"
+      className="panel px-5 py-10 sm:px-6 sm:py-12 text-center overflow-hidden"
       style={{
         background:
-          "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(95,240,255,0.07) 0%, transparent 70%)",
+          "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(95,240,255,0.08) 0%, transparent 70%)",
+        borderColor: "rgba(95,240,255,0.25)",
       }}
     >
-      <div className="t-kicker text-[var(--color-cyan)]">READY</div>
+      <div className="t-kicker text-[var(--color-cyan)]">READY FOR THE NEXT CASE</div>
       <h3
-        className="t-display text-[22px] sm:text-[26px] mt-2 text-[var(--color-ink)]"
+        className="t-display text-[22px] sm:text-[28px] mt-2 text-[var(--color-ink)]"
         style={{ letterSpacing: "0.02em" }}
       >
-        {hasStarted ? "Resume the Investigation" : "Your First Case"}
+        {hasStarted ? `Continue → ${currentCase.name}` : `Begin → ${currentCase.name}`}
       </h3>
       <p
-        className="mt-2 text-[14px] italic text-[var(--color-ink-dim)] max-w-[480px] mx-auto"
+        className="mt-2 text-[14px] italic text-[var(--color-ink-dim)] max-w-[520px] mx-auto"
         style={{ fontFamily: "var(--font-serif)" }}
       >
-        {currentCase.name} &mdash; {currentCase.tagline}
+        {currentCase.tagline}
       </p>
       <button
         onClick={onStart}
-        className="mt-5 btn-primary text-[14px] px-5 py-2.5 inline-flex items-center gap-2"
+        className="mt-5 btn-primary text-[14px] px-6 py-2.5 inline-flex items-center gap-2"
         style={{ letterSpacing: "0.04em" }}
       >
-        OPEN CASE #{String(currentCase.id).padStart(3, "0")} &rarr;
+        OPEN CASE #{String(currentCase.id).padStart(3, "0")} →
       </button>
-    </section>
-  );
-}
-
-function CaughtMessageCard({ decision, caseDef }) {
-  // We don't have direct access to the agent reply here; show the
-  // finding reasons or deterministic findings as a proxy. This gives
-  // CISOs visible evidence the catch was based on real content signals.
-  const reasons = decision?.router?.reasons?.slice(0, 3) || [];
-  const det = decision?.deterministic?.findings?.slice(0, 3) || [];
-
-  if (reasons.length === 0 && det.length === 0) return null;
-
-  return (
-    <section className="panel overflow-hidden">
-      <div className="px-4 py-2 border-b border-[var(--color-hairline)] t-micro text-[var(--color-ink-faint)]">
-        TEX&rsquo;S REASONING
-      </div>
-      <div className="p-4 space-y-2">
-        {reasons.map((r, i) => (
-          <div key={`r${i}`} className="text-[13px] leading-[1.5] text-[var(--color-ink-dim)] flex items-start gap-2">
-            <span className="text-[var(--color-cyan)] t-micro mt-0.5">·</span>
-            <span>{r}</span>
-          </div>
-        ))}
-        {det.map((f, i) => (
-          <div key={`d${i}`} className="text-[13px] leading-[1.5] text-[var(--color-ink-dim)] flex items-start gap-2">
-            <span className="text-[var(--color-pink)] t-micro mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>
-              {f.rule_name}
-            </span>
-            <span>{f.message || f.matched_text}</span>
-          </div>
-        ))}
-      </div>
     </section>
   );
 }
@@ -557,27 +517,17 @@ function Footer({ onOpenBuyer }) {
             TEX ARENA
           </div>
           <p className="t-micro text-[var(--color-ink-faint)] mt-1.5">
-            Built by VortexBlack &middot; texaegis.com
+            Built by VortexBlack · texaegis.com
           </p>
         </div>
-        <div className="flex items-center gap-4 t-micro text-[var(--color-ink-faint)]">
-          <a
-            href="https://texaegis.com"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="hover:text-[var(--color-cyan)] transition-colors"
-          >
+        <div className="flex items-center gap-4 t-micro text-[var(--color-ink-faint)] flex-wrap">
+          <a href="https://texaegis.com" target="_blank" rel="noreferrer noopener" className="hover:text-[var(--color-cyan)] transition-colors">
             Product
           </a>
           <button onClick={onOpenBuyer} className="hover:text-[var(--color-cyan)] transition-colors">
             Buyer demo
           </button>
-          <a
-            href="https://www.linkedin.com/company/vortexblack"
-            target="_blank"
-            rel="noreferrer noopener"
-            className="hover:text-[var(--color-cyan)] transition-colors"
-          >
+          <a href="https://www.linkedin.com/company/vortexblack" target="_blank" rel="noreferrer noopener" className="hover:text-[var(--color-cyan)] transition-colors">
             LinkedIn
           </a>
           <span className="italic normal-case tracking-normal text-[12px]" style={{ fontFamily: "var(--font-serif)" }}>

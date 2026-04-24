@@ -1,139 +1,79 @@
-// ────────────────────────────────────────────────────────────────────────
-//  TEX ARENA — Storage (v6 "Interrogation")
-// ────────────────────────────────────────────────────────────────────────
-//  localStorage-backed. Simple model:
-//    • handle
-//    • clearedCaseIds
-//    • perCase: { [id]: { bestScore, bestCatchMs, attempts } }
-//    • totalPoints
-//    • streakDays, lastPlayedDate  (ISO date string, YYYY-MM-DD)
-//    • bountyClaimed
-//    • history
-// ────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────
+//  Local player storage
+//  Persists handle, RP, streak, recent rounds to localStorage.
+//  When you add a backend leaderboard, swap getPlayer/savePlayer to
+//  fetch from your API instead — nothing else changes.
+// ────────────────────────────────────────────────────────────────────
 
-import { rankForPoints, RANKS } from "./scoring.js";
-export { rankForPoints, RANKS };
-
-const KEY_PLAYER = "tex-arena/player/v6";
-
-function safeParse(raw) {
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function daysBetween(a, b) {
-  if (!a || !b) return Infinity;
-  const ms = new Date(b).getTime() - new Date(a).getTime();
-  return Math.round(ms / (1000 * 60 * 60 * 24));
-}
+const KEY = "tex.arena.player.v8";
 
 function defaultPlayer() {
   return {
     handle: "",
-    clearedCaseIds: [],
-    perCase: {},
-    totalPoints: 0,
-    streakDays: 0,
-    lastPlayedDate: null,
-    bountyClaimed: false,
-    history: [],
-    createdAt: Date.now(),
+    rp: 0,
+    streak: 0,
+    lastPlayedAt: null,
+    rounds: [], // { at, incidentId, verdict, rpDelta, attempts, secondsLeft }
   };
 }
 
 export function getPlayer() {
-  if (typeof localStorage === "undefined") return defaultPlayer();
-  const parsed = safeParse(localStorage.getItem(KEY_PLAYER));
-  if (!parsed || typeof parsed !== "object") return defaultPlayer();
-  return { ...defaultPlayer(), ...parsed };
-}
-
-export function savePlayer(player) {
-  if (typeof localStorage === "undefined") return;
+  if (typeof window === "undefined") return defaultPlayer();
   try {
-    localStorage.setItem(KEY_PLAYER, JSON.stringify(player));
-  } catch { /* quota or disabled — silent failure is fine */ }
-}
-
-export function setHandle(player, handle) {
-  return { ...player, handle: String(handle || "").slice(0, 32) };
-}
-
-export function touchStreak(player) {
-  const today = todayISO();
-  if (player.lastPlayedDate === today) {
-    return { ...player, lastPlayedDate: today };
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return defaultPlayer();
+    const parsed = JSON.parse(raw);
+    return { ...defaultPlayer(), ...parsed };
+  } catch {
+    return defaultPlayer();
   }
-  const delta = daysBetween(player.lastPlayedDate, today);
-  const nextStreak = delta === 1 ? player.streakDays + 1 : 1;
-  return { ...player, streakDays: nextStreak, lastPlayedDate: today };
 }
 
-export function recordCaseResult(player, {
-  caseId,
-  verdict,
-  score,
-  catchMs,
-  questionsUsed,
-  decision,
-}) {
-  const streakApplied = touchStreak(player);
-  const prior = streakApplied.perCase[caseId] || {
-    bestScore: 0, bestCatchMs: null, attempts: 0, cleared: false,
+export function savePlayer(p) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(p));
+  } catch {}
+}
+
+export function setHandle(p, handle) {
+  const cleaned = (handle || "").replace(/^@/, "").slice(0, 24).trim();
+  return { ...p, handle: cleaned };
+}
+
+export function recordRound(p, { incidentId, verdict, rpDelta, attempts, secondsLeft, decision }) {
+  const now = Date.now();
+  const lastDay = p.lastPlayedAt ? new Date(p.lastPlayedAt).toDateString() : null;
+  const today = new Date(now).toDateString();
+  const yesterday = new Date(now - 86400000).toDateString();
+  let streak = p.streak || 0;
+  if (lastDay !== today) {
+    streak = lastDay === yesterday ? streak + 1 : 1;
+  }
+  const rp = Math.max(0, (p.rp || 0) + rpDelta);
+  const round = {
+    at: now,
+    incidentId,
+    verdict,
+    rpDelta,
+    attempts,
+    secondsLeft,
+    evidenceHash: decision?.evidence?.evidence_hash || null,
+    decisionId: decision?.decision_id || null,
+    totalMs: decision?.total_ms || null,
   };
-
-  const isCatch = verdict === "FORBID" || verdict === "ABSTAIN";
-  const cleared = prior.cleared || isCatch;
-  const bestScore = Math.max(prior.bestScore, score);
-  const bestCatchMs =
-    verdict === "FORBID"
-      ? (prior.bestCatchMs == null ? catchMs : Math.min(prior.bestCatchMs, catchMs))
-      : prior.bestCatchMs;
-
-  const perCase = {
-    ...streakApplied.perCase,
-    [caseId]: {
-      ...prior,
-      bestScore,
-      bestCatchMs,
-      attempts: prior.attempts + 1,
-      cleared,
-      lastVerdict: verdict,
-      lastPlayedAt: Date.now(),
-    },
-  };
-
-  const clearedCaseIds = cleared && !streakApplied.clearedCaseIds.includes(caseId)
-    ? [...streakApplied.clearedCaseIds, caseId]
-    : streakApplied.clearedCaseIds;
-
-  const history = [
-    {
-      caseId,
-      verdict,
-      score,
-      catchMs,
-      questionsUsed,
-      ts: Date.now(),
-      request_id: decision?.request_id || null,
-    },
-    ...(streakApplied.history || []),
-  ].slice(0, 50);
-
   return {
-    ...streakApplied,
-    perCase,
-    clearedCaseIds,
-    totalPoints: streakApplied.totalPoints + score,
-    history,
+    ...p,
+    rp,
+    streak,
+    lastPlayedAt: now,
+    rounds: [round, ...(p.rounds || [])].slice(0, 20),
   };
 }
 
-export function claimBounty(player) {
-  return { ...player, bountyClaimed: true };
+export function resetPlayer() {
+  if (typeof window === "undefined") return defaultPlayer();
+  const fresh = defaultPlayer();
+  savePlayer(fresh);
+  return fresh;
 }

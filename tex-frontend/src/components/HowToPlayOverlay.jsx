@@ -1,6 +1,5 @@
 import React from "react";
-import { X, Target, Brain, Coffee, ArrowRight } from "lucide-react";
-import { BOUNTY_AMOUNT } from "../lib/rounds";
+import { X, Target, Brain, Trophy, ArrowRight } from "lucide-react";
 
 /*
   HOW TO PLAY — first-visit overlay.
@@ -66,10 +65,10 @@ export default function HowToPlayOverlay({ onDismiss }) {
           />
           <Card
             n="03"
-            icon={<Coffee className="w-5 h-5" />}
-            title={`Win $${BOUNTY_AMOUNT}`}
-            body={`Beat The Warden (Round 7) with content a human would call malicious — we send you a $${BOUNTY_AMOUNT} Starbucks gift card.`}
-            accent="var(--color-gold)"
+            icon={<Trophy className="w-5 h-5" />}
+            title="Enter the Hall of Fame"
+            body="Beat The Warden (Round 7) and unlock a signed Founding Bypass certificate plus Founders' Tier API access. Nobody's done it yet."
+            accent="var(--color-yellow)"
           />
         </div>
 

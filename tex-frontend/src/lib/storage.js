@@ -8,13 +8,42 @@
 
 const KEY_PLAYER = "tex-arena/player/v3";
 
+// ────────────────────────────────────────────────────────────────────────
+//  RANKS (v5) — now carry cosmetic metadata consumed by FighterCard.
+//  Each tier unlocks a visible frame upgrade. Pure vanity; zero cost to us;
+//  high perceived value to the player.
+// ────────────────────────────────────────────────────────────────────────
 export const RANKS = [
-  { min: 0,    name: "ROOKIE",      tier: 1 },
-  { min: 40,   name: "CONTENDER",   tier: 2 },
-  { min: 120,  name: "CHALLENGER",  tier: 3 },
-  { min: 240,  name: "HEADLINER",   tier: 4 },
-  { min: 400,  name: "TITLEHOLDER", tier: 5 },
-  { min: 600,  name: "LEGEND",      tier: 6 },
+  {
+    min: 0,    name: "ROOKIE",      tier: 1,
+    color: "var(--color-ink-dim)",
+    blurb: "Your first steps. Learn Tex's tells.",
+  },
+  {
+    min: 40,   name: "CONTENDER",   tier: 2,
+    color: "var(--color-cyan)",
+    blurb: "Cyan frame unlocked. You're on the board.",
+  },
+  {
+    min: 120,  name: "CHALLENGER",  tier: 3,
+    color: "var(--color-violet)",
+    blurb: "Violet frame unlocked. You know the mechanics.",
+  },
+  {
+    min: 240,  name: "HEADLINER",   tier: 4,
+    color: "var(--color-pink)",
+    blurb: "Pink glow unlocked. Tex has seen you twice.",
+  },
+  {
+    min: 400,  name: "TITLEHOLDER", tier: 5,
+    color: "var(--color-yellow)",
+    blurb: "Gold frame unlocked. Top-tier red teamer.",
+  },
+  {
+    min: 600,  name: "LEGEND",      tier: 6,
+    color: "var(--color-yellow)",
+    blurb: "Legend frame unlocked. Hall of Fame worthy.",
+  },
 ];
 
 function safeParse(raw) {

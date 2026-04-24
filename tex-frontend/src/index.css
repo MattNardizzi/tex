@@ -1,16 +1,20 @@
 @import "tailwindcss";
 
 /*
-  TEX ARENA — v3 "Fight Night / Terminal"
+  TEX ARENA — v5 "NEON ARCADE"
   ────────────────────────────────────────
-  Design thesis: boxing promotion poster MEETS trader terminal.
-  Outside (hero, verdict): poster typography, restrained palette,
-  confident negative space. Inside (data, evidence): dense monospace,
-  low contrast, utilitarian.
+  Design thesis: 80s arcade cabinet meets Bloomberg terminal.
+  Deep indigo void + electric neon accents. No warm tones anywhere —
+  the brown is gone. Signal colors earn their brightness against black.
 
-  Palette is anchored on ONE warm accent (gold for the bounty), ONE cool
-  accent (cyan for Tex), and a deep oxblood backdrop. Pink is used
-  sparingly as a "player" signal, not as wallpaper.
+  Palette psychology:
+    • Bg: near-black indigo (#060714) — reads like space, not mud
+    • Pink (#ff3d7a) — player signal, the primary CTA color
+    • Cyan (#5ff0ff) — Tex signal, machine intelligence
+    • Electric yellow (#ffe14a) — the bounty, rare moments of triumph
+    • Violet (#a855f7) — ASI category chips, secondary accent
+    • Permit green (#3bff9e) — PERMIT/success only
+    • Red (#ff3b3b) — FORBID/loss only
 */
 
 @theme {
@@ -22,38 +26,49 @@
   --font-arcade:   "Anton", "Bowlby One", "Impact", sans-serif;
   --font-marquee:  "Anton", sans-serif;
 
-  /* Core surface — deep, warm, cinematic */
-  --color-bg:        #0a0507;
-  --color-bg-2:      #140910;
-  --color-bg-3:      #1e0d17;
-  --color-surface:   #0f0609;
-  --color-arcade-bg: #0a0507;
-  --color-arcade-bg-2: #140910;
+  /* Core surface — deep indigo void, zero brown */
+  --color-bg:        #060714;
+  --color-bg-2:      #0c0e22;
+  --color-bg-3:      #141833;
+  --color-bg-4:      #1c2148;
+  --color-surface:   #080a18;
+  --color-arcade-bg: #060714;
+  --color-arcade-bg-2: #0c0e22;
 
   /* Ink */
-  --color-ink:       #f7f1e8;
-  --color-ink-dim:   #bfb6a8;
-  --color-ink-faint: #7a7165;
-  --color-hairline:  rgba(247, 241, 232, 0.08);
-  --color-hairline-2: rgba(247, 241, 232, 0.16);
+  --color-ink:       #f5f7ff;
+  --color-ink-dim:   #b8bce0;
+  --color-ink-mute:  #8088b8;
+  --color-ink-faint: #5a608c;
+  --color-hairline:  rgba(168, 178, 240, 0.10);
+  --color-hairline-2: rgba(168, 178, 240, 0.20);
 
-  /* Accents */
-  --color-gold:      #f5b93d;
-  --color-gold-deep: #b8851e;
-  --color-gold-soft: #fce3a0;
+  /* Accents — electric, saturated, high-contrast */
+  --color-pink:      #ff3d7a;
+  --color-pink-deep: #c41f57;
+  --color-pink-soft: #ff8aab;
 
   --color-cyan:      #5ff0ff;
   --color-cyan-deep: #2bb8cc;
   --color-cyan-soft: #a8f5ff;
 
-  --color-pink:      #ff3d7a;
-  --color-pink-deep: #c41f57;
-  --color-pink-soft: #ff8aab;
+  --color-yellow:      #ffe14a;
+  --color-yellow-deep: #d4b820;
+  --color-yellow-soft: #fff0a0;
 
-  --color-red:       #ef3535;
-  --color-permit:    #3be082;
+  /* Kept as aliases for legacy component compat — map to yellow */
+  --color-gold:      #ffe14a;
+  --color-gold-deep: #d4b820;
+  --color-gold-soft: #fff0a0;
 
-  /* Paper palette (editorial Dojo) */
+  --color-violet:      #a855f7;
+  --color-violet-deep: #7e22ce;
+  --color-violet-soft: #d8b4fe;
+
+  --color-red:       #ff3b3b;
+  --color-permit:    #3bff9e;
+
+  /* Paper palette (editorial Dojo) — unchanged */
   --color-paper:      #f2ece0;
   --color-paper-dim:  #e8ddc9;
   --color-paper-deep: #d8c9ae;
@@ -61,7 +76,7 @@
   --color-ink-mid:    #44403c;
   --color-ink-faint2: #78716c;
 
-  /* Editorial signal accents — aligned with the fight-poster gold/pink */
+  /* Editorial signal accents */
   --color-signal:       #c41f57;
   --color-signal-deep:  #9a1443;
   --color-signal-soft:  #fde4ec;
@@ -85,10 +100,10 @@
     text-rendering: optimizeLegibility;
     background: var(--color-bg);
   }
-  ::selection { background: var(--color-gold); color: var(--color-bg); }
+  ::selection { background: var(--color-cyan); color: var(--color-bg); }
   button:focus-visible, [role="button"]:focus-visible,
   textarea:focus-visible, input:focus-visible {
-    outline: 2px solid var(--color-gold);
+    outline: 2px solid var(--color-cyan);
     outline-offset: 2px;
   }
 }
@@ -100,8 +115,10 @@
 .stage {
   position: relative;
   background:
-    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(245, 185, 61, 0.06) 0%, transparent 60%),
-    linear-gradient(180deg, #1a0910 0%, var(--color-bg) 55%, #08040550 100%);
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(95, 240, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 90%, rgba(255, 61, 122, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 20% 90%, rgba(168, 85, 247, 0.08) 0%, transparent 55%),
+    linear-gradient(180deg, #0a0d28 0%, var(--color-bg) 55%, #040612 100%);
   overflow: hidden;
 }
 
@@ -110,10 +127,27 @@
   pointer-events: none;
   background: radial-gradient(
     ellipse 50% 55% at 50% 55%,
-    rgba(245, 185, 61, 0.28) 0%,
-    rgba(245, 185, 61, 0.12) 30%,
-    rgba(245, 185, 61, 0) 65%
+    rgba(95, 240, 255, 0.22) 0%,
+    rgba(255, 61, 122, 0.12) 30%,
+    rgba(95, 240, 255, 0) 65%
   );
+}
+
+/* Subtle scanline overlay — arcade cabinet feel */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.10;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0px,
+    transparent 2px,
+    rgba(255, 255, 255, 0.04) 2px,
+    rgba(255, 255, 255, 0.04) 3px
+  );
+  z-index: 3;
 }
 
 .grain-warm::after {
@@ -121,10 +155,30 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.12;
+  opacity: 0.08;
   mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='11'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 0.9 0 0 0 0 0.75 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='11'/><feColorMatrix values='0 0 0 0 0.4 0 0 0 0 0.5 0 0 0 0 0.9 0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   z-index: 3;
+}
+
+/* Synthwave horizon grid — purely decorative */
+.grid-floor {
+  position: absolute;
+  pointer-events: none;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background-image:
+    linear-gradient(rgba(95, 240, 255, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(95, 240, 255, 0.10) 1px, transparent 1px);
+  background-size: 60px 60px;
+  transform: perspective(400px) rotateX(60deg);
+  transform-origin: bottom;
+  mask-image: linear-gradient(180deg, transparent 0%, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 60%, transparent 100%);
+  opacity: 0.45;
+  z-index: 0;
 }
 
 .rule-hair { height: 1px; background: var(--color-hairline-2); border: 0; }
@@ -161,27 +215,29 @@
   text-transform: uppercase;
 }
 
-.glow-gold { color: var(--color-gold); text-shadow: 0 0 12px rgba(245, 185, 61, 0.35); }
-.glow-cyan { color: var(--color-cyan); text-shadow: 0 0 10px rgba(95, 240, 255, 0.3); }
-.glow-pink { color: var(--color-pink); text-shadow: 0 0 10px rgba(255, 61, 122, 0.3); }
+.glow-gold { color: var(--color-yellow); text-shadow: 0 0 12px rgba(255, 225, 74, 0.5), 0 0 24px rgba(255, 225, 74, 0.25); }
+.glow-cyan { color: var(--color-cyan); text-shadow: 0 0 10px rgba(95, 240, 255, 0.45), 0 0 24px rgba(95, 240, 255, 0.2); }
+.glow-pink { color: var(--color-pink); text-shadow: 0 0 10px rgba(255, 61, 122, 0.45), 0 0 24px rgba(255, 61, 122, 0.2); }
+.glow-violet { color: var(--color-violet); text-shadow: 0 0 10px rgba(168, 85, 247, 0.45), 0 0 24px rgba(168, 85, 247, 0.2); }
+.glow-permit { color: var(--color-permit); text-shadow: 0 0 12px rgba(59, 255, 158, 0.5), 0 0 28px rgba(59, 255, 158, 0.25); }
 
-/* Gold chip — replaces the belt SVG */
-.chip-gold {
+/* Yellow bounty chip — replaces the old gold */
+.chip-gold, .chip-yellow {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: linear-gradient(180deg, #f5b93d 0%, #d69923 100%);
-  color: #1a0d00;
+  background: linear-gradient(180deg, #ffe14a 0%, #d4b820 100%);
+  color: #120a00;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   box-shadow:
-    0 0 0 1px rgba(245, 185, 61, 0.4),
-    0 6px 20px rgba(245, 185, 61, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    0 0 0 1px rgba(255, 225, 74, 0.5),
+    0 8px 24px rgba(255, 225, 74, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
   border-radius: 2px;
 }
 
@@ -190,14 +246,46 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0.7rem;
-  background: rgba(95, 240, 255, 0.08);
+  background: rgba(95, 240, 255, 0.10);
   color: var(--color-cyan);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  border: 1px solid rgba(95, 240, 255, 0.35);
+  border: 1px solid rgba(95, 240, 255, 0.40);
+  border-radius: 2px;
+}
+
+.chip-pink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(255, 61, 122, 0.10);
+  color: var(--color-pink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 61, 122, 0.40);
+  border-radius: 2px;
+}
+
+.chip-violet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(168, 85, 247, 0.10);
+  color: var(--color-violet);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border: 1px solid rgba(168, 85, 247, 0.40);
   border-radius: 2px;
 }
 
@@ -234,20 +322,51 @@
   color: #fff;
   border: 1px solid var(--color-pink);
   box-shadow:
-    0 0 0 1px rgba(255, 61, 122, 0.4),
-    0 8px 28px rgba(255, 61, 122, 0.28);
+    0 0 0 1px rgba(255, 61, 122, 0.5),
+    0 0 32px rgba(255, 61, 122, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
   transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   cursor: pointer;
   border-radius: 2px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
 }
 .btn-primary:hover {
   background: #ff5a8f;
   transform: translateY(-1px);
   box-shadow:
-    0 0 0 1px rgba(255, 61, 122, 0.6),
-    0 12px 36px rgba(255, 61, 122, 0.4);
+    0 0 0 1px rgba(255, 61, 122, 0.7),
+    0 0 48px rgba(255, 61, 122, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 .btn-primary:active { transform: translateY(0); }
+
+.btn-primary-cyan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1rem 1.75rem;
+  background: var(--color-cyan);
+  color: #001015;
+  border: 1px solid var(--color-cyan);
+  box-shadow:
+    0 0 0 1px rgba(95, 240, 255, 0.5),
+    0 0 32px rgba(95, 240, 255, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.btn-primary-cyan:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(95, 240, 255, 0.8),
+    0 0 48px rgba(95, 240, 255, 0.55);
+}
 
 .btn-ghost {
   display: inline-flex;
@@ -289,27 +408,28 @@
 .tile {
   background: var(--color-bg-2);
   border: 1px solid var(--color-hairline-2);
-  transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease;
+  transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
   cursor: pointer;
   border-radius: 2px;
 }
 .tile:hover {
   background: var(--color-bg-3);
   transform: translateY(-2px);
+  border-color: rgba(168, 178, 240, 0.35);
 }
 .tile-active {
   background: var(--color-bg-3);
   border-color: var(--color-pink);
   box-shadow:
     0 0 0 1px var(--color-pink),
-    0 0 24px rgba(255, 61, 122, 0.15);
+    0 0 28px rgba(255, 61, 122, 0.25);
 }
-.tile-bounty { border-color: var(--color-gold-deep); }
+.tile-bounty { border-color: var(--color-yellow-deep); }
 .tile-bounty.tile-active {
-  border-color: var(--color-gold);
+  border-color: var(--color-yellow);
   box-shadow:
-    0 0 0 1px var(--color-gold),
-    0 0 24px rgba(245, 185, 61, 0.2);
+    0 0 0 1px var(--color-yellow),
+    0 0 28px rgba(255, 225, 74, 0.3);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -323,7 +443,7 @@
 .marquee-track {
   display: flex;
   width: max-content;
-  animation: marquee 48s linear infinite;
+  animation: marquee 45s linear infinite;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -448,12 +568,80 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   NEW in v5 — Pokedex collection + streak pulse + new-best pop
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes collect-flash {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.7); }
+  50% { transform: scale(1.15); box-shadow: 0 0 24px 8px rgba(168, 85, 247, 0.4); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); }
+}
+.collect-flash { animation: collect-flash 0.9s ease-out both; }
+
+@keyframes streak-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.streak-pulse { animation: streak-pulse 1.4s ease-in-out infinite; }
+
+@keyframes new-best-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  40% { transform: scale(1.25); opacity: 1; }
+  70% { transform: scale(0.95); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.new-best-pop { animation: new-best-pop 0.7s cubic-bezier(0.22, 1.4, 0.36, 1) both; }
+
+@keyframes digit-tick {
+  0% { transform: translateY(-6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.digit-tick { animation: digit-tick 0.28s ease-out both; }
+
+@keyframes neon-flicker {
+  0%, 18%, 22%, 25%, 53%, 57%, 100% {
+    text-shadow: 0 0 8px currentColor, 0 0 20px currentColor;
+    opacity: 1;
+  }
+  20%, 24%, 55% { text-shadow: none; opacity: 0.75; }
+}
+.neon-flicker { animation: neon-flicker 3.5s infinite; }
+
+/* Rank tier cosmetics — applied to FighterCard based on rank tier */
+.rank-frame-1 { /* Rookie — plain */ }
+.rank-frame-2 {
+  border-color: rgba(95, 240, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(95, 240, 255, 0.2), 0 0 24px rgba(95, 240, 255, 0.08);
+}
+.rank-frame-3 {
+  border-color: rgba(168, 85, 247, 0.4);
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.25), 0 0 24px rgba(168, 85, 247, 0.12);
+}
+.rank-frame-4 {
+  border-color: rgba(255, 61, 122, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 61, 122, 0.3), 0 0 32px rgba(255, 61, 122, 0.15);
+}
+.rank-frame-5 {
+  border-color: rgba(255, 225, 74, 0.5);
+  box-shadow: 0 0 0 1px rgba(255, 225, 74, 0.35), 0 0 36px rgba(255, 225, 74, 0.18);
+  background: linear-gradient(135deg, var(--color-bg-2) 0%, rgba(28, 33, 72, 0.8) 100%);
+}
+.rank-frame-6 {
+  border-color: var(--color-yellow);
+  box-shadow:
+    0 0 0 1px var(--color-yellow),
+    0 0 48px rgba(255, 225, 74, 0.25),
+    0 0 80px rgba(255, 61, 122, 0.15);
+  background: linear-gradient(135deg, var(--color-bg-2) 0%, rgba(40, 20, 60, 0.8) 50%, rgba(28, 33, 72, 0.8) 100%);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    LEGACY COMPAT — class aliases used by components we're not rebuilding
    ═══════════════════════════════════════════════════════════════════ */
 
-.neon-pink { color: var(--color-pink); text-shadow: 0 0 8px rgba(255, 61, 122, 0.35); }
-.neon-cyan { color: var(--color-cyan); text-shadow: 0 0 8px rgba(95, 240, 255, 0.35); }
-.neon-gold { color: var(--color-gold); text-shadow: 0 0 8px rgba(245, 185, 61, 0.35); }
+.neon-pink { color: var(--color-pink); text-shadow: 0 0 8px rgba(255, 61, 122, 0.45); }
+.neon-cyan { color: var(--color-cyan); text-shadow: 0 0 8px rgba(95, 240, 255, 0.45); }
+.neon-gold { color: var(--color-yellow); text-shadow: 0 0 8px rgba(255, 225, 74, 0.45); }
 .font-arcade { font-family: var(--font-display); }
 .font-display { font-family: var(--font-display); }
 .font-accent { font-family: var(--font-accent); font-style: italic; }
@@ -468,15 +656,15 @@
 .text-cyan { color: var(--color-cyan); }
 .text-cyan-soft { color: var(--color-cyan-soft); }
 .text-cyan-deep { color: var(--color-cyan-deep); }
-.text-gold { color: var(--color-gold); }
-.text-gold-deep { color: var(--color-gold-deep); }
+.text-gold { color: var(--color-yellow); }
+.text-gold-deep { color: var(--color-yellow-deep); }
 .bg-pink { background-color: var(--color-pink); }
 .bg-pink-deep { background-color: var(--color-pink-deep); }
 .bg-cyan { background-color: var(--color-cyan); }
-.bg-gold { background-color: var(--color-gold); }
+.bg-gold { background-color: var(--color-yellow); }
 .border-pink { border-color: var(--color-pink); }
 .border-cyan { border-color: var(--color-cyan); }
-.border-gold { border-color: var(--color-gold); }
+.border-gold { border-color: var(--color-yellow); }
 
 /* Editorial paper surfaces (Dojo) */
 .paper { background-color: var(--color-paper); color: var(--color-paper-ink); }
@@ -503,9 +691,11 @@
     transition-duration: 0.01ms !important;
   }
   .marquee-track { animation: none; }
+  .neon-flicker { animation: none; }
+  .streak-pulse { animation: none; }
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--color-bg-2); }
-::-webkit-scrollbar-thumb { background: #3a2229; border: 2px solid var(--color-bg-2); }
-::-webkit-scrollbar-thumb:hover { background: var(--color-pink); }
+::-webkit-scrollbar-thumb { background: #2a2f58; border: 2px solid var(--color-bg-2); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-cyan); }

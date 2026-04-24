@@ -1,15 +1,17 @@
 import React from "react";
-import { Play, RotateCw, Trophy } from "lucide-react";
+import { Play, Trophy } from "lucide-react";
 
 /*
-  ArenaHero v6 — "Interrogation"
-  ────────────────────────────────
-  Job: teach the game in under 10 seconds. No overlay. No modal. No
-  tooltip. The first screen answers:
-      WHAT AM I?      You're the CISO.
-      WHAT DO I DO?   Interrogate the agent. 3 questions. 60 seconds.
-      WHAT WINS?      Tex catching the agent. Faster = higher score.
-      WHAT'S NEXT?    One button: START CASE 001.
+  ArenaHero v6.1 — "Tex as presence"
+  ────────────────────────────────────
+  Photo-1 treatment: Tex is not a card, he's the arena. Full-bleed on
+  the right at large viewports, floating in the void, cropped by the
+  stage gradient. No metadata card wrapping him. The badge at the top
+  of the page already carries the player stats — the hero doesn't
+  need to double up.
+
+  On small screens he collapses to a smaller "undefeated" vignette
+  below the headline so we don't eat all the vertical space on mobile.
 */
 
 export default function ArenaHero({
@@ -19,8 +21,6 @@ export default function ArenaHero({
   onScrollToLadder,
   allCleared,
 }) {
-  const handle = player?.handle;
-  const streak = player?.streakDays || 0;
   const cleared = player?.clearedCaseIds?.length || 0;
 
   const ctaLabel = allCleared
@@ -31,10 +31,52 @@ export default function ArenaHero({
 
   return (
     <section className="relative overflow-hidden stage">
-      <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pt-10 pb-8 sm:pt-14 sm:pb-12">
+      {/* Full-bleed Tex on desktop — sits behind the text column */}
+      <div
+        className="hidden lg:block absolute inset-y-0 right-0 w-[58%] pointer-events-none select-none"
+        aria-hidden
+      >
+        <img
+          src="/tex/tex-full.png"
+          alt=""
+          className="absolute inset-0 w-full h-full object-contain object-right-bottom tex-float"
+          style={{
+            maskImage:
+              "linear-gradient(to left, rgba(0,0,0,1) 55%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to left, rgba(0,0,0,1) 55%, rgba(0,0,0,0.6) 80%, rgba(0,0,0,0) 100%)",
+          }}
+          onError={(e) => { e.currentTarget.src = "/tex/tex-avatar.png"; }}
+        />
+        {/* Scan bar */}
+        <div
+          className="absolute inset-x-0 top-0 h-[1px] bg-[var(--color-cyan)] opacity-50 scan-bar"
+          style={{ boxShadow: "0 0 12px rgba(95,240,255,0.6)" }}
+        />
+        {/* "THE UNDEFEATED TEX" marquee label, bottom-right */}
+        <div className="absolute bottom-6 right-8 text-right">
+          <div className="t-kicker text-[var(--color-cyan)] opacity-90">THE UNDEFEATED</div>
+          <div
+            className="t-display text-[44px] leading-none text-[var(--color-ink)]"
+            style={{
+              letterSpacing: "0.02em",
+              textShadow: "0 0 24px rgba(95,240,255,0.35)",
+            }}
+          >
+            TEX
+          </div>
+        </div>
+        {/* Live pip */}
+        <div className="absolute top-6 right-8 t-micro text-[var(--color-cyan)] flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-cyan)] pulse-ring-cyan" />
+          TEX · LIVE
+        </div>
+      </div>
+
+      <div className="relative mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pt-10 pb-8 sm:pt-14 sm:pb-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* LEFT — framing, what the game is */}
-          <div className="lg:col-span-7 xl:col-span-8 rise-in">
+          <div className="lg:col-span-7 xl:col-span-7 rise-in relative z-10">
             <div className="t-kicker text-[var(--color-cyan)] mb-3">
               TEX ARENA · INTERROGATION MODE
             </div>
@@ -51,12 +93,37 @@ export default function ArenaHero({
               <span className="block mt-1 glow-cyan">SOMETHING BAD.</span>
             </h1>
 
-            {/* The 4-line rule block. This is the entire tutorial. */}
+            {/* Mobile-only Tex vignette (hidden on lg+) */}
+            <div className="lg:hidden mt-6 relative h-[220px] overflow-hidden rounded-sm" style={{ border: "1px solid rgba(95,240,255,0.25)" }}>
+              <img
+                src="/tex/tex-mobile.png"
+                alt="Tex"
+                className="absolute inset-0 w-full h-full object-cover object-top tex-float"
+                onError={(e) => { e.currentTarget.src = "/tex/tex-full.png"; }}
+              />
+              <div className="absolute inset-x-0 top-0 h-[1px] bg-[var(--color-cyan)] opacity-60 scan-bar" />
+              <div className="absolute top-3 left-3 t-micro text-[var(--color-cyan)] flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-cyan)] pulse-ring-cyan" />
+                TEX · LIVE
+              </div>
+              <div className="absolute bottom-3 right-3 text-right">
+                <div className="t-kicker text-[var(--color-cyan)] opacity-90">THE UNDEFEATED</div>
+                <div
+                  className="t-display text-[28px] leading-none text-[var(--color-ink)]"
+                  style={{ letterSpacing: "0.02em" }}
+                >
+                  TEX
+                </div>
+              </div>
+            </div>
+
+            {/* The 4-line rule block — this is the tutorial */}
             <div
               className="mt-6 panel px-4 sm:px-5 py-4 max-w-[640px]"
               style={{
-                background: "linear-gradient(180deg, rgba(95,240,255,0.05) 0%, transparent 100%)",
+                background: "linear-gradient(180deg, rgba(95,240,255,0.06) 0%, rgba(6,7,20,0.4) 100%)",
                 borderColor: "rgba(95, 240, 255, 0.25)",
+                backdropFilter: "blur(6px)",
               }}
             >
               <ol className="space-y-2">
@@ -101,52 +168,10 @@ export default function ArenaHero({
             </div>
           </div>
 
-          {/* RIGHT — Tex avatar + live player state */}
-          <div className="lg:col-span-5 xl:col-span-4 rise-2">
-            <div className="relative panel overflow-hidden" style={{ borderColor: "rgba(95,240,255,0.25)" }}>
-              <div className="aspect-[4/5] relative bg-[var(--color-bg-2)]">
-                <img
-                  src="/tex/tex-full.png"
-                  alt="Tex — your AI content gate"
-                  className="absolute inset-0 w-full h-full object-cover object-top tex-float"
-                  onError={(e) => { e.currentTarget.src = "/tex/tex-avatar.png"; }}
-                />
-                {/* scan bar overlay */}
-                <div className="absolute inset-x-0 top-0 h-[1px] bg-[var(--color-cyan)] opacity-60 scan-bar" style={{ boxShadow: "0 0 12px rgba(95,240,255,0.6)" }} />
-                <div className="absolute top-3 left-3 t-micro text-[var(--color-cyan)] flex items-center gap-1.5">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--color-cyan)] pulse-ring-cyan" />
-                  TEX &middot; LIVE
-                </div>
-                <div className="absolute bottom-3 left-3 right-3">
-                  <div className="t-display text-[18px] leading-none text-[var(--color-ink)]">MEET TEX</div>
-                  <div className="t-micro text-[var(--color-ink-dim)] mt-1">
-                    Adjudicates agent content in &lt;200ms. Your partner, not your opponent.
-                  </div>
-                </div>
-              </div>
-
-              {/* Live player strip */}
-              <div className="px-4 py-3 border-t border-[var(--color-hairline-2)] flex items-center justify-between gap-3">
-                <div>
-                  <div className="t-micro text-[var(--color-ink-faint)]">
-                    {handle ? `@${handle}` : "no handle yet"}
-                  </div>
-                  <div className="t-display text-[16px] mt-0.5 text-[var(--color-ink)]">
-                    {cleared}/7 cleared
-                  </div>
-                </div>
-                {streak > 0 && (
-                  <div className="text-right">
-                    <div className="t-micro text-[var(--color-ink-faint)]">STREAK</div>
-                    <div className="t-display text-[16px] mt-0.5 glow-gold flex items-center gap-1 justify-end">
-                      <RotateCw className="w-3.5 h-3.5" />
-                      {streak}d
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          {/* RIGHT — intentionally empty on lg+, Tex sits in the absolute layer.
+              On small screens nothing here because the mobile vignette is
+              inside the left column. This keeps the hero tight. */}
+          <div className="hidden lg:block lg:col-span-5 xl:col-span-5" aria-hidden />
         </div>
       </div>
     </section>
@@ -173,7 +198,14 @@ function ScoreLine({ label, sub, value, tone }) {
     tone === "partial" ? "var(--color-yellow)" :
     "var(--color-red)";
   return (
-    <div className="panel p-2.5 text-left" style={{ borderColor: "rgba(168, 178, 240, 0.15)" }}>
+    <div
+      className="panel p-2.5 text-left"
+      style={{
+        borderColor: "rgba(168, 178, 240, 0.15)",
+        background: "rgba(6,7,20,0.55)",
+        backdropFilter: "blur(4px)",
+      }}
+    >
       <div className="t-micro" style={{ color }}>{label}</div>
       <div className="text-[11px] text-[var(--color-ink-faint)] leading-tight mt-0.5">{sub}</div>
       <div className="t-display text-[14px] text-[var(--color-ink)] mt-1" style={{ letterSpacing: "0.02em" }}>{value}</div>

@@ -1,20 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Send, Clock, User, Bot, Sparkles } from "lucide-react";
 import { agentReplyFor } from "../lib/agentSim.js";
 import { evaluateAgentReply } from "../lib/apiClient.js";
 import { punchSound } from "../lib/sound.js";
 
 /*
-  InterrogationChat
-  ─────────────────
-  The core gameplay loop.
-    • Chat-style transcript: player → agent → Tex verdict → repeat.
-    • 3 questions max, 60-second timer.
-    • Each agent reply is sent to Tex via /evaluate. When Tex returns
-      FORBID or ABSTAIN, we call onCatch with the decision. PERMIT
-      continues the session until questions or time run out.
-    • Calls onSessionEnd(outcome) when the session finishes without
-      a catch (timed out or 3 PERMITs).
+  InterrogationChat v6.1
+  ──────────────────────
+  Changes from v6:
+    • Timer does NOT start until the player sends their first question.
+      No more "already down to 45s before I've typed anything."
+    • Transcript area grows from a small initial height as messages are
+      added. No dead empty panel waiting to be filled.
+    • Timer displays as "60s — starts on your first question" before play.
 */
 
 const QUESTION_LIMIT = 3;
@@ -22,44 +20,39 @@ const TIME_LIMIT_SECONDS = 60;
 
 export default function InterrogationChat({
   caseDef,
-  onCatch,     // (decision, { catchMs, questionsUsed, agentReply }) -> void
-  onSessionEnd, // (outcome) -> void, called when no catch happens
+  onCatch,
+  onSessionEnd,
 }) {
-  const [transcript, setTranscript] = useState([]); // entries: {role, text, tell?}
+  const [transcript, setTranscript] = useState([]);
   const [pendingInput, setPendingInput] = useState("");
   const [questionsAsked, setQuestionsAsked] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [timerStarted, setTimerStarted] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TIME_LIMIT_SECONDS);
   const [sessionOver, setSessionOver] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const scrollerRef = useRef(null);
   const inputRef = useRef(null);
-  const startRef = useRef(Date.now());
   const sessionIdRef = useRef(0);
 
-  // Reset whenever the case changes
+  // Reset on case change
   useEffect(() => {
     sessionIdRef.current += 1;
-    setTranscript([
-      {
-        role: "system",
-        text: `${caseDef.persona} is online. You have ${QUESTION_LIMIT} questions and ${TIME_LIMIT_SECONDS} seconds. Make them count.`,
-      },
-    ]);
+    setTranscript([]);
     setPendingInput("");
     setQuestionsAsked(0);
     setIsProcessing(false);
+    setTimerStarted(false);
     setSecondsLeft(TIME_LIMIT_SECONDS);
     setSessionOver(false);
     setErrorMsg("");
-    startRef.current = Date.now();
     setTimeout(() => inputRef.current?.focus(), 80);
   }, [caseDef.id]);
 
-  // Timer
+  // Timer — only runs after first question
   useEffect(() => {
-    if (sessionOver) return;
+    if (!timerStarted || sessionOver) return;
     if (secondsLeft <= 0) {
       setSessionOver(true);
       onSessionEnd?.({ reason: "timeout", questionsUsed: questionsAsked });
@@ -67,7 +60,7 @@ export default function InterrogationChat({
     }
     const t = setTimeout(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearTimeout(t);
-  }, [secondsLeft, sessionOver, questionsAsked, onSessionEnd]);
+  }, [secondsLeft, sessionOver, questionsAsked, onSessionEnd, timerStarted]);
 
   // Auto-scroll
   useEffect(() => {
@@ -77,7 +70,8 @@ export default function InterrogationChat({
   }, [transcript, isProcessing]);
 
   const questionsLeft = QUESTION_LIMIT - questionsAsked;
-  const canSubmit = !sessionOver && !isProcessing && questionsLeft > 0 && pendingInput.trim().length > 0;
+  const canSubmit =
+    !sessionOver && !isProcessing && questionsLeft > 0 && pendingInput.trim().length > 0;
 
   async function submitQuestion() {
     if (!canSubmit) return;
@@ -87,24 +81,22 @@ export default function InterrogationChat({
     setErrorMsg("");
     setPendingInput("");
 
-    // Render player's question
+    // Kick the timer on the FIRST question only
+    if (!timerStarted) setTimerStarted(true);
+
     setTranscript((t) => [...t, { role: "player", text: question }]);
     setQuestionsAsked((n) => n + 1);
     setIsProcessing(true);
 
-    // Agent "types"
     const reply = agentReplyFor(caseDef, question);
     await delay(420 + Math.random() * 280);
     if (sessionIdRef.current !== myId) return;
 
     setTranscript((t) => [...t, { role: "agent", text: reply.text, intent: reply.intent }]);
 
-    // Ship the agent's reply to Tex
     await delay(180);
     if (sessionIdRef.current !== myId) return;
 
-    // Tex thinking indicator is shown by TexLivePanel (parent listens); we
-    // still need to track elapsed time for score.
     const t0 = performance.now();
     try {
       const decision = await evaluateAgentReply({
@@ -115,7 +107,6 @@ export default function InterrogationChat({
 
       const catchMs = Math.round(performance.now() - t0);
 
-      // Record the verdict in the transcript
       setTranscript((t) => [
         ...t,
         {
@@ -132,7 +123,6 @@ export default function InterrogationChat({
       ]);
 
       if (decision.verdict === "FORBID" || decision.verdict === "ABSTAIN") {
-        // Catch! Game ends on this case.
         setSessionOver(true);
         setIsProcessing(false);
         onCatch?.(decision, {
@@ -143,14 +133,10 @@ export default function InterrogationChat({
         return;
       }
 
-      // PERMIT — continue if any questions remain
       setIsProcessing(false);
       if (questionsAsked + 1 >= QUESTION_LIMIT) {
         setSessionOver(true);
-        onSessionEnd?.({
-          reason: "questions_exhausted",
-          questionsUsed: QUESTION_LIMIT,
-        });
+        onSessionEnd?.({ reason: "questions_exhausted", questionsUsed: QUESTION_LIMIT });
       }
     } catch (err) {
       if (sessionIdRef.current !== myId) return;
@@ -166,11 +152,21 @@ export default function InterrogationChat({
     }
   }
 
-  const timerTone = secondsLeft <= 10 ? "var(--color-red)" : secondsLeft <= 25 ? "var(--color-yellow)" : "var(--color-cyan)";
+  const timerTone =
+    !timerStarted ? "var(--color-ink-faint)" :
+    secondsLeft <= 10 ? "var(--color-red)" :
+    secondsLeft <= 25 ? "var(--color-yellow)" :
+    "var(--color-cyan)";
+
+  const timerDisplay = !timerStarted
+    ? "60s"
+    : `${String(Math.floor(secondsLeft / 60)).padStart(1, "0")}:${String(secondsLeft % 60).padStart(2, "0")}`;
+
+  const transcriptEmpty = transcript.length === 0;
 
   return (
     <section className="panel overflow-hidden">
-      {/* Header: timer + questions remaining */}
+      {/* Header */}
       <div className="px-4 sm:px-5 py-2.5 border-b border-[var(--color-hairline-2)] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="t-micro text-[var(--color-pink)]">INTERROGATION</span>
@@ -193,28 +189,43 @@ export default function InterrogationChat({
           <div className="flex items-center gap-1 tabular-nums" style={{ color: timerTone }}>
             <Clock className="w-3.5 h-3.5" />
             <span className="t-display text-[14px]" style={{ letterSpacing: "0.04em" }}>
-              {String(Math.floor(secondsLeft / 60)).padStart(1, "0")}:{String(secondsLeft % 60).padStart(2, "0")}
+              {timerDisplay}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Transcript */}
-      <div
-        ref={scrollerRef}
-        className="max-h-[420px] overflow-y-auto p-4 space-y-3"
-        style={{ minHeight: "260px" }}
-      >
-        {transcript.map((entry, i) => (
-          <TranscriptLine key={i} entry={entry} />
-        ))}
-        {isProcessing && (
-          <div className="flex items-center gap-2 t-micro text-[var(--color-cyan)]">
-            <Sparkles className="w-3 h-3 pulse-ring-cyan" />
-            Tex is reading the reply...
+      {/* Transcript — shrinks/grows with content */}
+      {transcriptEmpty ? (
+        <div className="px-5 py-6 text-center">
+          <div
+            className="text-[13px] italic text-[var(--color-ink-dim)] max-w-[440px] mx-auto leading-[1.5]"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
+            <span className="text-[var(--color-ink)] font-bold not-italic">{caseDef.persona}</span> is online.
+            You have {QUESTION_LIMIT} questions. The 60-second clock starts when you send your first one.
           </div>
-        )}
-      </div>
+          <div className="mt-3 t-micro text-[var(--color-ink-faint)]">
+            Ask below &darr;
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={scrollerRef}
+          className="overflow-y-auto p-4 space-y-3"
+          style={{ maxHeight: "420px", minHeight: "160px" }}
+        >
+          {transcript.map((entry, i) => (
+            <TranscriptLine key={i} entry={entry} />
+          ))}
+          {isProcessing && (
+            <div className="flex items-center gap-2 t-micro text-[var(--color-cyan)]">
+              <Sparkles className="w-3 h-3 pulse-ring-cyan" />
+              Tex is reading the reply...
+            </div>
+          )}
+        </div>
+      )}
 
       {errorMsg && (
         <div className="border-t border-[var(--color-red)] px-4 py-2 t-micro text-[var(--color-red)]">
@@ -236,6 +247,8 @@ export default function InterrogationChat({
                 ? "Session over."
                 : questionsLeft === 0
                 ? "No questions left."
+                : transcriptEmpty
+                ? `Ask your first question — ⌘+Enter to send`
                 : `Ask a question (${questionsLeft} left) — ⌘+Enter to send`
             }
             disabled={sessionOver || isProcessing || questionsLeft === 0}
@@ -255,7 +268,7 @@ export default function InterrogationChat({
         <div className="mt-1.5 t-micro text-[var(--color-ink-faint)] flex items-center justify-between">
           <span>{pendingInput.length}/400</span>
           <span className="italic" style={{ fontFamily: "var(--font-serif)" }}>
-            The agent's reply is what Tex judges &mdash; make it say something bad.
+            The agent&rsquo;s reply is what Tex judges &mdash; make it say something bad.
           </span>
         </div>
       </div>
@@ -264,16 +277,6 @@ export default function InterrogationChat({
 }
 
 function TranscriptLine({ entry }) {
-  if (entry.role === "system") {
-    return (
-      <div
-        className="t-micro text-[var(--color-ink-faint)] text-center italic py-1"
-        style={{ fontFamily: "var(--font-serif)", fontSize: "12px" }}
-      >
-        {entry.text}
-      </div>
-    );
-  }
   if (entry.role === "player") {
     return (
       <div className="flex items-start gap-2 justify-end">
@@ -330,7 +333,10 @@ function TranscriptLine({ entry }) {
             {entry.text}
           </div>
           {entry.tell && entry.verdict !== "PERMIT" && (
-            <div className="text-[11px] text-[var(--color-ink-dim)] mt-1 italic" style={{ fontFamily: "var(--font-serif)" }}>
+            <div
+              className="text-[11px] text-[var(--color-ink-dim)] mt-1 italic"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
               {entry.tell}
             </div>
           )}

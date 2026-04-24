@@ -1,113 +1,136 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ArenaHero from "./components/ArenaHero";
 import Masthead from "./components/Masthead";
-import RoundSelector from "./components/RoundSelector";
-import BriefCard from "./components/BriefCard";
-import AttackComposer from "./components/AttackComposer";
-import TexThinking from "./components/TexThinking";
-import VerdictReveal from "./components/VerdictReveal";
-import FighterCard from "./components/FighterCard";
-import ShareCard from "./components/ShareCard";
+import CaseLadder from "./components/CaseLadder";
+import CaseFile from "./components/CaseFile";
+import InterrogationChat from "./components/InterrogationChat";
+import VerdictMoment from "./components/VerdictMoment";
+import InvestigatorBadge from "./components/InvestigatorBadge";
+import DuelCard from "./components/DuelCard";
 import Dojo from "./components/Dojo";
 import AboutSheet from "./components/AboutSheet";
 import HandleGate from "./components/HandleGate";
-import HowToPlayOverlay from "./components/HowToPlayOverlay";
 import BountyClaim from "./components/BountyClaim";
 import BuyerSurface from "./components/BuyerSurface";
 
-import {
-  ROUNDS,
-  computeRoundPoints,
-  BOUNTY_ROUND_ID,
-} from "./lib/rounds";
-import { submitAttack } from "./lib/apiClient";
+import { CASES, BOUNTY_CASE_ID, getCaseById } from "./lib/cases.js";
+import { nextUnclearedCase, isCaseUnlocked, allCasesCleared } from "./lib/progression.js";
+import { computeCaseScore } from "./lib/scoring.js";
 import {
   getPlayer,
   savePlayer,
-  recordFightResult,
+  setHandle as setPlayerHandle,
+  recordCaseResult,
   claimBounty as claimBountyState,
-  rankForPoints,
-} from "./lib/storage";
+} from "./lib/storage.js";
 import {
-  isSoundEnabled,
-  setSoundEnabled,
-  bellSound,
-  punchSound,
-  winFanfare,
-  loseSting,
-  drawChime,
-  coinSound,
-  rankUpSound,
-} from "./lib/sound";
+  isSoundEnabled, setSoundEnabled,
+  bellSound, winFanfare, loseSting, drawChime, coinSound, rankUpSound,
+} from "./lib/sound.js";
+import { rankForPoints } from "./lib/scoring.js";
 
-const HOW_TO_KEY = "tex-arena/how-to-seen/v4";
+/*
+  App.jsx — v6 "Interrogation"
+  ────────────────────────────
+  Top-level controller. Owns:
+   - player state (localStorage-backed)
+   - active case (the currently-playing one)
+   - current session outcome (catch result or miss)
+   - overlay state (dojo, about, handle, bounty, buyer, duel)
+
+  Flow:
+   Hero → CaseLadder (choose unlocked case or start current) →
+   CaseFile + InterrogationChat → Tex verdict fires → VerdictMoment →
+   Next Case / Replay / Dare Friend / See Evidence.
+
+  Deep-link behavior:
+   - /buyer or ?buyer  → opens BuyerSurface
+   - ?duel=<id>&from=<handle>&ms=<ms>  → lands on that case with a
+     duel banner showing the friend's time.
+*/
 
 export default function App() {
   const [player, setPlayer] = useState(() => getPlayer());
-  const [currentRound, setCurrentRound] = useState(ROUNDS[0]);
-  const [attackText, setAttackText] = useState("");
-  const [isEvaluating, setIsEvaluating] = useState(false);
-  const [decision, setDecision] = useState(null);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [pointsEarned, setPointsEarned] = useState(0);
 
-  const [priorBestScore, setPriorBestScore] = useState(null);
+  // The "active" case is the one the player is currently playing or
+  // about to play. Defaults to the next uncleared case.
+  const [activeCase, setActiveCase] = useState(() => {
+    const p = getPlayer();
+    return nextUnclearedCase(p.clearedCaseIds) || CASES[CASES.length - 1];
+  });
 
+  // Phase of the current case session:
+  //   "idle"  — hero / ladder view, no session running
+  //   "brief" — case file shown, interrogation chat ready
+  //   "live"  — interrogation in progress
+  //   "done"  — verdict moment shown
+  const [phase, setPhase] = useState("idle");
+
+  // Outcome of the last session (catch or miss).
+  const [sessionOutcome, setSessionOutcome] = useState(null);
+  const [scoreResult, setScoreResult] = useState(null);
+  const [priorBest, setPriorBest] = useState(null);
+
+  // Overlays
+  const [showDojo, setShowDojo] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+  const [showHandleGate, setShowHandleGate] = useState(false);
+  const [showBountyClaim, setShowBountyClaim] = useState(false);
+  const [showBuyer, setShowBuyer] = useState(false);
+  const [showDuel, setShowDuel] = useState(false);
+
+  // Duel landing banner — set from ?duel param
+  const [duelFrom, setDuelFrom] = useState("");
+  const [duelTargetMs, setDuelTargetMs] = useState(null);
+
+  // Sound
   const [soundOn, setSoundOn] = useState(() =>
     typeof window !== "undefined" ? isSoundEnabled() : false
   );
 
-  const [showDojo, setShowDojo] = useState(false);
-  const [showShare, setShowShare] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
-  const [showHandleGate, setShowHandleGate] = useState(false);
-  const [showBuyerSurface, setShowBuyerSurface] = useState(false);
-  const [showHowTo, setShowHowTo] = useState(() => {
-    try {
-      return typeof window !== "undefined" && !localStorage.getItem(HOW_TO_KEY);
-    } catch {
-      return true;
-    }
-  });
-  const [showBountyClaim, setShowBountyClaim] = useState(false);
-  const [duelFrom, setDuelFrom] = useState(""); // @handle who challenged this session, empty if not a duel landing
+  // Refs for scroll-into-view
+  const ladderRef = useRef(null);
+  const playRef = useRef(null);
 
-  const activeRunRef = useRef(0);
-  const verdictRef = useRef(null);
-  const composerRef = useRef(null);
-  const arenaRef = useRef(null);
+  // Persist player
+  useEffect(() => { savePlayer(player); }, [player]);
 
-  useEffect(() => {
-    savePlayer(player);
-  }, [player]);
-
-  // Deep-link: /buyer or ?buyer opens the buyer surface directly, so
-  // LinkedIn posts can point CISOs straight into the technical demo
-  // without forcing them through the arena.
-  //
-  // ?duel=<roundId>&from=<handle>  is the peer-challenge link emitted
-  // by ShareCard. We land the recipient straight on the round their
-  // friend played, with a small banner saying who challenged them.
+  // Deep-links: /buyer, ?duel=
   useEffect(() => {
     if (typeof window === "undefined") return;
     const { pathname, search } = window.location;
     if (pathname.startsWith("/buyer") || search.includes("buyer")) {
-      setShowBuyerSurface(true);
+      setShowBuyer(true);
       return;
     }
     const params = new URLSearchParams(search);
     const duelId = parseInt(params.get("duel") || "", 10);
     const fromHandle = (params.get("from") || "").replace(/^@/, "").slice(0, 32);
+    const msParam = parseInt(params.get("ms") || "", 10);
     if (duelId) {
-      const targetRound = ROUNDS.find((r) => r.id === duelId);
-      if (targetRound) {
-        setCurrentRound(targetRound);
+      const target = getCaseById(duelId);
+      if (target && isCaseUnlocked(target.id, player.clearedCaseIds)) {
+        setActiveCase(target);
+        setPhase("brief");
         if (fromHandle) setDuelFrom(fromHandle);
+        if (Number.isFinite(msParam)) setDuelTargetMs(msParam);
+        // Scroll to play region after a tick
+        setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+      } else if (target) {
+        // Friend sent a link to a case the player hasn't unlocked yet.
+        // Land them on their next-available case with a soft explainer.
+        setDuelFrom(fromHandle);
+        setDuelTargetMs(null);
       }
     }
+    // We intentionally don't depend on `player` — this runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isLastRound = currentRound.id === ROUNDS[ROUNDS.length - 1].id;
+  const currentCase = activeCase;
+  const perCase = player.perCase?.[currentCase.id];
+  const isLastCase = currentCase.id === CASES[CASES.length - 1].id;
+  const bountyWon = player.clearedCaseIds?.includes(BOUNTY_CASE_ID);
 
   function handleToggleSound() {
     const next = !soundOn;
@@ -116,183 +139,178 @@ export default function App() {
     if (next) bellSound();
   }
 
-  function dismissHowTo() {
-    try { localStorage.setItem(HOW_TO_KEY, "1"); } catch {}
-    setShowHowTo(false);
-    if (!player.handle && player.attackCount === 0) {
-      setShowHandleGate(true);
-    }
+  function handleStartFromHero() {
+    // "Start Case 001" (or resume current). Move to brief + scroll down.
+    const target = nextUnclearedCase(player.clearedCaseIds) || currentCase;
+    setActiveCase(target);
+    setPhase("brief");
+    resetSessionState();
+    setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   }
 
-  function handleStartPlaying() {
-    dismissHowTo();
-    setTimeout(() => {
-      if (arenaRef.current) {
-        arenaRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, 100);
+  function scrollToLadder() {
+    ladderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function handleOpenBuyerSurface() {
-    setShowBuyerSurface(true);
-  }
-
-  function handleSelectRound(round) {
-    if (round.id === currentRound.id && decision) return;
+  function handleSelectFromLadder(caseDef) {
+    setActiveCase(caseDef);
+    setPhase("brief");
+    resetSessionState();
+    setTimeout(() => playRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     bellSound();
-    setCurrentRound(round);
-    setAttackText("");
-    setDecision(null);
-    setPointsEarned(0);
-    setErrorMessage("");
-    setPriorBestScore(null);
-    setTimeout(() => {
-      if (window.innerWidth < 1024 && composerRef.current) {
-        composerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, 120);
   }
 
-  function handleNextRound() {
-    const idx = ROUNDS.findIndex((r) => r.id === currentRound.id);
-    const next = ROUNDS[Math.min(idx + 1, ROUNDS.length - 1)];
-    handleSelectRound(next);
+  function handleLockedTap(caseDef) {
+    // Soft feedback. We could add a toast; for now, just play a drum beat.
+    drawChime();
   }
 
-  async function handleSubmit() {
-    if (!attackText.trim() || isEvaluating) return;
+  function resetSessionState() {
+    setSessionOutcome(null);
+    setScoreResult(null);
+    setPriorBest(null);
+  }
 
-    const runId = Date.now();
-    activeRunRef.current = runId;
-    setIsEvaluating(true);
-    setDecision(null);
-    setPointsEarned(0);
-    setErrorMessage("");
-    punchSound();
+  // ── Core session callbacks from InterrogationChat ────────────────────
 
-    const prior = player.perRound?.[currentRound.id]?.bestScore ?? 0;
-    setPriorBestScore(prior);
+  function handleCatch(decision, { catchMs, questionsUsed }) {
+    // Compute score.
+    const prior = perCase?.bestScore ?? 0;
+    setPriorBest(prior);
 
-    const minimumThinkingMs = 2000;
-    const t0 = performance.now();
+    const result = computeCaseScore({
+      verdict: decision.verdict,
+      catchMs,
+      caseDifficulty: currentCase.difficulty,
+      questionsUsed,
+      streakDays: player.streakDays || 0,
+    });
 
-    try {
-      const result = await submitAttack({ round: currentRound, content: attackText });
+    const outcome = {
+      verdict: decision.verdict,
+      decision,
+      catchMs,
+      questionsUsed,
+    };
 
-      const elapsed = performance.now() - t0;
-      const wait = Math.max(0, minimumThinkingMs - elapsed);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    setSessionOutcome(outcome);
+    setScoreResult(result);
+    setPhase("done");
 
-      if (activeRunRef.current !== runId) return;
+    // Sounds
+    if (decision.verdict === "FORBID") {
+      winFanfare();
+      if (result.total > 0) setTimeout(coinSound, 500);
+    } else {
+      drawChime();
+    }
 
-      setDecision(result);
+    // Persist
+    const prevTier = rankForPoints(player.totalPoints || 0).current.tier;
+    const nextPlayer = recordCaseResult(player, {
+      caseId: currentCase.id,
+      verdict: decision.verdict,
+      score: result.total,
+      catchMs,
+      questionsUsed,
+      decision,
+    });
+    const nextTier = rankForPoints(nextPlayer.totalPoints || 0).current.tier;
+    if (nextTier > prevTier) setTimeout(rankUpSound, 1200);
+    setPlayer(nextPlayer);
 
-      const points = computeRoundPoints(result.verdict, currentRound);
-      setPointsEarned(points);
-
-      if (result.verdict === "PERMIT") {
-        winFanfare();
-        if (points > 0) setTimeout(coinSound, 600);
-      } else if (result.verdict === "FORBID") {
-        loseSting();
-      } else {
-        drawChime();
-      }
-
-      const prevRank = rankForPoints(player.totalPoints).current.tier;
-      const nextPlayer = recordFightResult(player, {
-        roundId: currentRound.id,
-        verdict: result.verdict,
-        points,
-        decision: result,
-      });
-      const newRank = rankForPoints(nextPlayer.totalPoints).current.tier;
-      if (newRank > prevRank) {
-        setTimeout(rankUpSound, 1400);
-      }
-      setPlayer(nextPlayer);
-
-      if (
-        result.verdict === "PERMIT" &&
-        currentRound.id === BOUNTY_ROUND_ID &&
-        !player.bountyClaimed
-      ) {
-        setTimeout(() => setShowBountyClaim(true), 1800);
-      }
-
-      setTimeout(() => {
-        if (verdictRef.current) {
-          verdictRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      }, 160);
-    } catch (err) {
-      if (activeRunRef.current !== runId) return;
-      setErrorMessage(
-        err instanceof Error ? err.message : "Something went wrong talking to Tex."
-      );
-    } finally {
-      if (activeRunRef.current === runId) setIsEvaluating(false);
+    // Bounty prompt if this was the Warden
+    if (currentCase.id === BOUNTY_CASE_ID && decision.verdict === "FORBID" && !player.bountyClaimed) {
+      setTimeout(() => setShowBountyClaim(true), 1800);
     }
   }
 
-  function handleTryAgain() {
-    setAttackText("");
-    setDecision(null);
-    setPointsEarned(0);
-    setErrorMessage("");
-    setTimeout(() => {
-      if (composerRef.current)
-        composerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
+  function handleSessionEnd(info) {
+    // No catch. PERMIT-only or timeout. The case is NOT cleared.
+    // Still record an attempt for streak + perCase.attempts.
+    loseSting();
+    const outcome = {
+      verdict: "PERMIT",
+      decision: null,
+      catchMs: 0,
+      questionsUsed: info?.questionsUsed ?? 3,
+      reason: info?.reason || "unknown",
+    };
+    setSessionOutcome(outcome);
+    setScoreResult(computeCaseScore({
+      verdict: "PERMIT",
+      catchMs: 0,
+      caseDifficulty: currentCase.difficulty,
+      questionsUsed: outcome.questionsUsed,
+      streakDays: player.streakDays || 0,
+    }));
+    setPriorBest(perCase?.bestScore ?? 0);
+    setPhase("done");
+
+    setPlayer((p) => recordCaseResult(p, {
+      caseId: currentCase.id,
+      verdict: "PERMIT",
+      score: 0,
+      catchMs: 0,
+      questionsUsed: outcome.questionsUsed,
+      decision: null,
+    }));
   }
 
-  function handleReset() {
-    setAttackText("");
-    setDecision(null);
-    setPointsEarned(0);
-    setErrorMessage("");
+  // ── Verdict-moment CTAs ──────────────────────────────────────────────
+
+  function handleNextCase() {
+    const next = CASES.find((c) => c.id === currentCase.id + 1);
+    if (next && isCaseUnlocked(next.id, player.clearedCaseIds)) {
+      setActiveCase(next);
+      setPhase("brief");
+      resetSessionState();
+      setDuelFrom(""); setDuelTargetMs(null);
+      bellSound();
+    } else {
+      // Can happen if they cleared their way; fall back to ladder scroll.
+      setPhase("idle");
+      scrollToLadder();
+    }
   }
 
-  function handleSetHandle(handle) {
-    setPlayer((p) => ({ ...p, handle }));
+  function handleReplay() {
+    setPhase("brief");
+    resetSessionState();
+  }
+
+  function handleOpenDojo() { setShowDojo(true); }
+  function handleShareDuel() {
+    if (!player.handle) {
+      setShowHandleGate(true);
+      return;
+    }
+    setShowDuel(true);
+  }
+
+  function handleClaimBounty() { setShowBountyClaim(true); }
+  function handleCloseBountyClaim() {
+    setShowBountyClaim(false);
+    if (!player.bountyClaimed) setPlayer((p) => claimBountyState(p));
+  }
+
+  function handleSetHandle(h) {
+    setPlayer((p) => setPlayerHandle(p, h));
     setShowHandleGate(false);
   }
-
   function handleSkipHandle() {
     setShowHandleGate(false);
   }
 
-  function handleClaimBounty() {
-    setShowBountyClaim(true);
-  }
+  function handleOpenBuyer() { setShowBuyer(true); }
 
-  function handleCloseBountyClaim() {
-    setShowBountyClaim(false);
-    setPlayer((p) => claimBountyState(p));
-  }
+  // ── Render ───────────────────────────────────────────────────────────
 
-  const currentRecord = player.perRound?.[currentRound.id] || null;
-  const totalAttempts = player.attackCount;
-  const asiFindingsCount = player.asiFindingsCount || 0;
-  const asiCategoriesSeenCount = (player.asiCategoriesSeen || []).length;
+  const hasStartedAnyCase =
+    phase !== "idle" || (player.clearedCaseIds?.length || 0) > 0;
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-ink)] relative">
-      {/* HERO */}
-      <ArenaHero
-        onStartPlaying={handleStartPlaying}
-        onOpenBuyerSurface={handleOpenBuyerSurface}
-        onToggleSound={handleToggleSound}
-        soundOn={soundOn}
-        onAbout={() => setShowAbout(true)}
-        totalAttempts={totalAttempts}
-        asiFindingsCount={asiFindingsCount}
-        asiCategoriesSeenCount={asiCategoriesSeenCount}
-        bountyClaimed={player.bountyClaimed}
-        claimersSoFar={0}
-      />
-
-      {/* Masthead nav */}
+    <div className="min-h-screen">
       <Masthead
         onOpenAbout={() => setShowAbout(true)}
         onOpenDojo={() => setShowDojo(true)}
@@ -300,181 +318,154 @@ export default function App() {
         soundOn={soundOn}
       />
 
-      {/* ARENA */}
-      <div ref={arenaRef} className="bg-[var(--color-bg)] pt-5 pb-10">
-        <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12">
-          <div className="mb-4">
-            <FighterCard
+      {/* HERO — always visible at top */}
+      <ArenaHero
+        player={player}
+        currentCase={currentCase}
+        onStart={handleStartFromHero}
+        onScrollToLadder={scrollToLadder}
+        allCleared={allCasesCleared(player.clearedCaseIds)}
+      />
+
+      <main className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 pb-10 space-y-6">
+        {/* Investigator badge */}
+        <InvestigatorBadge
+          player={player}
+          onEditHandle={() => setShowHandleGate(true)}
+        />
+
+        {/* Duel banner when arriving via ?duel= */}
+        {duelFrom && (
+          <div
+            className="panel flex items-center justify-between gap-3 px-4 py-3 rise-in"
+            style={{
+              borderLeft: "4px solid var(--color-pink)",
+              background: "linear-gradient(90deg, rgba(255,61,122,0.08), transparent 60%)",
+            }}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="text-[18px]">⚔</span>
+              <div className="min-w-0">
+                <div className="t-micro text-[var(--color-pink)]">
+                  DUEL · CASE #{String(currentCase.id).padStart(3, "0")}
+                </div>
+                <div
+                  className="mt-0.5 text-[14px] italic truncate"
+                  style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
+                >
+                  @{duelFrom} caught {currentCase.name} {duelTargetMs != null ? (<>in <span className="glow-gold not-italic font-bold">{duelTargetMs}ms</span>.</>) : "."} Beat that.
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => { setDuelFrom(""); setDuelTargetMs(null); }}
+              className="t-micro text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] transition-colors shrink-0"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* LEFT — ladder */}
+          <div ref={ladderRef} className="lg:col-span-5 xl:col-span-4">
+            <CaseLadder
               player={player}
-              onEditHandle={() => setShowHandleGate(true)}
+              activeCaseId={currentCase.id}
+              onSelect={handleSelectFromLadder}
+              onLockedTap={handleLockedTap}
             />
           </div>
 
-          {duelFrom && (
-            <div
-              className="mb-4 panel flex items-center justify-between gap-2 px-4 py-3 rise-in"
-              style={{
-                borderColor: "var(--color-pink)",
-                boxShadow: "0 0 0 1px var(--color-pink), 0 0 24px rgba(255, 61, 122, 0.2)",
-              }}
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-[18px]">⚔</span>
-                <div>
-                  <div className="t-micro text-[var(--color-pink)]">
-                    Duel · Round {currentRound.id}
-                  </div>
-                  <div
-                    className="mt-0.5 text-[14px] italic"
-                    style={{ fontFamily: "var(--font-serif)", color: "var(--color-ink)" }}
-                  >
-                    @{duelFrom} challenged you on <span className="font-bold not-italic">{currentRound.name}</span>. Beat their score.
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => setDuelFrom("")}
-                className="t-micro text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] transition-colors"
-                aria-label="Dismiss duel banner"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-        </div>
+          {/* RIGHT — play region */}
+          <div ref={playRef} className="lg:col-span-7 xl:col-span-8 space-y-4">
+            {phase === "idle" && (
+              <IdleNudge
+                onStart={handleStartFromHero}
+                currentCase={currentCase}
+                hasStarted={hasStartedAnyCase}
+              />
+            )}
 
-        <RoundSelector
-          rounds={ROUNDS}
-          currentRound={currentRound}
-          roundsWon={player.roundsWon}
-          perRound={player.perRound}
-          onSelect={handleSelectRound}
-        />
-
-        <main className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 py-6">
-          {errorMessage && (
-            <div
-              className="mb-4 panel border-l-4 px-4 py-3 flex items-start gap-3"
-              style={{ borderLeftColor: "var(--color-red)" }}
-            >
-              <span className="t-micro text-[var(--color-red)] pt-0.5 flex-shrink-0">
-                Error
-              </span>
-              <p className="text-[13px] leading-[1.5] text-[var(--color-ink)]">
-                {errorMessage}
-              </p>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
-            {/* Brief — left */}
-            <div className="lg:col-span-5 xl:col-span-4">
-              <BriefCard round={currentRound} record={currentRecord} />
-            </div>
-
-            {/* Composer / Thinking / Verdict — right */}
-            <div
-              ref={composerRef}
-              className="lg:col-span-7 xl:col-span-8 space-y-4"
-            >
-              {!isEvaluating && !decision && (
-                <AttackComposer
-                  round={currentRound}
-                  value={attackText}
-                  onChange={setAttackText}
-                  onSubmit={handleSubmit}
-                  onReset={handleReset}
-                  isEvaluating={isEvaluating}
-                  disabled={false}
+            {(phase === "brief" || phase === "live") && (
+              <>
+                <CaseFile caseDef={currentCase} perCase={perCase} />
+                <InterrogationChat
+                  caseDef={currentCase}
+                  onCatch={handleCatch}
+                  onSessionEnd={handleSessionEnd}
                 />
-              )}
+              </>
+            )}
 
-              {isEvaluating && <TexThinking visible={isEvaluating} />}
-
-              {decision && !isEvaluating && (
-                <div ref={verdictRef} className="space-y-4">
-                  <VerdictReveal
-                    decision={decision}
-                    round={currentRound}
-                    pointsEarned={pointsEarned}
-                    personalBest={priorBestScore}
-                    onShare={() => setShowShare(true)}
-                    onNextRound={handleNextRound}
-                    onOpenDojo={() => setShowDojo(true)}
-                    onTryAgain={handleTryAgain}
-                    onClaimBounty={handleClaimBounty}
-                    isLastRound={isLastRound}
-                  />
-
-                  <ContentEchoCard content={attackText} />
-
-                  {/* Rematch strip */}
-                  <div className="panel flex items-center justify-between gap-2 px-4 py-3">
-                    <div>
-                      <div className="t-micro text-[var(--color-ink-faint)]">
-                        Not satisfied?
-                      </div>
-                      <div
-                        className="mt-0.5 text-[14px] italic"
-                        style={{
-                          fontFamily: "var(--font-serif)",
-                          color: "var(--color-ink)",
-                        }}
-                      >
-                        Rewrite your strike and throw again.
-                      </div>
-                    </div>
-                    <button
-                      onClick={handleTryAgain}
-                      className="btn-ghost"
-                      style={{
-                        borderColor: "var(--color-pink)",
-                        color: "var(--color-pink)",
-                      }}
-                    >
-                      Rematch
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            {phase === "done" && sessionOutcome && (
+              <>
+                <VerdictMoment
+                  caseDef={currentCase}
+                  outcome={sessionOutcome}
+                  scoreResult={scoreResult}
+                  priorBest={priorBest}
+                  onNextCase={handleNextCase}
+                  onReplay={handleReplay}
+                  onOpenDojo={handleOpenDojo}
+                  onShareDuel={handleShareDuel}
+                  onClaimBounty={
+                    currentCase.id === BOUNTY_CASE_ID &&
+                    sessionOutcome.verdict === "FORBID" &&
+                    !player.bountyClaimed
+                      ? handleClaimBounty
+                      : null
+                  }
+                  isLastCase={isLastCase}
+                  isBountyWin={
+                    currentCase.id === BOUNTY_CASE_ID &&
+                    sessionOutcome.verdict === "FORBID"
+                  }
+                />
+                {/* Playback — the agent's caught message for share context */}
+                {sessionOutcome.decision && (
+                  <CaughtMessageCard decision={sessionOutcome.decision} caseDef={currentCase} />
+                )}
+              </>
+            )}
           </div>
-        </main>
+        </div>
+      </main>
 
-        <Footer onOpenBuyerSurface={handleOpenBuyerSurface} />
-      </div>
+      <Footer onOpenBuyer={handleOpenBuyer} />
 
       {/* Overlays */}
-      {showHowTo && <HowToPlayOverlay onDismiss={dismissHowTo} />}
       {showDojo && (
         <Dojo
-          decision={decision}
-          round={currentRound}
+          decision={sessionOutcome?.decision || null}
+          round={currentCase}
           onClose={() => setShowDojo(false)}
-        />
-      )}
-      {showShare && decision && (
-        <ShareCard
-          decision={decision}
-          round={currentRound}
-          player={player}
-          onClose={() => setShowShare(false)}
         />
       )}
       {showAbout && <AboutSheet onClose={() => setShowAbout(false)} />}
       {showHandleGate && (
         <HandleGate onSet={handleSetHandle} onSkip={handleSkipHandle} />
       )}
-      {showBountyClaim && decision && (
+      {showBountyClaim && sessionOutcome?.decision && (
         <BountyClaim
-          decision={decision}
-          submittedContent={attackText}
+          decision={sessionOutcome.decision}
+          submittedContent={
+            sessionOutcome?.decision
+              ? "(see interrogation transcript above)"
+              : ""
+          }
           onClose={handleCloseBountyClaim}
           claimersSoFar={0}
         />
       )}
-      {showBuyerSurface && (
-        <BuyerSurface onClose={() => setShowBuyerSurface(false)} />
+      {showBuyer && <BuyerSurface onClose={() => setShowBuyer(false)} />}
+      {showDuel && sessionOutcome?.verdict !== "PERMIT" && (
+        <DuelCard
+          caseDef={currentCase}
+          outcome={sessionOutcome}
+          player={player}
+          onClose={() => setShowDuel(false)}
+        />
       )}
     </div>
   );
@@ -482,27 +473,74 @@ export default function App() {
 
 /* ─────────────────────────────────────────────────────────────────── */
 
-function ContentEchoCard({ content }) {
-  if (!content) return null;
+function IdleNudge({ onStart, currentCase, hasStarted }) {
   return (
-    <section className="panel overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-hairline)]">
-        <span className="t-micro text-[var(--color-ink-faint)]">Your strike</span>
-        <span className="t-micro text-[var(--color-ink-faint)]">
-          {content.length} chars
-        </span>
-      </div>
-      <pre
-        className="p-4 font-mono text-[12px] leading-[1.65] text-[var(--color-ink)] whitespace-pre-wrap break-words"
-        style={{ fontFamily: "var(--font-mono)" }}
+    <section
+      className="panel px-5 py-8 sm:px-6 sm:py-10 text-center overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(ellipse 60% 50% at 50% 50%, rgba(95,240,255,0.07) 0%, transparent 70%)",
+      }}
+    >
+      <div className="t-kicker text-[var(--color-cyan)]">READY</div>
+      <h3
+        className="t-display text-[22px] sm:text-[26px] mt-2 text-[var(--color-ink)]"
+        style={{ letterSpacing: "0.02em" }}
       >
-        {content}
-      </pre>
+        {hasStarted ? "Resume the Investigation" : "Your First Case"}
+      </h3>
+      <p
+        className="mt-2 text-[14px] italic text-[var(--color-ink-dim)] max-w-[480px] mx-auto"
+        style={{ fontFamily: "var(--font-serif)" }}
+      >
+        {currentCase.name} &mdash; {currentCase.tagline}
+      </p>
+      <button
+        onClick={onStart}
+        className="mt-5 btn-primary text-[14px] px-5 py-2.5 inline-flex items-center gap-2"
+        style={{ letterSpacing: "0.04em" }}
+      >
+        OPEN CASE #{String(currentCase.id).padStart(3, "0")} &rarr;
+      </button>
     </section>
   );
 }
 
-function Footer({ onOpenBuyerSurface }) {
+function CaughtMessageCard({ decision, caseDef }) {
+  // We don't have direct access to the agent reply here; show the
+  // finding reasons or deterministic findings as a proxy. This gives
+  // CISOs visible evidence the catch was based on real content signals.
+  const reasons = decision?.router?.reasons?.slice(0, 3) || [];
+  const det = decision?.deterministic?.findings?.slice(0, 3) || [];
+
+  if (reasons.length === 0 && det.length === 0) return null;
+
+  return (
+    <section className="panel overflow-hidden">
+      <div className="px-4 py-2 border-b border-[var(--color-hairline)] t-micro text-[var(--color-ink-faint)]">
+        TEX&rsquo;S REASONING
+      </div>
+      <div className="p-4 space-y-2">
+        {reasons.map((r, i) => (
+          <div key={`r${i}`} className="text-[13px] leading-[1.5] text-[var(--color-ink-dim)] flex items-start gap-2">
+            <span className="text-[var(--color-cyan)] t-micro mt-0.5">·</span>
+            <span>{r}</span>
+          </div>
+        ))}
+        {det.map((f, i) => (
+          <div key={`d${i}`} className="text-[13px] leading-[1.5] text-[var(--color-ink-dim)] flex items-start gap-2">
+            <span className="text-[var(--color-pink)] t-micro mt-0.5" style={{ fontFamily: "var(--font-mono)" }}>
+              {f.rule_name}
+            </span>
+            <span>{f.message || f.matched_text}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Footer({ onOpenBuyer }) {
   return (
     <footer className="mt-10 border-t border-[var(--color-hairline-2)] bg-[var(--color-bg)] safe-bottom">
       <div
@@ -515,14 +553,11 @@ function Footer({ onOpenBuyerSurface }) {
       />
       <div className="mx-auto max-w-[1400px] px-5 sm:px-8 lg:px-12 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <div
-            className="t-display text-[18px] leading-none text-[var(--color-ink)]"
-            style={{ letterSpacing: "0.02em" }}
-          >
+          <div className="t-display text-[18px] leading-none text-[var(--color-ink)]" style={{ letterSpacing: "0.02em" }}>
             TEX ARENA
           </div>
           <p className="t-micro text-[var(--color-ink-faint)] mt-1.5">
-            Built by VortexBlack · texaegis.com
+            Built by VortexBlack &middot; texaegis.com
           </p>
         </div>
         <div className="flex items-center gap-4 t-micro text-[var(--color-ink-faint)]">
@@ -534,10 +569,7 @@ function Footer({ onOpenBuyerSurface }) {
           >
             Product
           </a>
-          <button
-            onClick={onOpenBuyerSurface}
-            className="hover:text-[var(--color-cyan)] transition-colors"
-          >
+          <button onClick={onOpenBuyer} className="hover:text-[var(--color-cyan)] transition-colors">
             Buyer demo
           </button>
           <a
@@ -548,11 +580,7 @@ function Footer({ onOpenBuyerSurface }) {
           >
             LinkedIn
           </a>
-          <span className="text-[var(--color-ink-faint)] opacity-50">·</span>
-          <span
-            className="italic normal-case tracking-normal text-[12px] text-[var(--color-ink-faint)]"
-            style={{ fontFamily: "var(--font-serif)" }}
-          >
+          <span className="italic normal-case tracking-normal text-[12px]" style={{ fontFamily: "var(--font-serif)" }}>
             Live demo. Every verdict is real.
           </span>
         </div>

@@ -1,9 +1,10 @@
 // ────────────────────────────────────────────────────────────────────
-//  Local player storage
-//  Persists handle, RP, streak, recent rounds to localStorage.
-//  When you add a backend leaderboard, swap getPlayer/savePlayer to
-//  fetch from your API instead — nothing else changes.
+//  Local player storage + global score submission.
+//  Persists handle/RP/streak to localStorage AND posts to the backend
+//  leaderboard so the global rank reflects this round.
 // ────────────────────────────────────────────────────────────────────
+
+import { submitRound } from "./leaderboardClient.js";
 
 const KEY = "tex.arena.player.v8";
 
@@ -13,7 +14,7 @@ function defaultPlayer() {
     rp: 0,
     streak: 0,
     lastPlayedAt: null,
-    rounds: [], // { at, incidentId, verdict, rpDelta, attempts, secondsLeft }
+    rounds: [],
   };
 }
 
@@ -69,6 +70,33 @@ export function recordRound(p, { incidentId, verdict, rpDelta, attempts, seconds
     lastPlayedAt: now,
     rounds: [round, ...(p.rounds || [])].slice(0, 20),
   };
+}
+
+/**
+ * Fire-and-forget global score submission. Returns the server's authoritative
+ * RP if the call succeeds, null otherwise.
+ *
+ * If the player has no handle yet, this is a no-op (we want them to claim a
+ * handle first so they actually appear on the global board).
+ */
+export async function submitRoundToServer(player, result) {
+  const handle = (player.handle || "").trim();
+  if (!handle) return null;
+  const decisionId = result?.finalAttempt?.decision?.decision_id;
+  if (!decisionId) return null;
+
+  try {
+    return await submitRound({
+      handle,
+      decisionId,
+      attemptsUsed: result.attempts.length,
+      secondsLeft: result.secondsLeft,
+      incidentDifficulty: result.incident?.difficulty || 2,
+      incidentId: result.incident?.id || null,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function resetPlayer() {

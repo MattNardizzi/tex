@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import RankBadge from "./RankBadge.jsx";
-import { tierFor, leaderboardWithPlayer, globalStats } from "../lib/ranking.js";
+import { tierFor, fetchLeaderboardWithPlayer, emptyLeaderboard, globalStats } from "../lib/ranking.js";
 import { clickSfx } from "../lib/sounds.js";
 
 /*
@@ -20,7 +20,20 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
   const nextTier = tier.next;
   const rp = player.rp || 0;
   const isNew = rp === 0 && !player.handle;
-  const { list, yourRank, total } = leaderboardWithPlayer(player);
+
+  // Async leaderboard. Initial render shows just throne + you so the
+  // page paints fast; the real top-50 loads in the background.
+  const [board, setBoard] = useState(() => emptyLeaderboard(player));
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLeaderboardWithPlayer(player).then((data) => {
+      if (!cancelled) setBoard(data);
+    });
+    return () => { cancelled = true; };
+  }, [player.handle, player.rp]);
+
+  const { list, yourRank, total } = board;
   const stats = globalStats();
 
   const rpToNext = nextTier ? Math.max(0, nextTier.min - rp) : 0;

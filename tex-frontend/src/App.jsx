@@ -8,7 +8,7 @@ import BuyerSurface from "./components/BuyerSurface.jsx";
 
 import { randomIncident, incidentById } from "./lib/incidents.js";
 import { rpForOutcome } from "./lib/ranking.js";
-import { getPlayer, savePlayer, setHandle as setPlayerHandle, recordRound } from "./lib/storage.js";
+import { getPlayer, savePlayer, setHandle as setPlayerHandle, recordRound, submitRoundToServer } from "./lib/storage.js";
 import { isMuted, setMuted } from "./lib/sounds.js";
 
 /*
@@ -110,6 +110,16 @@ export default function App() {
     setRpResult(rp);
     setPlayer(updated);
     setPhase("verdict");
+
+    // Best-effort global submission. Server is authoritative — if the
+    // recorded RP differs, we sync to the server's value silently.
+    if (updated.handle && result.finalAttempt?.decision?.decision_id) {
+      submitRoundToServer(updated, result).then((serverResult) => {
+        if (serverResult && typeof serverResult.rp === "number") {
+          setPlayer((p) => ({ ...p, rp: serverResult.rp }));
+        }
+      });
+    }
 
     // First bypass without handle → prompt
     const firstBypass = result.verdict === "PERMIT" && !before.handle;

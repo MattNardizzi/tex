@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,12 +8,14 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tex.api.leaderboard import router as leaderboard_router  # LEADERBOARD
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
 from tex.commands.calibrate_policy import CalibratePolicyCommand
 from tex.commands.evaluate_action import EvaluateActionCommand
 from tex.commands.export_bundle import ExportBundleCommand
 from tex.commands.report_outcome import ReportOutcomeCommand
+from tex.db import leaderboard_repo  # LEADERBOARD
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.policy import PolicySnapshot
 from tex.domain.retrieval import RetrievedEntity, RetrievedPolicyClause, RetrievedPrecedent
@@ -32,6 +35,8 @@ from tex.stores.precedent_store import InMemoryPrecedentStore
 DEFAULT_EVIDENCE_PATH = Path("var/tex/evidence/evidence.jsonl")
 APP_TITLE = "Tex"
 APP_VERSION = "0.1.0"
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,10 +106,6 @@ class InMemoryPolicyClauseStoreAdapter:
                     policy_id=policy.policy_id,
                     policy_version=policy.version,
                     title="Blocked term restriction",
-                    # Clause text carries the policy payload only. Downstream
-                    # overlap matchers tokenize this text, so any generic
-                    # English boilerplate here becomes false-positive surface
-                    # area against benign request content.
                     text=term,
                     channel=request.channel,
                     action_type=request.action_type,
@@ -126,7 +127,6 @@ class InMemoryPolicyClauseStoreAdapter:
                     policy_id=policy.policy_id,
                     policy_version=policy.version,
                     title="Sensitive entity handling",
-                    # Clause text is just the entity name for the same reason.
                     text=entity,
                     channel=request.channel,
                     action_type=request.action_type,
@@ -150,9 +150,6 @@ class InMemoryPolicyClauseStoreAdapter:
                     policy_id=policy.policy_id,
                     policy_version=policy.version,
                     title="Enabled recognizer policy",
-                    # Recognizer name only. The human-readable framing is in
-                    # the title; keeping the text minimal avoids accidental
-                    # overlap hits on generic English tokens.
                     text=recognizer_name.replace("_", " "),
                     channel=request.channel,
                     action_type=request.action_type,
@@ -224,7 +221,7 @@ class InMemoryPrecedentStoreAdapter:
 
 class InMemoryEntityStoreAdapter:
     """
-    Thin adapter from the concrete in-memory entity store to the retrieval protocol.
+    Thin adapter that exposes the concrete in-memory entity store as the retrieval protocol.
     """
 
     __slots__ = ("_store",)
@@ -236,16 +233,12 @@ class InMemoryEntityStoreAdapter:
         self,
         *,
         request: EvaluationRequest,
-        policy: PolicySnapshot,
-        top_k: int,
+        limit: int,
     ) -> tuple[RetrievedEntity, ...]:
-        if top_k <= 0:
+        if limit <= 0:
             return tuple()
 
-        return self._store.find_matching(
-            text=request.content,
-            limit=top_k,
-        )
+        return self._store.find_relevant(request=request, limit=limit)
 
 
 def build_runtime(
@@ -253,9 +246,9 @@ def build_runtime(
     evidence_path: str | Path = DEFAULT_EVIDENCE_PATH,
 ) -> TexRuntime:
     """
-    Build Tex's local in-process runtime.
+    Build the Tex runtime composition with sensible defaults.
 
-    Important fixes in this composition root:
+    This guarantees that:
     - retrieval is actually wired into the live PDP
     - default policies are seeded exactly once
     - default sensitive entities are seeded into the entity store
@@ -346,11 +339,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        # Idempotent safety net. Runtime is already attached below at app
-        # construction time so that synchronous entry points (TestClient,
-        # direct import-time probes, test fixtures that skip lifespan)
-        # always observe a fully populated app.state.
         _attach_runtime_to_app(app, resolved_runtime)
+        # LEADERBOARD: best-effort schema init. Don't crash the app if DB
+        # is misconfigured — just log it and keep the rest of Tex working.
+        try:
+            await leaderboard_repo.ensure_schema()
+        except Exception as exc:  # pragma: no cover
+            _logger.warning("leaderboard schema init failed: %s", exc)
         yield
 
     app = FastAPI(
@@ -363,8 +358,6 @@ def create_app(
         lifespan=lifespan,
     )
 
-    # Attach runtime state eagerly so that app.state is populated the moment
-    # create_app returns, regardless of whether the caller enters lifespan.
     _attach_runtime_to_app(app, resolved_runtime)
 
     app.add_middleware(
@@ -376,6 +369,7 @@ def create_app(
     )
 
     app.include_router(build_api_router())
+    app.include_router(leaderboard_router)  # LEADERBOARD
 
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:

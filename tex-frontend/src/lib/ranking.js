@@ -1,17 +1,8 @@
 // ────────────────────────────────────────────────────────────────────
-//  Ranking — tiers, RP math, seeded leaderboard
-//
-//  In this mode the PLAYER is attacking Tex. Scoring rewards:
-//    - PERMIT (player wins cleanly — Tex let it through): big RP
-//    - ABSTAIN (close — Tex escalated but didn't block): small RP
-//    - FORBID (Tex caught it): RP loss
-//    - Timeout/3 forbids: full RP loss
-//
-//  Why does winning require beating Tex?
-//  Because in a red-team game, success = bypass. The game proves Tex
-//  is hard to beat. Every loss is content the backend blocked live —
-//  which IS the product demo. The few who win = real signal for you.
+//  Ranking — tiers, RP math, real leaderboard with seeded fallback.
 // ────────────────────────────────────────────────────────────────────
+
+import { fetchLeaderboard } from "./leaderboardClient.js";
 
 export const TIERS = [
   { min: 0,    name: "RECRUIT",       short: "T0", color: "#6B6F8F" },
@@ -35,102 +26,130 @@ export function tierFor(rp) {
 }
 
 /**
- * RP awarded / lost for a round outcome.
- * Player is attacking Tex. Winning = getting past Tex.
+ * Local RP estimate (used while waiting for the server response, and as a
+ * fallback if the leaderboard API is down). The server is authoritative.
  */
 export function rpForOutcome({ verdict, attemptsUsed, secondsLeft, incidentDifficulty = 2 }) {
   if (verdict === "PERMIT") {
-    // Player BEAT Tex — slip past the gate. Big reward.
     const base = 120;
-    const speed = Math.round((secondsLeft || 0) * 0.8); // up to ~48
+    const speed = Math.round((secondsLeft || 0) * 0.8);
     const efficiency = attemptsUsed <= 1 ? 40 : attemptsUsed === 2 ? 20 : 0;
     const diff = incidentDifficulty * 10;
     return { delta: base + speed + efficiency + diff, label: "BYPASS", tone: "win" };
   }
   if (verdict === "ABSTAIN") {
-    // Tex escalated — player got close. Small reward.
     return { delta: 20 + incidentDifficulty * 4, label: "NEAR MISS", tone: "partial" };
   }
-  // FORBID or timeout — Tex won. Player loses RP.
   return { delta: -25, label: "BLOCKED BY TEX", tone: "loss" };
 }
 
 // ────────────────────────────────────────────────────────────────────
-//  Seeded leaderboard — hardcoded for v1. Replace with backend call later.
+//  Seeded fallback — only used if the leaderboard API is unreachable.
+//  Keeps the page from looking broken in dev / API outages.
 // ────────────────────────────────────────────────────────────────────
-
-// Seeded leaderboard. NOBODY is UNDEFEATED (2500+) — that's Tex's bounty slot.
-// All seeds cap at 2499 (Chief/Sr Investigator). Top rank slot stays empty
-// as the dangling carrot: "beat Tex, take the throne."
-const SEED_LEADERBOARD = [
-  { handle: "redteam_raj",        rp: 2420, region: "US", streak: 14 },
-  { handle: "nightowl_ciso",      rp: 2195, region: "EU", streak: 9 },
-  { handle: "breachhunter",       rp: 2048, region: "US", streak: 7 },
-  { handle: "sara.infosec",       rp: 1892, region: "IN", streak: 5 },
-  { handle: "detectiveXplorer",   rp: 1710, region: "CA", streak: 4 },
-  { handle: "bypass_betty",       rp: 1588, region: "UK", streak: 3 },
-  { handle: "0xghostrider",       rp: 1442, region: "DE", streak: 8 },
-  { handle: "blueteam_ben",       rp: 1310, region: "AU", streak: 2 },
-  { handle: "pkts_in_flight",     rp: 1180, region: "US", streak: 6 },
-  { handle: "caf3ineCorrupted",   rp: 1047, region: "BR", streak: 2 },
-  { handle: "jane.a.ops",         rp: 968,  region: "US", streak: 4 },
-  { handle: "h4x_on_call",        rp: 842,  region: "SG", streak: 3 },
-  { handle: "promptwhisperer",    rp: 730,  region: "NL", streak: 2 },
-  { handle: "aegis_anon",         rp: 611,  region: "US", streak: 1 },
-  { handle: "fuzzyFaith",         rp: 488,  region: "JP", streak: 1 },
+const SEED_FALLBACK = [
+  { handle: "redteam_raj",    rp: 2420 },
+  { handle: "nightowl_ciso",  rp: 2195 },
+  { handle: "breachhunter",   rp: 2048 },
+  { handle: "sara.infosec",   rp: 1892 },
+  { handle: "fuzzyFaith",     rp: 488  },
 ];
 
 /**
- * Returns a leaderboard slice with the player inserted at the correct rank.
- * The TOP of the board is always an empty "throne" row — because nobody
- * has beaten Tex yet. That empty slot is the dangling carrot.
- *
- * Ranks: #1 throne (empty) → #2+ everyone else.
+ * Fetch leaderboard from backend. Returns the same shape your old
+ * leaderboardWithPlayer() returned, so the Hub component is unchanged.
  */
-export function leaderboardWithPlayer(player) {
-  const playerEntry = {
-    handle: player.handle || "anonymous",
-    rp: player.rp || 0,
-    region: "—",
-    streak: player.streak || 0,
-    isYou: true,
-  };
-  const throne = { isThrone: true, handle: "— UNCLAIMED —", rp: null };
+export async function fetchLeaderboardWithPlayer(player) {
+  const handle = (player.handle || "").trim() || null;
 
-  const sorted = [...SEED_LEADERBOARD, playerEntry]
-    .sort((a, b) => b.rp - a.rp);
+  let data = null;
+  try {
+    data = await fetchLeaderboard(handle);
+  } catch {
+    // API down → use seeded fallback
+    return _buildFromSeed(player);
+  }
 
-  // Throne is always rank #1. Everyone else starts at #2.
-  const ranked = [
-    { ...throne, rank: 1 },
-    ...sorted.map((e, i) => ({ ...e, rank: i + 2 })),
-  ];
+  const throne = { isThrone: true, handle: "— UNCLAIMED —", rp: null, rank: 1 };
 
-  const you = ranked.find((e) => e.isYou);
-  const yourRank = you.rank;
-  const youIndex = ranked.indexOf(you);
+  // Real entries from backend, shifted by 1 because throne is rank #1.
+  const realEntries = (data.entries || []).map((e, i) => ({
+    handle: e.handle,
+    rp: e.rp,
+    rank: i + 2,
+    isYou: handle && e.handle === handle,
+  }));
 
-  let window = [];
-  if (yourRank <= 4) {
-    window = ranked.slice(0, 6);
+  // If the player has played but isn't in top-50, append them.
+  let you = realEntries.find((e) => e.isYou);
+  const yourRankFromApi = data.your_rank ? data.your_rank + 1 : null; // shift for throne
+
+  if (!you && handle && (data.your_rp != null || (player.rp || 0) > 0)) {
+    const youRP = data.your_rp != null ? data.your_rp : (player.rp || 0);
+    you = {
+      handle,
+      rp: youRP,
+      rank: yourRankFromApi || (realEntries.length + 2),
+      isYou: true,
+    };
+  }
+
+  // Build window: throne + top 3 + (... + above + you + below) when player out of view.
+  const allRanked = [throne, ...realEntries];
+  const yourRank = you ? you.rank : null;
+
+  let window;
+  if (!you || yourRank <= 4) {
+    window = allRanked.slice(0, 6);
   } else {
-    const top3 = ranked.slice(0, 4); // throne + top 3
-    const above = ranked[youIndex - 1];
-    const below = ranked[youIndex + 1];
+    const top4 = allRanked.slice(0, 4); // throne + top 3
+    const youIdx = realEntries.findIndex((e) => e.isYou);
+    const above = youIdx > 0 ? realEntries[youIdx - 1] : null;
+    const below = youIdx >= 0 && youIdx < realEntries.length - 1 ? realEntries[youIdx + 1] : null;
     window = [
-      ...top3,
+      ...top4,
       { divider: true },
       ...(above ? [above] : []),
       you,
       ...(below ? [below] : []),
     ];
   }
-  return { list: window, yourRank, total: ranked.length };
+
+  // Total = real players + 1 throne (we don't show throne in count).
+  const total = (data.total_players || realEntries.length) + 1;
+
+  return { list: window, yourRank, total };
+}
+
+/** Synchronous shape used during initial render before fetch resolves. */
+export function emptyLeaderboard(player) {
+  const throne = { isThrone: true, handle: "— UNCLAIMED —", rp: null, rank: 1 };
+  const handle = (player.handle || "").trim() || "anonymous";
+  const you = {
+    handle,
+    rp: player.rp || 0,
+    rank: 2,
+    isYou: true,
+  };
+  return { list: [throne, you], yourRank: 2, total: 2 };
+}
+
+function _buildFromSeed(player) {
+  const handle = (player.handle || "anonymous").trim();
+  const rp = player.rp || 0;
+  const throne = { isThrone: true, handle: "— UNCLAIMED —", rp: null, rank: 1 };
+  const merged = [...SEED_FALLBACK, { handle, rp, isYou: true }]
+    .sort((a, b) => b.rp - a.rp)
+    .map((e, i) => ({ ...e, rank: i + 2 }));
+  const you = merged.find((e) => e.isYou);
+  return {
+    list: [throne, ...merged].slice(0, 6),
+    yourRank: you ? you.rank : null,
+    total: merged.length + 1,
+  };
 }
 
 export function globalStats() {
-  // Static-ish flavor stats. Deliberately small bypass count — it's the hook.
-  // texRecord is ∞–0–0 (zero anyone has ever beaten him).
   return {
     attemptsToday: 4847 + Math.floor(Math.random() * 200),
     bypassesToday: 0,

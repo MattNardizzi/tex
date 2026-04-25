@@ -5,6 +5,9 @@ import VerdictReveal from "./components/VerdictReveal.jsx";
 import HandlePrompt from "./components/HandlePrompt.jsx";
 import ShareCard from "./components/ShareCard.jsx";
 import BuyerSurface from "./components/BuyerSurface.jsx";
+import AsiPage from "./components/AsiPage.jsx";
+import DevelopersOverlay from "./components/DevelopersOverlay.jsx";
+import RunYourOwn from "./components/RunYourOwn.jsx";
 
 import { randomIncident, incidentById } from "./lib/incidents.js";
 import { rpForOutcome } from "./lib/ranking.js";
@@ -12,22 +15,27 @@ import { getPlayer, savePlayer, setHandle as setPlayerHandle, recordRound, submi
 import { isMuted, setMuted } from "./lib/sounds.js";
 
 /*
-  App v8 — "Ranked · You vs Tex"
+  App v9 — "OWASP-framed Ranked"
   ────────────────────────────────
   Phases:
-    "hub"     — landing page, ranked ladder
+    "hub"     — landing page, ranked ladder, OWASP framing
     "round"   — the 60s attack screen (real backend)
-    "verdict" — full-screen payoff overlay
+    "verdict" — full-screen payoff overlay with layer breakdown + ASI codes
+    "asi"     — public OWASP ASI 2026 mapping page
 
   Overlays:
-    - HandlePrompt (first bypass)
-    - ShareCard (challenge a coworker)
-    - BuyerSurface (I'm a buyer)
+    - HandlePrompt      — first bypass
+    - ShareCard         — challenge a coworker
+    - BuyerSurface      — "I'm a security buyer"
+    - DevelopersOverlay — "I'm an engineering leader"
+    - RunYourOwn        — paste your own agent's output
 
   Deep links:
-    - ?buyer or /buyer → open buyer overlay immediately
-    - ?duel=<incidentId>&from=<handle>&rp=<rp> → load that incident as first round,
-      show a duel banner on the hub ("@foo bypassed Tex — beat them")
+    - /asi or ?asi              → opens the OWASP ASI 2026 page
+    - /developers or ?developers → opens the engineering overlay
+    - /buyer or ?buyer           → opens the buyer overlay
+    - /run or ?run               → opens run-your-own
+    - ?duel=<id>&from=<handle>&rp=<rp> → loads that incident as the first round
 */
 
 export default function App() {
@@ -42,17 +50,33 @@ export default function App() {
   const [showHandle, setShowHandle] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showBuyer, setShowBuyer] = useState(false);
+  const [showDevelopers, setShowDevelopers] = useState(false);
+  const [showRunYourOwn, setShowRunYourOwn] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
 
   const [duelFrom, setDuelFrom] = useState("");
 
   useEffect(() => { savePlayer(player); }, [player]);
 
+  // Deep-link routing on first load
   useEffect(() => {
     if (typeof window === "undefined") return;
     const { pathname, search } = window.location;
+
+    if (pathname.startsWith("/asi") || search.includes("asi")) {
+      setPhase("asi");
+      return;
+    }
+    if (pathname.startsWith("/developers") || pathname.startsWith("/dev") || search.includes("developers") || search.includes("dev")) {
+      setShowDevelopers(true);
+      return;
+    }
     if (pathname.startsWith("/buyer") || search.includes("buyer")) {
       setShowBuyer(true);
+      return;
+    }
+    if (pathname.startsWith("/run") || search.includes("run")) {
+      setShowRunYourOwn(true);
       return;
     }
     const params = new URLSearchParams(search);
@@ -111,8 +135,6 @@ export default function App() {
     setPlayer(updated);
     setPhase("verdict");
 
-    // Best-effort global submission. Server is authoritative — if the
-    // recorded RP differs, we sync to the server's value silently.
     if (updated.handle && result.finalAttempt?.decision?.decision_id) {
       submitRoundToServer(updated, result).then((serverResult) => {
         if (serverResult && typeof serverResult.rp === "number") {
@@ -121,7 +143,6 @@ export default function App() {
       });
     }
 
-    // First bypass without handle → prompt
     const firstBypass = result.verdict === "PERMIT" && !before.handle;
     if (firstBypass) {
       setTimeout(() => setShowHandle(true), 2400);
@@ -156,6 +177,15 @@ export default function App() {
     setShowHandle(false);
   }
 
+  // Called from AsiPage when a visitor clicks "TRY THIS ATTACK"
+  function handleTryFromAsi(incidentId) {
+    const target = incidentById(incidentId);
+    if (target) {
+      setIncident(target);
+      setPhase("round");
+    }
+  }
+
   return (
     <div>
       {phase === "hub" && (
@@ -188,6 +218,9 @@ export default function App() {
             onPlay={handlePlay}
             onEditHandle={() => setShowHandle(true)}
             onOpenBuyer={() => setShowBuyer(true)}
+            onOpenDevelopers={() => setShowDevelopers(true)}
+            onOpenAsi={() => setPhase("asi")}
+            onOpenRunYourOwn={() => setShowRunYourOwn(true)}
             onToggleMute={toggleMute}
             muted={muted}
           />
@@ -214,6 +247,15 @@ export default function App() {
         />
       )}
 
+      {phase === "asi" && (
+        <AsiPage
+          onClose={() => setPhase("hub")}
+          onTryIncident={handleTryFromAsi}
+          onOpenDevelopers={() => setShowDevelopers(true)}
+          onOpenBuyer={() => setShowBuyer(true)}
+        />
+      )}
+
       {showHandle && (
         <HandlePrompt
           initial={player.handle}
@@ -230,7 +272,25 @@ export default function App() {
         />
       )}
 
-      {showBuyer && <BuyerSurface onClose={() => setShowBuyer(false)} />}
+      {showBuyer && (
+        <BuyerSurface
+          onClose={() => setShowBuyer(false)}
+          onOpenAsi={() => { setShowBuyer(false); setPhase("asi"); }}
+        />
+      )}
+
+      {showDevelopers && (
+        <DevelopersOverlay
+          onClose={() => setShowDevelopers(false)}
+          onOpenAsi={() => { setShowDevelopers(false); setPhase("asi"); }}
+        />
+      )}
+
+      {showRunYourOwn && (
+        <RunYourOwn
+          onClose={() => setShowRunYourOwn(false)}
+        />
+      )}
     </div>
   );
 }

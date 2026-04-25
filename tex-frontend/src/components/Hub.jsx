@@ -1,28 +1,36 @@
 import React, { useEffect, useState } from "react";
 import RankBadge from "./RankBadge.jsx";
+import ComplianceStrip from "./ComplianceStrip.jsx";
 import { tierFor, fetchLeaderboardWithPlayer, emptyLeaderboard, globalStats } from "../lib/ranking.js";
 import { clickSfx } from "../lib/sounds.js";
 
 /*
-  Hub v8.1 — "Ruthless hierarchy"
-  ─────────────────────────────────
-  Fixes in this revision:
-    1. Kill the dead left gutter — headline + copy breathe wider
-    2. Bypass counter in the hero as a pulsing poster line
-    3. Rank card hidden for brand-new players (0 RP)
-    4. Seeded leaderboard has an empty UNDEFEATED throne (rank #1)
-    5. Buyer CTA moves to the top nav — main hero has ONE button
-    6. Stat strip merged into the hero region, not a separate block
+  Hub v9 — "OWASP-framed Ranked"
+  ───────────────────────────────
+  Changes from v8:
+    1. Kicker line above headline: "OWASP ASI 2026 ADJUDICATION BENCHMARK"
+    2. Top nav adds "FOR ENGINEERING →" + "FOR SECURITY TEAMS →" + ASI link
+    3. New section: "TEX × OWASP ASI 2026" + ComplianceStrip
+    4. New CTA: "RUN YOUR OWN ATTACK"
+    5. Pitch band leads with OWASP positioning, then Aug 2 2026 + signed evidence
 */
 
-export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggleMute, muted }) {
+export default function Hub({
+  player,
+  onPlay,
+  onEditHandle,
+  onOpenBuyer,
+  onOpenDevelopers,
+  onOpenAsi,
+  onOpenRunYourOwn,
+  onToggleMute,
+  muted,
+}) {
   const tier = tierFor(player.rp || 0);
   const nextTier = tier.next;
   const rp = player.rp || 0;
   const isNew = rp === 0 && !player.handle;
 
-  // Async leaderboard. Initial render shows just throne + you so the
-  // page paints fast; the real top-50 loads in the background.
   const [board, setBoard] = useState(() => emptyLeaderboard(player));
 
   useEffect(() => {
@@ -55,8 +63,10 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
         position: "sticky",
         top: 0,
         zIndex: 10,
+        gap: 12,
+        flexWrap: "wrap",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
           <div style={{
             width: 8, height: 8, borderRadius: "50%",
             background: "var(--cyan)", boxShadow: "0 0 10px var(--cyan-glow)"
@@ -69,22 +79,31 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
             · SEASON 1 · <span style={{ color: "var(--yellow)" }}>6 DAYS LEFT</span>
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={onOpenBuyer}
-            className="micro"
-            style={{ color: "var(--ink-dim)", padding: "6px 10px", borderRadius: 4 }}
-          >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={onOpenAsi} className="micro" style={{
+            color: "var(--cyan)", padding: "6px 10px",
+            border: "1px solid rgba(95, 240, 255, 0.35)", borderRadius: 4,
+          }}>
+            OWASP ASI →
+          </button>
+          <button onClick={onOpenDevelopers} className="micro" style={{
+            color: "var(--ink-dim)", padding: "6px 10px",
+            border: "1px solid var(--hairline-2)", borderRadius: 4,
+          }}>
+            FOR ENGINEERING →
+          </button>
+          <button onClick={onOpenBuyer} className="micro" style={{
+            color: "var(--ink-dim)", padding: "6px 10px",
+            border: "1px solid var(--hairline-2)", borderRadius: 4,
+          }}>
             FOR SECURITY TEAMS →
           </button>
           <button
             onClick={onToggleMute}
             className="micro"
             style={{
-              color: "var(--ink-dim)",
-              padding: "6px 10px",
-              border: "1px solid var(--hairline-2)",
-              borderRadius: 4,
+              color: "var(--ink-dim)", padding: "6px 10px",
+              border: "1px solid var(--hairline-2)", borderRadius: 4,
             }}
             aria-label={muted ? "Unmute" : "Mute"}
           >
@@ -94,20 +113,19 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
       </header>
 
       {/* ── Hero ───────────────────────────────────────────────── */}
-      <section style={{
-        padding: "40px 48px 32px",
-        maxWidth: 1440,
-        margin: "0 auto",
-        width: "100%",
-      }}>
+      <section style={{ padding: "40px 48px 32px", maxWidth: 1440, margin: "0 auto", width: "100%" }}>
         <div style={{
           display: "grid",
           gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 0.85fr)",
           gap: 56,
           alignItems: "start",
         }} className="hero-grid">
-          {/* LEFT — headline + live ticker + CTA + rank (if any) */}
+          {/* LEFT */}
           <div className="rise">
+            <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 14, letterSpacing: "0.18em" }}>
+              ⛨ OWASP ASI 2026 · THE PUBLIC ADJUDICATION BENCHMARK
+            </div>
+
             <div style={{
               display: "inline-flex",
               alignItems: "center",
@@ -146,16 +164,19 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
               color: "var(--ink-dim)",
               maxWidth: 620,
             }}>
-              Tex is a live production AI content gate. You are the red-teamer.
-              Write a single message that <strong style={{ color: "var(--ink)" }}>slips past him</strong>.
-              If Tex returns <span style={{ color: "var(--green)", fontWeight: 600 }}>PERMIT</span>,
-              you bypassed a real security system — a rank climb, a bragging-rights
-              screenshot, and your name in the season leaderboard.
+              Tex is the <strong style={{ color: "var(--ink)" }}>OWASP ASI 2026 reference adjudicator</strong> —
+              a live production gate that reviews AI agent outputs and returns
+              PERMIT, ABSTAIN, or FORBID with cryptographically signed evidence.
+              You're the red-teamer. Slip a single message past Tex and you've
+              bypassed a real security system.
             </p>
 
-            <div style={{ marginTop: 32 }}>
+            <div style={{ marginTop: 32, display: "flex", gap: 12, flexWrap: "wrap" }}>
               <button onClick={() => { clickSfx(); onPlay(); }} className="btn-big">
                 STEP IN THE RING →
+              </button>
+              <button onClick={onOpenRunYourOwn} className="btn-ghost" style={{ alignSelf: "center" }}>
+                RUN YOUR OWN ATTACK
               </button>
             </div>
 
@@ -317,10 +338,10 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
                 padding: 20,
                 background: "linear-gradient(180deg, transparent, rgba(6,7,14,0.95))",
               }}>
-                <div className="micro" style={{ color: "var(--cyan)", opacity: 0.9 }}>THE UNDEFEATED</div>
+                <div className="micro" style={{ color: "var(--cyan)", opacity: 0.9 }}>OWASP ASI 2026 REFERENCE ADJUDICATOR</div>
                 <div className="display" style={{ fontSize: 36, marginTop: 2 }}>TEX</div>
                 <div className="micro" style={{ color: "var(--ink-faint)", marginTop: 4 }}>
-                  Content adjudication gate · 200ms · signed evidence
+                  Six-layer pipeline · 200ms · signed evidence
                 </div>
               </div>
             </div>
@@ -339,8 +360,45 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
         </div>
       </section>
 
+      {/* ── OWASP / Compliance band ─────────────────────────────── */}
+      <section style={{
+        padding: "20px 48px",
+        borderTop: "1px solid var(--hairline-2)",
+        borderBottom: "1px solid var(--hairline-2)",
+        background: "var(--bg-1)",
+      }}>
+        <div style={{
+          maxWidth: 1440,
+          margin: "0 auto",
+          width: "100%",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)",
+          gap: 24,
+          alignItems: "center",
+        }} className="owasp-band-grid">
+          <div>
+            <div className="kicker" style={{ color: "var(--cyan)" }}>TEX × OWASP ASI 2026</div>
+            <div className="display" style={{ fontSize: 18, marginTop: 4, lineHeight: 1.15 }}>
+              EVERY VERDICT MAPPED. EVERY FRAMEWORK COVERED.
+            </div>
+            <button
+              onClick={onOpenAsi}
+              className="micro"
+              style={{
+                marginTop: 8,
+                color: "var(--cyan)",
+                textDecoration: "underline",
+              }}
+            >
+              SEE THE ASI MAPPING →
+            </button>
+          </div>
+          <ComplianceStrip />
+        </div>
+      </section>
+
       {/* ── Leaderboard ──────────────────────────────────────────── */}
-      <section style={{ maxWidth: 1440, margin: "0 auto", padding: "12px 48px 40px", width: "100%" }} className="rise-3">
+      <section style={{ maxWidth: 1440, margin: "0 auto", padding: "32px 48px 40px", width: "100%" }} className="rise-3">
         <div className="panel" style={{ overflow: "hidden" }}>
           <div style={{
             padding: "16px 22px",
@@ -399,44 +457,49 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
         borderTop: "1px solid var(--hairline-2)",
         background: "linear-gradient(180deg, transparent, rgba(255, 225, 74, 0.03))",
         padding: "32px 48px",
-        maxWidth: 1440,
-        margin: "0 auto",
-        width: "100%",
       }}>
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 24,
-          alignItems: "center",
-        }} className="pitch-grid">
-          <div>
-            <div className="kicker" style={{ color: "var(--yellow)" }}>THIS IS A REAL PRODUCT</div>
-            <div className="display" style={{ fontSize: 28, marginTop: 6, lineHeight: 1.05 }}>
-              EVERYONE LOGS IT.{" "}
-              <span className="glow-yellow" style={{ color: "var(--yellow)" }}>TEX PROVES IT.</span>
+        <div style={{ maxWidth: 1440, margin: "0 auto", width: "100%" }}>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: 24,
+            alignItems: "center",
+          }} className="pitch-grid">
+            <div>
+              <div className="kicker" style={{ color: "var(--yellow)" }}>THIS IS A REAL PRODUCT</div>
+              <div className="display" style={{ fontSize: 28, marginTop: 6, lineHeight: 1.05 }}>
+                EVERYONE LOGS IT.{" "}
+                <span className="glow-yellow" style={{ color: "var(--yellow)" }}>TEX PROVES IT.</span>
+              </div>
+              <p style={{ marginTop: 8, color: "var(--ink-dim)", fontSize: 14, maxWidth: 780, lineHeight: 1.55 }}>
+                Every verdict in this game is signed by a real production API
+                with SHA-256 hash-chained evidence and OWASP ASI 2026 findings.
+                The same tamper-proof bundle your EU AI Act, NIST AI RMF, and
+                ISO 42001 auditor will accept on Aug 2, 2026.
+              </p>
             </div>
-            <p style={{ marginTop: 8, color: "var(--ink-dim)", fontSize: 14, maxWidth: 780, lineHeight: 1.55 }}>
-              Every verdict in this game is signed by a real production API with
-              SHA-256 hash-chained evidence. The same tamper-proof bundle your EU
-              AI Act auditor will ask for on August 2, 2026.
-            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button onClick={onOpenDevelopers} className="btn-primary" style={{ background: "var(--cyan)", color: "#001A1F" }}>
+                GET API ACCESS
+              </button>
+              <button onClick={onOpenBuyer} className="btn-ghost">
+                BOOK 20-MIN WALKTHROUGH
+              </button>
+            </div>
           </div>
-          <button onClick={onOpenBuyer} className="btn-primary">
-            BOOK A 20-MIN WALKTHROUGH
-          </button>
-        </div>
-        <div style={{
-          marginTop: 22,
-          paddingTop: 16,
-          borderTop: "1px solid var(--hairline)",
-          display: "flex",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 12,
-          color: "var(--ink-faint)",
-        }} className="micro">
-          <span>BUILT BY VORTEXBLACK · TEXAEGIS.COM</span>
-          <span>API LATENCY {"<"} 200MS · SIGNED EVIDENCE · OWASP ASI 2026</span>
+          <div style={{
+            marginTop: 22,
+            paddingTop: 16,
+            borderTop: "1px solid var(--hairline)",
+            display: "flex",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+            color: "var(--ink-faint)",
+          }} className="micro">
+            <span>BUILT BY VORTEXBLACK · TEXAEGIS.COM</span>
+            <span>API LATENCY {"<"} 200MS · SIGNED EVIDENCE · OWASP ASI 2026 · NIST · ISO 42001</span>
+          </div>
         </div>
       </section>
 
@@ -445,6 +508,7 @@ export default function Hub({ player, onPlay, onEditHandle, onOpenBuyer, onToggl
           .hero-grid { grid-template-columns: 1fr !important; gap: 32px !important; }
           .hero-grid > div:last-child { justify-self: center !important; max-width: 460px !important; margin: 0 auto; }
           .pitch-grid { grid-template-columns: 1fr !important; }
+          .owasp-band-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

@@ -16,14 +16,12 @@ function asNumber(v, f = 0) { return typeof v === "number" && Number.isFinite(v)
 function asString(v, f = "") { return typeof v === "string" ? v : f; }
 
 /**
- * Evaluate raw content against Tex. This is the ONLY call we make.
- * The player's attack text is sent directly to Tex — they're the red-teamer,
- * Tex is the gate. No agent simulation in the middle.
+ * Evaluate raw content against Tex.
  *
  * @param {object} opts
- * @param {string} opts.content - the attack message text
- * @param {object} opts.incident - the incident context (actionType, channel, etc.)
- * @param {number} opts.attempt - attempt number in this round (1-3)
+ * @param {string} opts.content
+ * @param {object} opts.incident
+ * @param {number} opts.attempt
  * @returns {Promise<object>} normalized decision
  */
 export async function evaluateAttack({ content, incident, attempt = 1 }) {
@@ -37,12 +35,36 @@ export async function evaluateAttack({ content, incident, attempt = 1 }) {
     metadata: {
       arena_incident_id: incident.id,
       arena_incident_name: incident.name,
-      arena_mode: "ranked_v8",
+      arena_mode: "ranked_v9",
       attempt,
     },
     policy_id: incident.policy_id || null,
   };
 
+  return _post(payload);
+}
+
+/**
+ * Run-your-own attack — engineering leaders paste arbitrary text and
+ * select a context. Same backend, different `arena_mode` for telemetry.
+ */
+export async function evaluateCustom({ content, action_type, channel, recipient, environment = "production", policy_id = null }) {
+  const payload = {
+    request_id: generateUUIDv4(),
+    action_type: action_type || "outbound_email",
+    content,
+    recipient: recipient || null,
+    channel: channel || "email",
+    environment,
+    metadata: {
+      arena_mode: "run_your_own_v1",
+    },
+    policy_id,
+  };
+  return _post(payload);
+}
+
+async function _post(payload) {
   const t0 = performance.now();
   let response;
   try {
@@ -88,6 +110,7 @@ function normalize(raw, elapsedMs) {
   };
 
   const router = asObject(r.router);
+  const layer_scores = asObject(router.layer_scores);
 
   const asi_findings = asArray(r.asi_findings).map((f) => ({
     category: asString(f?.category, ""),
@@ -102,6 +125,9 @@ function normalize(raw, elapsedMs) {
   const total_ms = asNumber(latency.total_ms, elapsedMs);
 
   const evidence = asObject(r.evidence);
+
+  const specialists = asArray(asObject(r.specialists).specialists);
+  const semantic = asObject(r.semantic);
 
   return {
     decision_id: r.decision_id ? String(r.decision_id) : null,
@@ -120,11 +146,14 @@ function normalize(raw, elapsedMs) {
       record_count: asNumber(evidence.record_count, 0),
     },
     deterministic,
+    specialists,
+    semantic,
     router: {
       final_score: asNumber(router.final_score, 0),
       confidence: asNumber(router.confidence, 0),
       verdict: asVerdict(router.verdict || verdict),
       reasons: asArray(router.reasons).map(String),
+      layer_scores,
     },
     raw: r,
   };

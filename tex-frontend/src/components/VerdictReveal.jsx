@@ -1,29 +1,28 @@
 import React, { useEffect } from "react";
 import RankBadge from "./RankBadge.jsx";
+import OwaspFindings from "./OwaspFindings.jsx";
+import LayerBreakdown from "./LayerBreakdown.jsx";
 import { tierFor } from "../lib/ranking.js";
 import { rankUpSfx } from "../lib/sounds.js";
 
 /*
-  VerdictReveal v8 — "The payoff"
-  ────────────────────────────────
-  Fullscreen overlay. After round completes, show:
-    - BIG verdict label (BYPASS / CLOSE / BLOCKED)
-    - RP change + new tier
-    - Signed evidence bundle (real data from backend) — this is the moment
-      we tie "fun game" to "real product"
-    - CTAs: Play again / Share / Go to Hub
+  VerdictReveal v9 — "OWASP-framed payoff"
+  ─────────────────────────────────────────
+  Same payoff moment, but every artifact now carries the OWASP ASI 2026
+  positioning. Engineers see the six-layer breakdown. CISOs see the
+  signed evidence + framework alignment. Both see the verdict.
 */
 
 export default function VerdictReveal({
-  result,            // { incident, verdict, attempts, secondsLeft, finalAttempt }
-  rpResult,          // { delta, label, tone }
-  player,            // before snapshot
-  playerAfter,       // after snapshot
+  result,
+  rpResult,
+  player,
+  playerAfter,
   onPlayAgain,
   onShare,
   onHome,
 }) {
-  const { incident, verdict, attempts, finalAttempt, timeout } = result;
+  const { incident, verdict, finalAttempt, timeout } = result;
   const decision = finalAttempt?.decision || null;
 
   const win = verdict === "PERMIT";
@@ -49,6 +48,44 @@ export default function VerdictReveal({
   const decisionId = decision?.decision_id;
   const latency = decision?.total_ms;
 
+  function downloadEvidence() {
+    if (!decision) return;
+    const bundle = {
+      tex_evidence_bundle_version: "1.0",
+      generated_at: new Date().toISOString(),
+      decision_id: decisionId,
+      verdict: decision.verdict,
+      confidence: decision.confidence,
+      final_score: decision.final_score,
+      policy_version: decision.policy_version,
+      latency_ms: latency,
+      evidence: decision.evidence,
+      asi_findings: decision.asi_findings,
+      router: decision.router,
+      deterministic: decision.deterministic,
+      semantic: decision.semantic,
+      specialists: decision.specialists,
+      incident: {
+        id: incident.id,
+        name: incident.name,
+        action_type: incident.action_type,
+        channel: incident.channel,
+      },
+      attack_text: finalAttempt?.text || null,
+      _note:
+        "This is the canonical Tex Aegis evidence bundle — the same artifact your EU AI Act / NIST AI RMF / ISO 42001 auditor receives. SHA-256 hash-chained, HMAC-signed, replayable, portable.",
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tex-evidence-${decisionId || "sample"}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={{
       position: "fixed",
@@ -60,7 +97,7 @@ export default function VerdictReveal({
       padding: "32px 16px",
     }}>
       <div className="panel rise" style={{
-        maxWidth: 760,
+        maxWidth: 820,
         margin: "0 auto",
         borderColor: tone,
         boxShadow: `0 0 64px ${tone}33`,
@@ -101,7 +138,7 @@ export default function VerdictReveal({
             gridTemplateColumns: "1fr 1fr",
             gap: 14,
             marginBottom: 20,
-          }}>
+          }} className="rp-grid">
             <div style={{
               padding: "18px 20px",
               border: "1px solid var(--hairline-2)",
@@ -188,33 +225,16 @@ export default function VerdictReveal({
             </div>
           )}
 
-          {/* Why Tex decided — ASI findings */}
-          {decision?.asi_findings?.length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 8 }}>
-                WHY TEX {win ? "LET IT THROUGH" : "CAUGHT IT"}
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {decision.asi_findings.slice(0, 6).map((f, i) => (
-                  <div key={i} style={{
-                    padding: "5px 10px",
-                    border: "1px solid var(--hairline-2)",
-                    borderRadius: 4,
-                    background: "rgba(95, 240, 255, 0.04)",
-                  }}>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--cyan)" }}>
-                      {f.short_code}
-                    </span>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginLeft: 6 }}>
-                      {f.title || "finding"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* SIX-LAYER PIPELINE — architecture made visible */}
+          {decision && <LayerBreakdown decision={decision} />}
 
-          {/* ── The product moment: signed evidence ─────────────── */}
+          {/* OWASP ASI 2026 FINDINGS — replaces old "WHY TEX CAUGHT IT" */}
+          <OwaspFindings
+            findings={decision?.asi_findings || []}
+            verdict={verdict}
+          />
+
+          {/* Signed evidence — the product moment */}
           <div style={{
             padding: "16px 18px",
             border: "1px solid rgba(255, 225, 74, 0.3)",
@@ -222,14 +242,39 @@ export default function VerdictReveal({
             background: "rgba(255, 225, 74, 0.04)",
             marginBottom: 20,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: "50%",
-                background: "var(--yellow)", boxShadow: "0 0 8px var(--yellow-glow)",
-              }} />
-              <span className="kicker" style={{ color: "var(--yellow)" }}>
-                SIGNED EVIDENCE · SHA-256 HASH-CHAINED
-              </span>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 10,
+              flexWrap: "wrap",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: "var(--yellow)", boxShadow: "0 0 8px var(--yellow-glow)",
+                }} />
+                <span className="kicker" style={{ color: "var(--yellow)" }}>
+                  SIGNED EVIDENCE · SHA-256 HASH-CHAINED
+                </span>
+              </div>
+              <button
+                onClick={downloadEvidence}
+                disabled={!decision}
+                className="micro"
+                style={{
+                  padding: "6px 10px",
+                  border: "1px solid rgba(255, 225, 74, 0.45)",
+                  borderRadius: 4,
+                  color: "var(--yellow)",
+                  background: "transparent",
+                  cursor: decision ? "pointer" : "not-allowed",
+                  opacity: decision ? 1 : 0.5,
+                }}
+              >
+                ⬇ DOWNLOAD BUNDLE
+              </button>
             </div>
             <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7, wordBreak: "break-all" }}>
               <div><strong style={{ color: "var(--ink)" }}>decision_id:</strong> {decisionId || "—"}</div>
@@ -238,7 +283,7 @@ export default function VerdictReveal({
               <div><strong style={{ color: "var(--ink)" }}>latency:</strong> {latency}ms · <strong style={{ color: "var(--ink)" }}>chain_valid:</strong> {decision?.evidence?.chain_valid ? "true" : "false"}</div>
             </div>
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255, 225, 74, 0.15)", fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>
-              <strong style={{ color: "var(--yellow)" }}>This is a real audit record.</strong> Tamper-proof, portable, cryptographically verifiable. Every verdict in this game produces the same bundle your EU AI Act auditor would accept.
+              <strong style={{ color: "var(--yellow)" }}>This is a real audit record.</strong> Tamper-proof, portable, cryptographically verifiable. Your EU AI Act, NIST AI RMF, and ISO 42001 auditor will accept the same bundle.
             </div>
           </div>
 
@@ -273,6 +318,12 @@ export default function VerdictReveal({
           </button>
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 600px) {
+          .rp-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   );
 }

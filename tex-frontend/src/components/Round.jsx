@@ -1,25 +1,30 @@
 import React, { useEffect, useRef, useState } from "react";
 import { evaluateAttack } from "../lib/apiClient.js";
 import { sendSfx, tickSfx, winSfx, loseSfx, partialSfx } from "../lib/sounds.js";
+import { normalizeAsiCode, OWASP_ASI } from "../lib/owaspAsi.js";
 
 /*
-  Round v8 — "You vs Tex"
-  ────────────────────────
-  One opponent. You type an attack. It goes to /api/evaluate (real).
-  Tex returns PERMIT / ABSTAIN / FORBID. You have:
-    - 60 seconds (timer starts on first attempt)
-    - 3 attempts max
-  Round ends when:
-    - PERMIT (you bypassed Tex — big win)
-    - 3 FORBIDs/ABSTAINs used up
-    - Timer expires
+  Round v9 — "OWASP-framed You vs Tex"
+  ─────────────────────────────────────
+  Identical gameplay to v8. Two visible upgrades on each attempt:
+    1. ASI code chips (e.g. ASI06, ASI10) on the verdict line
+    2. Incident card shows which ASI categories this incident exercises
+  Same 60s, 3 attempts, real backend.
 */
 
 const MAX_ATTEMPTS = 3;
 const TIME_LIMIT = 60;
 
+const LAYER_LABELS = {
+  deterministic: "DETERMINISTIC",
+  retrieval: "RETRIEVAL",
+  specialists: "SPECIALISTS",
+  semantic: "SEMANTIC",
+  router: "ROUTER",
+};
+
 export default function Round({ incident, onComplete, onBail }) {
-  const [attempts, setAttempts] = useState([]); // { text, decision, latencyMs }
+  const [attempts, setAttempts] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
@@ -32,7 +37,6 @@ export default function Round({ incident, onComplete, onBail }) {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Timer
   useEffect(() => {
     if (!timerStarted || done) return;
     if (secondsLeft <= 0) {
@@ -76,7 +80,6 @@ export default function Round({ incident, onComplete, onBail }) {
       setInput("");
       setSending(false);
 
-      // Win: PERMIT = you bypassed Tex
       if (decision.verdict === "PERMIT") {
         setDone(true);
         winSfx();
@@ -90,12 +93,9 @@ export default function Round({ incident, onComplete, onBail }) {
         return;
       }
 
-      // If ABSTAIN and this is the last attempt, partial credit
       if (decision.verdict === "ABSTAIN") partialSfx();
 
-      // Out of attempts → round over, Tex won
       if (newAttempts.length >= MAX_ATTEMPTS) {
-        // Best outcome: did we ever get ABSTAIN? (partial credit)
         const bestVerdict = newAttempts.some((a) => a.decision.verdict === "ABSTAIN")
           ? "ABSTAIN"
           : "FORBID";
@@ -187,8 +187,26 @@ export default function Round({ incident, onComplete, onBail }) {
 
       {/* Incident card */}
       <div className="panel rise" style={{ padding: "20px 24px", marginBottom: 20 }}>
-        <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 6 }}>
-          INCIDENT · {incident.name.toUpperCase()}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+          <div className="kicker" style={{ color: "var(--cyan)" }}>
+            INCIDENT · {incident.name.toUpperCase()}
+          </div>
+          {(incident.asi || []).length > 0 && (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {incident.asi.map((c) => (
+                <span key={c} title={OWASP_ASI[c]?.title || c} className="mono" style={{
+                  fontSize: 10,
+                  padding: "2px 6px",
+                  border: "1px solid rgba(95, 240, 255, 0.35)",
+                  borderRadius: 3,
+                  color: "var(--cyan)",
+                  background: "rgba(95, 240, 255, 0.05)",
+                }}>
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="display" style={{ fontSize: 32, marginBottom: 8, lineHeight: 1.05 }}>
           {incident.goal}
@@ -208,6 +226,7 @@ export default function Round({ incident, onComplete, onBail }) {
           <Meta label="ACTION" value={incident.action_type.replace(/_/g, " ").toUpperCase()} />
           <Meta label="ENV" value={incident.environment.toUpperCase()} />
           {incident.recipient && <Meta label="TO" value={incident.recipient} />}
+          {incident.vertical && <Meta label="VERTICAL" value={incident.vertical.toUpperCase()} />}
         </div>
       </div>
 
@@ -233,7 +252,7 @@ export default function Round({ incident, onComplete, onBail }) {
           style={{
             flex: 1,
             minHeight: 200,
-            maxHeight: 360,
+            maxHeight: 400,
             overflowY: "auto",
             marginBottom: 16,
             padding: "8px 4px",
@@ -304,7 +323,7 @@ export default function Round({ incident, onComplete, onBail }) {
           {input.length}/1500
         </span>
         <span className="micro" style={{ color: "var(--ink-faint)" }}>
-          EVERY ATTEMPT HITS THE LIVE TEX API
+          EVERY ATTEMPT HITS THE LIVE TEX API · OWASP ASI 2026
         </span>
       </div>
     </div>
@@ -367,6 +386,28 @@ function AttemptBlock({ n, attempt }) {
   const bg = v === "PERMIT" ? "rgba(95, 250, 159, 0.07)" : v === "ABSTAIN" ? "rgba(255, 225, 74, 0.07)" : "rgba(255, 75, 75, 0.07)";
   const label = v === "PERMIT" ? "BYPASS — YOU WON" : v === "ABSTAIN" ? "ESCALATED — CLOSE" : "BLOCKED";
 
+  // Identify driving layer from layer_scores.
+  const layerScores = decision?.router?.layer_scores || {};
+  let drivingLayer = null;
+  let drivingScore = -1;
+  Object.keys(layerScores).forEach((k) => {
+    if (k === "evidence") return;
+    const s = Number(layerScores[k]) || 0;
+    if (s > drivingScore) { drivingScore = s; drivingLayer = k; }
+  });
+  if (decision?.deterministic?.blocked) drivingLayer = "deterministic";
+
+  // ASI codes from findings, deduped to canonical buckets.
+  const asiCodes = new Set();
+  (decision?.asi_findings || []).forEach((f) => {
+    const code =
+      normalizeAsiCode(f.short_code) ||
+      normalizeAsiCode(f.category) ||
+      null;
+    if (code) asiCodes.add(code);
+  });
+  const codeList = [...asiCodes].slice(0, 4);
+
   return (
     <div className="rise">
       {/* Player attack */}
@@ -397,7 +438,7 @@ function AttemptBlock({ n, attempt }) {
         gap: 12,
         flexWrap: "wrap",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{
             width: 8, height: 8, borderRadius: "50%", background: c, boxShadow: `0 0 8px ${c}`,
           }} />
@@ -405,9 +446,24 @@ function AttemptBlock({ n, attempt }) {
           <span className="display" style={{ fontSize: 13, color: c, letterSpacing: "0.05em" }}>
             {label}
           </span>
+          {codeList.length > 0 && (
+            <span style={{ display: "flex", gap: 4, marginLeft: 4 }}>
+              {codeList.map((code) => (
+                <span key={code} title={OWASP_ASI[code]?.title || code} className="mono" style={{
+                  fontSize: 9,
+                  padding: "2px 5px",
+                  border: "1px solid rgba(95, 240, 255, 0.4)",
+                  borderRadius: 3,
+                  color: "var(--cyan)",
+                }}>
+                  {code}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
         <div className="mono tabular" style={{ fontSize: 11, color: "var(--ink-faint)" }}>
-          {latencyMs}ms · {decision.asi_findings?.length || 0} ASI · {decision.confidence ? (decision.confidence * 100).toFixed(0) + "%" : "—"}
+          {latencyMs}ms{drivingLayer && ` · L:${LAYER_LABELS[drivingLayer] || drivingLayer.toUpperCase()}`} · {decision.confidence ? (decision.confidence * 100).toFixed(0) + "%" : "—"}
         </div>
       </div>
     </div>

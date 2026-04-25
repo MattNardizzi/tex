@@ -59,27 +59,33 @@ export function rpForOutcome({ verdict, attemptsUsed, secondsLeft, incidentDiffi
 //  Seeded leaderboard — hardcoded for v1. Replace with backend call later.
 // ────────────────────────────────────────────────────────────────────
 
+// Seeded leaderboard. NOBODY is UNDEFEATED (2500+) — that's Tex's bounty slot.
+// All seeds cap at 2499 (Chief/Sr Investigator). Top rank slot stays empty
+// as the dangling carrot: "beat Tex, take the throne."
 const SEED_LEADERBOARD = [
-  { handle: "redteam_raj",        rp: 3840, region: "US", streak: 14 },
-  { handle: "nightowl_ciso",      rp: 3210, region: "EU", streak: 9 },
-  { handle: "breachhunter",       rp: 2965, region: "US", streak: 7 },
-  { handle: "sara.infosec",       rp: 2702, region: "IN", streak: 5 },
-  { handle: "detectiveXplorer",   rp: 2540, region: "CA", streak: 4 },
-  { handle: "bypass_betty",       rp: 2380, region: "UK", streak: 3 },
-  { handle: "0xghostrider",       rp: 2201, region: "DE", streak: 8 },
-  { handle: "blueteam_ben",       rp: 2048, region: "AU", streak: 2 },
-  { handle: "pkts_in_flight",     rp: 1890, region: "US", streak: 6 },
-  { handle: "caf3ineCorrupted",   rp: 1754, region: "BR", streak: 2 },
-  { handle: "jane.a.ops",         rp: 1602, region: "US", streak: 4 },
-  { handle: "h4x_on_call",        rp: 1488, region: "SG", streak: 3 },
-  { handle: "promptwhisperer",    rp: 1370, region: "NL", streak: 2 },
-  { handle: "aegis_anon",         rp: 1245, region: "US", streak: 1 },
-  { handle: "fuzzyFaith",         rp: 1120, region: "JP", streak: 1 },
+  { handle: "redteam_raj",        rp: 2420, region: "US", streak: 14 },
+  { handle: "nightowl_ciso",      rp: 2195, region: "EU", streak: 9 },
+  { handle: "breachhunter",       rp: 2048, region: "US", streak: 7 },
+  { handle: "sara.infosec",       rp: 1892, region: "IN", streak: 5 },
+  { handle: "detectiveXplorer",   rp: 1710, region: "CA", streak: 4 },
+  { handle: "bypass_betty",       rp: 1588, region: "UK", streak: 3 },
+  { handle: "0xghostrider",       rp: 1442, region: "DE", streak: 8 },
+  { handle: "blueteam_ben",       rp: 1310, region: "AU", streak: 2 },
+  { handle: "pkts_in_flight",     rp: 1180, region: "US", streak: 6 },
+  { handle: "caf3ineCorrupted",   rp: 1047, region: "BR", streak: 2 },
+  { handle: "jane.a.ops",         rp: 968,  region: "US", streak: 4 },
+  { handle: "h4x_on_call",        rp: 842,  region: "SG", streak: 3 },
+  { handle: "promptwhisperer",    rp: 730,  region: "NL", streak: 2 },
+  { handle: "aegis_anon",         rp: 611,  region: "US", streak: 1 },
+  { handle: "fuzzyFaith",         rp: 488,  region: "JP", streak: 1 },
 ];
 
 /**
  * Returns a leaderboard slice with the player inserted at the correct rank.
- * Top N above, player highlighted, and N below.
+ * The TOP of the board is always an empty "throne" row — because nobody
+ * has beaten Tex yet. That empty slot is the dangling carrot.
+ *
+ * Ranks: #1 throne (empty) → #2+ everyone else.
  */
 export function leaderboardWithPlayer(player) {
   const playerEntry = {
@@ -89,32 +95,45 @@ export function leaderboardWithPlayer(player) {
     streak: player.streak || 0,
     isYou: true,
   };
-  const all = [...SEED_LEADERBOARD, playerEntry]
-    .sort((a, b) => b.rp - a.rp)
-    .map((e, i) => ({ ...e, rank: i + 1 }));
+  const throne = { isThrone: true, handle: "— UNCLAIMED —", rp: null };
 
-  const you = all.find((e) => e.isYou);
-  const top = all.slice(0, 3);
+  const sorted = [...SEED_LEADERBOARD, playerEntry]
+    .sort((a, b) => b.rp - a.rp);
+
+  // Throne is always rank #1. Everyone else starts at #2.
+  const ranked = [
+    { ...throne, rank: 1 },
+    ...sorted.map((e, i) => ({ ...e, rank: i + 2 })),
+  ];
+
+  const you = ranked.find((e) => e.isYou);
   const yourRank = you.rank;
-  const youIndex = all.indexOf(you);
+  const youIndex = ranked.indexOf(you);
 
-  // Show top 3, then "...", then player + 1 above / 1 below if applicable
   let window = [];
-  if (yourRank <= 3) {
-    window = all.slice(0, 5);
+  if (yourRank <= 4) {
+    window = ranked.slice(0, 6);
   } else {
-    const above = all[youIndex - 1];
-    const below = all[youIndex + 1];
-    window = [...top, { divider: true }, ...(above ? [above] : []), you, ...(below ? [below] : [])];
+    const top3 = ranked.slice(0, 4); // throne + top 3
+    const above = ranked[youIndex - 1];
+    const below = ranked[youIndex + 1];
+    window = [
+      ...top3,
+      { divider: true },
+      ...(above ? [above] : []),
+      you,
+      ...(below ? [below] : []),
+    ];
   }
-  return { list: window, yourRank, total: all.length };
+  return { list: window, yourRank, total: ranked.length };
 }
 
 export function globalStats() {
-  // Static-ish flavor stats for the hero. In production these come from backend.
+  // Static-ish flavor stats. Deliberately small bypass count — it's the hook.
+  // texRecord is ∞–0–0 (zero anyone has ever beaten him).
   return {
     attemptsToday: 4847 + Math.floor(Math.random() * 200),
-    bypassesToday: 3,   // Very few. This is the point.
-    texRecord: "∞–0–3",
+    bypassesToday: 0,
+    texRecord: "∞–0–0",
   };
 }

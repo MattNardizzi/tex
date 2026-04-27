@@ -1,36 +1,33 @@
 import React, { useEffect, useRef, useState } from "react";
 import { evaluateAttack } from "../lib/apiClient.js";
-import { sendSfx, tickSfx, winSfx, loseSfx, partialSfx } from "../lib/sounds.js";
-import { normalizeAsiCode, OWASP_ASI } from "../lib/owaspAsi.js";
+import { sendSfx, winSfx, loseSfx, partialSfx } from "../lib/sounds.js";
+import { judgeIntent } from "../lib/intentJudge.js";
+import { computeRoundScore, layerProfile } from "../lib/stealthScore.js";
+import LayerAnatomy from "./LayerAnatomy.jsx";
 
 /*
-  Round v9 — "OWASP-framed You vs Tex"
-  ─────────────────────────────────────
-  Identical gameplay to v8. Two visible upgrades on each attempt:
-    1. ASI code chips (e.g. ASI06, ASI10) on the verdict line
-    2. Incident card shows which ASI categories this incident exercises
-  Same 60s, 3 attempts, real backend.
+  Round v10 — adversarial puzzle, no clock
+  ─────────────────────────────────────────
+  - 5 attempts, no timer
+  - Intent Judge gates every submission (forfeits don't count)
+  - Layer Anatomy lights up live as Tex evaluates
+  - Round ends when:
+      (a) intent passed AND verdict === PERMIT  → BYPASS, immediate finish
+      (b) 5 real (non-forfeit) attempts used    → finish with best score
+      (c) player hits BAIL                      → forfeit round
+  - Result passed to onComplete includes best score across attempts
 */
 
-const MAX_ATTEMPTS = 3;
-const TIME_LIMIT = 60;
+const MAX_ATTEMPTS = 5;
 
-const LAYER_LABELS = {
-  deterministic: "DETERMINISTIC",
-  retrieval: "RETRIEVAL",
-  specialists: "SPECIALISTS",
-  semantic: "SEMANTIC",
-  router: "ROUTER",
-};
-
-export default function Round({ incident, onComplete, onBail }) {
-  const [attempts, setAttempts] = useState([]);
+export default function Round({ incident, onComplete, onBail, mode = "ranked" }) {
+  const [attempts, setAttempts] = useState([]);    // [{ text, decision, intent, score, latencyMs }]
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState("");
-  const [timerStarted, setTimerStarted] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(TIME_LIMIT);
   const [done, setDone] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+  const [livePreview, setLivePreview] = useState(null); // most recent attempt's score for the live anatomy
 
   const inputRef = useRef(null);
   const scrollerRef = useRef(null);
@@ -38,96 +35,100 @@ export default function Round({ incident, onComplete, onBail }) {
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   useEffect(() => {
-    if (!timerStarted || done) return;
-    if (secondsLeft <= 0) {
-      handleTimeout();
-      return;
+    if (scrollerRef.current) {
+      scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
     }
-    if (secondsLeft <= 10) tickSfx();
-    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, timerStarted, done]);
-
-  useEffect(() => {
-    if (scrollerRef.current) scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
   }, [attempts, sending]);
+
+  // Count only non-forfeit attempts toward the budget
+  const realAttempts = attempts.filter((a) => !a.score.forfeit);
+  const attemptsLeft = Math.max(0, MAX_ATTEMPTS - realAttempts.length);
 
   async function handleSend() {
     if (sending || done) return;
     const text = input.trim();
     if (!text) return;
-    if (attempts.length >= MAX_ATTEMPTS) return;
 
     setErr("");
     setSending(true);
+    setEvaluating(true);
+    setLivePreview(null);
     sendSfx();
-    if (!timerStarted) setTimerStarted(true);
-    const attemptNo = attempts.length + 1;
+
+    // 1. Intent Judge runs first (instant, deterministic)
+    const intent = judgeIntent(text, incident);
 
     try {
       const t0 = performance.now();
       const decision = await evaluateAttack({
         content: text,
         incident,
-        attempt: attemptNo,
+        attempt: realAttempts.length + 1,
       });
       const latencyMs = decision.total_ms || Math.round(performance.now() - t0);
 
-      const entry = { text, decision, latencyMs };
+      const score = computeRoundScore({
+        intent,
+        decision,
+        tier: incident.tier || 2,
+      });
+
+      const entry = { text, decision, intent, score, latencyMs };
       const newAttempts = [...attempts, entry];
+
       setAttempts(newAttempts);
       setInput("");
+      setEvaluating(false);
       setSending(false);
+      setLivePreview(score);
 
-      if (decision.verdict === "PERMIT") {
-        setDone(true);
-        winSfx();
-        setTimeout(() => onComplete({
-          incident,
-          verdict: "PERMIT",
-          attempts: newAttempts,
-          secondsLeft,
-          finalAttempt: entry,
-        }), 900);
+      // ── Outcome routing ─────────────────────────────────────────
+      if (score.forfeit) {
+        // Forfeit: doesn't count, don't end round, just show explainer
+        partialSfx();
         return;
       }
 
-      if (decision.verdict === "ABSTAIN") partialSfx();
-
-      if (newAttempts.length >= MAX_ATTEMPTS) {
-        const bestVerdict = newAttempts.some((a) => a.decision.verdict === "ABSTAIN")
-          ? "ABSTAIN"
-          : "FORBID";
+      if (score.verdict === "PERMIT") {
         setDone(true);
-        if (bestVerdict === "FORBID") loseSfx();
-        setTimeout(() => onComplete({
-          incident,
-          verdict: bestVerdict,
-          attempts: newAttempts,
-          secondsLeft,
-          finalAttempt: newAttempts[newAttempts.length - 1],
-        }), 900);
+        winSfx();
+        finishRound(newAttempts, "PERMIT");
+        return;
+      }
+
+      if (score.verdict === "ABSTAIN") partialSfx();
+      else loseSfx();
+
+      const newReal = newAttempts.filter((a) => !a.score.forfeit);
+      if (newReal.length >= MAX_ATTEMPTS) {
+        setDone(true);
+        finishRound(newAttempts, null);
       }
     } catch (e) {
       setSending(false);
+      setEvaluating(false);
       setErr(e.message || "Tex API error");
     }
   }
 
-  function handleTimeout() {
-    setDone(true);
-    loseSfx();
-    const bestVerdict = attempts.some((a) => a.decision.verdict === "ABSTAIN")
-      ? "ABSTAIN"
-      : "FORBID";
+  function finishRound(allAttempts, forcedVerdict) {
+    // Pick the best attempt by score
+    const real = allAttempts.filter((a) => !a.score.forfeit);
+    let best = real[0];
+    for (const a of real) {
+      if (a.score.total > (best?.score.total || 0)) best = a;
+    }
+    if (!best) {
+      // No real attempts — return a forfeit-style result
+      best = allAttempts[allAttempts.length - 1] || null;
+    }
+
     setTimeout(() => onComplete({
       incident,
-      verdict: bestVerdict,
-      attempts,
-      secondsLeft: 0,
-      timeout: true,
-      finalAttempt: attempts[attempts.length - 1] || null,
+      attempts: allAttempts,
+      bestAttempt: best,
+      finalVerdict: forcedVerdict || best?.score.verdict || "ABSTAIN",
+      mode,
     }), 700);
   }
 
@@ -138,13 +139,6 @@ export default function Round({ incident, onComplete, onBail }) {
     }
   }
 
-  const attemptsLeft = MAX_ATTEMPTS - attempts.length;
-  const timerColor =
-    !timerStarted ? "var(--ink-faint)" :
-    secondsLeft <= 10 ? "var(--red)" :
-    secondsLeft <= 25 ? "var(--yellow)" :
-    "var(--cyan)";
-
   return (
     <div style={{
       minHeight: "100vh",
@@ -152,21 +146,24 @@ export default function Round({ incident, onComplete, onBail }) {
       flexDirection: "column",
       maxWidth: 1100,
       margin: "0 auto",
-      padding: "24px 32px 40px",
+      padding: "var(--pad-page)",
       width: "100%",
+      paddingTop: "calc(var(--pad-page) + 8px)",
     }}>
-      {/* Top bar */}
+      {/* ── Top bar ─────────────────────────────────────── */}
       <div style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingBottom: 16,
+        paddingBottom: 14,
         borderBottom: "1px solid var(--hairline-2)",
-        marginBottom: 24,
+        marginBottom: 18,
+        gap: 12,
+        flexWrap: "wrap",
       }}>
         <button onClick={onBail} className="micro" style={{
           color: "var(--ink-faint)",
-          padding: "6px 10px",
+          padding: "8px 12px",
           border: "1px solid var(--hairline-2)",
           borderRadius: 4,
         }}>
@@ -177,25 +174,34 @@ export default function Round({ incident, onComplete, onBail }) {
             width: 6, height: 6, borderRadius: "50%",
             background: "var(--pink)", boxShadow: "0 0 8px var(--pink-glow)",
           }} className="pulse" />
-          <span className="kicker" style={{ color: "var(--pink)" }}>LIVE ROUND</span>
+          <span className="kicker" style={{ color: "var(--pink)" }}>
+            {mode === "daily" ? "DAILY · LIVE" : "LIVE ROUND"}
+          </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          <AttemptPips total={MAX_ATTEMPTS} used={attempts.length} />
-          <Timer seconds={secondsLeft} color={timerColor} started={timerStarted} />
-        </div>
+        <AttemptBudget total={MAX_ATTEMPTS} used={realAttempts.length} />
       </div>
 
-      {/* Incident card */}
-      <div className="panel rise" style={{ padding: "20px 24px", marginBottom: 20 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
-          <div className="kicker" style={{ color: "var(--cyan)" }}>
-            INCIDENT · {incident.name.toUpperCase()}
+      {/* ── Incident card ───────────────────────────────── */}
+      <div className="panel rise" style={{ padding: "18px 22px", marginBottom: 16 }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          flexWrap: "wrap",
+          gap: 10,
+          marginBottom: 8,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <TierPips tier={incident.tier} />
+            <span className="kicker" style={{ color: "var(--cyan)" }}>
+              {incident.name.toUpperCase()}
+            </span>
           </div>
           {(incident.asi || []).length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {incident.asi.map((c) => (
-                <span key={c} title={OWASP_ASI[c]?.title || c} className="mono" style={{
-                  fontSize: 10,
+                <span key={c} className="mono" style={{
+                  fontSize: 9,
                   padding: "2px 6px",
                   border: "1px solid rgba(95, 240, 255, 0.35)",
                   borderRadius: 3,
@@ -208,57 +214,85 @@ export default function Round({ incident, onComplete, onBail }) {
             </div>
           )}
         </div>
-        <div className="display" style={{ fontSize: 32, marginBottom: 8, lineHeight: 1.05 }}>
+        <div className="display" style={{
+          fontSize: "clamp(20px, 4.5vw, 28px)",
+          marginBottom: 8,
+          lineHeight: 1.05,
+        }}>
           {incident.goal}
         </div>
-        <div style={{ color: "var(--ink-dim)", fontSize: 14, lineHeight: 1.5 }}>
+        <div style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.5 }}>
           {incident.setup}
         </div>
         <div style={{
-          marginTop: 14,
-          paddingTop: 14,
+          marginTop: 12,
+          paddingTop: 12,
           borderTop: "1px solid var(--hairline)",
           display: "flex",
-          gap: 16,
+          gap: 14,
           flexWrap: "wrap",
         }}>
           <Meta label="CHANNEL" value={incident.channel.toUpperCase()} />
           <Meta label="ACTION" value={incident.action_type.replace(/_/g, " ").toUpperCase()} />
           <Meta label="ENV" value={incident.environment.toUpperCase()} />
           {incident.recipient && <Meta label="TO" value={incident.recipient} />}
-          {incident.vertical && <Meta label="VERTICAL" value={incident.vertical.toUpperCase()} />}
         </div>
       </div>
 
-      {/* Hint bar */}
+      {/* ── Live Layer Anatomy ──────────────────────────── */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: 8,
+          gap: 10,
+          flexWrap: "wrap",
+        }}>
+          <span className="kicker" style={{ color: "var(--cyan)" }}>
+            TEX PIPELINE
+          </span>
+          <span className="micro" style={{ color: "var(--ink-faint)" }}>
+            {evaluating ? "ADJUDICATING…" : livePreview ? "LAST ATTEMPT" : "AWAITING INPUT"}
+          </span>
+        </div>
+        <LayerAnatomy
+          profile={livePreview?.profile || null}
+          evaluating={evaluating}
+          showWeights
+        />
+      </div>
+
+      {/* ── Hint bar ─────────────────────────────────────── */}
       <div style={{
-        padding: "12px 16px",
+        padding: "10px 14px",
         borderLeft: "3px solid var(--yellow)",
         background: "rgba(255, 225, 74, 0.05)",
         borderRadius: 4,
-        marginBottom: 20,
+        marginBottom: 16,
         display: "flex",
         alignItems: "center",
         gap: 10,
+        flexWrap: "wrap",
       }}>
-        <span className="kicker" style={{ color: "var(--yellow)" }}>TEX WATCHES FOR</span>
+        <span className="kicker" style={{ color: "var(--yellow)" }}>WATCH FOR</span>
         <span style={{ color: "var(--ink-dim)", fontSize: 13 }}>{incident.hint}</span>
       </div>
 
-      {/* Transcript */}
+      {/* ── Transcript ──────────────────────────────────── */}
       {attempts.length > 0 && (
         <div
           ref={scrollerRef}
           style={{
             flex: 1,
-            minHeight: 200,
-            maxHeight: 400,
+            minHeight: 160,
+            maxHeight: 360,
             overflowY: "auto",
-            marginBottom: 16,
-            padding: "8px 4px",
+            marginBottom: 14,
+            padding: "4px 2px",
             display: "flex",
             flexDirection: "column",
-            gap: 14,
+            gap: 12,
           }}
         >
           {attempts.map((a, i) => <AttemptBlock key={i} n={i + 1} attempt={a} />)}
@@ -280,83 +314,79 @@ export default function Round({ incident, onComplete, onBail }) {
         </div>
       )}
 
-      {/* Input */}
+      {/* ── Input ───────────────────────────────────────── */}
       {!done && (
-        <div className="panel" style={{
-          padding: 8,
-          display: "flex",
-          gap: 8,
-          alignItems: "flex-end",
-        }}>
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value.slice(0, 1500))}
-            onKeyDown={onKey}
-            placeholder={
-              attempts.length === 0
-                ? `Write the attack message. ⌘/Ctrl+Enter to send. Tex sees everything.`
-                : `Attempt ${attempts.length + 1} of ${MAX_ATTEMPTS} — refine your approach.`
-            }
-            rows={3}
-            disabled={sending || attemptsLeft === 0 || done}
-            className="tex-input"
-            style={{ flex: 1, minHeight: 64 }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={sending || !input.trim() || attemptsLeft === 0 || done}
-            className="btn-primary"
-            style={{ padding: "12px 22px", fontSize: 12, alignSelf: "stretch" }}
-          >
-            {sending ? "SENDING" : "ATTACK →"}
-          </button>
-        </div>
+        <>
+          <div className="panel" style={{
+            padding: 8,
+            display: "flex",
+            gap: 8,
+            alignItems: "stretch",
+            flexDirection: "row",
+            flexWrap: "wrap",
+          }}>
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value.slice(0, 1500))}
+              onKeyDown={onKey}
+              placeholder={
+                attempts.length === 0
+                  ? `Craft your attack. ${incident.goal} ⌘/Ctrl+Enter to send.`
+                  : `Refine. ${attemptsLeft} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`
+              }
+              rows={3}
+              disabled={sending || attemptsLeft === 0 || done}
+              className="tex-input"
+              style={{ flex: 1, minWidth: 200, minHeight: 72 }}
+            />
+            <button
+              onClick={handleSend}
+              disabled={sending || !input.trim() || attemptsLeft === 0 || done}
+              className="btn-primary"
+              style={{ padding: "12px 22px", fontSize: 12, minWidth: 110 }}
+            >
+              {sending ? "SENDING" : "ATTACK →"}
+            </button>
+          </div>
+          <div style={{
+            marginTop: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 6,
+          }}>
+            <span className="micro" style={{ color: "var(--ink-faint)" }}>
+              {input.length}/1500
+            </span>
+            <span className="micro" style={{ color: "var(--ink-faint)" }}>
+              FORFEITS DON'T COUNT · LIVE TEX API
+            </span>
+          </div>
+        </>
       )}
-      <div style={{
-        marginTop: 8,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-      }}>
-        <span className="micro" style={{ color: "var(--ink-faint)" }}>
-          {input.length}/1500
-        </span>
-        <span className="micro" style={{ color: "var(--ink-faint)" }}>
-          EVERY ATTEMPT HITS THE LIVE TEX API · OWASP ASI 2026
-        </span>
-      </div>
     </div>
   );
 }
 
-function Timer({ seconds, color, started }) {
-  const mm = String(Math.floor(seconds / 60)).padStart(1, "0");
-  const ss = String(seconds % 60).padStart(2, "0");
+function TierPips({ tier }) {
+  const color = tier === 1 ? "var(--cyan)" : tier === 2 ? "var(--yellow)" : "var(--pink)";
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "6px 12px",
-      border: `1px solid ${color}`,
-      borderRadius: 6,
-      background: `${color}0E`,
-    }}>
-      <span className="micro" style={{ color: "var(--ink-faint)" }}>
-        {started ? "TIME" : "CLOCK"}
-      </span>
-      <span className="display tabular" style={{ fontSize: 18, color, letterSpacing: "0.05em" }}>
-        {started ? `${mm}:${ss}` : "60s"}
-      </span>
+    <div style={{ display: "flex", gap: 1, color }}>
+      {[1, 2, 3].map((n) => (
+        <span key={n} className={`tier-pip ${n <= tier ? "on" : ""}`} />
+      ))}
     </div>
   );
 }
 
-function AttemptPips({ total, used }) {
+function AttemptBudget({ total, used }) {
   return (
     <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-      <span className="micro" style={{ color: "var(--ink-faint)", marginRight: 4 }}>ATTEMPTS</span>
+      <span className="micro" style={{ color: "var(--ink-faint)", marginRight: 4 }}>
+        ATTEMPTS
+      </span>
       {Array.from({ length: total }).map((_, i) => (
         <span key={i} style={{
           width: 9,
@@ -364,6 +394,7 @@ function AttemptPips({ total, used }) {
           borderRadius: "50%",
           background: i < total - used ? "var(--cyan)" : "var(--hairline-2)",
           boxShadow: i < total - used ? "0 0 8px var(--cyan-glow)" : "none",
+          transition: "all 0.3s ease",
         }} />
       ))}
     </div>
@@ -374,45 +405,47 @@ function Meta({ label, value }) {
   return (
     <div>
       <div className="micro" style={{ color: "var(--ink-faint)" }}>{label}</div>
-      <div className="mono" style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 2 }}>{value}</div>
+      <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", marginTop: 2 }}>
+        {value}
+      </div>
     </div>
   );
 }
 
 function AttemptBlock({ n, attempt }) {
-  const { text, decision, latencyMs } = attempt;
-  const v = decision.verdict;
+  const { text, score, intent, latencyMs } = attempt;
+
+  if (score.forfeit) {
+    return (
+      <div className="rise">
+        <div style={{
+          padding: "10px 12px",
+          border: "1px solid rgba(255, 225, 74, 0.35)",
+          borderRadius: 6,
+          background: "rgba(255, 225, 74, 0.04)",
+        }}>
+          <div className="micro" style={{ color: "var(--yellow)", marginBottom: 6 }}>
+            ATTEMPT #{n} · FORFEIT — DOES NOT COUNT
+          </div>
+          <div className="mono" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-dim)", whiteSpace: "pre-wrap" }}>
+            {text}
+          </div>
+          <div style={{ marginTop: 6, color: "var(--ink-faint)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+            {intent.explainer}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const v = score.verdict;
   const c = v === "PERMIT" ? "var(--green)" : v === "ABSTAIN" ? "var(--yellow)" : "var(--red)";
   const bg = v === "PERMIT" ? "rgba(95, 250, 159, 0.07)" : v === "ABSTAIN" ? "rgba(255, 225, 74, 0.07)" : "rgba(255, 75, 75, 0.07)";
-  const label = v === "PERMIT" ? "BYPASS — YOU WON" : v === "ABSTAIN" ? "ESCALATED — CLOSE" : "BLOCKED";
-
-  // Identify driving layer from layer_scores.
-  const layerScores = decision?.router?.layer_scores || {};
-  let drivingLayer = null;
-  let drivingScore = -1;
-  Object.keys(layerScores).forEach((k) => {
-    if (k === "evidence") return;
-    const s = Number(layerScores[k]) || 0;
-    if (s > drivingScore) { drivingScore = s; drivingLayer = k; }
-  });
-  if (decision?.deterministic?.blocked) drivingLayer = "deterministic";
-
-  // ASI codes from findings, deduped to canonical buckets.
-  const asiCodes = new Set();
-  (decision?.asi_findings || []).forEach((f) => {
-    const code =
-      normalizeAsiCode(f.short_code) ||
-      normalizeAsiCode(f.category) ||
-      null;
-    if (code) asiCodes.add(code);
-  });
-  const codeList = [...asiCodes].slice(0, 4);
 
   return (
     <div className="rise">
-      {/* Player attack */}
       <div style={{
-        padding: "12px 14px",
+        padding: "10px 12px",
         border: "1px solid rgba(255, 61, 122, 0.25)",
         borderRadius: 6,
         background: "rgba(255, 61, 122, 0.04)",
@@ -425,7 +458,6 @@ function AttemptBlock({ n, attempt }) {
         </div>
       </div>
 
-      {/* Tex verdict */}
       <div style={{
         marginTop: 6,
         padding: "10px 14px",
@@ -444,26 +476,11 @@ function AttemptBlock({ n, attempt }) {
           }} />
           <span className="kicker" style={{ color: c }}>TEX · {v}</span>
           <span className="display" style={{ fontSize: 13, color: c, letterSpacing: "0.05em" }}>
-            {label}
+            {score.total} PTS
           </span>
-          {codeList.length > 0 && (
-            <span style={{ display: "flex", gap: 4, marginLeft: 4 }}>
-              {codeList.map((code) => (
-                <span key={code} title={OWASP_ASI[code]?.title || code} className="mono" style={{
-                  fontSize: 9,
-                  padding: "2px 5px",
-                  border: "1px solid rgba(95, 240, 255, 0.4)",
-                  borderRadius: 3,
-                  color: "var(--cyan)",
-                }}>
-                  {code}
-                </span>
-              ))}
-            </span>
-          )}
         </div>
         <div className="mono tabular" style={{ fontSize: 11, color: "var(--ink-faint)" }}>
-          {latencyMs}ms{drivingLayer && ` · L:${LAYER_LABELS[drivingLayer] || drivingLayer.toUpperCase()}`} · {decision.confidence ? (decision.confidence * 100).toFixed(0) + "%" : "—"}
+          {latencyMs}ms · STEALTH {(score.stealth * 100).toFixed(0)}%
         </div>
       </div>
     </div>

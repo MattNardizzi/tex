@@ -1,329 +1,353 @@
-import React, { useEffect } from "react";
-import RankBadge from "./RankBadge.jsx";
-import OwaspFindings from "./OwaspFindings.jsx";
-import LayerBreakdown from "./LayerBreakdown.jsx";
-import { tierFor } from "../lib/ranking.js";
-import { rankUpSfx } from "../lib/sounds.js";
+import React, { useState } from "react";
+import LayerAnatomy from "./LayerAnatomy.jsx";
+import ScorePanel from "./ScorePanel.jsx";
+import { nearMissCopy } from "../lib/stealthScore.js";
+import { downloadShareImage } from "../lib/shareImage.js";
+import { OWASP_ASI } from "../lib/owaspAsi.js";
 
 /*
-  VerdictReveal v9 — "OWASP-framed payoff"
-  ─────────────────────────────────────────
-  Same payoff moment, but every artifact now carries the OWASP ASI 2026
-  positioning. Engineers see the six-layer breakdown. CISOs see the
-  signed evidence + framework alignment. Both see the verdict.
+  VerdictReveal v10
+  ─────────────────
+  Full-screen end-of-round payoff. The screenshot moment.
+
+  Layout (desktop):
+    ┌─────────────────────────┬───────────────────────┐
+    │  ScorePanel (big total) │  Layer Anatomy (large)│
+    │                         │  Near-miss copy       │
+    │  Player message with    │  ASI mapping          │
+    │  triggered spans hi-lit │  RP delta             │
+    └─────────────────────────┴───────────────────────┘
+    [SHARE] [PLAY AGAIN] [HOME]
+
+  Layout (mobile): stacked vertically.
 */
 
 export default function VerdictReveal({
   result,
-  rpResult,
+  score,
+  intent,
+  rpDelta,
   player,
-  playerAfter,
   onPlayAgain,
-  onShare,
+  onPickAnother,
   onHome,
 }) {
-  const { incident, verdict, finalAttempt, timeout } = result;
-  const decision = finalAttempt?.decision || null;
+  const { incident, bestAttempt } = result;
+  const message = bestAttempt?.text || "";
+  const decision = bestAttempt?.decision;
 
-  const win = verdict === "PERMIT";
-  const partial = verdict === "ABSTAIN";
+  const near = nearMissCopy(score);
+  const [sharing, setSharing] = useState(false);
 
-  const tone = win ? "var(--green)" : partial ? "var(--yellow)" : "var(--red)";
-  const bigLabel = win ? "BYPASS" : partial ? "CLOSE CALL" : "BLOCKED BY TEX";
-  const subLabel = win
-    ? "You slipped a live production gate."
-    : partial
-    ? "Tex escalated to human review — partial credit."
-    : "Tex held the line. The attack never left the gate.";
-
-  const tierBefore = tierFor(player.rp).current;
-  const tierAfter = tierFor(playerAfter.rp).current;
-  const promoted = tierBefore.short !== tierAfter.short && playerAfter.rp > player.rp;
-
-  useEffect(() => {
-    if (promoted) setTimeout(rankUpSfx, 400);
-  }, [promoted]);
-
-  const evHash = decision?.evidence?.evidence_hash;
-  const decisionId = decision?.decision_id;
-  const latency = decision?.total_ms;
-
-  function downloadEvidence() {
-    if (!decision) return;
-    const bundle = {
-      tex_evidence_bundle_version: "1.0",
-      generated_at: new Date().toISOString(),
-      decision_id: decisionId,
-      verdict: decision.verdict,
-      confidence: decision.confidence,
-      final_score: decision.final_score,
-      policy_version: decision.policy_version,
-      latency_ms: latency,
-      evidence: decision.evidence,
-      asi_findings: decision.asi_findings,
-      router: decision.router,
-      deterministic: decision.deterministic,
-      semantic: decision.semantic,
-      specialists: decision.specialists,
-      incident: {
-        id: incident.id,
-        name: incident.name,
-        action_type: incident.action_type,
-        channel: incident.channel,
-      },
-      attack_text: finalAttempt?.text || null,
-      _note:
-        "This is the canonical Tex Aegis evidence bundle — the same artifact your EU AI Act / NIST AI RMF / ISO 42001 auditor receives. SHA-256 hash-chained, HMAC-signed, replayable, portable.",
-    };
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `tex-evidence-${decisionId || "sample"}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  async function handleShare() {
+    setSharing(true);
+    try {
+      await downloadShareImage({ incident, score, handle: player.handle });
+    } finally {
+      setSharing(false);
+    }
   }
 
   return (
     <div style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(6, 7, 14, 0.92)",
-      backdropFilter: "blur(12px)",
-      zIndex: 50,
-      overflowY: "auto",
-      padding: "32px 16px",
+      minHeight: "100vh",
+      maxWidth: 1280,
+      margin: "0 auto",
+      padding: "var(--pad-page)",
+      width: "100%",
     }}>
-      <div className="panel rise" style={{
-        maxWidth: 820,
-        margin: "0 auto",
-        borderColor: tone,
-        boxShadow: `0 0 64px ${tone}33`,
+      {/* Top bar */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 24,
+        gap: 12,
+        flexWrap: "wrap",
       }}>
-        {/* Header band */}
-        <div style={{
-          padding: "32px 32px 24px",
-          borderBottom: `1px solid ${tone}`,
-          background: win
-            ? "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(95,250,159,0.15), transparent 70%)"
-            : partial
-            ? "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,225,74,0.12), transparent 70%)"
-            : "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,75,75,0.10), transparent 70%)",
-        }}>
-          <div className="kicker" style={{ color: tone }}>
-            INCIDENT · {incident.name.toUpperCase()} {timeout && "· TIMEOUT"}
-          </div>
-          <div className="display punch" style={{
-            fontSize: "clamp(52px, 9vw, 88px)",
-            color: tone,
-            marginTop: 10,
-            lineHeight: 1,
-            textShadow: `0 0 32px ${tone}66`,
-          }}>
-            {bigLabel}
-          </div>
-          <div style={{ marginTop: 10, color: "var(--ink-dim)", fontSize: 15 }}>
-            {subLabel}
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%",
+            background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan-glow)",
+          }} className="pulse" />
+          <span className="kicker" style={{ color: "var(--cyan)" }}>
+            ROUND COMPLETE
+          </span>
+          <span className="micro" style={{ color: "var(--ink-faint)" }}>
+            · {incident.name.toUpperCase()}
+          </span>
         </div>
-
-        {/* Body */}
-        <div style={{ padding: "24px 32px" }}>
-
-          {/* RP row */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 14,
-            marginBottom: 20,
-          }} className="rp-grid">
-            <div style={{
-              padding: "18px 20px",
-              border: "1px solid var(--hairline-2)",
-              borderRadius: 8,
-              background: "var(--bg-1)",
-            }}>
-              <div className="kicker" style={{ color: "var(--ink-faint)" }}>RANK POINTS</div>
-              <div style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: 10,
-                marginTop: 6,
-              }}>
-                <span className="display tabular" style={{
-                  fontSize: 36,
-                  color: rpResult.delta > 0 ? "var(--green)" : rpResult.delta < 0 ? "var(--red)" : "var(--ink)",
-                }}>
-                  {rpResult.delta > 0 ? "+" : ""}{rpResult.delta}
-                </span>
-                <span className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", letterSpacing: "0.1em" }}>
-                  {rpResult.label}
-                </span>
-              </div>
-              <div className="mono tabular" style={{ fontSize: 12, color: "var(--ink-dim)", marginTop: 10 }}>
-                {player.rp.toLocaleString()} → <strong style={{ color: "var(--ink)" }}>{playerAfter.rp.toLocaleString()} RP</strong>
-              </div>
-            </div>
-
-            <div style={{
-              padding: "18px 20px",
-              border: `1px solid ${promoted ? tierAfter.color : "var(--hairline-2)"}`,
-              borderRadius: 8,
-              background: promoted ? `${tierAfter.color}0E` : "var(--bg-1)",
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-            }}>
-              <RankBadge tier={tierAfter} size={48} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="kicker" style={{
-                  color: promoted ? tierAfter.color : "var(--ink-faint)",
-                }}>
-                  {promoted ? "★ PROMOTED" : "TIER"}
-                </div>
-                <div className="display" style={{
-                  fontSize: 18,
-                  color: tierAfter.color,
-                  marginTop: 2,
-                  letterSpacing: "0.05em",
-                }}>
-                  {tierAfter.name}
-                </div>
-                {promoted && (
-                  <div className="micro" style={{ color: "var(--ink-dim)", marginTop: 3 }}>
-                    {tierBefore.name} → {tierAfter.name}
-                  </div>
-                )}
-              </div>
-            </div>
+        {!score.forfeit && rpDelta !== 0 && (
+          <div className="kicker" style={{
+            color: rpDelta > 0 ? "var(--green)" : "var(--red)",
+          }}>
+            {rpDelta > 0 ? "+" : ""}{rpDelta} RP
           </div>
+        )}
+      </div>
 
-          {/* Attack recap */}
-          {finalAttempt && (
-            <div style={{
-              padding: "16px 18px",
-              border: "1px solid var(--hairline-2)",
-              borderRadius: 8,
-              background: "var(--bg-1)",
-              marginBottom: 20,
-            }}>
-              <div className="kicker" style={{ color: "var(--pink)", marginBottom: 8 }}>
-                YOUR {win ? "WINNING" : "FINAL"} ATTACK
+      {/* Two-column grid */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
+        gap: 22,
+        alignItems: "start",
+      }} className="verdict-grid">
+
+        {/* LEFT — score + message */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <ScorePanel score={score} intent={intent} />
+
+          {/* Message with span highlighting */}
+          {!score.forfeit && message && (
+            <div className="panel rise-2" style={{ padding: "16px 18px" }}>
+              <div className="kicker" style={{ color: "var(--pink)", marginBottom: 10 }}>
+                YOUR ATTACK · BEST ATTEMPT
               </div>
-              <div className="mono" style={{
-                fontSize: 13,
-                color: "var(--ink)",
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                maxHeight: 120,
-                overflowY: "auto",
-              }}>
-                {finalAttempt.text}
-              </div>
+              <HighlightedMessage text={message} decision={decision} />
             </div>
           )}
 
-          {/* SIX-LAYER PIPELINE — architecture made visible */}
-          {decision && <LayerBreakdown decision={decision} />}
+          {/* Intent explainer */}
+          <div className="panel rise-2" style={{ padding: "14px 18px" }}>
+            <div className="kicker" style={{
+              color: intent.attempted ? "var(--cyan)" : "var(--yellow)",
+              marginBottom: 8,
+            }}>
+              INTENT JUDGE
+            </div>
+            <div style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.5 }}>
+              {intent.explainer}
+            </div>
+            {intent.reasons && intent.reasons.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {intent.reasons.slice(0, 5).map((r, i) => (
+                  <span key={i} className="mono" style={{
+                    fontSize: 10,
+                    padding: "2px 8px",
+                    background: "rgba(95, 240, 255, 0.06)",
+                    border: "1px solid rgba(95, 240, 255, 0.25)",
+                    borderRadius: 3,
+                    color: "var(--cyan)",
+                  }}>
+                    {r.rule}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
-          {/* OWASP ASI 2026 FINDINGS — replaces old "WHY TEX CAUGHT IT" */}
-          <OwaspFindings
-            findings={decision?.asi_findings || []}
-            verdict={verdict}
-          />
+        {/* RIGHT — anatomy + near-miss */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-          {/* Signed evidence — the product moment */}
-          <div style={{
-            padding: "16px 18px",
-            border: "1px solid rgba(255, 225, 74, 0.3)",
-            borderRadius: 8,
-            background: "rgba(255, 225, 74, 0.04)",
-            marginBottom: 20,
-          }}>
+          {/* Layer Anatomy (LARGE) */}
+          <div className="panel rise-2" style={{ padding: "18px 20px" }}>
             <div style={{
               display: "flex",
-              alignItems: "center",
               justifyContent: "space-between",
-              gap: 8,
-              marginBottom: 10,
+              alignItems: "baseline",
+              marginBottom: 12,
+              gap: 10,
               flexWrap: "wrap",
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: "50%",
-                  background: "var(--yellow)", boxShadow: "0 0 8px var(--yellow-glow)",
-                }} />
-                <span className="kicker" style={{ color: "var(--yellow)" }}>
-                  SIGNED EVIDENCE · SHA-256 HASH-CHAINED
-                </span>
-              </div>
-              <button
-                onClick={downloadEvidence}
-                disabled={!decision}
-                className="micro"
-                style={{
-                  padding: "6px 10px",
-                  border: "1px solid rgba(255, 225, 74, 0.45)",
-                  borderRadius: 4,
-                  color: "var(--yellow)",
-                  background: "transparent",
-                  cursor: decision ? "pointer" : "not-allowed",
-                  opacity: decision ? 1 : 0.5,
-                }}
-              >
-                ⬇ DOWNLOAD BUNDLE
-              </button>
+              <span className="kicker" style={{ color: "var(--cyan)" }}>
+                TEX PIPELINE — LAYER ANATOMY
+              </span>
+              <span className="micro" style={{ color: "var(--ink-faint)" }}>
+                FIRED = CAUGHT · DARK = SLIPPED
+              </span>
             </div>
-            <div className="mono" style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.7, wordBreak: "break-all" }}>
-              <div><strong style={{ color: "var(--ink)" }}>decision_id:</strong> {decisionId || "—"}</div>
-              <div><strong style={{ color: "var(--ink)" }}>evidence_hash:</strong> {evHash || "—"}</div>
-              <div><strong style={{ color: "var(--ink)" }}>policy:</strong> {decision?.policy_version || "default-v1"}</div>
-              <div><strong style={{ color: "var(--ink)" }}>latency:</strong> {latency}ms · <strong style={{ color: "var(--ink)" }}>chain_valid:</strong> {decision?.evidence?.chain_valid ? "true" : "false"}</div>
-            </div>
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255, 225, 74, 0.15)", fontSize: 12, color: "var(--ink-dim)", lineHeight: 1.5 }}>
-              <strong style={{ color: "var(--yellow)" }}>This is a real audit record.</strong> Tamper-proof, portable, cryptographically verifiable. Your EU AI Act, NIST AI RMF, and ISO 42001 auditor will accept the same bundle.
-            </div>
+            <LayerAnatomy
+              profile={score.profile}
+              size="lg"
+              showWeights
+            />
           </div>
 
-        </div>
-
-        {/* CTAs */}
-        <div style={{
-          padding: "18px 32px",
-          borderTop: "1px solid var(--hairline-2)",
-          display: "flex",
-          gap: 10,
-          flexWrap: "wrap",
-        }}>
-          <button onClick={onPlayAgain} className="btn-primary">
-            PLAY ANOTHER →
-          </button>
-          {win && (
-            <button onClick={onShare} className="btn-ghost">
-              ⚔ CHALLENGE A COWORKER
-            </button>
+          {/* Near-miss surgical copy */}
+          {near && (
+            <div className="panel rise-3" style={{
+              padding: "18px 20px",
+              borderColor: score.verdict === "PERMIT"
+                ? "rgba(95, 250, 159, 0.3)"
+                : score.verdict === "ABSTAIN"
+                ? "rgba(255, 225, 74, 0.3)"
+                : "rgba(255, 75, 75, 0.25)",
+            }}>
+              <div className="kicker" style={{
+                color:
+                  score.verdict === "PERMIT" ? "var(--green)" :
+                  score.verdict === "ABSTAIN" ? "var(--yellow)" :
+                  "var(--red)",
+                marginBottom: 8,
+              }}>
+                {near.headline}
+              </div>
+              <div style={{
+                color: "var(--ink)",
+                fontSize: 14,
+                lineHeight: 1.55,
+                marginBottom: near.suggestion ? 10 : 0,
+              }}>
+                {near.detail}
+              </div>
+              {near.suggestion && (
+                <div style={{
+                  paddingTop: 10,
+                  borderTop: "1px solid var(--hairline)",
+                  color: "var(--ink-dim)",
+                  fontSize: 13,
+                  lineHeight: 1.55,
+                  fontStyle: "italic",
+                }}>
+                  → {near.suggestion}
+                </div>
+              )}
+            </div>
           )}
-          <button onClick={onHome} style={{
-            marginLeft: "auto",
-            padding: "10px 16px",
-            color: "var(--ink-faint)",
-            fontSize: 12,
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            fontFamily: "var(--font-mono)",
-          }}>
-            BACK TO HUB
+
+          {/* ASI mapping */}
+          {(incident.asi || []).length > 0 && (
+            <div className="panel rise-3" style={{ padding: "16px 18px" }}>
+              <div className="kicker" style={{ color: "var(--violet)", marginBottom: 10 }}>
+                OWASP ASI 2026 MAPPING
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {incident.asi.map((c) => (
+                  <div key={c} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                    <span className="mono" style={{
+                      color: "var(--violet)",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      flexShrink: 0,
+                      minWidth: 50,
+                    }}>
+                      {c}
+                    </span>
+                    <span style={{ color: "var(--ink-dim)", fontSize: 12, lineHeight: 1.5 }}>
+                      <strong style={{ color: "var(--ink)" }}>{OWASP_ASI[c]?.title || c}</strong> — {OWASP_ASI[c]?.short || ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Action bar */}
+      <div style={{
+        marginTop: 24,
+        padding: 18,
+        background: "var(--bg-1)",
+        border: "1px solid var(--hairline-2)",
+        borderRadius: 10,
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }} className="rise-3">
+        <div className="micro" style={{ color: "var(--ink-faint)" }}>
+          {decision?.evidence?.evidence_hash
+            ? `EVIDENCE ${decision.evidence.evidence_hash.slice(0, 12)}…`
+            : "SIGNED EVIDENCE · OWASP ASI 2026"}
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={handleShare} disabled={sharing} className="btn-ghost">
+            {sharing ? "GENERATING…" : "↗ SHARE"}
+          </button>
+          <button onClick={onPickAnother} className="btn-ghost">
+            PICK ANOTHER
+          </button>
+          <button onClick={onPlayAgain} className="btn-primary">
+            REPLAY THIS ROUND
+          </button>
+          <button onClick={onHome} className="btn-ghost">
+            ← HOME
           </button>
         </div>
       </div>
 
       <style>{`
-        @media (max-width: 600px) {
-          .rp-grid { grid-template-columns: 1fr !important; }
+        @media (max-width: 900px) {
+          .verdict-grid {
+            grid-template-columns: 1fr !important;
+          }
         }
       `}</style>
+    </div>
+  );
+}
+
+/**
+ * Highlights spans of the player's message that triggered findings.
+ * Backend returns matched_text on each finding; we replace it inline.
+ */
+function HighlightedMessage({ text, decision }) {
+  const findings = decision?.deterministic?.findings || [];
+  const matchedTexts = [...new Set(
+    findings.map((f) => f.matched_text).filter(Boolean)
+  )];
+
+  if (matchedTexts.length === 0) {
+    return (
+      <div className="mono" style={{
+        fontSize: 13,
+        lineHeight: 1.6,
+        color: "var(--ink-dim)",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}>
+        {text}
+      </div>
+    );
+  }
+
+  // Build escaped pattern that matches any of the spans
+  const escaped = matchedTexts
+    .filter((s) => s && s.length >= 2)
+    .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .sort((a, b) => b.length - a.length); // longest first
+
+  if (escaped.length === 0) {
+    return (
+      <div className="mono" style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-dim)", whiteSpace: "pre-wrap" }}>
+        {text}
+      </div>
+    );
+  }
+
+  let pattern;
+  try {
+    pattern = new RegExp(`(${escaped.join("|")})`, "gi");
+  } catch {
+    return (
+      <div className="mono" style={{ fontSize: 13, lineHeight: 1.6, color: "var(--ink-dim)", whiteSpace: "pre-wrap" }}>
+        {text}
+      </div>
+    );
+  }
+
+  const parts = text.split(pattern);
+
+  return (
+    <div className="mono" style={{
+      fontSize: 13,
+      lineHeight: 1.65,
+      color: "var(--ink)",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+    }}>
+      {parts.map((part, i) => {
+        if (!part) return null;
+        const isMatch = escaped.some((m) => m.toLowerCase() === part.toLowerCase());
+        if (isMatch) {
+          return <span key={i} className="span-fired">{part}</span>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
     </div>
   );
 }

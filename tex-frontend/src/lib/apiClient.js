@@ -35,7 +35,7 @@ export async function evaluateAttack({ content, incident, attempt = 1 }) {
     metadata: {
       arena_incident_id: incident.id,
       arena_incident_name: incident.name,
-      arena_mode: "ranked_v9",
+      arena_mode: "v10",
       attempt,
     },
     policy_id: incident.policy_id || null,

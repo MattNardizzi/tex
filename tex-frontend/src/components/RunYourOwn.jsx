@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import OwaspFindings from "./OwaspFindings.jsx";
-import LayerBreakdown from "./LayerBreakdown.jsx";
+import LayerAnatomy from "./LayerAnatomy.jsx";
+import { layerProfile } from "../lib/stealthScore.js";
 import { evaluateCustom } from "../lib/apiClient.js";
 
 /*
@@ -230,7 +231,12 @@ export default function RunYourOwn({ onClose }) {
                 </div>
               </div>
 
-              <LayerBreakdown decision={decision} />
+              <div style={{ marginBottom: 16 }}>
+                <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 8 }}>
+                  TEX PIPELINE
+                </div>
+                <LayerAnatomy profile={layerProfile(decision)} size="md" showWeights />
+              </div>
               <OwaspFindings findings={decision.asi_findings || []} verdict={decision.verdict} />
 
               <div style={{

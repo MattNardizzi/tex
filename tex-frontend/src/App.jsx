@@ -2,59 +2,59 @@ import React, { useEffect, useState } from "react";
 import Hub from "./components/Hub.jsx";
 import Round from "./components/Round.jsx";
 import VerdictReveal from "./components/VerdictReveal.jsx";
+import IncidentPicker from "./components/IncidentPicker.jsx";
 import HandlePrompt from "./components/HandlePrompt.jsx";
-import ShareCard from "./components/ShareCard.jsx";
 import BuyerSurface from "./components/BuyerSurface.jsx";
 import AsiPage from "./components/AsiPage.jsx";
 import DevelopersOverlay from "./components/DevelopersOverlay.jsx";
 import RunYourOwn from "./components/RunYourOwn.jsx";
 
-import { randomIncident, incidentById } from "./lib/incidents.js";
-import { rpForOutcome } from "./lib/ranking.js";
-import { getPlayer, savePlayer, setHandle as setPlayerHandle, recordRound, submitRoundToServer } from "./lib/storage.js";
+import { incidentById } from "./lib/incidents.js";
+import {
+  getPlayer, savePlayer, setHandle as setPlayerHandle,
+  recordRound, submitRoundToServer,
+} from "./lib/storage.js";
+import { recordCampaignRound } from "./lib/campaign.js";
+import { todayIncident, recordDaily, dailyCompleted } from "./lib/dailyChallenge.js";
+import { rpDelta as computeRpDelta } from "./lib/stealthScore.js";
 import { isMuted, setMuted } from "./lib/sounds.js";
 
 /*
-  App v9 — "OWASP-framed Ranked"
-  ────────────────────────────────
+  App v10 — Adversarial Trainer
+  ──────────────────────────────
   Phases:
-    "hub"     — landing page, ranked ladder, OWASP framing
-    "round"   — the 60s attack screen (real backend)
-    "verdict" — full-screen payoff overlay with layer breakdown + ASI codes
-    "asi"     — public OWASP ASI 2026 mapping page
+    "hub"      — landing surface with three modes
+    "picker"   — incident chooser (mode = "campaign" | "ranked")
+    "round"    — gameplay (no clock, 5 attempts, intent gate)
+    "verdict"  — full-screen payoff with score panel
+    "asi"      — public OWASP ASI 2026 reference page
 
-  Overlays:
-    - HandlePrompt      — first bypass
-    - ShareCard         — challenge a coworker
-    - BuyerSurface      — "I'm a security buyer"
-    - DevelopersOverlay — "I'm an engineering leader"
-    - RunYourOwn        — paste your own agent's output
+  Modes flow into "round" with a `mode` flag that drives end-of-round
+  recording (campaign vs ranked vs daily).
 
-  Deep links:
-    - /asi or ?asi              → opens the OWASP ASI 2026 page
-    - /developers or ?developers → opens the engineering overlay
-    - /buyer or ?buyer           → opens the buyer overlay
-    - /run or ?run               → opens run-your-own
-    - ?duel=<id>&from=<handle>&rp=<rp> → loads that incident as the first round
+  Overlays preserved from v9:
+    - HandlePrompt
+    - BuyerSurface
+    - DevelopersOverlay
+    - RunYourOwn
 */
 
 export default function App() {
   const [player, setPlayer] = useState(() => getPlayer());
-  const [playerBefore, setPlayerBefore] = useState(null);
   const [phase, setPhase] = useState("hub");
+  const [pickerMode, setPickerMode] = useState("ranked"); // "campaign" | "ranked"
 
   const [incident, setIncident] = useState(null);
+  const [roundMode, setRoundMode] = useState("ranked"); // "campaign" | "ranked" | "daily"
   const [lastResult, setLastResult] = useState(null);
-  const [rpResult, setRpResult] = useState(null);
+  const [lastScore, setLastScore] = useState(null);
+  const [lastIntent, setLastIntent] = useState(null);
+  const [lastRpDelta, setLastRpDelta] = useState(0);
 
   const [showHandle, setShowHandle] = useState(false);
-  const [showShare, setShowShare] = useState(false);
   const [showBuyer, setShowBuyer] = useState(false);
   const [showDevelopers, setShowDevelopers] = useState(false);
   const [showRunYourOwn, setShowRunYourOwn] = useState(false);
-  const [muted, setMutedState] = useState(isMuted());
-
-  const [duelFrom, setDuelFrom] = useState("");
 
   useEffect(() => { savePlayer(player); }, [player]);
 
@@ -79,29 +79,32 @@ export default function App() {
       setShowRunYourOwn(true);
       return;
     }
-    const params = new URLSearchParams(search);
-    const duel = params.get("duel");
-    const from = (params.get("from") || "").replace(/^@/, "").slice(0, 32);
-    if (duel) {
-      const target = incidentById(duel);
-      if (target) {
-        setDuelFrom(from);
-        setIncident(target);
-        setPhase("round");
-      }
+    if (pathname.startsWith("/daily") || search.includes("daily")) {
+      handlePlayDaily();
     }
   }, []);
 
-  function toggleMute() {
-    const next = !muted;
-    setMuted(next);
-    setMutedState(next);
+  // ── Hub callbacks ─────────────────────────────────────────────
+  function handleOpenCampaign() {
+    setPickerMode("campaign");
+    setPhase("picker");
   }
 
-  function handlePlay() {
-    const current = incident?.id || null;
-    const next = randomIncident(current);
-    setIncident(next);
+  function handleOpenRanked() {
+    setPickerMode("ranked");
+    setPhase("picker");
+  }
+
+  function handlePlayDaily() {
+    const inc = todayIncident();
+    setIncident(inc);
+    setRoundMode("daily");
+    setPhase("round");
+  }
+
+  function handlePickIncident(inc) {
+    setIncident(inc);
+    setRoundMode(pickerMode);
     setPhase("round");
   }
 
@@ -110,66 +113,106 @@ export default function App() {
     setIncident(null);
   }
 
+  function handlePickerBack() {
+    setPhase("hub");
+  }
+
+  // ── Round complete ────────────────────────────────────────────
   function handleRoundComplete(result) {
-    const before = player;
-    setPlayerBefore(before);
+    const { incident: inc, bestAttempt } = result;
 
-    const rp = rpForOutcome({
-      verdict: result.verdict,
-      attemptsUsed: result.attempts.length,
-      secondsLeft: result.secondsLeft,
-      incidentDifficulty: result.incident.difficulty || 2,
-    });
+    // bestAttempt may be null if the player only forfeited
+    const score = bestAttempt?.score || {
+      total: 0,
+      forfeit: true,
+      verdict: "ABSTAIN",
+      stealth: 0,
+      stealthRaw: 0,
+      profile: {},
+      verdictMultiplier: 0,
+      tierMultiplier: 1,
+      breakdown: { intent: 0, stealth: 0, verdict: 0 },
+    };
+    const intent = bestAttempt?.intent || {
+      attempted: false,
+      score: 0,
+      reasons: [],
+      explainer: "No real attempts in this round.",
+    };
 
-    const updated = recordRound(before, {
-      incidentId: result.incident.id,
-      verdict: result.verdict,
-      rpDelta: rp.delta,
-      attempts: result.attempts.length,
-      secondsLeft: result.secondsLeft,
-      decision: result.finalAttempt?.decision || null,
-    });
+    const rpDelta = computeRpDelta(score);
+
+    // Local profile recording
+    const updated = recordRound(player, { incident: inc, score, rpDelta });
+    setPlayer(updated);
+
+    // Mode-specific recording
+    if (roundMode === "campaign") {
+      recordCampaignRound(inc, score);
+    } else if (roundMode === "daily") {
+      recordDaily(inc, score);
+    } else {
+      // ranked also benefits from campaign-style tracking
+      recordCampaignRound(inc, score);
+    }
 
     setLastResult(result);
-    setRpResult(rp);
-    setPlayer(updated);
+    setLastScore(score);
+    setLastIntent(intent);
+    setLastRpDelta(rpDelta);
     setPhase("verdict");
 
-    if (updated.handle && result.finalAttempt?.decision?.decision_id) {
-      submitRoundToServer(updated, result).then((serverResult) => {
+    // Server submit (best-effort, fire-and-forget)
+    if (updated.handle && bestAttempt?.decision?.decision_id) {
+      submitRoundToServer(updated, {
+        decision: bestAttempt.decision,
+        score,
+        incident: inc,
+        attempts: result.attempts.length,
+      }).then((serverResult) => {
         if (serverResult && typeof serverResult.rp === "number") {
           setPlayer((p) => ({ ...p, rp: serverResult.rp }));
         }
       });
     }
 
-    const firstBypass = result.verdict === "PERMIT" && !before.handle;
-    if (firstBypass) {
+    // First bypass — prompt for handle
+    if (score.verdict === "PERMIT" && !score.forfeit && !player.handle) {
       setTimeout(() => setShowHandle(true), 2400);
     }
   }
 
+  // ── Verdict callbacks ─────────────────────────────────────────
   function handlePlayAgain() {
-    setPhase("hub");
+    if (!incident) {
+      setPhase("hub");
+      return;
+    }
     setLastResult(null);
-    setRpResult(null);
+    setLastScore(null);
+    setLastIntent(null);
+    setPhase("round");
+  }
+
+  function handlePickAnother() {
+    setLastResult(null);
+    setLastScore(null);
+    setLastIntent(null);
     setIncident(null);
-    setTimeout(() => handlePlay(), 60);
+    if (roundMode === "campaign") {
+      setPickerMode("campaign");
+    } else {
+      setPickerMode("ranked");
+    }
+    setPhase("picker");
   }
 
   function handleGoHome() {
     setPhase("hub");
-    setLastResult(null);
-    setRpResult(null);
     setIncident(null);
-  }
-
-  function handleShare() {
-    if (!player.handle) {
-      setShowHandle(true);
-      return;
-    }
-    setShowShare(true);
+    setLastResult(null);
+    setLastScore(null);
+    setLastIntent(null);
   }
 
   function handleSaveHandle(h) {
@@ -177,11 +220,12 @@ export default function App() {
     setShowHandle(false);
   }
 
-  // Called from AsiPage when a visitor clicks "TRY THIS ATTACK"
+  // Called from AsiPage when a visitor clicks an incident
   function handleTryFromAsi(incidentId) {
     const target = incidentById(incidentId);
     if (target) {
       setIncident(target);
+      setRoundMode("ranked");
       setPhase("round");
     }
   }
@@ -189,60 +233,41 @@ export default function App() {
   return (
     <div>
       {phase === "hub" && (
-        <>
-          {duelFrom && (
-            <div style={{
-              background: "linear-gradient(90deg, rgba(255,61,122,0.15), transparent 70%)",
-              borderBottom: "1px solid rgba(255,61,122,0.35)",
-              padding: "10px 32px",
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
-            }}>
-              <span style={{ color: "var(--pink)" }}>⚔</span>
-              <span style={{ fontSize: 13, color: "var(--ink)" }}>
-                <strong style={{ color: "var(--pink)" }}>@{duelFrom}</strong> bypassed Tex. Think you can?
-              </span>
-              <button
-                onClick={() => setDuelFrom("")}
-                className="micro"
-                style={{ color: "var(--ink-faint)", marginLeft: "auto" }}
-              >
-                DISMISS
-              </button>
-            </div>
-          )}
-          <Hub
-            player={player}
-            onPlay={handlePlay}
-            onEditHandle={() => setShowHandle(true)}
-            onOpenBuyer={() => setShowBuyer(true)}
-            onOpenDevelopers={() => setShowDevelopers(true)}
-            onOpenAsi={() => setPhase("asi")}
-            onOpenRunYourOwn={() => setShowRunYourOwn(true)}
-            onToggleMute={toggleMute}
-            muted={muted}
-          />
-        </>
+        <Hub
+          player={player}
+          onOpenCampaign={handleOpenCampaign}
+          onOpenRanked={handleOpenRanked}
+          onPlayDaily={handlePlayDaily}
+          onOpenAsi={() => setPhase("asi")}
+        />
+      )}
+
+      {phase === "picker" && (
+        <PickerScreen
+          mode={pickerMode}
+          onPick={handlePickIncident}
+          onBack={handlePickerBack}
+        />
       )}
 
       {phase === "round" && incident && (
         <Round
           incident={incident}
+          mode={roundMode}
           onComplete={handleRoundComplete}
           onBail={handleBail}
         />
       )}
 
-      {phase === "verdict" && lastResult && rpResult && (
+      {phase === "verdict" && lastResult && lastScore && lastIntent && (
         <VerdictReveal
           result={lastResult}
-          rpResult={rpResult}
-          player={playerBefore || player}
-          playerAfter={player}
+          score={lastScore}
+          intent={lastIntent}
+          rpDelta={lastRpDelta}
+          player={player}
           onPlayAgain={handlePlayAgain}
-          onShare={handleShare}
+          onPickAnother={handlePickAnother}
           onHome={handleGoHome}
         />
       )}
@@ -261,14 +286,6 @@ export default function App() {
           initial={player.handle}
           onSave={handleSaveHandle}
           onSkip={() => setShowHandle(false)}
-        />
-      )}
-
-      {showShare && lastResult && (
-        <ShareCard
-          player={player}
-          result={lastResult}
-          onClose={() => setShowShare(false)}
         />
       )}
 
@@ -291,6 +308,72 @@ export default function App() {
           onClose={() => setShowRunYourOwn(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* ── Picker screen — wraps IncidentPicker with header + back button ── */
+function PickerScreen({ mode, onPick, onBack }) {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      maxWidth: 1100,
+      margin: "0 auto",
+      padding: "var(--pad-page)",
+      width: "100%",
+    }}>
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingBottom: 14,
+        borderBottom: "1px solid var(--hairline-2)",
+        marginBottom: 24,
+        gap: 12,
+        flexWrap: "wrap",
+      }}>
+        <button onClick={onBack} className="micro" style={{
+          color: "var(--ink-faint)",
+          padding: "8px 12px",
+          border: "1px solid var(--hairline-2)",
+          borderRadius: 4,
+        }}>
+          ← BACK
+        </button>
+        <div style={{ textAlign: "center", flex: 1 }}>
+          <div className="kicker" style={{
+            color: mode === "campaign" ? "var(--cyan)" : "var(--pink)",
+            marginBottom: 4,
+          }}>
+            {mode === "campaign" ? "CAMPAIGN" : "RANKED"}
+          </div>
+          <div className="display" style={{
+            fontSize: "clamp(20px, 4vw, 28px)",
+            color: "var(--ink)",
+          }}>
+            {mode === "campaign" ? "PICK A CHAPTER" : "PICK YOUR FIGHT"}
+          </div>
+        </div>
+        <div style={{ width: 80 }} className="hide-mobile" />
+      </div>
+
+      <div className="rise">
+        <IncidentPicker mode={mode} onPick={onPick} />
+      </div>
+
+      <div style={{
+        marginTop: 24,
+        padding: "12px 14px",
+        background: "var(--bg-1)",
+        border: "1px dashed var(--hairline-2)",
+        borderRadius: 6,
+        color: "var(--ink-faint)",
+        fontSize: 12,
+        lineHeight: 1.5,
+        textAlign: "center",
+      }}>
+        Tier I = obvious attacks · Tier II = domain-specific craft · Tier III = subtle, multi-step
+      </div>
     </div>
   );
 }

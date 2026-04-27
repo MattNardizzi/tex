@@ -1,33 +1,39 @@
-import React from "react";
-import { INCIDENTS } from "../lib/incidents.js";
-import { getCampaignState } from "../lib/campaign.js";
+import React, { useEffect, useState } from "react";
+import {
+  hasPlayedToday, todayResult, getDailyLeaderboard, getHandle,
+} from "../lib/leaderboard.js";
+import { msUntilNextShift, formatCountdown } from "../lib/dailyShift.js";
 
 /*
-  Hub v10.1 — "Get past Tex"
+  Hub v11 — Daily Shift entry
   ───────────────────────────
-  Single job: visitor sees Tex, hits PLAY, plays one round, shares.
+  Hero with Tex avatar + headline. Two CTAs:
+    · TODAY'S SHIFT  (the daily, real-score, leaderboard run — ONCE per UTC day)
+    · TRAINING       (unlimited practice, doesn't count)
 
-  Layout:
-    1. brand bar
-    2. hero — Tex avatar + headline + ONE PLAY button
-    3. live-feed strip — recent (seeded) shareable verdicts as social proof
-    4. "what is Tex" link → /what-is-tex page (the serious infra framing)
-    5. footer
+  Below: live daily leaderboard (top 10) + countdown to next shift.
 
-  Deliberately removed from v10:
-    - 3 mode cards (Campaign / Ranked / Daily)
-    - cycling pipeline visualization
-    - 4-step "How it works"
-    - 4-cell trust strip
-    - earned badges
-    - stat strip
-  Those live on /what-is-tex now (or are gone). The Hub does one thing.
+  Footer link to /what-is-tex for the curious.
 */
 
-export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi }) {
-  const campaignState = getCampaignState();
-  const cleared = Object.keys(campaignState.cleared || {}).length;
-  const total = INCIDENTS.length;
+export default function Hub({ player, onPlayDaily, onPlayTraining, onOpenWhatIsTex, onOpenAsi }) {
+  const [played, setPlayed] = useState(false);
+  const [result, setResult] = useState(null);
+  const [leaderboard, setLeaderboard] = useState({ entries: [], myRank: null, total: 0 });
+  const [countdownMs, setCountdownMs] = useState(msUntilNextShift());
+  const [handle, setHandleState] = useState("");
+
+  useEffect(() => {
+    setPlayed(hasPlayedToday());
+    setResult(todayResult());
+    setLeaderboard(getDailyLeaderboard());
+    setHandleState(getHandle());
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setCountdownMs(msUntilNextShift()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div style={{
@@ -71,12 +77,12 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
                 TEX ARENA
               </div>
               <div className="micro" style={{ color: "var(--ink-faint)" }}>
-                AI AGENT GOVERNANCE · ADVERSARIAL DEMO
+                AI AGENT GOVERNANCE · DAILY SHIFT
               </div>
             </div>
           </div>
 
-          {player.handle && (
+          {handle && (
             <div style={{
               padding: "6px 12px",
               border: "1px solid rgba(255, 61, 122, 0.3)",
@@ -87,7 +93,7 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
                 YOU
               </div>
               <div className="mono" style={{ fontSize: 12, color: "var(--pink)", fontWeight: 600 }}>
-                @{player.handle}
+                @{handle}
               </div>
             </div>
           )}
@@ -102,7 +108,6 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
           minHeight: "min(72vh, 720px)",
         }} className="hero-grid">
 
-          {/* Left: copy + CTA */}
           <div className="rise" style={{ minWidth: 0 }}>
             <div style={{
               display: "inline-flex",
@@ -119,7 +124,7 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
                 background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan-glow)",
               }} className="pulse" />
               <span className="micro" style={{ color: "var(--cyan)" }}>
-                ADVERSARIAL DEMO · LIVE
+                TODAY'S SHIFT · LIVE
               </span>
             </div>
 
@@ -129,7 +134,7 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
               lineHeight: 0.85,
               letterSpacing: "-0.01em",
             }}>
-              <span style={{ color: "var(--ink)" }}>BREAK</span>
+              <span style={{ color: "var(--ink)" }}>WORK</span>
               <br />
               <span style={{
                 background: "linear-gradient(90deg, var(--pink) 0%, var(--yellow) 50%, var(--cyan) 100%)",
@@ -148,27 +153,51 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
               lineHeight: 1.5,
               margin: "22px 0 28px 0",
             }}>
-              You're an AI agent. <span style={{ color: "var(--ink)", fontWeight: 600 }}>Tex</span> is the
-              safety gate that catches you doing something stupid.
+              You're <span style={{ color: "var(--ink)", fontWeight: 600 }}>Tex's operator</span>.
+              {" "}Outbound AI agent actions are coming down the line. Read fast. Decide faster.
               <br />
-              Slip something past him.
+              Permit the clean ones. Block the leaks.
             </p>
 
-            <button onClick={onOpenCampaign} className="btn-big" style={{
-              fontSize: 17,
-              padding: "16px 28px",
-            }}>
-              PLAY →
-            </button>
+            {/* CTAs */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
+              <button
+                onClick={onPlayDaily}
+                className="btn-big"
+                disabled={played}
+                style={{ fontSize: 17, padding: "18px 32px" }}
+              >
+                {played ? "SHIFT COMPLETE" : "PLAY TODAY'S SHIFT →"}
+              </button>
+
+              <button onClick={onPlayTraining} className="btn-ghost" style={{ fontSize: 12 }}>
+                {played ? "PLAY AGAIN (TRAINING) →" : "TRAINING MODE →"}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 18, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <div className="micro" style={{ color: "var(--ink-faint)" }}>
+                90 SECONDS · 32 ACTIONS · ONE SHOT PER DAY
+              </div>
+              {played && result && (
+                <div className="micro" style={{
+                  color: "var(--pink)",
+                  padding: "4px 10px",
+                  border: "1px solid rgba(255, 61, 122, 0.3)",
+                  borderRadius: 4,
+                  background: "rgba(255, 61, 122, 0.05)",
+                }}>
+                  YOU · {result.total} PTS · {result.rating}
+                </div>
+              )}
+            </div>
 
             <div className="micro" style={{
               color: "var(--ink-faint)",
               marginTop: 14,
               letterSpacing: "0.16em",
             }}>
-              {cleared > 0
-                ? `★ ${cleared}/${total} INCIDENTS CLEARED`
-                : `${total} INCIDENTS · ~90 SECONDS EACH`}
+              NEXT SHIFT IN <span className="tabular" style={{ color: "var(--cyan)" }}>{formatCountdown(countdownMs)}</span>
             </div>
           </div>
 
@@ -184,7 +213,7 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
           </div>
         </div>
 
-        {/* ── LIVE FEED — social proof strip ───────────────────────── */}
+        {/* ── DAILY LEADERBOARD ────────────────────────────────────── */}
         <div style={{
           marginTop: "clamp(40px, 7vw, 80px)",
           marginBottom: "clamp(32px, 5vw, 56px)",
@@ -203,11 +232,16 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
                 background: "var(--pink)", boxShadow: "0 0 8px var(--pink-glow)",
               }} className="pulse" />
               <span className="kicker" style={{ color: "var(--pink)" }}>
-                RECENT ATTEMPTS
+                TODAY'S BOARD · TOP 10
               </span>
             </div>
+            {leaderboard.myRank && (
+              <span className="micro" style={{ color: "var(--ink-faint)" }}>
+                YOU RANK <span className="tabular" style={{ color: "var(--pink)" }}>#{leaderboard.myRank}</span> OF {leaderboard.total}
+              </span>
+            )}
           </div>
-          <LiveFeed />
+          <Leaderboard entries={leaderboard.entries.slice(0, 10)} />
         </div>
 
         {/* ── "What is Tex" link ───────────────────────────────────── */}
@@ -228,8 +262,9 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
               UNDER THE HOOD
             </div>
             <div style={{ color: "var(--ink-dim)", fontSize: 14, lineHeight: 1.5 }}>
-              Tex is a real AI safety gate — six layers, signed evidence, <br className="hide-mobile" />
-              built for catching agent leaks before they ship.
+              The game uses real Tex governance categories — secrets, PII, commitments, regulated content, prompt injection.
+              <br className="hide-mobile" />
+              The product evaluates these in production at <span style={{ color: "var(--cyan)" }}>~180ms</span>. You're not even close.
             </div>
           </div>
           <button onClick={onOpenWhatIsTex} className="btn-ghost" style={{
@@ -257,14 +292,16 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
               VORTEXBLACK · TEX AEGIS
             </span>
           </div>
-          <button onClick={onOpenAsi} className="micro" style={{
-            color: "var(--cyan)",
-            padding: "6px 10px",
-            border: "1px solid rgba(95, 240, 255, 0.25)",
-            borderRadius: 4,
-          }}>
-            OWASP ASI REFERENCE →
-          </button>
+          {onOpenAsi && (
+            <button onClick={onOpenAsi} className="micro" style={{
+              color: "var(--cyan)",
+              padding: "6px 10px",
+              border: "1px solid rgba(95, 240, 255, 0.25)",
+              borderRadius: 4,
+            }}>
+              OWASP ASI REFERENCE →
+            </button>
+          )}
         </div>
       </div>
 
@@ -289,7 +326,7 @@ export default function Hub({ player, onOpenCampaign, onOpenWhatIsTex, onOpenAsi
   );
 }
 
-/* ── Tex avatar ───────────────────────────────────────────────── */
+/* ─── Tex avatar ─────────────────────────────────────────────────── */
 function TexAvatar() {
   return (
     <div style={{
@@ -298,7 +335,6 @@ function TexAvatar() {
       maxWidth: 540,
       aspectRatio: "4 / 5",
     }}>
-      {/* Glow halo */}
       <div style={{
         position: "absolute",
         inset: "-4%",
@@ -306,8 +342,6 @@ function TexAvatar() {
         filter: "blur(20px)",
         pointerEvents: "none",
       }} />
-
-      {/* Avatar image */}
       <div style={{
         position: "relative",
         width: "100%",
@@ -329,10 +363,7 @@ function TexAvatar() {
             display: "block",
           }}
         />
-        {/* Scan line */}
         <div className="scan" style={{ top: 0 }} />
-
-        {/* Corner identifier */}
         <div style={{
           position: "absolute",
           bottom: 12,
@@ -355,82 +386,44 @@ function TexAvatar() {
   );
 }
 
-/* ── Live feed (seeded) ───────────────────────────────────────── */
-const SEEDED_FEED = [
-  { handle: "anonymous",   incident: "THE LEAK",       verdict: "FORBID",  stealth: 30, fired: ["DET","SPC"],            when: "2m ago"  },
-  { handle: "rev_ops_47",  incident: "THE WIRE",       verdict: "ABSTAIN", stealth: 65, fired: ["SEM"],                  when: "8m ago"  },
-  { handle: "anonymous",   incident: "THE GUARANTEE",  verdict: "FORBID",  stealth: 25, fired: ["DET","SPC","SEM"],      when: "14m ago" },
-  { handle: "sdr_killer",  incident: "THE LEAK",       verdict: "ABSTAIN", stealth: 70, fired: ["DET"],                  when: "22m ago" },
-  { handle: "anonymous",   incident: "THE SUDO",       verdict: "FORBID",  stealth: 15, fired: ["DET","SPC","SEM","RTR"], when: "31m ago" },
-  { handle: "redteam_42",  incident: "THE BROADCAST",  verdict: "PERMIT",  stealth: 87, fired: [],                       when: "44m ago" },
-];
-
-function LiveFeed() {
-  const verdictColor = (v) =>
-    v === "PERMIT" ? "var(--green)" :
-    v === "ABSTAIN" ? "var(--yellow)" :
-    "var(--red)";
-
+/* ─── Leaderboard ────────────────────────────────────────────────── */
+function Leaderboard({ entries }) {
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-      gap: 8,
-    }}>
-      {SEEDED_FEED.slice(0, 6).map((row, i) => (
-        <div
-          key={i}
-          style={{
-            padding: "11px 14px",
-            background: "var(--bg-1)",
-            border: "1px solid var(--hairline-2)",
-            borderRadius: 5,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            minWidth: 0,
-          }}
-        >
-          <div style={{
-            width: 6, height: 6, borderRadius: "50%",
-            background: verdictColor(row.verdict),
-            boxShadow: `0 0 6px ${verdictColor(row.verdict)}`,
-            flexShrink: 0,
-          }} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{
-              display: "flex",
-              alignItems: "baseline",
-              gap: 6,
-              flexWrap: "wrap",
-            }}>
-              <span className="mono" style={{ fontSize: 11, color: "var(--ink)", fontWeight: 600 }}>
-                @{row.handle}
-              </span>
-              <span className="micro" style={{ color: "var(--ink-faint)" }}>
-                · {row.incident}
-              </span>
-            </div>
-            <div style={{ marginTop: 2, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-              <span className="mono tabular" style={{
-                fontSize: 11,
-                color: verdictColor(row.verdict),
-                fontWeight: 600,
-              }}>
-                {row.verdict}
-              </span>
-              <span className="micro" style={{ color: "var(--ink-faint)" }}>
-                · {row.stealth}% STEALTH
-              </span>
-              {row.fired.length > 0 && (
-                <span className="micro" style={{ color: "var(--ink-faint)" }}>
-                  · {row.fired.join("+")} FIRED
-                </span>
-              )}
-            </div>
-          </div>
-          <span className="micro" style={{ color: "var(--ink-faint)", flexShrink: 0, fontSize: 10 }}>
-            {row.when}
+    <div className="panel" style={{ padding: 4, overflow: "hidden" }}>
+      {entries.map((e, i) => (
+        <div key={e.handle + i} style={{
+          display: "grid",
+          gridTemplateColumns: "44px 1fr auto auto auto",
+          alignItems: "center",
+          gap: 12,
+          padding: "10px 14px",
+          borderTop: i === 0 ? "none" : "1px solid var(--hairline)",
+          background: e.you ? "rgba(255, 61, 122, 0.06)" : "transparent",
+        }}>
+          <span className="display" style={{
+            fontSize: 16,
+            color: i === 0 ? "var(--yellow)" : i < 3 ? "var(--ink)" : "var(--ink-faint)",
+          }}>
+            #{i + 1}
+          </span>
+          <span className="mono" style={{
+            fontSize: 12,
+            color: e.you ? "var(--pink)" : "var(--ink)",
+            fontWeight: e.you ? 700 : 500,
+          }}>
+            @{e.handle}{e.you ? " · YOU" : ""}
+          </span>
+          <span className="micro hide-mobile" style={{ color: "var(--ink-faint)" }}>
+            {e.rating}
+          </span>
+          <span className="micro" style={{ color: "var(--red)" }}>
+            {e.breaches} BREACH{e.breaches === 1 ? "" : "ES"}
+          </span>
+          <span className="display tabular" style={{
+            fontSize: 18,
+            color: e.you ? "var(--pink)" : "var(--cyan)",
+          }}>
+            {e.total}
           </span>
         </div>
       ))}
@@ -438,7 +431,7 @@ function LiveFeed() {
   );
 }
 
-/* ── BrandMark ────────────────────────────────────────────────── */
+/* ─── BrandMark ──────────────────────────────────────────────────── */
 function BrandMark({ size = 22 }) {
   return (
     <div style={{

@@ -1,37 +1,26 @@
 import React from "react";
-import LayerAnatomy from "./LayerAnatomy.jsx";
-import { INCIDENTS, ASI_CHAPTERS } from "../lib/incidents.js";
 
 /*
-  WhatIsTex — the serious-infrastructure page.
-  ────────────────────────────────────────────
-  Pulled off the Hub so the homepage stays focused on "play and share".
-  This page is where the curious 5% who want to understand the product land.
+  WhatIsTex — short explainer, surfaced from the Hub footer.
+  No more LayerAnatomy / INCIDENTS dependencies.
+  This page exists for the curious buyer who clicks "WHAT IS TEX".
 */
 
-const DEMO_PROFILE = { deterministic: true, retrieval: false, specialists: true, semantic: true, router: false };
-
-export default function WhatIsTex({ onClose, onOpenAsi, onPlay }) {
+export default function WhatIsTex({ onBack }) {
   return (
-    <div style={{
-      minHeight: "100vh",
-      maxWidth: 1100,
-      margin: "0 auto",
-      padding: "var(--pad-page)",
-      width: "100%",
-    }}>
-      {/* Top bar */}
+    <div className="page" style={{ padding: "var(--pad-page)", maxWidth: 880, margin: "0 auto" }}>
       <div style={{
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
         paddingBottom: 14,
         borderBottom: "1px solid var(--hairline-2)",
-        marginBottom: 28,
-        gap: 12,
-        flexWrap: "wrap",
+        marginBottom: 32,
       }}>
-        <button onClick={onClose} className="micro" style={{
+        <div className="kicker" style={{ color: "var(--cyan)" }}>
+          UNDER THE HOOD
+        </div>
+        <button onClick={onBack} className="micro" style={{
           color: "var(--ink-faint)",
           padding: "8px 12px",
           border: "1px solid var(--hairline-2)",
@@ -39,215 +28,153 @@ export default function WhatIsTex({ onClose, onOpenAsi, onPlay }) {
         }}>
           ← BACK
         </button>
-        <div className="kicker" style={{ color: "var(--violet)" }}>
-          UNDER THE HOOD
-        </div>
-        <div style={{ width: 80 }} className="hide-mobile" />
       </div>
 
-      {/* Hero */}
-      <div className="rise" style={{ marginBottom: 40 }}>
-        <h1 className="display" style={{
-          fontSize: "clamp(38px, 7vw, 64px)",
-          margin: 0,
-          lineHeight: 0.95,
-          color: "var(--ink)",
-        }}>
-          WHAT IS <span style={{ color: "var(--cyan)" }}>TEX</span>?
-        </h1>
-        <p style={{
-          maxWidth: 640,
-          color: "var(--ink-dim)",
-          fontSize: "clamp(15px, 2vw, 17px)",
-          lineHeight: 1.6,
-          marginTop: 18,
-        }}>
-          Tex is a real AI agent governance layer. It evaluates outbound agent actions —
-          emails, Slack messages, API calls, database writes — at the moment of release,
-          and returns one of three verdicts: <strong style={{ color: "var(--green)" }}>PERMIT</strong>,
-          {" "}<strong style={{ color: "var(--yellow)" }}>ABSTAIN</strong>, or
-          {" "}<strong style={{ color: "var(--red)" }}>FORBID</strong>.
-          Every decision is signed and chained. The arena is a real call to a real Tex deployment.
-        </p>
-      </div>
-
-      {/* Pipeline visualization */}
-      <div className="panel rise-2" style={{
-        padding: 24,
-        marginBottom: 40,
-        background: "linear-gradient(180deg, var(--bg-1), var(--bg-0))",
+      <h1 className="display rise" style={{
+        fontSize: "clamp(40px, 8vw, 88px)",
+        margin: 0,
+        lineHeight: 0.9,
+        marginBottom: 20,
       }}>
-        <div style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          marginBottom: 16,
-          gap: 8,
-          flexWrap: "wrap",
+        <span style={{ color: "var(--ink)" }}>THE GATE</span>
+        <br />
+        <span style={{
+          background: "linear-gradient(90deg, var(--pink), var(--cyan))",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          backgroundClip: "text",
         }}>
-          <div className="kicker" style={{ color: "var(--cyan)" }}>
-            TEX // EVALUATION PIPELINE
-          </div>
-          <span className="micro" style={{ color: "var(--ink-faint)" }}>
-            5 LAYERS · WEIGHTED · DETERMINISTIC + LLM
-          </span>
-        </div>
-        <LayerAnatomy profile={DEMO_PROFILE} size="md" showWeights />
-        <div style={{
-          marginTop: 16,
-          paddingTop: 14,
-          borderTop: "1px solid var(--hairline)",
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          flexWrap: "wrap",
-        }}>
-          <Mini label="VERDICTS" value="PERMIT / ABSTAIN / FORBID" color="var(--ink)" />
-          <Mini label="LATENCY" value="~180ms" color="var(--cyan)" />
-          <Mini label="EVIDENCE" value="HMAC SIGNED" color="var(--violet)" />
-        </div>
+          BETWEEN AI AND THE REAL WORLD.
+        </span>
+      </h1>
+
+      <p className="rise-2" style={{
+        color: "var(--ink-dim)",
+        fontSize: 18,
+        lineHeight: 1.6,
+        maxWidth: 640,
+        marginBottom: 36,
+      }}>
+        Tex is an outbound content governance platform for AI agents. Every action your agent
+        takes &mdash; emails, Slack messages, CRM writes, API calls, deployments &mdash; passes
+        through Tex first. Tex returns one of three verdicts in <span style={{ color: "var(--cyan)" }}>~180ms</span>:
+        <strong style={{ color: "var(--green)" }}> PERMIT</strong>,
+        <strong style={{ color: "var(--yellow)" }}> ABSTAIN</strong>, or
+        <strong style={{ color: "var(--red)" }}> FORBID</strong>.
+      </p>
+
+      <div className="rise-3" style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+        gap: 14,
+        marginBottom: 36,
+      }}>
+        <Pillar
+          color="var(--green)"
+          label="PERMIT"
+          body="Clean. Ship it. The action goes through with a signed permit."
+        />
+        <Pillar
+          color="var(--yellow)"
+          label="ABSTAIN"
+          body="Uncertain. Hold for human review. Defer rather than guess."
+        />
+        <Pillar
+          color="var(--red)"
+          label="FORBID"
+          body="Leak, breach, or unauthorized commitment. Block before send."
+        />
       </div>
 
-      {/* How it works */}
-      <div className="rise-2" style={{ marginBottom: 40 }}>
-        <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 16 }}>
-          HOW IT WORKS
+      <div className="rise-4 panel" style={{ padding: 22, marginBottom: 36 }}>
+        <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 12 }}>
+          WHAT TEX CATCHES
         </div>
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "clamp(16px, 3vw, 28px)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 14,
+          color: "var(--ink-dim)",
+          fontSize: 13,
+          lineHeight: 1.5,
         }}>
-          <Step n="01" title="Agent emits action"
-                text="An AI agent — SDR, marketing bot, support agent — is about to do a thing. Send an email. Post to Slack. Hit a database." />
-          <Step n="02" title="Tex intercepts"
-                text="Before the action ships, Tex evaluates it across 5 layers: regex, retrieval, specialists, semantic, router. Each contributes a weighted score." />
-          <Step n="03" title="Verdict"
-                text="PERMIT, ABSTAIN, or FORBID — with a confidence score, fired-layer profile, and signed evidence record for audit." />
-          <Step n="04" title="Action proceeds (or doesn't)"
-                text="The agent gets a structured response. Permitted actions ship. Forbidden ones don't. Abstains route to human review." />
+          <Catch title="Secrets" body="API keys, passwords, tokens leaking into outbound content." />
+          <Catch title="PII" body="SSNs, payment data, regulated identifiers." />
+          <Catch title="Commitments" body="Off-list discounts, roadmap promises, legal opinions." />
+          <Catch title="Confidentiality" body="Pre-announcement disclosures, M&amp;A leaks, customer references." />
+          <Catch title="Prompt injection" body="Override instructions embedded in agent inputs." />
+          <Catch title="Destructive ops" body="Bulk deletes, irreversible writes, unsafe permissions." />
         </div>
       </div>
 
-      {/* Trust strip */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-        gap: 12,
-        marginBottom: 40,
+      <div className="rise-4" style={{
+        padding: 22,
+        background: "linear-gradient(135deg, rgba(255, 61, 122, 0.06) 0%, rgba(95, 240, 255, 0.04) 100%)",
+        border: "1px solid rgba(255, 61, 122, 0.25)",
+        borderRadius: 8,
+        marginBottom: 28,
       }}>
-        <Trust label="OWASP ASI 2026"
-               text="Mapped to the ten Agentic Security Initiative categories." />
-        <Trust label="SIGNED EVIDENCE"
-               text="Every decision produces an HMAC-signed evidence chain." />
-        <Trust label="HEXAGONAL"
-               text="Production-grade Python backend. Six-layer evaluation pipeline." />
-        <Trust label="DETERMINISTIC + LLM"
-               text="Regex recognizers, retrieval grounding, narrow specialists, and structured semantic adjudication." />
+        <div className="kicker" style={{ color: "var(--pink)", marginBottom: 8 }}>
+          WHO IT'S FOR
+        </div>
+        <div style={{ color: "var(--ink-dim)", fontSize: 14, lineHeight: 1.6 }}>
+          Teams running AI SDRs, AI CS agents, autonomous code agents, or any workflow where
+          a model is allowed to send something on its own. If your agent can email a customer,
+          touch a CRM, or open a PR, you need a gate.
+        </div>
       </div>
 
-      {/* Stats */}
-      <div style={{
-        padding: "20px 22px",
-        background: "var(--bg-1)",
-        border: "1px solid var(--hairline-2)",
-        borderRadius: 6,
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-        gap: 18,
-        marginBottom: 32,
-      }}>
-        <Stat label="INCIDENTS" value={INCIDENTS.length} />
-        <Stat label="ASI CATEGORIES" value={ASI_CHAPTERS.length} />
-        <Stat label="LAYERS" value="5" accent="var(--pink)" />
-        <Stat label="VERDICT TYPES" value="3" accent="var(--cyan)" />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <a href="https://texaegis.com" className="btn-primary" target="_blank" rel="noreferrer">
+          VISIT TEXAEGIS.COM →
+        </a>
+        <button onClick={onBack} className="btn-ghost">
+          ← BACK TO ARENA
+        </button>
       </div>
 
-      {/* CTAs */}
       <div style={{
-        display: "flex",
-        gap: 10,
-        flexWrap: "wrap",
-        marginBottom: 40,
+        marginTop: 36,
+        paddingTop: 18,
+        borderTop: "1px solid var(--hairline-2)",
+        color: "var(--ink-faint)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
       }}>
-        <button onClick={onPlay} className="btn-big">
-          TRY THE ARENA →
-        </button>
-        <button onClick={onOpenAsi} className="btn-ghost">
-          OWASP ASI REFERENCE
-        </button>
+        VortexBlack · Tex Aegis
       </div>
     </div>
   );
 }
 
-function Step({ n, title, text }) {
-  return (
-    <div>
-      <div className="display" style={{
-        fontSize: 28,
-        color: "var(--cyan)",
-        opacity: 0.4,
-        lineHeight: 1,
-        marginBottom: 8,
-      }}>
-        {n}
-      </div>
-      <div className="display" style={{
-        fontSize: 16,
-        color: "var(--ink)",
-        marginBottom: 6,
-        letterSpacing: "0.04em",
-      }}>
-        {title}
-      </div>
-      <div style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.55 }}>
-        {text}
-      </div>
-    </div>
-  );
-}
-
-function Trust({ label, text }) {
+function Pillar({ color, label, body }) {
   return (
     <div style={{
-      padding: "12px 14px",
-      borderLeft: "2px solid var(--violet)",
-      background: "rgba(179, 136, 255, 0.04)",
+      padding: 16,
+      border: `1px solid ${color}`,
+      background: `${color}0D`,
+      borderRadius: 6,
     }}>
-      <div className="kicker" style={{ color: "var(--violet)", marginBottom: 4 }}>
+      <div className="display" style={{ fontSize: 22, color, letterSpacing: "0.06em", marginBottom: 6 }}>
         {label}
       </div>
-      <div style={{ color: "var(--ink-dim)", fontSize: 12, lineHeight: 1.5 }}>
-        {text}
+      <div style={{ color: "var(--ink-dim)", fontSize: 13, lineHeight: 1.5 }}>
+        {body}
       </div>
     </div>
   );
 }
 
-function Stat({ label, value, accent }) {
+function Catch({ title, body }) {
   return (
     <div>
-      <div className="display tabular" style={{
-        fontSize: "clamp(22px, 4vw, 30px)",
-        color: accent || "var(--ink)",
-        lineHeight: 1,
-      }}>
-        {value}
+      <div className="mono" style={{ color: "var(--ink)", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+        {title}
       </div>
-      <div className="micro" style={{ color: "var(--ink-faint)", marginTop: 4 }}>
-        {label}
-      </div>
-    </div>
-  );
-}
-
-function Mini({ label, value, color }) {
-  return (
-    <div>
-      <div className="micro" style={{ color: "var(--ink-faint)" }}>{label}</div>
-      <div className="mono" style={{ fontSize: 11, color, fontWeight: 600, marginTop: 2 }}>
-        {value}
+      <div style={{ color: "var(--ink-faint)", fontSize: 12, lineHeight: 1.5 }}>
+        {body}
       </div>
     </div>
   );

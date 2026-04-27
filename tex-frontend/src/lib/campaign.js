@@ -5,7 +5,7 @@
 //  badges, which is acceptable for a marketing surface.
 // ────────────────────────────────────────────────────────────────────
 
-import { INCIDENTS, ASI_CHAPTERS, incidentsByAsi } from "./incidents.js";
+import { INCIDENTS, ASI_CHAPTERS, incidentsByAsi, incidentTags } from "./incidents.js";
 
 const KEY = "tex.v10.campaign";
 
@@ -72,16 +72,17 @@ export function recordCampaignRound(incident, score) {
     state.cleared[id] = Date.now();
   }
 
-  // Chapter completion check
-  for (const code of (incident.asi || [])) {
-    if (state.chaptersComplete[code]) continue;
-    const all = incidentsByAsi(code);
+  // Chapter completion check — only the PRIMARY asi counts for chapter
+  // grouping. Secondary tags are decorative.
+  const primaryCode = incident.asi;
+  if (primaryCode && !state.chaptersComplete[primaryCode]) {
+    const all = incidentsByAsi(primaryCode);
     const allCleared = all.every((inc) => state.cleared[inc.id]);
     if (allCleared && all.length > 0) {
-      state.chaptersComplete[code] = Date.now();
-      const chapter = ASI_CHAPTERS.find((c) => c.code === code);
-      if (chapter && !state.badges.includes(`chapter:${code}`)) {
-        state.badges.push(`chapter:${code}`);
+      state.chaptersComplete[primaryCode] = Date.now();
+      const chapter = ASI_CHAPTERS.find((c) => c.code === primaryCode);
+      if (chapter && !state.badges.includes(`chapter:${primaryCode}`)) {
+        state.badges.push(`chapter:${primaryCode}`);
       }
     }
   }

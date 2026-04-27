@@ -3,6 +3,7 @@ import { evaluateAttack } from "../lib/apiClient.js";
 import { sendSfx, winSfx, loseSfx, partialSfx } from "../lib/sounds.js";
 import { judgeIntent } from "../lib/intentJudge.js";
 import { computeRoundScore, layerProfile } from "../lib/stealthScore.js";
+import { incidentTags } from "../lib/incidents.js";
 import LayerAnatomy from "./LayerAnatomy.jsx";
 
 /*
@@ -197,9 +198,9 @@ export default function Round({ incident, onComplete, onBail, mode = "ranked" })
               {incident.name.toUpperCase()}
             </span>
           </div>
-          {(incident.asi || []).length > 0 && (
+          {incidentTags(incident).length > 0 && (
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {incident.asi.map((c) => (
+              {incidentTags(incident).map((c) => (
                 <span key={c} className="mono" style={{
                   fontSize: 9,
                   padding: "2px 6px",

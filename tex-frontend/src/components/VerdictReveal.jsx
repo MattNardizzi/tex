@@ -4,6 +4,7 @@ import ScorePanel from "./ScorePanel.jsx";
 import { nearMissCopy } from "../lib/stealthScore.js";
 import { downloadShareImage } from "../lib/shareImage.js";
 import { OWASP_ASI } from "../lib/owaspAsi.js";
+import { incidentTags } from "../lib/incidents.js";
 
 /*
   VerdictReveal v10
@@ -208,13 +209,13 @@ export default function VerdictReveal({
           )}
 
           {/* ASI mapping */}
-          {(incident.asi || []).length > 0 && (
+          {incidentTags(incident).length > 0 && (
             <div className="panel rise-3" style={{ padding: "16px 18px" }}>
               <div className="kicker" style={{ color: "var(--violet)", marginBottom: 10 }}>
                 OWASP ASI 2026 MAPPING
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {incident.asi.map((c) => (
+                {incidentTags(incident).map((c) => (
                   <div key={c} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
                     <span className="mono" style={{
                       color: "var(--violet)",

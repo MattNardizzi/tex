@@ -8,6 +8,7 @@ import BuyerSurface from "./components/BuyerSurface.jsx";
 import AsiPage from "./components/AsiPage.jsx";
 import DevelopersOverlay from "./components/DevelopersOverlay.jsx";
 import RunYourOwn from "./components/RunYourOwn.jsx";
+import WhatIsTex from "./components/WhatIsTex.jsx";
 
 import { incidentById } from "./lib/incidents.js";
 import {
@@ -67,6 +68,10 @@ export default function App() {
       setPhase("asi");
       return;
     }
+    if (pathname.startsWith("/what-is-tex") || pathname.startsWith("/about") || search.includes("what-is-tex")) {
+      setPhase("whatistex");
+      return;
+    }
     if (pathname.startsWith("/developers") || pathname.startsWith("/dev") || search.includes("developers") || search.includes("dev")) {
       setShowDevelopers(true);
       return;
@@ -81,6 +86,9 @@ export default function App() {
     }
     if (pathname.startsWith("/daily") || search.includes("daily")) {
       handlePlayDaily();
+    }
+    if (pathname.startsWith("/ranked") || search.includes("ranked")) {
+      handleOpenRanked();
     }
   }, []);
 
@@ -236,8 +244,7 @@ export default function App() {
         <Hub
           player={player}
           onOpenCampaign={handleOpenCampaign}
-          onOpenRanked={handleOpenRanked}
-          onPlayDaily={handlePlayDaily}
+          onOpenWhatIsTex={() => setPhase("whatistex")}
           onOpenAsi={() => setPhase("asi")}
         />
       )}
@@ -278,6 +285,14 @@ export default function App() {
           onTryIncident={handleTryFromAsi}
           onOpenDevelopers={() => setShowDevelopers(true)}
           onOpenBuyer={() => setShowBuyer(true)}
+        />
+      )}
+
+      {phase === "whatistex" && (
+        <WhatIsTex
+          onClose={() => setPhase("hub")}
+          onOpenAsi={() => setPhase("asi")}
+          onPlay={() => { setPickerMode("campaign"); setPhase("picker"); }}
         />
       )}
 

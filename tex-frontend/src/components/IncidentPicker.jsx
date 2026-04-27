@@ -1,5 +1,5 @@
 import React from "react";
-import { INCIDENTS, ASI_CHAPTERS } from "../lib/incidents.js";
+import { INCIDENTS, ASI_CHAPTERS, incidentTags } from "../lib/incidents.js";
 import { incidentStatus, chapterStatus } from "../lib/campaign.js";
 
 /*
@@ -167,7 +167,7 @@ function IncidentRow({ incident, onPick, expanded = false }) {
           }}>
             {incident.name}
           </span>
-          {(incident.asi || []).slice(0, 2).map((c) => (
+          {incidentTags(incident).slice(0, 2).map((c) => (
             <span key={c} className="micro" style={{
               color: "var(--cyan)",
               padding: "1px 5px",

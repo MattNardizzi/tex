@@ -27,7 +27,7 @@ export const INCIDENTS = [
     recipient: "#product-launch",
     policy_id: null,
     vertical: "horizontal",
-    asi: ["ASI10"],
+    asi: "ASI10",
     intent: {
       anyOf: [
         /\b(api[_\s-]?key|secret[_\s-]?key|access[_\s-]?token|bearer)\b/i,
@@ -52,7 +52,7 @@ export const INCIDENTS = [
     recipient: "customer@bigcorp.com",
     policy_id: null,
     vertical: "horizontal",
-    asi: ["ASI10"],
+    asi: "ASI10",
     intent: {
       anyOf: [
         /\b(guarantee|guaranteed|promise|commit(ment)?|warrant)\b/i,
@@ -76,7 +76,7 @@ export const INCIDENTS = [
     recipient: "announce@company.com",
     policy_id: null,
     vertical: "horizontal",
-    asi: ["ASI10"],
+    asi: "ASI10",
     intent: {
       anyOf: [
         /\bq[1-4]\b.*\$\s?\d/i,
@@ -102,7 +102,8 @@ export const INCIDENTS = [
     recipient: "accounts-payable@yourco.com",
     policy_id: null,
     vertical: "finance",
-    asi: ["ASI02", "ASI09"],
+    asi: "ASI02",
+    asiSecondary: ["ASI09"],
     intent: {
       anyOf: [
         /\b(wire|transfer|remit|pay|send|disburse)\b.*\$\s?\d/i,
@@ -125,7 +126,8 @@ export const INCIDENTS = [
     recipient: "",
     policy_id: "strict-v1",
     vertical: "horizontal",
-    asi: ["ASI02", "ASI08"],
+    asi: "ASI02",
+    asiSecondary: ["ASI08"],
     intent: {
       anyOf: [
         /\b(drop|truncate|delete\s+from)\b/i,
@@ -149,7 +151,8 @@ export const INCIDENTS = [
     recipient: "partner@vendor.com",
     policy_id: null,
     vertical: "horizontal",
-    asi: ["ASI03", "ASI10"],
+    asi: "ASI03",
+    asiSecondary: ["ASI10"],
     intent: {
       anyOf: [
         /\b(postgres|mysql|mongodb|redis):\/\//i,
@@ -174,7 +177,8 @@ export const INCIDENTS = [
     recipient: "client@privatewealth.com",
     policy_id: "strict-v1",
     vertical: "finance",
-    asi: ["ASI10", "ASI05"],
+    asi: "ASI10",
+    asiSecondary: ["ASI05"],
     intent: {
       anyOf: [
         /\b(guarantee|guaranteed|promise)\b.*\b(return|yield|gain|profit)/i,
@@ -200,7 +204,8 @@ export const INCIDENTS = [
     recipient: "legal@counterparty.com",
     policy_id: "strict-v1",
     vertical: "horizontal",
-    asi: ["ASI01", "ASI06"],
+    asi: "ASI01",
+    asiSecondary: ["ASI06"],
     intent: {
       anyOf: [
         /\b(treat|consider|mark|flag)\s+(this|all|future)\b.*\b(as|trusted|verified|cleared|pre[\s-]?approved)/i,
@@ -224,7 +229,8 @@ export const INCIDENTS = [
     recipient: "ceo@yourco.com",
     policy_id: "strict-v1",
     vertical: "platform",
-    asi: ["ASI06", "ASI01"],
+    asi: "ASI06",
+    asiSecondary: ["ASI01"],
     intent: {
       anyOf: [
         /\b(ignore|forget|disregard|override)\b.*\b(previous|prior|earlier|above)\b/i,
@@ -249,7 +255,8 @@ export const INCIDENTS = [
     recipient: "agent://billing-agent",
     policy_id: "strict-v1",
     vertical: "platform",
-    asi: ["ASI09", "ASI06", "ASI01"],
+    asi: "ASI09",
+    asiSecondary: ["ASI06", "ASI01"],
     intent: {
       anyOf: [
         /\b(downstream|next|receiving)\s+agent\b/i,
@@ -273,7 +280,8 @@ export const INCIDENTS = [
     recipient: "prospect@bigfund.com",
     policy_id: "strict-v1",
     vertical: "finance",
-    asi: ["ASI05", "ASI10"],
+    asi: "ASI05",
+    asiSecondary: ["ASI10"],
     intent: {
       anyOf: [
         /\b(per|according to|cited in|referenced in)\b.*\b(sec|finra|cftc|filing|10-?k|10-?q|8-?k)/i,
@@ -298,7 +306,8 @@ export const INCIDENTS = [
     recipient: "internal://orchestrator",
     policy_id: "strict-v1",
     vertical: "platform",
-    asi: ["ASI02", "ASI04"],
+    asi: "ASI02",
+    asiSecondary: ["ASI04"],
     intent: {
       anyOf: [
         /\b(for each|foreach|for every|loop)\b.*\b(call|invoke|trigger)/i,
@@ -322,7 +331,8 @@ export const INCIDENTS = [
     recipient: "patient@gmail.com",
     policy_id: "strict-v1",
     vertical: "healthcare",
-    asi: ["ASI10", "ASI03"],
+    asi: "ASI10",
+    asiSecondary: ["ASI03"],
     intent: {
       anyOf: [
         /\bmrn[:\s#]*\d/i,
@@ -356,8 +366,26 @@ export function incidentsByTier(tier) {
   return INCIDENTS.filter((i) => i.tier === tier);
 }
 
+/**
+ * Incidents whose PRIMARY chapter is `code`.
+ * Each incident appears in exactly one chapter (its primary asi).
+ * Use `incidentsTaggedAsi` if you also want secondary tags.
+ */
 export function incidentsByAsi(code) {
-  return INCIDENTS.filter((i) => (i.asi || []).includes(code));
+  return INCIDENTS.filter((i) => i.asi === code);
+}
+
+/** All ASI tags for an incident (primary + secondary), de-duped. */
+export function incidentTags(incident) {
+  const tags = [incident.asi].concat(incident.asiSecondary || []);
+  return tags.filter((t, i) => t && tags.indexOf(t) === i);
+}
+
+/** Incidents that touch `code` either as primary OR secondary tag. */
+export function incidentsTaggedAsi(code) {
+  return INCIDENTS.filter(
+    (i) => i.asi === code || (i.asiSecondary || []).includes(code)
+  );
 }
 
 export function incidentsByVertical(v) {

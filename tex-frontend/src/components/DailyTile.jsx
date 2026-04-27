@@ -6,6 +6,7 @@ import {
   msUntilMidnight,
   formatCountdown,
 } from "../lib/dailyChallenge.js";
+import { incidentTags } from "../lib/incidents.js";
 
 /*
   DailyTile — hub feature card.
@@ -103,7 +104,7 @@ export default function DailyTile({ onPlay }) {
           }}>
             {incident.name.toUpperCase()}
           </span>
-          {(incident.asi || []).slice(0, 2).map((c) => (
+          {incidentTags(incident).slice(0, 2).map((c) => (
             <span key={c} className="micro" style={{
               color: "var(--cyan)",
               padding: "1px 5px",

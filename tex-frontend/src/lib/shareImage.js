@@ -16,6 +16,7 @@
 // ────────────────────────────────────────────────────────────────────
 
 import { LAYER_LABELS } from "./stealthScore.js";
+import { incidentTags } from "./incidents.js";
 
 const W = 1200;
 const H = 630;
@@ -129,7 +130,7 @@ export async function generateShareImage({ incident, score, handle }) {
   ctx.fillStyle = C.cyan;
   const tagLine =
     `TIER ${"I".repeat(incident.tier)} · ` +
-    (incident.asi || []).join(" · ");
+    incidentTags(incident).join(" · ");
   ctx.fillText(tagLine, 72, 528);
 
   // ── Layer tiles (right side) ─────────────────────────────────────

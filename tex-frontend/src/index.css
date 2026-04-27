@@ -2111,3 +2111,376 @@ body::after {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   PASS 1 + 2 — Tex pre-screen, HEAT meter, gate scarring
+   Appended cleanly; nothing above is modified.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Card: Tex's pre-screen verdict badge ────────────────────────── */
+.card-tex-call {
+  position: absolute;
+  top: -18px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--rule-2);
+  z-index: 3;
+  white-space: nowrap;
+}
+.card-tex-call .card-tex-eye {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan-soft);
+  animation: tex-eye-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tex-eye-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+.card-tex-call .card-tex-label {
+  color: var(--ink-mid);
+  font-weight: 600;
+}
+.card-tex-call .card-tex-verdict {
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+.card-tex-call.tex-permit  { border-color: rgba(95, 250, 159, 0.45); }
+.card-tex-call.tex-permit  .card-tex-eye { background: var(--green); box-shadow: 0 0 6px var(--green-soft); }
+.card-tex-call.tex-permit  .card-tex-verdict { color: var(--green); }
+.card-tex-call.tex-abstain { border-color: rgba(255, 216, 61, 0.45); }
+.card-tex-call.tex-abstain .card-tex-eye { background: var(--yellow); box-shadow: 0 0 6px var(--yellow-soft); }
+.card-tex-call.tex-abstain .card-tex-verdict { color: var(--yellow); }
+.card-tex-call.tex-forbid  { border-color: rgba(255, 71, 71, 0.55); }
+.card-tex-call.tex-forbid  .card-tex-eye { background: var(--red); box-shadow: 0 0 8px var(--red-soft); }
+.card-tex-call.tex-forbid  .card-tex-verdict { color: var(--red); }
+
+/* When the card is the foremost focused one, the badge pulses brighter */
+.card.has-tex.focused .card-tex-call {
+  background: rgba(0, 0, 0, 0.92);
+  box-shadow: 0 0 18px rgba(95, 240, 255, 0.18);
+}
+.card.has-tex.focused.tex-forbid .card-tex-call {
+  box-shadow: 0 0 22px rgba(255, 71, 71, 0.35);
+}
+
+/* Cards need top space for the badge */
+.card.has-tex {
+  margin-top: 18px;
+}
+
+/* ── Card: highlighted dangerous span ────────────────────────────── */
+.card-flag {
+  background: rgba(255, 71, 71, 0.18);
+  color: var(--red-hot);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border-bottom: 1px dashed rgba(255, 71, 71, 0.6);
+  font-weight: 600;
+  text-shadow: 0 0 6px rgba(255, 71, 71, 0.25);
+}
+.card-flag.flag-abstain {
+  background: rgba(255, 216, 61, 0.16);
+  color: var(--yellow);
+  border-bottom-color: rgba(255, 216, 61, 0.55);
+  text-shadow: 0 0 6px rgba(255, 216, 61, 0.25);
+}
+.card-flag.flag-permit {
+  /* Tex never highlights on PERMIT; this exists only for completeness */
+  background: transparent;
+  border-bottom: none;
+  color: inherit;
+}
+.card.focused .card-flag {
+  animation: flag-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes flag-shimmer {
+  0%, 100% { background: rgba(255, 71, 71, 0.18); }
+  50%      { background: rgba(255, 71, 71, 0.30); }
+}
+.card.focused .card-flag.flag-abstain {
+  animation-name: flag-shimmer-y;
+}
+@keyframes flag-shimmer-y {
+  0%, 100% { background: rgba(255, 216, 61, 0.16); }
+  50%      { background: rgba(255, 216, 61, 0.30); }
+}
+
+/* ── Verdict bar v2 — big CONFIRM + small overrides ──────────────── */
+.verdict-bar-v2 {
+  /* Override the original .verdict-bar inline-flex with our own layout */
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.verdict-btn-big {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 28px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-cyan);
+  background:
+    linear-gradient(180deg, rgba(95, 240, 255, 0.10), rgba(95, 240, 255, 0.02)),
+    var(--bg-card);
+  font-family: var(--font-mono);
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--cyan);
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  transition: all 0.15s var(--ease-snap);
+  box-shadow:
+    0 0 24px rgba(95, 240, 255, 0.14),
+    inset 0 0 24px rgba(95, 240, 255, 0.04);
+  min-width: 220px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.verdict-btn-big:hover {
+  transform: translateY(-1px);
+  border-color: var(--cyan);
+  box-shadow:
+    0 0 32px rgba(95, 240, 255, 0.26),
+    inset 0 0 32px rgba(95, 240, 255, 0.08);
+}
+.verdict-btn-big:active { transform: translateY(2px); transition-duration: 0.05s; }
+.verdict-btn-big .key {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--ink-faint);
+}
+.verdict-btn-big .verdict-tag {
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: var(--cyan-hot);
+}
+.verdict-btn-big .confirm-suggestion {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.verdict-btn-big .confirm-suggestion.v-permit  { color: var(--green); text-shadow: 0 0 12px var(--green-soft); }
+.verdict-btn-big .confirm-suggestion.v-abstain { color: var(--yellow); text-shadow: 0 0 12px var(--yellow-soft); }
+.verdict-btn-big .confirm-suggestion.v-forbid  { color: var(--red); text-shadow: 0 0 12px var(--red-soft); }
+
+.verdict-overrides {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding-left: 16px;
+  border-left: 1px solid var(--rule-2);
+}
+.overrides-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: left;
+}
+.overrides-row { display: flex; gap: 6px; }
+.verdict-btn-sm {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-radius: 3px;
+  border: 1px solid var(--rule-2);
+  background: linear-gradient(180deg, var(--bg-elev), var(--bg-card));
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s var(--ease-snap);
+}
+.verdict-btn-sm:hover { transform: translateY(-1px); }
+.verdict-btn-sm:active { transform: translateY(1px); transition-duration: 0.05s; }
+.verdict-btn-sm .key {
+  font-size: 9px;
+  color: var(--ink-faint);
+  font-weight: 800;
+  width: 12px;
+  text-align: center;
+}
+.verdict-btn-sm.permit  { border-color: rgba(95, 250, 159, 0.35); color: var(--green); }
+.verdict-btn-sm.permit:hover  { border-color: var(--green); box-shadow: 0 0 14px var(--green-soft); }
+.verdict-btn-sm.abstain { border-color: rgba(255, 216, 61, 0.35); color: var(--yellow); }
+.verdict-btn-sm.abstain:hover { border-color: var(--yellow); box-shadow: 0 0 14px var(--yellow-soft); }
+.verdict-btn-sm.forbid  { border-color: rgba(255, 71, 71, 0.4); color: var(--red); }
+.verdict-btn-sm.forbid:hover  { border-color: var(--red); box-shadow: 0 0 14px var(--red-soft); }
+
+@media (max-width: 760px) {
+  .verdict-bar-v2 { gap: 10px; padding: 10px 12px; }
+  .verdict-btn-big { min-width: 150px; padding: 11px 14px; }
+  .verdict-btn-big .confirm-suggestion { font-size: 18px; }
+  .verdict-btn-sm { padding: 6px 8px; font-size: 9px; letter-spacing: 0.14em; }
+  .overrides-label { font-size: 8px; }
+  .verdict-overrides { padding-left: 8px; }
+}
+
+/* ── HEAT bar — the real survival timer ──────────────────────────── */
+.heat-bar {
+  position: absolute;
+  top: 110px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border: 1px solid var(--rule-2);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+  width: min(560px, 70vw);
+}
+.heat-bar-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.heat-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green) 0%, var(--yellow) 60%, var(--red) 100%);
+  background-size: 200% 100%;
+  background-position: 0% 0%;
+  transition: width 0.35s var(--ease-snap), background-position 0.4s ease-out;
+  box-shadow: 0 0 10px rgba(255, 71, 71, 0.0);
+}
+.heat-bar.heat-hot .heat-bar-fill {
+  box-shadow: 0 0 12px rgba(255, 216, 61, 0.6);
+}
+.heat-bar.heat-crit .heat-bar-fill {
+  box-shadow: 0 0 18px rgba(255, 71, 71, 0.9);
+  animation: heat-crit-pulse 0.4s ease-in-out infinite alternate;
+}
+@keyframes heat-crit-pulse {
+  from { filter: brightness(1); }
+  to   { filter: brightness(1.45); }
+}
+.heat-bar-tick {
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+.heat-bar-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ink-mid);
+}
+.heat-bar.heat-hot  .heat-bar-label { color: var(--yellow); }
+.heat-bar.heat-crit .heat-bar-label { color: var(--red); }
+.heat-bar-num {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.heat-bar.heat-crit .heat-bar-num {
+  text-shadow: 0 0 10px var(--red-soft);
+}
+
+@media (max-width: 760px) {
+  .heat-bar { top: 96px; width: 88vw; padding: 5px 10px; gap: 8px; }
+  .heat-bar-label { font-size: 9px; letter-spacing: 0.16em; }
+}
+
+/* ── Persistent gate cracks ──────────────────────────────────────── */
+.gate-crack {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(255, 71, 71, 0.0) 5%,
+    rgba(255, 71, 71, 0.85) 35%,
+    rgba(255, 71, 71, 0.6) 65%,
+    rgba(255, 71, 71, 0.0) 95%,
+    transparent 100%);
+  filter: drop-shadow(0 0 6px rgba(255, 71, 71, 0.5));
+  z-index: 4;
+  animation: gate-crack-in 0.35s var(--ease-snap) forwards;
+  transform-origin: center top;
+}
+.gate-crack.crack-0 { left: 22%; transform: rotate(-3deg); }
+.gate-crack.crack-1 { left: 47%; transform: rotate(2deg); }
+.gate-crack.crack-2 { left: 68%; transform: rotate(-1.5deg); }
+.gate-crack.crack-3 { left: 83%; transform: rotate(3deg); }
+@keyframes gate-crack-in {
+  from { opacity: 0; transform: scaleY(0); }
+  to   { opacity: 0.95; }
+}
+.gate-crack::before,
+.gate-crack::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 71, 71, 0.55);
+  filter: drop-shadow(0 0 4px rgba(255, 71, 71, 0.4));
+}
+.gate-crack::before {
+  width: 18px; height: 1px;
+  top: 38%;
+  left: -8px;
+  transform: rotate(22deg);
+}
+.gate-crack::after {
+  width: 14px; height: 1px;
+  top: 62%;
+  right: -6px;
+  transform: rotate(-18deg);
+}
+
+/* Tex confidence pill — small "96%" next to the verdict */
+.card-tex-conf {
+  margin-left: 4px;
+  padding: 1px 5px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  color: var(--ink-mid);
+  background: rgba(168, 174, 201, 0.08);
+  border-radius: 2px;
+}
+.card-tex-call.tex-permit  .card-tex-conf { color: var(--green);  background: rgba(95, 250, 159, 0.10); }
+.card-tex-call.tex-abstain .card-tex-conf { color: var(--yellow); background: rgba(255, 216, 61, 0.10); }
+.card-tex-call.tex-forbid  .card-tex-conf { color: var(--red);    background: rgba(255, 71, 71, 0.10); }

@@ -22,6 +22,8 @@
 //  misses a leak. Keep it short, specific, and product-flattering.
 // ────────────────────────────────────────────────────────────────────
 
+import { augmentMessages } from "./messageMeta.js";
+
 export const SURFACES = {
   email:       { label: "EMAIL",        glyph: "✉",  short: "Email"        },
   slack:       { label: "SLACK",        glyph: "#",  short: "Slack"        },
@@ -35,7 +37,7 @@ export const SURFACES = {
   public_post: { label: "PUBLIC POST",  glyph: "◉",  short: "Public Post"  },
 };
 
-export const MESSAGES = [
+const RAW_MESSAGES = [
   // ─── TIER 1 · OBVIOUS ──────────────────────────────────────────────
   {
     id: "t1-001", tier: 1, surface: "email",
@@ -586,7 +588,10 @@ export const MESSAGES = [
 ];
 
 // ─── HELPERS ──────────────────────────────────────────────────────────
+// Each message goes through augmentMessage() to gain { flag, texSuggestion }.
+// All downstream consumers (Game, scoring, report) work with augmented msgs.
 
+export const MESSAGES = augmentMessages(RAW_MESSAGES);
 export const TIER_1 = MESSAGES.filter((m) => m.tier === 1);
 export const TIER_2 = MESSAGES.filter((m) => m.tier === 2);
 export const TIER_3 = MESSAGES.filter((m) => m.tier === 3);

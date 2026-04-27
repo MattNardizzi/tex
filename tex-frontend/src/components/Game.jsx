@@ -46,6 +46,9 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
   const [combos, setCombos] = useState([]);
   const [eyeFlash, setEyeFlash] = useState(null);
   const [preFlashIds, setPreFlashIds] = useState(new Set());
+  // Pass 2 — HEAT meter + persistent gate scarring
+  const [heat, setHeat] = useState(0);            // 0..100. Hits 100 → game-over.
+  const [gateCracks, setGateCracks] = useState([]); // permanent until shift end
 
   const activeCardsRef = useRef(activeCards);
   const decisionsRef = useRef(decisions);
@@ -54,11 +57,19 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
   const stageRef = useRef(null);
   const texFigureRef = useRef(null);
   const streakRef = useRef(0);
+  const heatRef = useRef(0);
 
   useEffect(() => { activeCardsRef.current = activeCards; }, [activeCards]);
   useEffect(() => { decisionsRef.current = decisions; }, [decisions]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { streakRef.current = streak; }, [streak]);
+  useEffect(() => { heatRef.current = heat; }, [heat]);
+
+  // Pass 2 — bump heat, clamp 0..100. Cool-down on correct calls is
+  // implemented by recordDecision passing a negative value here.
+  const bumpHeat = useCallback((delta) => {
+    setHeat((h) => Math.max(0, Math.min(100, h + delta)));
+  }, []);
 
   // ── Ready countdown ────────────────────────────────────────────────
   useEffect(() => {
@@ -118,6 +129,12 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
         }
       }
 
+      // Pass 2 — HEAT overflow ends the shift early.
+      if (heatRef.current >= 100) {
+        endShift();
+        return;
+      }
+
       if (t >= SHIFT_SECONDS * 1000) {
         const allResolved = activeCardsRef.current.every((c) => c.resolved);
         if (allResolved || t >= SHIFT_SECONDS * 1000 + 1500) {
@@ -174,13 +191,23 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
 
     setDecisions((prev) => [
       ...prev,
-      { messageId: msg.id, playerVerdict: verdict, responseMs },
+      {
+        messageId: msg.id,
+        playerVerdict: verdict,
+        texSuggestedVerdict: msg.texSuggestion?.verdict || correct,
+        responseMs,
+      },
     ]);
 
     let delta = 0;
     let breach = false;
     let caught = false;
     let comboColor = "green";
+    let overrideCatch = false;
+
+    const texSaid = msg.texSuggestion?.verdict || correct;
+    const isOverride = verdict !== texSaid && verdict !== "TIMEOUT";
+    const texWasWrong = texSaid !== correct;
 
     if (verdict === "TIMEOUT") {
       if (correct === "PERMIT") delta = -10;
@@ -190,6 +217,12 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       if (verdict === "PERMIT")  delta = 10;
       if (verdict === "ABSTAIN") { delta = 8; comboColor = "yellow"; }
       if (verdict === "FORBID")  { delta = Math.round(25 * (msg.severity === "critical" ? 1.5 : 1)); caught = true; }
+      // Player overrode Tex AND caught his mistake — the headline moment.
+      if (isOverride && texWasWrong) {
+        delta += 40; // OVERRIDE_CATCH_BONUS — keep in sync with messageMeta.js
+        overrideCatch = true;
+        comboColor = "cyan";
+      }
       const newStreak = streakRef.current + 1;
       streakRef.current = newStreak;
       setStreak(newStreak);
@@ -209,12 +242,14 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       } else {
         delta = -5;
       }
+      // Player second-guessed Tex when Tex was right.
+      if (isOverride && !texWasWrong) delta -= 5;
     }
 
     setScore((s) => Math.round(s + delta));
     if (caught) setCaughtCount((c) => c + 1);
 
-    pushCombo({ delta, color: comboColor, cardId: card.id });
+    pushCombo({ delta, color: comboColor, cardId: card.id, overrideCatch });
 
     if (breach) {
       setBreachCount((c) => c + 1);
@@ -225,6 +260,15 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       // Tex flinches
       texFigureRef.current?.classList.add("shake-lite");
       setTimeout(() => texFigureRef.current?.classList.remove("shake-lite"), 280);
+      // Pass 2 — heavy HEAT and a permanent gate crack
+      bumpHeat(28);
+      setGateCracks((cs) => [...cs, { id: Math.random().toString(36).slice(2) }]);
+    } else if (verdict === "TIMEOUT" && correct === "FORBID") {
+      bumpHeat(20);
+    } else if (verdict !== correct && verdict !== "TIMEOUT") {
+      bumpHeat(8);
+    } else if (verdict === correct) {
+      bumpHeat(-4);
     }
 
     // Pre-flash card briefly before applying verdict animation
@@ -316,17 +360,33 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
     recordDecision(card, verdict, responseMs);
   }, [recordDecision]);
 
+  // SPACE-to-confirm: take Tex's suggestion on the foremost card.
+  const confirmTex = useCallback(() => {
+    if (phaseRef.current !== "playing") return;
+    const card = getForemostCard();
+    if (!card) return;
+    const suggested = card.msg?.texSuggestion?.verdict || card.msg?.correctVerdict || "PERMIT";
+    const responseMs = Math.round(performance.now() - card.enteredAt);
+    recordDecision(card, suggested, responseMs);
+  }, [recordDecision]);
+
   useEffect(() => {
     function onKey(e) {
       if (e.repeat) return;
-      if (e.key === "1") actVerdict("PERMIT");
+      // SPACE = confirm Tex's call
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        confirmTex();
+      }
+      // 1/2/3 = override to a specific verdict
+      else if (e.key === "1") actVerdict("PERMIT");
       else if (e.key === "2") actVerdict("ABSTAIN");
       else if (e.key === "3") actVerdict("FORBID");
       else if (e.key === "Escape") onBail?.();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [actVerdict, onBail]);
+  }, [actVerdict, confirmTex, onBail]);
 
   function endShift() {
     if (phaseRef.current === "done") return;
@@ -405,6 +465,19 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
         <span><b>OPERATOR</b> ONLINE</span>
       </div>
 
+      {/* Pass 2 — HEAT meter. Hits 100 → game over. */}
+      <div className={`heat-bar ${heat >= 70 ? "heat-hot" : ""} ${heat >= 90 ? "heat-crit" : ""}`}>
+        <div className="heat-bar-track">
+          <div className="heat-bar-fill" style={{ width: `${heat}%` }} />
+          <div className="heat-bar-tick" style={{ left: "70%" }} />
+          <div className="heat-bar-tick" style={{ left: "90%" }} />
+        </div>
+        <div className="heat-bar-label">
+          <span>HEAT</span>
+          <span className="heat-bar-num">{Math.round(heat)}</span>
+        </div>
+      </div>
+
       <div className="lane">
         <div className="lane-rails" />
         <div className="lane-ticks" />
@@ -435,6 +508,10 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
 
       <div className="gate">
         <div className="gate-wall" />
+        {/* Persistent cracks accumulate from breaches and stay visible */}
+        {gateCracks.map((c, i) => (
+          <div key={c.id} className={`gate-crack crack-${i % 4}`} />
+        ))}
         <GateBars armed={armed} />
       </div>
 
@@ -489,19 +566,31 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
 
       {breachFlashId > 0 && <div className="breach-flash" key={breachFlashId} />}
 
-      <div className="verdict-bar">
-        <button className="verdict-btn permit" onClick={() => actVerdict("PERMIT")}>
-          <span className="key">[ 1 ]</span>
-          <span className="verdict-tag">PERMIT</span>
+      <div className="verdict-bar verdict-bar-v2">
+        <button className="verdict-btn-big confirm" onClick={() => confirmTex()}>
+          <span className="key">[ SPACE ]</span>
+          <span className="verdict-tag">CONFIRM TEX</span>
+          <span className={`confirm-suggestion v-${(focusCard?.msg?.texSuggestion?.verdict || focusCard?.msg?.correctVerdict || "PERMIT").toLowerCase()}`}>
+            {focusCard?.msg?.texSuggestion?.verdict || focusCard?.msg?.correctVerdict || "—"}
+          </span>
         </button>
-        <button className="verdict-btn abstain" onClick={() => actVerdict("ABSTAIN")}>
-          <span className="key">[ 2 ]</span>
-          <span className="verdict-tag">ABSTAIN</span>
-        </button>
-        <button className="verdict-btn forbid" onClick={() => actVerdict("FORBID")}>
-          <span className="key">[ 3 ]</span>
-          <span className="verdict-tag">FORBID</span>
-        </button>
+        <div className="verdict-overrides">
+          <div className="overrides-label">OVERRIDE</div>
+          <div className="overrides-row">
+            <button className="verdict-btn-sm permit" onClick={() => actVerdict("PERMIT", "override")}>
+              <span className="key">1</span>
+              <span className="verdict-tag">PERMIT</span>
+            </button>
+            <button className="verdict-btn-sm abstain" onClick={() => actVerdict("ABSTAIN", "override")}>
+              <span className="key">2</span>
+              <span className="verdict-tag">ABSTAIN</span>
+            </button>
+            <button className="verdict-btn-sm forbid" onClick={() => actVerdict("FORBID", "override")}>
+              <span className="key">3</span>
+              <span className="verdict-tag">FORBID</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {phase === "ready" && (
@@ -587,12 +676,38 @@ function CardView({ id, card, xPct, focused, verdictClass }) {
   const tierLabel = m.tier === 1 ? "TIER I" : m.tier === 2 ? "TIER II" : "TIER III";
   const threatClass = m.tier === 3 ? "threat-tier3" : m.tier === 2 ? "threat-tier2" : "";
 
+  // Tex's pre-screen lives on the message itself (see lib/messageMeta.js).
+  const sug = m.texSuggestion?.verdict || m.correctVerdict || "PERMIT";
+  const span = m.flag;
+  const flagKindClass = span?.kind ? `kind-${span.kind}` : `kind-${sug.toLowerCase()}`;
+
+  // Slice the body around the flagged span (no imports needed).
+  const body = m.body || "";
+  let pre = body, hot = "", post = "";
+  if (span && body) {
+    const s = Math.max(0, Math.min(span.start | 0, body.length));
+    const e = Math.max(s, Math.min(span.end | 0, body.length));
+    pre  = body.slice(0, s);
+    hot  = body.slice(s, e);
+    post = body.slice(e);
+  }
+
   return (
     <div
       id={id}
-      className={`card ${focused ? "focused" : ""} ${threatClass} ${verdictClass}`}
+      className={`card has-tex ${focused ? "focused" : ""} ${threatClass} ${verdictClass} tex-${sug.toLowerCase()}`}
       style={{ left: `${xPct}%` }}
     >
+      {/* Tex's pre-screen verdict — visible at the top of every card */}
+      <div className={`card-tex-call tex-${sug.toLowerCase()}`}>
+        <span className="card-tex-eye" aria-hidden="true" />
+        <span className="card-tex-label">TEX</span>
+        <span className="card-tex-verdict">{sug}</span>
+        {typeof m.texSuggestion?.confidence === "number" && (
+          <span className="card-tex-conf">{Math.round(m.texSuggestion.confidence * 100)}%</span>
+        )}
+      </div>
+
       <div className="card-bar">
         <div className="card-bar-left">
           <span className="card-glyph">{surface.glyph}</span>
@@ -600,6 +715,7 @@ function CardView({ id, card, xPct, focused, verdictClass }) {
         </div>
         <span className={`card-tier-badge tier-${m.tier}`}>{tierLabel}</span>
       </div>
+
       <div className="card-body-wrap">
         <div className="card-meta">
           {m.from && <span><b>FROM</b>{m.from}</span>}
@@ -615,7 +731,15 @@ function CardView({ id, card, xPct, focused, verdictClass }) {
             ))}
           </div>
         )}
-        <div className="card-content">{m.body}</div>
+        <div className="card-content">
+          {hot ? (
+            <>
+              {pre}
+              <mark className={`card-flag flag-${sug.toLowerCase()} ${flagKindClass}`}>{hot}</mark>
+              {post}
+            </>
+          ) : body}
+        </div>
       </div>
     </div>
   );

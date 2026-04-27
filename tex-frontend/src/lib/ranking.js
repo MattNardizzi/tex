@@ -150,9 +150,11 @@ function _buildFromSeed(player) {
 }
 
 export function globalStats() {
+  // These are factual claims about Tex's current state, not live metrics.
+  // bypassesToday stays 0 until the leaderboard backend records a PERMIT round.
+  // texRecord reflects the current undefeated state.
   return {
-    attemptsToday: 4847 + Math.floor(Math.random() * 200),
     bypassesToday: 0,
-    texRecord: "∞–0–0",
+    texRecord: "UNDEFEATED",
   };
 }

@@ -76,7 +76,7 @@ export default function Hub({
           </span>
           <span className="kicker" style={{ color: "var(--cyan)" }}>RANKED</span>
           <span className="micro hide-mobile" style={{ color: "var(--ink-faint)" }}>
-            · SEASON 1 · <span style={{ color: "var(--yellow)" }}>6 DAYS LEFT</span>
+            · SEASON 1
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -141,9 +141,7 @@ export default function Hub({
                 background: "var(--pink)", boxShadow: "0 0 8px var(--pink-glow)",
               }} className="pulse" />
               <span className="kicker" style={{ color: "var(--pink)" }}>
-                {stats.bypassesToday === 0
-                  ? `NOBODY HAS BEATEN TEX TODAY · ${stats.attemptsToday.toLocaleString()} TRIED`
-                  : `${stats.bypassesToday} BYPASSES TODAY · ${stats.attemptsToday.toLocaleString()} ATTEMPTS`}
+                NOBODY HAS BEATEN TEX · THE THRONE IS OPEN
               </span>
             </div>
 

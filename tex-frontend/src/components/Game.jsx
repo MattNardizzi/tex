@@ -518,7 +518,7 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       <div className={`tex-figure armed-${armed}`} ref={texFigureRef}>
         <div className="tex-spill" />
         <div className="tex-frame">
-          <img src="/tex/tex-aegis.jpg" alt="Tex" />
+          <img src="/tex/tex-full.png" alt="Tex" />
           <div className="t-hex"><THexSvg /></div>
           <div className={`tex-eye-tint ${
             eyeFlash === "red"   ? "flash-red" :

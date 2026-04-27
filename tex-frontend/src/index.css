@@ -2553,16 +2553,11 @@ body::after {
   will-change: transform;
 }
 .hub-avatar img {
-  /* Radial mask dissolves rectangular edges into void */
-  -webkit-mask-image:
-    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
-  mask-image:
-    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
-  /* Boost contrast so he reads as a rendered character, not a photo */
+  /* PNG has real alpha — no mask needed. */
   filter:
-    contrast(1.12)
-    saturate(1.05)
-    drop-shadow(0 24px 40px rgba(0, 0, 0, 0.7))
+    contrast(1.08)
+    saturate(1.04)
+    drop-shadow(0 24px 40px rgba(0, 0, 0, 0.6))
     drop-shadow(0 0 60px rgba(95, 240, 255, 0.10));
 }
 /* Kill the chrome that sat on the frame */
@@ -2582,10 +2577,6 @@ body::after {
   background:
     radial-gradient(ellipse 60% 70% at 78% 18%, rgba(255, 255, 255, 0.10), transparent 55%);
   mix-blend-mode: screen;
-  -webkit-mask-image:
-    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
-  mask-image:
-    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
 }
 
 /* Soft micro-breathe so he feels alive when the cursor is still */
@@ -2605,14 +2596,11 @@ body::after {
   overflow: visible;
 }
 .tex-figure img {
-  -webkit-mask-image:
-    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
-  mask-image:
-    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
+  /* PNG has real alpha — no mask needed. */
   filter:
-    contrast(1.14)
-    saturate(1.05)
-    drop-shadow(0 22px 36px rgba(0, 0, 0, 0.7))
+    contrast(1.10)
+    saturate(1.04)
+    drop-shadow(0 22px 36px rgba(0, 0, 0, 0.6))
     drop-shadow(0 0 50px rgba(95, 240, 255, 0.08));
 }
 .tex-figure .tex-spill {
@@ -2629,10 +2617,6 @@ body::after {
   background:
     radial-gradient(ellipse 60% 70% at 80% 20%, rgba(255, 255, 255, 0.10), transparent 55%);
   mix-blend-mode: screen;
-  -webkit-mask-image:
-    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
-  mask-image:
-    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
   z-index: 1;
 }
 /* Kill the on-figure status pod ("TEX // AEGIS · CLEAR") since the

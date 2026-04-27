@@ -264,35 +264,67 @@ function Leaderboard({ rows, dateKey, ownHandle }) {
 
 // ── Hub avatar ─────────────────────────────────────────────────────────
 function HubAvatar({ now }) {
-  const lat = 174 + (now.getSeconds() % 9);
-  const cps = (1240 + (now.getSeconds() * 13) % 380).toString();
+  const frameRef = useRef(null);
+  const rafRef = useRef(0);
+  const targetRef = useRef({ x: 0, y: 0 });
+  const currentRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    function onMove(e) {
+      // Use the whole hero area as the parallax field, not just the avatar,
+      // so the head tracks the cursor naturally as you read the headline.
+      const hero = document.querySelector(".hub-hero");
+      if (!hero) return;
+      const r = hero.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      // Normalize to [-1, 1] across the hero rect, clamped.
+      const nx = Math.max(-1, Math.min(1, (e.clientX - cx) / (r.width / 2)));
+      const ny = Math.max(-1, Math.min(1, (e.clientY - cy) / (r.height / 2)));
+      targetRef.current = { x: nx, y: ny };
+    }
+    function onLeave() {
+      targetRef.current = { x: 0, y: 0 };
+    }
+
+    function tick() {
+      // Smooth easing toward target — no jitter, COD-portrait feel.
+      const c = currentRef.current;
+      const t = targetRef.current;
+      c.x += (t.x - c.x) * 0.08;
+      c.y += (t.y - c.y) * 0.08;
+      const el = frameRef.current;
+      if (el) {
+        // Max ~6° rotation, plus a tiny translate for depth.
+        const rotY = c.x * 6;
+        const rotX = -c.y * 4;
+        const tx = c.x * 6;
+        const ty = c.y * 4;
+        el.style.transform =
+          `translate3d(${tx}px, ${ty}px, 0) rotateY(${rotY}deg) rotateX(${rotX}deg)`;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseleave", onLeave);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseleave", onLeave);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
   return (
     <div className="hub-avatar">
       <div className="avatar-glow" aria-hidden="true" />
-      <div className="avatar-frame">
+      <div className="avatar-frame" ref={frameRef}>
         <img src="/tex/tex-aegis.jpg" alt="Tex — the gate" />
         <div className="t-hex"><THexSvg title="" /></div>
         <div className="eye-scan" aria-hidden="true" />
-        <div className="avatar-corner">
-          <span className="dot" aria-hidden="true" />
-          <span>TEX · ARMED</span>
-        </div>
-        <div className="avatar-tickers">
-          <div>LAT <b>{lat}</b>MS</div>
-          <div>CPS <b>{cps}</b></div>
-          <div>POLICY <b>v3.2</b></div>
-        </div>
-        <div className="avatar-status">
-          <div className="status-line">
-            <span className="status-dot-mini" aria-hidden="true" />
-            <span>GATE OPEN · INSPECTING</span>
-          </div>
-        </div>
-        {/* corner brackets */}
-        <span className="avatar-bracket tl" aria-hidden="true" />
-        <span className="avatar-bracket tr" aria-hidden="true" />
-        <span className="avatar-bracket bl" aria-hidden="true" />
-        <span className="avatar-bracket br" aria-hidden="true" />
       </div>
     </div>
   );

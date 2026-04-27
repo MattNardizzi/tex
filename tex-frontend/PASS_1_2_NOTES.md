@@ -1,11 +1,11 @@
-# Tex Arena — frontend, Pass 1 + 2 build
+# Tex Arena — frontend, Pass 1 + 2 + 6 build
 
 ## What's in this build
 
-This zip extends the previous Tex Arena codebase with the most important
-mechanic change: **Tex pre-screens every action and the player either
-confirms his call (SPACE) or overrides (1/2/3).** It also adds a HEAT
-meter and persistent gate scarring.
+- **Pass 1** — Tex pre-screens; SPACE to confirm, 1/2/3 to override.
+- **Pass 2** — HEAT meter and persistent gate cracks.
+- **Pass 6** — frameless 3D Tex on Hub and in Game; headline fits viewport;
+  mouse-parallax tilt on Hub avatar.
 
 The build compiles cleanly:
 

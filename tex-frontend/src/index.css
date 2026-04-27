@@ -2484,3 +2484,157 @@ body::after {
 .card-tex-call.tex-permit  .card-tex-conf { color: var(--green);  background: rgba(95, 250, 159, 0.10); }
 .card-tex-call.tex-abstain .card-tex-conf { color: var(--yellow); background: rgba(255, 216, 61, 0.10); }
 .card-tex-call.tex-forbid  .card-tex-conf { color: var(--red);    background: rgba(255, 71, 71, 0.10); }
+
+/* ════════════════════════════════════════════════════════════════════
+   PASS 6 — Frameless Tex + viewport-fit headline + parallax 3D
+   Appended overrides; nothing above is modified.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Headline that fits the viewport ───────────────────────────────
+   The original 14vw four-line headline is ~46vh of type alone. Cap
+   it so the entire hero (eyebrow + headline + sub + CTAs + ticker)
+   lives in 100vh on standard desktops.
+*/
+.hub-headline {
+  font-size: clamp(56px, 9vw, 132px);
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+}
+@media (max-width: 1080px) {
+  .hub-headline {
+    font-size: clamp(52px, 12vw, 104px);
+    line-height: 0.88;
+  }
+}
+@media (max-width: 760px) {
+  .hub-headline {
+    font-size: clamp(44px, 13vw, 84px);
+  }
+}
+
+/* Tighten hero spacing so the whole composition breathes inside 100vh */
+.hub-hero {
+  padding-top: clamp(20px, 3vw, 40px);
+  padding-bottom: 24px;
+  gap: clamp(20px, 3vw, 40px);
+  align-items: center;          /* visually centers Tex against headline */
+}
+.hub-sub { margin-top: 18px; }
+.hub-cta-row { margin-top: 22px; }
+
+/* ── Frameless Tex on Hub ──────────────────────────────────────────
+   Strip the rectangular border, inner shadow, and corner chrome.
+   Tex now floats on a soft cyan/pink rim glow with a radial mask
+   that fades the photo edges into the void.
+*/
+.hub-avatar {
+  /* Slightly larger to compensate for the lost frame weight */
+  max-width: 620px;
+  /* Wrapper for parallax — children get the 3D transform */
+  perspective: 1400px;
+  perspective-origin: 50% 50%;
+}
+.hub-avatar .avatar-glow {
+  /* Bigger, warmer atmospheric pool behind him */
+  inset: -18%;
+  background:
+    radial-gradient(ellipse 60% 65% at 50% 45%, rgba(95, 240, 255, 0.30), transparent 65%),
+    radial-gradient(ellipse 80% 90% at 50% 55%, rgba(255, 61, 122, 0.10), transparent 75%);
+  filter: blur(48px);
+}
+.hub-avatar .avatar-frame {
+  /* Kill the rectangle. Parallax JS sets transform; no keyframe here. */
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.hub-avatar img {
+  /* Radial mask dissolves rectangular edges into void */
+  -webkit-mask-image:
+    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
+  mask-image:
+    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
+  /* Boost contrast so he reads as a rendered character, not a photo */
+  filter:
+    contrast(1.12)
+    saturate(1.05)
+    drop-shadow(0 24px 40px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 60px rgba(95, 240, 255, 0.10));
+}
+/* Kill the chrome that sat on the frame */
+.hub-avatar .avatar-corner,
+.hub-avatar .avatar-status,
+.hub-avatar .avatar-tickers,
+.hub-avatar .avatar-bracket {
+  display: none !important;
+}
+
+/* Subtle 3D rim from upper-right (matches the avatar's existing render lighting) */
+.hub-avatar .avatar-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 70% at 78% 18%, rgba(255, 255, 255, 0.10), transparent 55%);
+  mix-blend-mode: screen;
+  -webkit-mask-image:
+    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
+  mask-image:
+    radial-gradient(ellipse 75% 88% at 50% 45%, black 55%, transparent 92%);
+}
+
+/* Soft micro-breathe so he feels alive when the cursor is still */
+@keyframes tex-breathe {
+  0%, 100% { transform: translateZ(0) rotateY(-0.5deg) scale(1); }
+  50%      { transform: translateZ(2px) rotateY(0.5deg) scale(1.005); }
+}
+
+/* ── Frameless Tex in the Game scene ───────────────────────────────
+   Same treatment: kill the border + box, mask the photo, ramp lighting.
+*/
+.tex-figure .tex-frame {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow: visible;
+}
+.tex-figure img {
+  -webkit-mask-image:
+    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
+  mask-image:
+    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
+  filter:
+    contrast(1.14)
+    saturate(1.05)
+    drop-shadow(0 22px 36px rgba(0, 0, 0, 0.7))
+    drop-shadow(0 0 50px rgba(95, 240, 255, 0.08));
+}
+.tex-figure .tex-spill {
+  /* Larger atmospheric pool so he reads as standing IN the scene */
+  inset: -25% -45% -25% -85%;
+  filter: blur(40px);
+}
+/* Re-introduce upper-right rim light on the in-game Tex too */
+.tex-figure .tex-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 70% at 80% 20%, rgba(255, 255, 255, 0.10), transparent 55%);
+  mix-blend-mode: screen;
+  -webkit-mask-image:
+    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
+  mask-image:
+    radial-gradient(ellipse 78% 90% at 50% 42%, black 50%, transparent 92%);
+  z-index: 1;
+}
+/* Kill the on-figure status pod ("TEX // AEGIS · CLEAR") since the
+   frame is gone — it now floats awkwardly. */
+.tex-figure .tex-id { display: none !important; }

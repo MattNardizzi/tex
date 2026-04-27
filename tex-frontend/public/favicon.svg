@@ -1,4 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#0c0a09"/>
-  <text x="16" y="22" font-family="Georgia, serif" font-weight="900" font-size="20" text-anchor="middle" fill="#e85d3c">T</text>
+  <rect width="32" height="32" rx="6" fill="#02030A"/>
+  <polygon points="16,3.5 28,10 28,22 16,28.5 4,22 4,10" fill="none" stroke="#FF3D7A" stroke-width="1.6"/>
+  <polygon points="16,9 23,12.5 23,19.5 16,23 9,19.5 9,12.5" fill="none" stroke="#FF3D7A" stroke-width="1"/>
+  <path d="M 11 13.5 L 21 13.5 M 16 13.5 L 16 21" stroke="#FF3D7A" stroke-width="2.4" stroke-linecap="square" fill="none"/>
 </svg>

@@ -1,90 +1,107 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
-  permitSfx, abstainSfx, forbidSfx, breachSfx, shiftEndSfx, tickClockSfx,
+  permitSfx, abstainSfx, forbidSfx, breachSfx, shiftEndSfx, tickClockSfx, clickSfx, chargeSfx, streakSfx, spawnSfx,
 } from "../lib/sounds.js";
 import { SHIFT_SECONDS, dailySchedule, practiceSchedule } from "../lib/dailyShift.js";
 import { scoreShift } from "../lib/scoring.js";
 import { SURFACES } from "../lib/messages.js";
+import { THexSvg } from "./Hub.jsx";
 
 /*
-  Game v11 — The Conveyor
-  ─────────────────────────
-  Single horizontal lane. Cards spawn on the left and travel to the
-  gate on the right (Tex's domain). The player presses 1 / 2 / 3
-  (or clicks PERMIT / ABSTAIN / FORBID) to verdict the foremost card.
-
-  - PERMIT  → card passes through gate with a green pulse
-  - ABSTAIN → card lifts and shunts up out of the lane
-  - FORBID  → laser fires from Tex's T-hexagon, card disintegrates
-  - TIMEOUT → if a card crosses the gate without a verdict, it counts
-              as defaulted-PERMIT (which is the realistic dangerous
-              state for a real agent gate)
-
-  When the player FORBIDs but the message was actually clean → false-positive (-10)
-  When the player PERMITs (or times out) on a leak → BREACH event
-    - Full-screen red flash, breach counter increments, the message
-      gets logged for the Shift Report ("Tex would have caught it
-      in 180ms").
-
-  The shift runs for SHIFT_SECONDS (90s) total. End-of-shift fires
-  the ShiftReport with a scored result.
+  Game v13 — Cinematic conveyor / production
+  ──────────────────────────────────────────
+  - 3-2-1-GO countdown
+  - Wider Tex, gate as wall of vertical pulse-bars
+  - Cards pre-flash 60ms on verdict before outcome animation (feels "you did it")
+  - Tex helmet shakes on breach
+  - T-hex glyph beats with heart-rhythm (faster on alert)
+  - Streak 5+ adds chromatic flicker to HUD
+  - Combo pops appear directly above the card and rise
 */
 
-const GATE_FRACTION = 0.78; // gate sits at ~78% from left
+const GATE_FRACTION = 0.78;
+const PRE_FLASH_MS = 60;
 
 export default function Game({ mode = "daily", onComplete, onBail }) {
-  // ─── Schedule ──────────────────────────────────────────────────────
   const scheduleRef = useRef(null);
   if (!scheduleRef.current) {
     scheduleRef.current = mode === "daily" ? dailySchedule() : practiceSchedule();
   }
   const schedule = scheduleRef.current;
 
-  // ─── Game state ────────────────────────────────────────────────────
-  const startedAtRef = useRef(performance.now());
-  const [activeCards, setActiveCards] = useState([]); // [{ id, msg, enteredAt, dwellMs }]
-  const [decisions, setDecisions] = useState([]);      // [{ messageId, playerVerdict, responseMs }]
+  const [phase, setPhase] = useState("ready");
+  const [readyNum, setReadyNum] = useState(3);
+
+  const startedAtRef = useRef(0);
+  const [activeCards, setActiveCards] = useState([]);
+  const [decisions, setDecisions] = useState([]);
   const [score, setScore] = useState(0);
   const [breachCount, setBreachCount] = useState(0);
   const [caughtCount, setCaughtCount] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [breachFlashId, setBreachFlashId] = useState(0);
-  const [laserShot, setLaserShot] = useState(null); // { id, fromX, fromY, toX, toY, length, angle }
-  const [eyeFlash, setEyeFlash] = useState(null); // "red" | "green" | "yellow"
-  const [done, setDone] = useState(false);
+  const [laserShots, setLaserShots] = useState([]);
+  const [chargeBlooms, setChargeBlooms] = useState([]);
+  const [combos, setCombos] = useState([]);
+  const [eyeFlash, setEyeFlash] = useState(null);
+  const [preFlashIds, setPreFlashIds] = useState(new Set());
 
-  // Refs so the rAF callback can read the latest state
   const activeCardsRef = useRef(activeCards);
   const decisionsRef = useRef(decisions);
-  const doneRef = useRef(false);
+  const phaseRef = useRef(phase);
   const dispatchedRef = useRef(new Set());
-  const laneRef = useRef(null);
   const stageRef = useRef(null);
   const texFigureRef = useRef(null);
+  const streakRef = useRef(0);
 
   useEffect(() => { activeCardsRef.current = activeCards; }, [activeCards]);
   useEffect(() => { decisionsRef.current = decisions; }, [decisions]);
-  useEffect(() => { doneRef.current = done; }, [done]);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { streakRef.current = streak; }, [streak]);
 
-  // ─── Spawn + tick loop ─────────────────────────────────────────────
+  // ── Ready countdown ────────────────────────────────────────────────
   useEffect(() => {
+    if (phase !== "ready") return;
+    let n = 3;
+    setReadyNum(3);
+    tickClockSfx();
+    const id = setInterval(() => {
+      n -= 1;
+      if (n > 0) {
+        setReadyNum(n);
+        tickClockSfx();
+      } else {
+        setReadyNum(0);
+        clickSfx();
+        setTimeout(() => {
+          startedAtRef.current = performance.now();
+          setPhase("playing");
+        }, 600);
+        clearInterval(id);
+      }
+    }, 800);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  // ── Main loop ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "playing") return;
     let raf = 0;
     let lastTickSec = -1;
 
     const tick = () => {
-      if (doneRef.current) return;
+      if (phaseRef.current !== "playing") return;
       const now = performance.now();
       const t = now - startedAtRef.current;
       setElapsedMs(t);
 
-      // Audio tick on each new whole second of the final 10
       const remainSec = Math.ceil((SHIFT_SECONDS * 1000 - t) / 1000);
-      if (remainSec <= 10 && remainSec >= 1 && remainSec !== lastTickSec) {
+      if (remainSec <= 5 && remainSec >= 1 && remainSec !== lastTickSec) {
         lastTickSec = remainSec;
         tickClockSfx();
       }
 
-      // Spawn any scheduled cards whose enterAtMs has elapsed
       for (const item of schedule) {
         if (dispatchedRef.current.has(item.index)) continue;
         if (t >= item.enterAtMs) {
@@ -93,17 +110,14 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
         }
       }
 
-      // Auto-timeout cards that have crossed the gate
       for (const card of activeCardsRef.current) {
         if (card.resolved) continue;
         const age = now - card.enteredAt;
         if (age >= card.dwellMs) {
-          // Treat as TIMEOUT — defaulted-PERMIT
           recordDecision(card, "TIMEOUT", null);
         }
       }
 
-      // End shift when time is up AND lane is clear (or 1.5s grace)
       if (t >= SHIFT_SECONDS * 1000) {
         const allResolved = activeCardsRef.current.every((c) => c.resolved);
         if (allResolved || t >= SHIFT_SECONDS * 1000 + 1500) {
@@ -118,9 +132,8 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phase]);
 
-  // ─── Spawn / resolve helpers ───────────────────────────────────────
   function spawnCard(item) {
     const id = `card-${item.index}`;
     const card = {
@@ -133,9 +146,9 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       outcome: null,
     };
     setActiveCards((prev) => [...prev, card]);
+    spawnSfx();
   }
 
-  // The "foremost" card is the one closest to the gate among unresolved.
   function getForemostCard(cards = activeCardsRef.current) {
     const now = performance.now();
     let best = null;
@@ -158,26 +171,38 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
 
     const msg = card.msg;
     const correct = msg.correctVerdict;
+
     setDecisions((prev) => [
       ...prev,
       { messageId: msg.id, playerVerdict: verdict, responseMs },
     ]);
 
-    // Compute scoring locally for HUD updates (final score uses scoreShift)
     let delta = 0;
     let breach = false;
     let caught = false;
+    let comboColor = "green";
 
     if (verdict === "TIMEOUT") {
       if (correct === "PERMIT") delta = -10;
-      else { delta = -25 * (msg.severity === "critical" ? 1.5 : 1); breach = (correct === "FORBID"); }
+      else { delta = Math.round(-25 * (msg.severity === "critical" ? 1.5 : 1)); breach = (correct === "FORBID"); }
+      comboColor = "red";
     } else if (verdict === correct) {
       if (verdict === "PERMIT")  delta = 10;
-      if (verdict === "ABSTAIN") delta = 8;
-      if (verdict === "FORBID")  { delta = 25 * (msg.severity === "critical" ? 1.5 : 1); caught = true; }
+      if (verdict === "ABSTAIN") { delta = 8; comboColor = "yellow"; }
+      if (verdict === "FORBID")  { delta = Math.round(25 * (msg.severity === "critical" ? 1.5 : 1)); caught = true; }
+      const newStreak = streakRef.current + 1;
+      streakRef.current = newStreak;
+      setStreak(newStreak);
+      if (newStreak >= 3) {
+        delta += Math.min(15, newStreak * 2);
+        if (newStreak === 3 || newStreak === 5 || newStreak === 8) streakSfx(newStreak);
+      }
     } else {
+      streakRef.current = 0;
+      setStreak(0);
+      comboColor = "red";
       if (verdict === "PERMIT" && correct === "FORBID") {
-        delta = -50 * (msg.severity === "critical" ? 1.5 : 1);
+        delta = Math.round(-50 * (msg.severity === "critical" ? 1.5 : 1));
         breach = true;
       } else if (verdict === "FORBID" && correct === "PERMIT") {
         delta = -10;
@@ -187,82 +212,109 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
     }
 
     setScore((s) => Math.round(s + delta));
+    if (caught) setCaughtCount((c) => c + 1);
+
+    pushCombo({ delta, color: comboColor, cardId: card.id });
+
     if (breach) {
       setBreachCount((c) => c + 1);
       setBreachFlashId((n) => n + 1);
       breachSfx();
-      // Shake the stage a bit
       stageRef.current?.classList.add("shake");
-      setTimeout(() => stageRef.current?.classList.remove("shake"), 500);
+      setTimeout(() => stageRef.current?.classList.remove("shake"), 600);
+      // Tex flinches
+      texFigureRef.current?.classList.add("shake-lite");
+      setTimeout(() => texFigureRef.current?.classList.remove("shake-lite"), 280);
     }
-    if (caught) setCaughtCount((c) => c + 1);
 
-    // Animate the card out
-    animateCardOut(card.id, verdict, !caught && verdict === "FORBID" ? "false-positive" : (breach ? "breach" : null));
+    // Pre-flash card briefly before applying verdict animation
+    setPreFlashIds((prev) => new Set([...prev, card.id]));
+    setTimeout(() => {
+      setPreFlashIds((prev) => { const n = new Set(prev); n.delete(card.id); return n; });
+      animateCardOut(card.id, verdict);
+    }, PRE_FLASH_MS);
 
-    // Trigger laser/eye effects
     if (verdict === "FORBID") {
-      fireLaser(card);
+      setTimeout(() => fireLaser(card), PRE_FLASH_MS);
       setEyeFlash("red");
       forbidSfx();
     } else if (verdict === "PERMIT") {
       setEyeFlash(correct === "PERMIT" ? "green" : "red");
-      if (breach) { /* already alarmed */ } else { permitSfx(); }
+      if (!breach) permitSfx();
     } else if (verdict === "ABSTAIN") {
       setEyeFlash("yellow");
       abstainSfx();
     } else if (verdict === "TIMEOUT") {
       setEyeFlash(breach ? "red" : "green");
-      if (breach) { /* already alarmed */ }
     }
     setTimeout(() => setEyeFlash(null), 480);
   }, []);
 
-  function animateCardOut(cardId, verdict, _flag) {
+  function animateCardOut(cardId, verdict) {
     setActiveCards((prev) => prev.map((c) => c.id === cardId ? { ...c, resolved: true, outcome: verdict } : c));
-    // Remove from DOM after animation
     setTimeout(() => {
       setActiveCards((prev) => prev.filter((c) => c.id !== cardId));
     }, 700);
   }
 
+  function pushCombo({ delta, color, cardId }) {
+    const id = Math.random().toString(36).slice(2);
+    const cardEl = document.getElementById(cardId);
+    const stage = stageRef.current;
+    let x = 50, y = 30;
+    if (cardEl && stage) {
+      const cb = cardEl.getBoundingClientRect();
+      const sb = stage.getBoundingClientRect();
+      x = ((cb.left + cb.width / 2) - sb.left) / sb.width * 100;
+      y = ((cb.top - 8) - sb.top) / sb.height * 100;
+    }
+    setCombos((prev) => [...prev, { id, delta, color, x, y }]);
+    setTimeout(() => {
+      setCombos((prev) => prev.filter((c) => c.id !== id));
+    }, 950);
+  }
+
   function fireLaser(card) {
     const stage = stageRef.current;
     const tex = texFigureRef.current;
-    if (!stage || !tex) return;
+    const cardEl = document.getElementById(card.id);
+    if (!stage || !tex || !cardEl) return;
     const stageBox = stage.getBoundingClientRect();
     const texBox = tex.getBoundingClientRect();
-
-    const cardEl = document.getElementById(card.id);
-    if (!cardEl) return;
     const cardBox = cardEl.getBoundingClientRect();
 
-    // Origin: T-hexagon (chest-ish on the avatar — center, ~52% down)
-    const fromX = (texBox.left + texBox.width * 0.5) - stageBox.left;
-    const fromY = (texBox.top + texBox.height * 0.32) - stageBox.top; // forehead-ish
-    const toX = (cardBox.left + cardBox.width * 0.5) - stageBox.left;
-    const toY = (cardBox.top + cardBox.height * 0.5) - stageBox.top;
+    // Origin: T-hex on forehead (~50% width, ~25% height)
+    const fromX = (texBox.left + texBox.width * 0.50) - stageBox.left;
+    const fromY = (texBox.top  + texBox.height * 0.24) - stageBox.top;
+    const toX = (cardBox.left + cardBox.width  * 0.50) - stageBox.left;
+    const toY = (cardBox.top  + cardBox.height * 0.50) - stageBox.top;
 
     const dx = toX - fromX;
     const dy = toY - fromY;
     const length = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
 
-    setLaserShot({
-      id: Math.random().toString(36).slice(2),
-      x: fromX, y: fromY, length, angle,
-    });
-    setTimeout(() => setLaserShot(null), 460);
+    const chargeId = Math.random().toString(36).slice(2);
+    setChargeBlooms((prev) => [...prev, { id: chargeId, x: fromX - 14, y: fromY - 14 }]);
+    chargeSfx();
+    setTimeout(() => setChargeBlooms((prev) => prev.filter((c) => c.id !== chargeId)), 200);
+
+    setTimeout(() => {
+      const shotId = Math.random().toString(36).slice(2);
+      setLaserShots((prev) => [...prev, { id: shotId, x: fromX, y: fromY, length, angle }]);
+      setTimeout(() => {
+        setLaserShots((prev) => prev.filter((l) => l.id !== shotId));
+      }, 520);
+    }, 100);
   }
 
-  // ─── Keyboard / click handlers ─────────────────────────────────────
-  function actVerdict(verdict) {
-    if (doneRef.current) return;
+  const actVerdict = useCallback((verdict) => {
+    if (phaseRef.current !== "playing") return;
     const card = getForemostCard();
     if (!card) return;
     const responseMs = Math.round(performance.now() - card.enteredAt);
     recordDecision(card, verdict, responseMs);
-  }
+  }, [recordDecision]);
 
   useEffect(() => {
     function onKey(e) {
@@ -274,230 +326,297 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [actVerdict, onBail]);
 
-  // ─── End shift ─────────────────────────────────────────────────────
   function endShift() {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    setDone(true);
+    if (phaseRef.current === "done") return;
+    setPhase("done");
     shiftEndSfx();
     const result = scoreShift(decisionsRef.current);
-    setTimeout(() => onComplete?.(result), 400);
+    setTimeout(() => onComplete?.(result), 500);
   }
 
-  // ─── Derived: current card progress ────────────────────────────────
   const now = performance.now();
-  const focusCard = getForemostCard();
-
+  const focusCard = phase === "playing" ? getForemostCard() : null;
   const elapsedSec = Math.min(SHIFT_SECONDS, elapsedMs / 1000);
   const remainSec = Math.max(0, SHIFT_SECONDS - elapsedSec);
   const timerPct = elapsedSec / SHIFT_SECONDS;
 
-  // Eye state — armed color reflects highest threat in lane
   const armed = (() => {
     let worst = "cyan";
     for (const c of activeCards) {
       if (c.resolved) continue;
       const p = (now - c.enteredAt) / c.dwellMs;
-      if (p < 0.4) continue; // only consider cards that are getting close
+      if (p < 0.35) continue;
       if (c.msg.correctVerdict === "FORBID") return "red";
       if (c.msg.correctVerdict === "ABSTAIN") worst = "yellow";
     }
     return worst;
   })();
 
-  // ─── Render ────────────────────────────────────────────────────────
+  const timerClass = remainSec <= 10 ? "crit" : remainSec <= 25 ? "warn" : "";
+
   return (
     <div className="stage" ref={stageRef}>
-      {/* Top HUD: score, breaches, caught, mode */}
+      <div className="stage-floor" />
+      <Particles count={24} />
+
       <div className="hud">
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button onClick={onBail} className="micro" style={{
-            color: "var(--ink-faint)",
-            padding: "8px 12px",
-            border: "1px solid var(--hairline-2)",
-            borderRadius: 4,
-            background: "rgba(11, 13, 28, 0.7)",
-            backdropFilter: "blur(12px)",
-          }}>
-            ← BAIL
-          </button>
-          <div className="hud-block" style={{ display: "flex", gap: 14, alignItems: "center" }}>
-            <div>
-              <div className="micro" style={{ color: "var(--ink-faint)" }}>SCORE</div>
-              <div className="hud-num glow-cyan" style={{ color: "var(--cyan)" }}>{score}</div>
+        <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+          <button onClick={onBail} className="bail-btn">← BAIL</button>
+          <div className={`hud-pod ${streak >= 5 ? "streak-high" : ""}`}>
+            <div className="hud-stat">
+              <span className="hud-label">SCORE</span>
+              <span className="hud-value glow-cyan" style={{ color: score < 0 ? "var(--red)" : "var(--cyan)" }}>
+                {score >= 0 ? score : `-${Math.abs(score)}`}
+              </span>
             </div>
-            <div style={{ width: 1, height: 28, background: "var(--hairline-2)" }} />
-            <div>
-              <div className="micro" style={{ color: "var(--ink-faint)" }}>CAUGHT</div>
-              <div className="hud-num" style={{ color: "var(--green)" }}>{caughtCount}</div>
+            <div className="hud-divider" />
+            <div className="hud-stat">
+              <span className="hud-label">CAUGHT</span>
+              <span className="hud-value glow-green" style={{ color: "var(--green)" }}>{caughtCount}</span>
             </div>
-            <div style={{ width: 1, height: 28, background: "var(--hairline-2)" }} />
-            <div>
-              <div className="micro" style={{ color: "var(--ink-faint)" }}>BREACHES</div>
-              <div className="hud-num" style={{ color: "var(--red)" }}>{breachCount}</div>
+            <div className="hud-divider" />
+            <div className="hud-stat">
+              <span className="hud-label">BREACHES</span>
+              <span className="hud-value glow-red" style={{ color: breachCount > 0 ? "var(--red)" : "var(--ink-faint)" }}>
+                {breachCount}
+              </span>
             </div>
+            {streak >= 3 && (
+              <>
+                <div className="hud-divider" />
+                <div className="hud-stat">
+                  <span className="hud-label">STREAK</span>
+                  <span className="hud-value glow-pink" style={{ color: "var(--pink)" }}>×{streak}</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="hud-block" style={{ textAlign: "center" }}>
-          <div className="micro" style={{ color: "var(--ink-faint)" }}>
-            {mode === "daily" ? "TODAY'S SHIFT" : "TRAINING"}
-          </div>
-          <div className="hud-num tabular" style={{
-            color: remainSec < 10 ? "var(--pink)" : "var(--ink)",
-          }}>
-            {Math.ceil(remainSec)}s
-          </div>
-        </div>
+        <RadialTimer remainSec={Math.ceil(remainSec)} pct={timerPct} mode={mode} className={timerClass} />
       </div>
 
-      {/* Timer bar */}
-      <div className="timer-bar">
-        <div className="timer-bar-fill" style={{
-          transform: `scaleX(${1 - timerPct})`,
-        }} />
+      <div className="hud-telemetry hide-mobile">
+        <span><b>QUEUE</b> {activeCards.filter((c) => !c.resolved).length} ACTIVE</span>
+        <span><b>MODE</b> {mode === "daily" ? `DAILY · ${schedule.length} ACTIONS` : `TRAINING · ${schedule.length} ACTIONS`}</span>
+        <span><b>TEX LATENCY</b> 178ms</span>
+        <span><b>OPERATOR</b> ONLINE</span>
       </div>
 
-      {/* Conveyor lane with cards */}
-      <div className="lane" ref={laneRef}>
+      <div className="lane">
+        <div className="lane-rails" />
+        <div className="lane-ticks" />
         {activeCards.map((card) => {
-          const t = (now - card.enteredAt) / card.dwellMs;
+          const t = (performance.now() - card.enteredAt) / card.dwellMs;
           const clamped = Math.max(0, Math.min(1.05, t));
-          const x = clamped * GATE_FRACTION * 100; // % of lane width
-          const isFocus = focusCard && focusCard.id === card.id;
+          const x = clamped * GATE_FRACTION * 100;
+          const isFocus = focusCard && focusCard.id === card.id && !card.resolved;
           const verdictClass =
             card.outcome === "PERMIT"  ? "verdict-permit passthrough" :
             card.outcome === "ABSTAIN" ? "verdict-abstain shunt" :
             card.outcome === "FORBID"  ? "verdict-forbid disintegrate" :
             card.outcome === "TIMEOUT" ? "verdict-permit passthrough" :
             "";
+          const preFlash = preFlashIds.has(card.id) ? "pre-flash" : "";
           return (
             <CardView
               key={card.id}
               id={card.id}
               card={card}
               xPct={x}
-              focused={isFocus && !card.resolved}
-              verdictClass={verdictClass}
-              onClick={() => {
-                // Click a card to focus + open quick-verdict on mobile
-                // For now, click acts as "I want to verdict THIS one" —
-                // we promote to focus by snapping it via the keyboard verdict.
-                // Simpler: clicking a non-foremost card triggers nothing;
-                // foremost is handled via the verdict bar.
-              }}
+              focused={isFocus}
+              verdictClass={`${verdictClass} ${preFlash}`}
             />
           );
         })}
       </div>
 
-      {/* Gate line */}
       <div className="gate">
-        <div className={`gate-line ${armed === "red" ? "armed-red" : armed === "yellow" ? "armed-yellow" : ""}`} />
+        <div className="gate-wall" />
+        <GateBars armed={armed} />
       </div>
 
-      {/* Tex avatar */}
-      <div className="tex-figure" ref={texFigureRef}>
-        <img src="/tex/tex-aegis.jpg" alt="Tex" />
-        <div className={`tex-eye-tint ${
-          eyeFlash === "red"   ? "flash-red" :
-          eyeFlash === "green" ? "flash-green" :
-          eyeFlash === "yellow" ? "flash-yellow" :
-          armed === "red"   ? "armed-red" :
-          armed === "yellow" ? "armed-yellow" :
-          ""
-        }`} />
-        <div className="tex-id">
-          <div className="micro" style={{ color: "var(--cyan)", fontSize: 9 }}>TEX // AEGIS</div>
-          <div className="mono" style={{ color: "var(--ink)", fontSize: 11, fontWeight: 600, marginTop: 1 }}>
-            STATUS: {armed === "red" ? "ALERT" : armed === "yellow" ? "WATCHING" : "CLEAR"}
+      <div className={`tex-figure armed-${armed}`} ref={texFigureRef}>
+        <div className="tex-spill" />
+        <div className="tex-frame">
+          <img src="/tex/tex-aegis.jpg" alt="Tex" />
+          <div className="t-hex"><THexSvg /></div>
+          <div className={`tex-eye-tint ${
+            eyeFlash === "red"   ? "flash-red" :
+            eyeFlash === "green" ? "flash-green" :
+            eyeFlash === "yellow" ? "flash-yellow" :
+            armed === "red"   ? "armed-red" :
+            armed === "yellow" ? "armed-yellow" :
+            ""
+          }`} />
+          <div className="scanline" />
+          <div className="tex-id">
+            <div className="micro" style={{ color: "var(--cyan)", fontSize: 8 }}>TEX // AEGIS</div>
+            <div className="mono" style={{ color: "var(--ink)", fontSize: 11, fontWeight: 700, marginTop: 2 }}>
+              {armed === "red" ? "ALERT" : armed === "yellow" ? "WATCHING" : "CLEAR"}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Laser */}
-      {laserShot && (
+      {chargeBlooms.map((c) => (
+        <div key={c.id} className="laser-charge" style={{ left: c.x, top: c.y }} />
+      ))}
+
+      {laserShots.map((laser) => (
         <div
+          key={laser.id}
           className="laser"
           style={{
-            left: laserShot.x,
-            top: laserShot.y,
-            width: laserShot.length,
-            transform: `rotate(${laserShot.angle + 180}deg) scaleX(0.05)`,
-            transformOrigin: "left center",
+            left: laser.x,
+            top: laser.y,
+            width: laser.length,
+            transform: `rotate(${laser.angle}deg)`,
           }}
         />
-      )}
+      ))}
 
-      {/* Breach flash */}
-      {breachFlashId > 0 && (
-        <div className="breach-flash" key={breachFlashId} />
-      )}
+      {combos.map((c) => (
+        <div key={c.id} className={`combo-pop ${c.color}`} style={{
+          left: `${c.x}%`,
+          top: `${c.y}%`,
+        }}>
+          {c.delta >= 0 ? `+${c.delta}` : c.delta}
+        </div>
+      ))}
 
-      {/* Verdict bar */}
+      {breachFlashId > 0 && <div className="breach-flash" key={breachFlashId} />}
+
       <div className="verdict-bar">
         <button className="verdict-btn permit" onClick={() => actVerdict("PERMIT")}>
-          <span className="key">1 · PERMIT</span>
-          <span>Let through</span>
+          <span className="key">[ 1 ]</span>
+          <span className="verdict-tag">PERMIT</span>
         </button>
         <button className="verdict-btn abstain" onClick={() => actVerdict("ABSTAIN")}>
-          <span className="key">2 · ABSTAIN</span>
-          <span>Flag review</span>
+          <span className="key">[ 2 ]</span>
+          <span className="verdict-tag">ABSTAIN</span>
         </button>
         <button className="verdict-btn forbid" onClick={() => actVerdict("FORBID")}>
-          <span className="key">3 · FORBID</span>
-          <span>Block</span>
+          <span className="key">[ 3 ]</span>
+          <span className="verdict-tag">FORBID</span>
         </button>
       </div>
+
+      {phase === "ready" && (
+        <div className="ready-overlay">
+          <div className={`ready-num ${readyNum === 0 ? "go" : ""}`} key={readyNum}>
+            {readyNum === 0 ? "GO" : readyNum}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Gate bars ──────────────────────────────────────────────────── */
+function GateBars({ armed }) {
+  // 24 vertical pulse bars
+  return (
+    <div className={`gate-bars ${armed === "red" ? "armed-red" : armed === "yellow" ? "armed-yellow" : ""}`}>
+      {Array.from({ length: 24 }).map((_, i) => <div key={i} className="gate-bar" />)}
+    </div>
+  );
+}
+
+/* ─── Radial timer ──────────────────────────────────────────────────── */
+function RadialTimer({ remainSec, pct, mode, className }) {
+  const r = 38;
+  const c = 2 * Math.PI * r;
+  const offset = c * pct;
+  return (
+    <div className={`hud-timer ${className}`}>
+      <svg viewBox="0 0 88 88">
+        <circle cx="44" cy="44" r={r} fill="none" strokeWidth="3" className="timer-track" />
+        <circle
+          cx="44" cy="44" r={r}
+          fill="none" strokeWidth="3"
+          strokeLinecap="round"
+          className="timer-fill"
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <span className="hud-timer-num">{remainSec}</span>
+      <span className="hud-timer-label">{mode === "daily" ? "DAILY" : "TRAIN"}</span>
+    </div>
+  );
+}
+
+/* ─── Particles ─────────────────────────────────────────────────────── */
+function Particles({ count }) {
+  const particles = useRef(
+    Array.from({ length: count }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      duration: 6 + Math.random() * 14,
+      delay: -Math.random() * 14,
+      size: 1 + Math.random() * 2,
+    }))
+  );
+  return (
+    <div className="stage-particles">
+      {particles.current.map((p) => (
+        <span
+          key={p.id}
+          className="particle"
+          style={{
+            left: `${p.left}%`,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            animationDuration: `${p.duration}s`,
+            animationDelay: `${p.delay}s`,
+            opacity: p.size === 1 ? 0.3 : 0.5,
+          }}
+        />
+      ))}
     </div>
   );
 }
 
 /* ─── CardView ──────────────────────────────────────────────────────── */
-function CardView({ id, card, xPct, focused, verdictClass, onClick }) {
+function CardView({ id, card, xPct, focused, verdictClass }) {
   const m = card.msg;
   const surface = SURFACES[m.surface] || SURFACES.email;
   const tierLabel = m.tier === 1 ? "TIER I" : m.tier === 2 ? "TIER II" : "TIER III";
+  const threatClass = m.tier === 3 ? "threat-tier3" : m.tier === 2 ? "threat-tier2" : "";
 
   return (
     <div
       id={id}
-      className={`card ${focused ? "focused" : ""} ${verdictClass}`}
-      style={{
-        left: `${xPct}%`,
-      }}
-      onClick={onClick}
+      className={`card ${focused ? "focused" : ""} ${threatClass} ${verdictClass}`}
+      style={{ left: `${xPct}%` }}
     >
-      <div className="card-head">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="card-bar">
+        <div className="card-bar-left">
           <span className="card-glyph">{surface.glyph}</span>
           <span className="card-surface-label">{surface.label}</span>
         </div>
-        <span className="card-tier">{tierLabel}</span>
+        <span className={`card-tier-badge tier-${m.tier}`}>{tierLabel}</span>
       </div>
-
-      <div className="card-meta">
-        {m.from && <span><b>FROM</b> {m.from}</span>}
-        {m.to && <span><b>TO</b> {m.to}</span>}
-        {m.action && <span><b>ACTION</b> {m.action}</span>}
-      </div>
-
-      {m.subject && <div className="card-subject">{m.subject}</div>}
-
-      {m.amount && <div className="card-amount">{m.amount}</div>}
-
-      {m.fields && (
-        <div className="card-fields">
-          {Object.entries(m.fields).map(([k, v]) => (
-            <span key={k}><b>{k}:</b> {String(v)}</span>
-          ))}
+      <div className="card-body-wrap">
+        <div className="card-meta">
+          {m.from && <span><b>FROM</b>{m.from}</span>}
+          {m.to && <span><b>TO</b>{m.to}</span>}
+          {m.action && <span><b>ACTION</b>{m.action}</span>}
         </div>
-      )}
-
-      <div className="card-body">{m.body}</div>
+        {m.subject && <div className="card-subject">{m.subject}</div>}
+        {m.amount && <div className="card-amount">{m.amount}</div>}
+        {m.fields && (
+          <div className="card-fields">
+            {Object.entries(m.fields).map(([k, v]) => (
+              <span key={k}><b>{k}:</b> {String(v)}</span>
+            ))}
+          </div>
+        )}
+        <div className="card-content">{m.body}</div>
+      </div>
     </div>
   );
 }

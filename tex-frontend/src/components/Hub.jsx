@@ -1,458 +1,471 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { clickSfx } from "../lib/sounds.js";
 import {
-  hasPlayedToday, todayResult, getDailyLeaderboard, getHandle,
+  hasPlayedToday,
+  todayResult,
+  getDailyLeaderboard,
+  getHandle,
 } from "../lib/leaderboard.js";
-import { msUntilNextShift, formatCountdown } from "../lib/dailyShift.js";
+import { msUntilNextShift, formatCountdown, todayKey } from "../lib/dailyShift.js";
+import { SURFACES } from "../lib/messages.js";
 
 /*
-  Hub v11 — Daily Shift entry
-  ───────────────────────────
-  Hero with Tex avatar + headline. Two CTAs:
-    · TODAY'S SHIFT  (the daily, real-score, leaderboard run — ONCE per UTC day)
-    · TRAINING       (unlimited practice, doesn't count)
+  Hub v14 — Master cinematic landing
+  ──────────────────────────────────
+  The first impression. Single hero composition; no boot sequence noise.
 
-  Below: live daily leaderboard (top 10) + countdown to next shift.
+  Layout (desktop):
+    ┌──────────────────────────────────────────────────────────────┐
+    │  TOP STATUS BAR (build / online ops / breach counter / time) │
+    ├──────────────────────────────────────────────────────────────┤
+    │                                                              │
+    │   [HEADLINE]                              [TEX AVATAR]       │
+    │   THE GATE                                + heart-pulse hex  │
+    │   BETWEEN AI                              + eye scan         │
+    │   AND THE                                 + corner badges    │
+    │   REAL WORLD.                             + rt tickers       │
+    │                                                              │
+    │   [sub copy + CTAs]                                          │
+    │                                                              │
+    │   [demo ticker — live verdicts streaming]                    │
+    ├──────────────────────────────────────────────────────────────┤
+    │  ANATOMY STRIP (3 columns: WATCHES / VERDICTS / RECEIPTS)    │
+    ├──────────────────────────────────────────────────────────────┤
+    │  LEADERBOARD — TOP 8 today                                   │
+    │  + mini-rules footer                                         │
+    └──────────────────────────────────────────────────────────────┘
 
-  Footer link to /what-is-tex for the curious.
+  Layered atmosphere: drifting particles, grid, haze, scanline overlay.
+  THexSvg is exported for reuse by Game.jsx and WhatIsTex.jsx.
 */
 
-export default function Hub({ player, onPlayDaily, onPlayTraining, onOpenWhatIsTex, onOpenAsi }) {
-  const [played, setPlayed] = useState(false);
-  const [result, setResult] = useState(null);
-  const [leaderboard, setLeaderboard] = useState({ entries: [], myRank: null, total: 0 });
-  const [countdownMs, setCountdownMs] = useState(msUntilNextShift());
-  const [handle, setHandleState] = useState("");
-
-  useEffect(() => {
-    setPlayed(hasPlayedToday());
-    setResult(todayResult());
-    setLeaderboard(getDailyLeaderboard());
-    setHandleState(getHandle());
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => setCountdownMs(msUntilNextShift()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
+// ── Tex hex glyph ──────────────────────────────────────────────────────
+export function THexSvg({ className = "", title = "T" }) {
   return (
-    <div style={{
-      minHeight: "100vh",
-      width: "100%",
-      position: "relative",
-      overflow: "hidden",
-    }}>
-      {/* Ambient grid */}
-      <div style={{
-        position: "fixed",
-        inset: 0,
-        pointerEvents: "none",
-        backgroundImage: `
-          repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(168,174,201,0.025) 39px, rgba(168,174,201,0.025) 40px),
-          repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(168,174,201,0.025) 39px, rgba(168,174,201,0.025) 40px)
-        `,
-        zIndex: 0,
-      }} />
-
-      <div className="page" style={{
-        padding: "var(--pad-page)",
-        position: "relative",
-        zIndex: 1,
-      }}>
-        {/* ── Brand bar ────────────────────────────────────────────── */}
-        <div style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          paddingBottom: 14,
-          borderBottom: "1px solid var(--hairline-2)",
-          marginBottom: "clamp(20px, 4vw, 36px)",
-          gap: 12,
-          flexWrap: "wrap",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <BrandMark />
-            <div style={{ lineHeight: 1.2 }}>
-              <div className="display" style={{ fontSize: 18, color: "var(--ink)", letterSpacing: "0.06em" }}>
-                TEX ARENA
-              </div>
-              <div className="micro" style={{ color: "var(--ink-faint)" }}>
-                AI AGENT GOVERNANCE · DAILY SHIFT
-              </div>
-            </div>
-          </div>
-
-          {handle && (
-            <div style={{
-              padding: "6px 12px",
-              border: "1px solid rgba(255, 61, 122, 0.3)",
-              borderRadius: 4,
-              background: "rgba(255, 61, 122, 0.05)",
-            }}>
-              <div className="micro" style={{ color: "var(--ink-faint)", marginBottom: 1 }}>
-                YOU
-              </div>
-              <div className="mono" style={{ fontSize: 12, color: "var(--pink)", fontWeight: 600 }}>
-                @{handle}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── HERO ─────────────────────────────────────────────────── */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
-          gap: "clamp(24px, 5vw, 64px)",
-          alignItems: "center",
-          minHeight: "min(72vh, 720px)",
-        }} className="hero-grid">
-
-          <div className="rise" style={{ minWidth: 0 }}>
-            <div style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "5px 11px",
-              border: "1px solid rgba(95, 240, 255, 0.35)",
-              borderRadius: 999,
-              marginBottom: 22,
-              background: "rgba(95, 240, 255, 0.04)",
-            }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: "50%",
-                background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan-glow)",
-              }} className="pulse" />
-              <span className="micro" style={{ color: "var(--cyan)" }}>
-                TODAY'S SHIFT · LIVE
-              </span>
-            </div>
-
-            <h1 className="display" style={{
-              fontSize: "clamp(56px, 11vw, 128px)",
-              margin: 0,
-              lineHeight: 0.85,
-              letterSpacing: "-0.01em",
-            }}>
-              <span style={{ color: "var(--ink)" }}>WORK</span>
-              <br />
-              <span style={{
-                background: "linear-gradient(90deg, var(--pink) 0%, var(--yellow) 50%, var(--cyan) 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}>
-                THE GATE.
-              </span>
-            </h1>
-
-            <p style={{
-              maxWidth: 460,
-              color: "var(--ink-dim)",
-              fontSize: "clamp(16px, 2vw, 19px)",
-              lineHeight: 1.5,
-              margin: "22px 0 28px 0",
-            }}>
-              You're <span style={{ color: "var(--ink)", fontWeight: 600 }}>Tex's operator</span>.
-              {" "}Outbound AI agent actions are coming down the line. Read fast. Decide faster.
-              <br />
-              Permit the clean ones. Block the leaks.
-            </p>
-
-            {/* CTAs */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-start" }}>
-              <button
-                onClick={onPlayDaily}
-                className="btn-big"
-                disabled={played}
-                style={{ fontSize: 17, padding: "18px 32px" }}
-              >
-                {played ? "SHIFT COMPLETE" : "PLAY TODAY'S SHIFT →"}
-              </button>
-
-              <button onClick={onPlayTraining} className="btn-ghost" style={{ fontSize: 12 }}>
-                {played ? "PLAY AGAIN (TRAINING) →" : "TRAINING MODE →"}
-              </button>
-            </div>
-
-            <div style={{ marginTop: 18, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-              <div className="micro" style={{ color: "var(--ink-faint)" }}>
-                90 SECONDS · 32 ACTIONS · ONE SHOT PER DAY
-              </div>
-              {played && result && (
-                <div className="micro" style={{
-                  color: "var(--pink)",
-                  padding: "4px 10px",
-                  border: "1px solid rgba(255, 61, 122, 0.3)",
-                  borderRadius: 4,
-                  background: "rgba(255, 61, 122, 0.05)",
-                }}>
-                  YOU · {result.total} PTS · {result.rating}
-                </div>
-              )}
-            </div>
-
-            <div className="micro" style={{
-              color: "var(--ink-faint)",
-              marginTop: 14,
-              letterSpacing: "0.16em",
-            }}>
-              NEXT SHIFT IN <span className="tabular" style={{ color: "var(--cyan)" }}>{formatCountdown(countdownMs)}</span>
-            </div>
-          </div>
-
-          {/* Right: Tex avatar */}
-          <div className="rise-2" style={{
-            position: "relative",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            minWidth: 0,
-          }}>
-            <TexAvatar />
-          </div>
-        </div>
-
-        {/* ── DAILY LEADERBOARD ────────────────────────────────────── */}
-        <div style={{
-          marginTop: "clamp(40px, 7vw, 80px)",
-          marginBottom: "clamp(32px, 5vw, 56px)",
-        }}>
-          <div style={{
-            display: "flex",
-            alignItems: "baseline",
-            justifyContent: "space-between",
-            marginBottom: 14,
-            gap: 12,
-            flexWrap: "wrap",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{
-                width: 6, height: 6, borderRadius: "50%",
-                background: "var(--pink)", boxShadow: "0 0 8px var(--pink-glow)",
-              }} className="pulse" />
-              <span className="kicker" style={{ color: "var(--pink)" }}>
-                TODAY'S BOARD · TOP 10
-              </span>
-            </div>
-            {leaderboard.myRank && (
-              <span className="micro" style={{ color: "var(--ink-faint)" }}>
-                YOU RANK <span className="tabular" style={{ color: "var(--pink)" }}>#{leaderboard.myRank}</span> OF {leaderboard.total}
-              </span>
-            )}
-          </div>
-          <Leaderboard entries={leaderboard.entries.slice(0, 10)} />
-        </div>
-
-        {/* ── "What is Tex" link ───────────────────────────────────── */}
-        <div style={{
-          padding: "20px 22px",
-          background: "var(--bg-1)",
-          border: "1px solid var(--hairline-2)",
-          borderRadius: 6,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 14,
-          flexWrap: "wrap",
-          marginBottom: "clamp(28px, 5vw, 48px)",
-        }}>
-          <div style={{ minWidth: 0 }}>
-            <div className="kicker" style={{ color: "var(--violet)", marginBottom: 4 }}>
-              UNDER THE HOOD
-            </div>
-            <div style={{ color: "var(--ink-dim)", fontSize: 14, lineHeight: 1.5 }}>
-              The game uses real Tex governance categories — secrets, PII, commitments, regulated content, prompt injection.
-              <br className="hide-mobile" />
-              The product evaluates these in production at <span style={{ color: "var(--cyan)" }}>~180ms</span>. You're not even close.
-            </div>
-          </div>
-          <button onClick={onOpenWhatIsTex} className="btn-ghost" style={{
-            fontSize: 13,
-            padding: "10px 16px",
-            whiteSpace: "nowrap",
-          }}>
-            WHAT IS TEX →
-          </button>
-        </div>
-
-        {/* ── Footer ───────────────────────────────────────────────── */}
-        <div style={{
-          paddingTop: 20,
-          borderTop: "1px solid var(--hairline-2)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 14,
-          flexWrap: "wrap",
-        }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <BrandMark size={14} />
-            <span className="micro" style={{ color: "var(--ink-faint)" }}>
-              VORTEXBLACK · TEX AEGIS
-            </span>
-          </div>
-          {onOpenAsi && (
-            <button onClick={onOpenAsi} className="micro" style={{
-              color: "var(--cyan)",
-              padding: "6px 10px",
-              border: "1px solid rgba(95, 240, 255, 0.25)",
-              borderRadius: 4,
-            }}>
-              OWASP ASI REFERENCE →
-            </button>
-          )}
-        </div>
-      </div>
-
-      <style>{`
-        @media (max-width: 900px) {
-          .hero-grid {
-            grid-template-columns: 1fr !important;
-            min-height: auto !important;
-          }
-          .hero-grid > div:first-child {
-            order: 2;
-          }
-          .hero-grid > div:last-child {
-            order: 1;
-          }
-        }
-        @media (max-width: 600px) {
-          .hide-mobile { display: none !important; }
-        }
-      `}</style>
-    </div>
+    <svg viewBox="0 0 100 115" className={className} aria-hidden={!title}>
+      {title ? <title>{title}</title> : null}
+      <defs>
+        <linearGradient id="thex-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="var(--pink)" stopOpacity="0.95" />
+          <stop offset="55%" stopColor="var(--pink-hot)" stopOpacity="1" />
+          <stop offset="100%" stopColor="var(--cyan)" stopOpacity="0.85" />
+        </linearGradient>
+        <filter id="thex-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="2.4" />
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      {/* outer hex */}
+      <polygon
+        points="50,3 95,28 95,87 50,112 5,87 5,28"
+        fill="none"
+        stroke="url(#thex-grad)"
+        strokeWidth="2.5"
+        filter="url(#thex-glow)"
+      />
+      {/* inner hex */}
+      <polygon
+        points="50,18 80,35 80,80 50,97 20,80 20,35"
+        fill="none"
+        stroke="var(--pink-hot)"
+        strokeWidth="1.4"
+        opacity="0.85"
+      />
+      {/* T mark */}
+      <g stroke="url(#thex-grad)" strokeWidth="3" strokeLinecap="round" filter="url(#thex-glow)">
+        <line x1="32" y1="40" x2="68" y2="40" />
+        <line x1="50" y1="40" x2="50" y2="78" />
+      </g>
+      {/* tiny corner ticks */}
+      <g fill="var(--pink-hot)" opacity="0.9">
+        <circle cx="50" cy="3" r="1.6" />
+        <circle cx="95" cy="28" r="1.4" />
+        <circle cx="95" cy="87" r="1.4" />
+        <circle cx="50" cy="112" r="1.6" />
+        <circle cx="5" cy="87" r="1.4" />
+        <circle cx="5" cy="28" r="1.4" />
+      </g>
+    </svg>
   );
 }
 
-/* ─── Tex avatar ─────────────────────────────────────────────────── */
-function TexAvatar() {
+// ── Ambient particles drifting up the screen ───────────────────────────
+function AmbientParticles({ count = 32 }) {
+  const particles = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < count; i++) {
+      arr.push({
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * 18,
+        duration: 14 + Math.random() * 16,
+        opacity: 0.25 + Math.random() * 0.5,
+        scale: 0.6 + Math.random() * 1.4,
+      });
+    }
+    return arr;
+  }, [count]);
   return (
-    <div style={{
-      position: "relative",
-      width: "100%",
-      maxWidth: 540,
-      aspectRatio: "4 / 5",
-    }}>
-      <div style={{
-        position: "absolute",
-        inset: "-4%",
-        background: "radial-gradient(ellipse at center 35%, rgba(95, 240, 255, 0.15), transparent 60%)",
-        filter: "blur(20px)",
-        pointerEvents: "none",
-      }} />
-      <div style={{
-        position: "relative",
-        width: "100%",
-        height: "100%",
-        borderRadius: 8,
-        overflow: "hidden",
-        background: "var(--bg-0)",
-        border: "1px solid var(--hairline-2)",
-        boxShadow: "0 0 40px rgba(95, 240, 255, 0.08), inset 0 0 60px rgba(0,0,0,0.4)",
-      }}>
-        <img
-          src="/tex/tex-aegis.jpg"
-          alt="Tex"
+    <div className="hub-particles" aria-hidden="true">
+      {particles.map((p) => (
+        <span
+          key={p.id}
+          className="hub-particle"
           style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            objectPosition: "center 18%",
-            display: "block",
+            left: `${p.left}%`,
+            animationDelay: `-${p.delay}s`,
+            animationDuration: `${p.duration}s`,
+            opacity: p.opacity,
+            transform: `scale(${p.scale})`,
           }}
         />
-        <div className="scan" style={{ top: 0 }} />
-        <div style={{
-          position: "absolute",
-          bottom: 12,
-          left: 14,
-          padding: "5px 10px",
-          background: "rgba(0, 0, 0, 0.55)",
-          backdropFilter: "blur(6px)",
-          border: "1px solid rgba(95, 240, 255, 0.35)",
-          borderRadius: 4,
-        }}>
-          <div className="micro" style={{ color: "var(--cyan)", fontSize: 9 }}>
-            TEX // AEGIS
-          </div>
-          <div className="mono" style={{ color: "var(--ink)", fontSize: 11, fontWeight: 600, marginTop: 1 }}>
-            STATUS: WATCHING
-          </div>
-        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Top status bar — build label / ops / breach / clock ───────────────
+function StatusBar({ now, breachCount }) {
+  const time = now.toISOString().slice(11, 19) + " UTC";
+  return (
+    <div className="hub-status">
+      <div className="hub-status-left">
+        <span className="status-dot" aria-hidden="true" />
+        <b>VORTEXBLACK</b>
+        <span className="hub-status-sep" aria-hidden="true">·</span>
+        <span>TEX AEGIS / ARENA</span>
+        <span className="hub-status-sep" aria-hidden="true">·</span>
+        <span>BUILD 0.14.2</span>
+      </div>
+      <div className="hub-status-right">
+        <span>OPERATORS ONLINE <b>{1247 + (now.getSeconds() % 12)}</b></span>
+        <span className="hub-status-sep" aria-hidden="true">·</span>
+        <span>BREACH WATCH <b className="red">{breachCount}</b></span>
+        <span className="hub-status-sep" aria-hidden="true">·</span>
+        <span className="hub-clock">{time}</span>
       </div>
     </div>
   );
 }
 
-/* ─── Leaderboard ────────────────────────────────────────────────── */
-function Leaderboard({ entries }) {
+// ── Demo ticker — drifting verdicts (looks alive on first paint) ──────
+const TICKER_LINES = [
+  { v: "PERMIT",  s: "EMAIL:OUTBOUND",   t: "Quarterly performance summary attached.",       g: "✓" },
+  { v: "ABSTAIN", s: "API:WEBHOOK",      t: "POST /v1/contacts — 384 PII fields detected.",   g: "?" },
+  { v: "FORBID",  s: "EMAIL:OUTBOUND",   t: "Complaint forwarded with internal counsel reply.", g: "×" },
+  { v: "PERMIT",  s: "SLACK:#general",   t: "Reminder — town hall moved to Thursday 2pm.",    g: "✓" },
+  { v: "ABSTAIN", s: "API:OUTBOUND",     t: "Contains unverifiable financial projection.",     g: "?" },
+  { v: "FORBID",  s: "EMAIL:DRAFT",      t: "Includes claim that does not match retrieval.",   g: "×" },
+  { v: "PERMIT",  s: "DOC:EXPORT",       t: "Onboarding packet — public-cleared content.",     g: "✓" },
+  { v: "ABSTAIN", s: "API:EXTERNAL",     t: "DELETE /users/* — irreversible bulk action.",     g: "?" },
+];
+
+function DemoTicker() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1800);
+    return () => clearInterval(id);
+  }, []);
+  const offset = tick % TICKER_LINES.length;
+  const visible = [];
+  for (let i = 0; i < 3; i++) visible.push(TICKER_LINES[(offset + i) % TICKER_LINES.length]);
   return (
-    <div className="panel" style={{ padding: 4, overflow: "hidden" }}>
-      {entries.map((e, i) => (
-        <div key={e.handle + i} style={{
-          display: "grid",
-          gridTemplateColumns: "44px 1fr auto auto auto",
-          alignItems: "center",
-          gap: 12,
-          padding: "10px 14px",
-          borderTop: i === 0 ? "none" : "1px solid var(--hairline)",
-          background: e.you ? "rgba(255, 61, 122, 0.06)" : "transparent",
-        }}>
-          <span className="display" style={{
-            fontSize: 16,
-            color: i === 0 ? "var(--yellow)" : i < 3 ? "var(--ink)" : "var(--ink-faint)",
-          }}>
-            #{i + 1}
-          </span>
-          <span className="mono" style={{
-            fontSize: 12,
-            color: e.you ? "var(--pink)" : "var(--ink)",
-            fontWeight: e.you ? 700 : 500,
-          }}>
-            @{e.handle}{e.you ? " · YOU" : ""}
-          </span>
-          <span className="micro hide-mobile" style={{ color: "var(--ink-faint)" }}>
-            {e.rating}
-          </span>
-          <span className="micro" style={{ color: "var(--red)" }}>
-            {e.breaches} BREACH{e.breaches === 1 ? "" : "ES"}
-          </span>
-          <span className="display tabular" style={{
-            fontSize: 18,
-            color: e.you ? "var(--pink)" : "var(--cyan)",
-          }}>
-            {e.total}
-          </span>
+    <div className="demo-ticker" aria-label="Live verdict stream demonstration">
+      <div className="demo-ticker-head">
+        <span className="demo-ticker-pulse" aria-hidden="true" />
+        <span>LIVE STREAM</span>
+        <span className="demo-ticker-meta">verdicts • last 60s • sample</span>
+      </div>
+      {visible.map((row, i) => (
+        <div className={`demo-ticker-row tier-${i}`} key={`${tick}-${i}`}>
+          <span className={`demo-ticker-glyph v-${row.v.toLowerCase()}`}>{row.g}</span>
+          <span className="demo-ticker-source">{row.s}</span>
+          <span className="demo-ticker-body">{row.t}</span>
+          <span className={`demo-ticker-verdict ${row.v.toLowerCase()}`}>{row.v}</span>
         </div>
       ))}
     </div>
   );
 }
 
-/* ─── BrandMark ──────────────────────────────────────────────────── */
-function BrandMark({ size = 22 }) {
+// ── Anatomy strip — three columns ──────────────────────────────────────
+function AnatomyStrip() {
+  const cards = [
+    {
+      n: "01",
+      h: "WATCHES",
+      b: "Email, Slack, API calls, deploys, DB queries — every outbound move an agent tries to make.",
+    },
+    {
+      n: "02",
+      h: "VERDICTS",
+      b: "Permit, Abstain, Forbid — issued in 178ms with the exact policy line that triggered it.",
+    },
+    {
+      n: "03",
+      h: "RECEIPTS",
+      b: "Hash-chained, HMAC-signed evidence of every decision. Audit-ready by default.",
+    },
+  ];
   return (
-    <div style={{
-      width: size,
-      height: size,
-      position: "relative",
-      flexShrink: 0,
-    }}>
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        border: "1.5px solid var(--pink)",
-        transform: "rotate(45deg)",
-        boxShadow: "0 0 10px var(--pink-glow)",
-      }} />
-      <div style={{
-        position: "absolute",
-        inset: size * 0.28,
-        background: "var(--pink)",
-        transform: "rotate(45deg)",
-      }} />
+    <div className="anatomy-strip">
+      {cards.map((c) => (
+        <div className="anatomy-card" key={c.n}>
+          <div className="num">{c.n}</div>
+          <h3 className="h">{c.h}</h3>
+          <div className="b">{c.b}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Leaderboard ────────────────────────────────────────────────────────
+function Leaderboard({ rows, dateKey, ownHandle }) {
+  if (!rows || rows.length === 0) return null;
+  const top = rows.slice(0, 8);
+  return (
+    <div className="hub-leaderboard">
+      <div className="leaderboard-head">
+        <h3>SHIFT LEADERBOARD</h3>
+        <div className="leaderboard-meta">
+          <span>UTC {dateKey}</span>
+          <span className="hub-status-sep" aria-hidden="true">·</span>
+          <span>TOP 8 of {rows.length}</span>
+        </div>
+      </div>
+      <div className="leaderboard-table">
+        <div className="leaderboard-row leaderboard-th">
+          <span>RANK</span>
+          <span>OPERATOR</span>
+          <span className="num-col">CAUGHT</span>
+          <span className="num-col">SCORE</span>
+        </div>
+        {top.map((r, i) => {
+          const isOwn = ownHandle && r.handle === ownHandle;
+          return (
+            <div className={`leaderboard-row ${isOwn ? "own" : ""}`} key={`${r.handle}-${i}`}>
+              <span className="rank">
+                <span className={`rank-num rank-${i + 1}`}>{String(i + 1).padStart(2, "0")}</span>
+              </span>
+              <span className="handle">{r.handle}{isOwn && <em> · YOU</em>}</span>
+              <span className="num-col">{r.caught ?? "—"}</span>
+              <span className="num-col score">{r.score}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Hub avatar ─────────────────────────────────────────────────────────
+function HubAvatar({ now }) {
+  const lat = 174 + (now.getSeconds() % 9);
+  const cps = (1240 + (now.getSeconds() * 13) % 380).toString();
+  return (
+    <div className="hub-avatar">
+      <div className="avatar-glow" aria-hidden="true" />
+      <div className="avatar-frame">
+        <img src="/tex/tex-aegis.jpg" alt="Tex — the gate" />
+        <div className="t-hex"><THexSvg title="" /></div>
+        <div className="eye-scan" aria-hidden="true" />
+        <div className="avatar-corner">
+          <span className="dot" aria-hidden="true" />
+          <span>TEX · ARMED</span>
+        </div>
+        <div className="avatar-tickers">
+          <div>LAT <b>{lat}</b>MS</div>
+          <div>CPS <b>{cps}</b></div>
+          <div>POLICY <b>v3.2</b></div>
+        </div>
+        <div className="avatar-status">
+          <div className="status-line">
+            <span className="status-dot-mini" aria-hidden="true" />
+            <span>GATE OPEN · INSPECTING</span>
+          </div>
+        </div>
+        {/* corner brackets */}
+        <span className="avatar-bracket tl" aria-hidden="true" />
+        <span className="avatar-bracket tr" aria-hidden="true" />
+        <span className="avatar-bracket bl" aria-hidden="true" />
+        <span className="avatar-bracket br" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+// ── Mini countdown to next daily reset ────────────────────────────────
+function NextShiftCountdown({ now }) {
+  const ms = msUntilNextShift();
+  return (
+    <div className="next-shift">
+      <span className="next-shift-label">NEXT SHIFT</span>
+      <span className="next-shift-time">{formatCountdown(ms)}</span>
+      <span className="next-shift-note">UTC reset</span>
+    </div>
+  );
+}
+
+// ── Component ─────────────────────────────────────────────────────────
+export default function Hub({ onPlayDaily, onPlayTraining, onOpenWhatIsTex }) {
+  const [now, setNow] = useState(() => new Date());
+  const [played, setPlayed] = useState(false);
+  const [todayRes, setTodayRes] = useState(null);
+  const [board, setBoard] = useState({ rows: [] });
+  const [handle, setHandle] = useState("");
+  const dateKey = todayKey();
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setPlayed(hasPlayedToday());
+    setTodayRes(todayResult());
+    setBoard(getDailyLeaderboard());
+    setHandle(getHandle() || "");
+  }, []);
+
+  const breachCount = useMemo(() => {
+    // deterministic but date-stable, avoids flicker
+    const d = new Date(dateKey + "T00:00:00Z");
+    return 41 + ((d.getUTCDate() * 7 + d.getUTCMonth() * 13) % 19);
+  }, [dateKey]);
+
+  const handleDaily = () => {
+    clickSfx();
+    if (played) {
+      onPlayTraining();
+    } else {
+      onPlayDaily();
+    }
+  };
+  const handleTraining = () => { clickSfx(); onPlayTraining(); };
+  const handleWhat = () => { clickSfx(); onOpenWhatIsTex(); };
+
+  return (
+    <div className="hub-stage">
+      <div className="hub-grid-bg" aria-hidden="true" />
+      <div className="hub-haze" aria-hidden="true" />
+      <AmbientParticles count={32} />
+      <div className="hub-scanlines" aria-hidden="true" />
+
+      <StatusBar now={now} breachCount={breachCount} />
+
+      <div className="hub-frame">
+        <div className="hub-hero">
+          <div className="hub-hero-text">
+            <div className="hub-eyebrow">
+              <span className="hub-eyebrow-mark" aria-hidden="true" />
+              <span>VORTEXBLACK / TEX AEGIS · LIVE GATE</span>
+            </div>
+
+            <h1 className="hub-headline">
+              <span className="glow-line">THE GATE</span>
+              <span className="glow-line">BETWEEN AI</span>
+              <span className="glow-line">AND THE</span>
+              <span className="glow-line">REAL WORLD.</span>
+            </h1>
+
+            <p className="hub-sub">
+              Every email, API call, message, and deploy your agents try to send —
+              evaluated in <b>178ms</b> against policy, retrieval, and contradiction checks.
+              <br />
+              <span className="hub-sub-strong">
+                Work a 90-second shift. See if you can keep up.
+              </span>
+            </p>
+
+            <div className="hub-cta-row">
+              <button
+                className="btn-cta breathe"
+                onClick={handleDaily}
+                aria-label={played ? "Daily shift completed — start training" : "Start today's shift"}
+              >
+                <span className="btn-cta-label">
+                  {played ? "▶ TRAIN AGAIN" : "▶ START TODAY'S SHIFT"}
+                </span>
+                <span className="btn-cta-meta">
+                  {played
+                    ? `Today: ${todayRes?.score ?? "—"} pts`
+                    : "90s · 32 actions · one daily run"}
+                </span>
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={handleTraining}
+                aria-label="Practice mode"
+              >
+                <span className="btn-secondary-label">PRACTICE</span>
+                <span className="btn-secondary-meta">unlimited · no leaderboard</span>
+              </button>
+              <button
+                className="btn-tertiary"
+                onClick={handleWhat}
+                aria-label="What is Tex"
+              >
+                WHAT IS TEX? →
+              </button>
+            </div>
+
+            <NextShiftCountdown now={now} />
+
+            <DemoTicker />
+          </div>
+
+          <aside className="hub-hero-aside">
+            <HubAvatar now={now} />
+            <div className="hub-aside-caption">
+              <div className="caption-quote">
+                "I see what your agents are about to send.
+                <br />I let the safe ones through. I stop the rest."
+              </div>
+              <div className="caption-attr">— TEX</div>
+            </div>
+          </aside>
+        </div>
+
+        <div className="telemetry-row">
+          <span>EVAL <b>178</b>MS p50</span>
+          <span>BLOCKS <b className="red">{(breachCount * 1.7).toFixed(0)}</b>/HR</span>
+          <span>PERMIT RATE <b className="green">94.2%</b></span>
+          <span>POLICY HASH <b>0xa4f1·c082</b></span>
+          <span>RECEIPTS <b>SHA-256 + HMAC</b></span>
+          <span>UPTIME <b className="green">99.99%</b></span>
+        </div>
+
+        <AnatomyStrip />
+
+        <Leaderboard
+          rows={board.rows || []}
+          dateKey={dateKey}
+          ownHandle={handle}
+        />
+
+        <div className="hub-rules-foot">
+          <div className="rules-title">RULES OF THE SHIFT</div>
+          <div className="rules-grid">
+            <div><kbd>1</kbd> PERMIT — clean & on-policy</div>
+            <div><kbd>2</kbd> ABSTAIN — escalate · needs human</div>
+            <div><kbd>3</kbd> FORBID — block & log</div>
+            <div><kbd>SPACE</kbd> hold to inspect · <kbd>ESC</kbd> bail</div>
+          </div>
+        </div>
+
+        <footer className="hub-foot">
+          <div>VORTEXBLACK · TEX AEGIS · {dateKey}</div>
+          <div className="hub-foot-meta">
+            <span>texaegis.com</span>
+            <span className="hub-status-sep" aria-hidden="true">·</span>
+            <span>built by Matt Nardizzi</span>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

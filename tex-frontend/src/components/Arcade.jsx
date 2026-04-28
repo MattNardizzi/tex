@@ -56,7 +56,9 @@ const LASER_W = 4;
 const FIRE_COOLDOWN_MS = 140;
 const ABSTAIN_CAPTURE_TOLERANCE = TEX_HITBOX_W; // distance from tex.x to capture
 
-const INTEGRITY_MAX = 100;
+const INTEGRITY_MAX = 120;       // bumped 100 → 120 for "one more hit"
+                                 // before game-over. With breach = 25 this
+                                 // gives ~5 breaches to die instead of 4.
 const DAMAGE_BREACH = 25;        // red reached gate
 const DAMAGE_FALSE_POS = 8;      // shot a green
 const DAMAGE_ORANGE_MISS = 10;   // orange hit gate without tex under it
@@ -65,21 +67,39 @@ const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores inte
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
-const SPEED_HALFLIFE_S = 60;     // 50 was too hard at 55-65s; 65 was
-                                 // too soft. 60 lands a touch above the
-                                 // soft setting — still flat through the
-                                 // mid-game wall, with a gentle bump.
-const SPAWN_BASE_MS = 1800;      // 1900 was too sparse with the new
-                                 // halflife — shaved 100ms to slightly
-                                 // tighten icon density without
-                                 // bringing back the cliff.
+const SPEED_HALFLIFE_S = 200;    // stretched from 80. The game is endless
+                                 // (survive on integrity), so the curve
+                                 // now climbs gradually past the 3-minute
+                                 // mark. Same peak intensity is still
+                                 // reachable, just much further out.
+const SPAWN_BASE_MS = 1800;      // initial gap between spawns (forgiving)
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
-const BONUS_SPAWN_MULT = 2.6;    // bonus double-spawns still don't
-                                 // fire inside the 90s shift — keeps
-                                 // mid-game density predictable.
+const BONUS_SPAWN_MULT = 2.6;    // bonus double-spawns still don't fire
+                                 // inside the typical run.
 const BONUS_SPAWN_RATE = 0.10;   // per-dt probability when above threshold
 const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
 const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
+const ORANGE_MIX_RAMP_S = 200;   // matches stretched curve so orange
+                                 // density grows in lockstep with
+                                 // speed and spawn rate.
+
+// ── Pickup tunables (shield + injection — special falling icons) ────────
+// Pickups are NOT decisions. Player can't shoot them; they only resolve
+// when Tex's body touches them (same hitbox as ABSTAIN auto-capture).
+//
+//   OWASP_SHIELD     — heal integrity to full. First at 30s, then every 20s.
+//   PROMPT_INJECTION — drain integrity to 0 → game over. First at 15s,
+//                      then every 20s.
+//
+// Interleaved cadence (15, 30, 35, 50, 55, 70, ...) means the player
+// always knows roughly when the next threat or rescue is coming.
+const PICKUP_INJECTION_FIRST_S = 15;
+const PICKUP_INJECTION_EVERY_S = 20;
+const PICKUP_SHIELD_FIRST_S    = 30;
+const PICKUP_SHIELD_EVERY_S    = 20;
+const PICKUP_FALL_SPEED        = 1.05;  // px/frame at speedMult=1 (slightly
+                                        // slower than icons so the player
+                                        // has time to read + react)
 
 // ── Surface keys (the 9 action types from messages.js) ──────────────────
 const SURFACE_KEYS = [
@@ -161,7 +181,7 @@ function spawnGapAt(elapsedSec) {
   return Math.max(SPAWN_FLOOR_MS, SPAWN_BASE_MS / m);
 }
 function orangeMixAt(elapsedSec) {
-  const t = clamp(elapsedSec / 60, 0, 1);
+  const t = clamp(elapsedSec / ORANGE_MIX_RAMP_S, 0, 1);
   return lerp(ORANGE_MIX_START, ORANGE_MIX_PEAK, t);
 }
 
@@ -638,7 +658,7 @@ export default function Arcade({ onComplete, onBail }) {
   const initGame = useCallback(() => {
     gameRef.current = {
       tex: { x: LOGICAL_W / 2, y: LOGICAL_H - TEX_Y_FROM_BOTTOM, recoilUntil: 0, eyeFlashUntil: 0, eyeFlashColor: null },
-      icons: [],          // falling action sprites
+      icons: [],          // falling action sprites + pickups
       lasers: [],         // player projectiles
       particles: [],      // hit particles
       capturedRing: [],   // ABSTAIN icons being absorbed (animation only)
@@ -658,6 +678,11 @@ export default function Arcade({ onComplete, onBail }) {
       iconCounter: 0,
       gateFlash: 0,       // 0..1, fades each frame
       gateFlashColor: null,
+      // Pickup schedule — next time (in elapsed seconds) each pickup
+      // type is due to spawn. Initialized to first-spawn times; bumped
+      // by the EVERY_S interval after each successful spawn.
+      nextInjectionAtS: PICKUP_INJECTION_FIRST_S,
+      nextShieldAtS:    PICKUP_SHIELD_FIRST_S,
     };
     // Reset side rails alongside the game state.
     setRails({
@@ -936,6 +961,7 @@ export default function Arcade({ onComplete, onBail }) {
         const baseFall = 1.25 + Math.random() * 0.55; // px/frame at speedMult=1
         g.icons.push({
           id: ++g.iconCounter,
+          kind: "decision",
           surface,
           verdict,
           severity,
@@ -961,6 +987,7 @@ export default function Arcade({ onComplete, onBail }) {
         const reward = VERDICT_REWARD[verdict][severity];
         g.icons.push({
           id: ++g.iconCounter,
+          kind: "decision",
           surface, verdict, severity, reward,
           x: rand(ICON_SIZE / 2 + 16, LOGICAL_W - ICON_SIZE / 2 - 16),
           y: -ICON_SIZE / 2,
@@ -971,6 +998,20 @@ export default function Arcade({ onComplete, onBail }) {
           stateUntil: 0,
           spawnTime: nowFrame,
         });
+      }
+
+      // ── Spawn pickups (shield + injection) on a recurring schedule ──
+      // Each type has its own ticker. When elapsed seconds crosses a
+      // ticker's `nextAt`, spawn that pickup and bump the ticker by
+      // its EVERY_S interval. This produces the interleaved cadence
+      // (injection 15 / shield 30 / injection 35 / shield 50 / ...).
+      if (elapsedSec >= g.nextInjectionAtS) {
+        spawnPickup(g, "injection", nowFrame);
+        g.nextInjectionAtS += PICKUP_INJECTION_EVERY_S;
+      }
+      if (elapsedSec >= g.nextShieldAtS) {
+        spawnPickup(g, "shield", nowFrame);
+        g.nextShieldAtS += PICKUP_SHIELD_EVERY_S;
       }
 
       // ── Update lasers ───────────────────────────────────────────────
@@ -985,6 +1026,24 @@ export default function Arcade({ onComplete, onBail }) {
         if (ic.state !== "active") continue;
         ic.y += ic.vy * g.speedMult * dt;
         ic.rot += ic.rotSpeed * dt;
+
+        // Pickups (shield + injection) resolve only on Tex body-touch.
+        // Lasers pass through. Same overlap geometry as ABSTAIN early
+        // capture, with a slightly wider hitbox so the player can grab
+        // (or accidentally hit) them with intent.
+        if (ic.kind === "pickup") {
+          const iconBottom = ic.y + ICON_SIZE / 2;
+          const iconTop    = ic.y - ICON_SIZE / 2;
+          const dxAbs      = Math.abs(ic.x - g.tex.x);
+          const verticallyOverlaps = iconBottom >= texHeadY && iconTop <= texFeetY;
+          if (verticallyOverlaps && dxAbs <= ABSTAIN_CAPTURE_TOLERANCE) {
+            collectPickup(g, ic, nowFrame);
+            continue;
+          }
+          // Pickups don't trigger the magnetic-pull or capture logic
+          // below — skip the rest of the per-icon branch.
+          continue;
+        }
 
         // Magnetic pull: ABSTAIN icons in the lower 30% of fall get gently
         // tugged toward Tex if Tex is roughly under them. Preserves player
@@ -1026,6 +1085,8 @@ export default function Arcade({ onComplete, onBail }) {
       for (const l of g.lasers) {
         for (const ic of g.icons) {
           if (ic.state !== "active") continue;
+          // Pickups are bypass-only — lasers pass through without effect.
+          if (ic.kind === "pickup") continue;
           const dx2 = ic.x - l.x;
           const dy2 = ic.y - l.y;
           const r = ICON_SIZE / 2;
@@ -1044,7 +1105,14 @@ export default function Arcade({ onComplete, onBail }) {
       for (const ic of g.icons) {
         if (ic.state !== "active") continue;
         if (ic.y - ICON_SIZE / 2 >= gateLine - 6) {
-          handleGateArrival(g, ic, nowFrame);
+          if (ic.kind === "pickup") {
+            // Uncollected pickup falls off the screen with no effect.
+            // Shield: missed opportunity. Injection: dodged threat.
+            ic.state = "dying";
+            ic.stateUntil = nowFrame + 240;
+          } else {
+            handleGateArrival(g, ic, nowFrame);
+          }
         }
       }
 
@@ -1316,6 +1384,67 @@ export default function Arcade({ onComplete, onBail }) {
     });
 
     recordOutcome(g, ic, "correct-abstain");
+  }
+
+  // ── Pickup helpers ──────────────────────────────────────────────────
+  // Pickups are special falling icons that resolve only on Tex body-touch
+  // (lasers pass through). Two types:
+  //   "shield"    — heal integrity to MAX
+  //   "injection" — drain integrity to 0 (instant game over)
+  function spawnPickup(g, pickupType, nowFrame) {
+    g.icons.push({
+      id: ++g.iconCounter,
+      kind: "pickup",
+      pickupType,                                  // "shield" | "injection"
+      x: rand(ICON_SIZE / 2 + 24, LOGICAL_W - ICON_SIZE / 2 - 24),
+      y: -ICON_SIZE / 2,
+      vy: PICKUP_FALL_SPEED,
+      rot: 0,
+      rotSpeed: 0,
+      state: "active",
+      stateUntil: 0,
+      spawnTime: nowFrame,
+    });
+    spawnSfx();
+  }
+
+  function collectPickup(g, ic, now) {
+    if (ic.pickupType === "shield") {
+      // Heal to full and show a celebratory burst.
+      const before = g.integrity;
+      g.integrity = INTEGRITY_MAX;
+      const gained = g.integrity - before;
+      if (gained > 0) {
+        g.healFlashes = g.healFlashes || [];
+        g.healFlashes.push({
+          x: g.tex.x, y: g.tex.y - 60,
+          amount: gained,
+          spawnTime: now,
+          life: 1100,
+        });
+      }
+      g.gateFlash = 0.9; g.gateFlashColor = "#5FFA9F";
+      g.tex.eyeFlashUntil = now + 320;
+      g.tex.eyeFlashColor = "#5FFA9F";
+      g.catchRings = g.catchRings || [];
+      g.catchRings.push({ x: g.tex.x, y: g.tex.y - 30, spawnTime: now, life: 640 });
+      addExplosion(g, ic, "#5FFA9F", 22);
+      permitSfx();
+      ic.state = "captured";
+      ic.stateUntil = now + 320;
+    } else {
+      // PROMPT INJECTION — instant game over.
+      g.integrity = 0;
+      g.gateFlash = 1.0; g.gateFlashColor = "#FF4747";
+      g.tex.eyeFlashUntil = now + 600;
+      g.tex.eyeFlashColor = "#FF4747";
+      g.shakeMag = 18;
+      g.shakeUntil = now + 520;
+      addExplosion(g, ic, "#FF4747", 36);
+      breachSfx();
+      ic.state = "dying";
+      ic.stateUntil = now + 320;
+    }
   }
 
   function addExplosion(g, ic, color, count = 16) {
@@ -1604,6 +1733,10 @@ export default function Arcade({ onComplete, onBail }) {
   // visual signal that it's a capture target.)
 
   function drawFallingIcon(ctx, ic) {
+    if (ic.kind === "pickup") {
+      drawPickup(ctx, ic);
+      return;
+    }
     const pal = paletteFor(ic.verdict);
 
     let alpha = 1;
@@ -1633,6 +1766,204 @@ export default function Arcade({ onComplete, onBail }) {
     // The shape itself is the icon — no containment bracket needed
     drawIcon(ctx, ic.surface, ic.x, drawY, ICON_SIZE * 0.95, pal);
 
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Pickup drawing — OWASP shield (heal) and Prompt Injection (kill) ─
+  function drawPickup(ctx, ic) {
+    const isShield = ic.pickupType === "shield";
+    let alpha = 1;
+    let drawY = ic.y;
+    if (ic.state === "dying" || ic.state === "captured") {
+      const rem = (ic.stateUntil - performance.now()) / 320;
+      alpha = clamp(rem, 0, 1);
+    }
+    // Pulse for emphasis — pickups should grab attention immediately
+    const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 220 + ic.id * 0.5);
+
+    if (isShield) {
+      drawShieldPickup(ctx, ic.x, drawY, alpha, pulse);
+    } else {
+      drawInjectionPickup(ctx, ic.x, drawY, alpha, pulse);
+    }
+  }
+
+  // OWASP SHIELD — bright green hex shield with cyan rim, "OWASP" wordmark
+  function drawShieldPickup(ctx, cx, cy, alpha, pulse) {
+    const s = ICON_SIZE * 1.05;
+    // Outer celebratory halo (bigger than regular icons)
+    ctx.globalAlpha = 0.95 * alpha;
+    const haloR = s * 1.6;
+    const halo = ctx.createRadialGradient(cx, cy, 4, cx, cy, haloR);
+    halo.addColorStop(0,   "rgba(95, 250, 159, 0.55)");
+    halo.addColorStop(0.4, "rgba(95, 240, 255, 0.20)");
+    halo.addColorStop(1,   "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = alpha;
+    // Hex shield body
+    const r = s * 0.46;
+    ctx.save();
+    ctx.translate(cx, cy);
+    // Drop shadow
+    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+
+    // Hexagon path (pointy-top)
+    const hexPath = (rad) => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 3;
+        const px = Math.cos(a) * rad;
+        const py = Math.sin(a) * rad;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+
+    // Body: emerald gradient
+    hexPath(r);
+    const body = ctx.createLinearGradient(0, -r, 0, r);
+    body.addColorStop(0, "#A8FFC9");
+    body.addColorStop(0.5, "#5FFA9F");
+    body.addColorStop(1, "#1F8C52");
+    ctx.fillStyle = body;
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+
+    // Cyan rim
+    hexPath(r);
+    ctx.strokeStyle = "rgba(95, 240, 255, 0.95)";
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+
+    // Inner shield emblem — classic shield silhouette in dark green
+    ctx.fillStyle = "#0E4A2A";
+    ctx.beginPath();
+    const sw = r * 0.55, sh = r * 0.72;
+    ctx.moveTo(0, -sh * 0.55);
+    ctx.lineTo(sw, -sh * 0.40);
+    ctx.lineTo(sw, sh * 0.10);
+    ctx.quadraticCurveTo(sw, sh * 0.65, 0, sh * 0.78);
+    ctx.quadraticCurveTo(-sw, sh * 0.65, -sw, sh * 0.10);
+    ctx.lineTo(-sw, -sh * 0.40);
+    ctx.closePath();
+    ctx.fill();
+
+    // Check mark inside the shield
+    ctx.strokeStyle = "#A8FFC9";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(-sw * 0.45, sh * 0.05);
+    ctx.lineTo(-sw * 0.05, sh * 0.35);
+    ctx.lineTo(sw * 0.55, -sh * 0.20);
+    ctx.stroke();
+
+    // OWASP wordmark above the hex
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.font = "700 9px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("OWASP", 0, -r - 8);
+
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // PROMPT INJECTION — black hex with red corruption glyph + ominous pulse
+  function drawInjectionPickup(ctx, cx, cy, alpha, pulse) {
+    const s = ICON_SIZE * 1.05;
+    // Ominous red halo, larger and more saturated
+    ctx.globalAlpha = 0.95 * alpha;
+    const haloR = s * 1.7;
+    const halo = ctx.createRadialGradient(cx, cy, 4, cx, cy, haloR);
+    halo.addColorStop(0,   "rgba(255, 71, 71, 0.55)");
+    halo.addColorStop(0.45,"rgba(140, 30, 80, 0.25)");
+    halo.addColorStop(1,   "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(cx, cy, haloR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = alpha;
+    const r = s * 0.46;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 4;
+
+    const hexPath = (rad) => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 3;
+        const px = Math.cos(a) * rad;
+        const py = Math.sin(a) * rad;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+
+    // Body: deep crimson-black gradient
+    hexPath(r);
+    const body = ctx.createLinearGradient(0, -r, 0, r);
+    body.addColorStop(0, "#3a0a0a");
+    body.addColorStop(0.5, "#1a0405");
+    body.addColorStop(1, "#0a0203");
+    ctx.fillStyle = body;
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+
+    // Red rim, hot
+    hexPath(r);
+    ctx.strokeStyle = "rgba(255, 71, 71, 0.95)";
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+
+    // Inner glyph: stylized "{ }" with corrupted dots — represents
+    // injected prompt syntax. Red with subtle flicker.
+    const flicker = 0.85 + 0.15 * Math.sin(performance.now() / 90);
+    ctx.strokeStyle = `rgba(255, 90, 90, ${flicker})`;
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = "round";
+
+    // Left brace
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.20, -r * 0.42);
+    ctx.quadraticCurveTo(-r * 0.50, -r * 0.42, -r * 0.50, 0);
+    ctx.quadraticCurveTo(-r * 0.50, r * 0.42, -r * 0.20, r * 0.42);
+    ctx.stroke();
+    // Right brace
+    ctx.beginPath();
+    ctx.moveTo(r * 0.20, -r * 0.42);
+    ctx.quadraticCurveTo(r * 0.50, -r * 0.42, r * 0.50, 0);
+    ctx.quadraticCurveTo(r * 0.50, r * 0.42, r * 0.20, r * 0.42);
+    ctx.stroke();
+
+    // Three "corruption" dots in center
+    ctx.fillStyle = `rgba(255, 90, 90, ${flicker})`;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(i * r * 0.18, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Warning wordmark above
+    ctx.fillStyle = "rgba(255, 90, 90, 0.92)";
+    ctx.font = "700 8px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("INJECTION", 0, -r - 8);
+
+    ctx.restore();
     ctx.globalAlpha = 1;
   }
 
@@ -1832,6 +2163,8 @@ export default function Arcade({ onComplete, onBail }) {
             move mouse / drag finger to position TEX &nbsp;·&nbsp; CLICK / TAP / SPACE to fire
             <br />
             <span style={{ opacity: 0.7 }}>shoot RED &nbsp;·&nbsp; let GREEN through &nbsp;·&nbsp; stand under ORANGE to capture</span>
+            <br />
+            <span style={{ opacity: 0.7 }}>grab the <span style={{ color: "#5FFA9F" }}>OWASP SHIELD</span> &nbsp;·&nbsp; dodge <span style={{ color: "#FF6B6B" }}>PROMPT INJECTION</span></span>
           </div>
         </div>
       )}

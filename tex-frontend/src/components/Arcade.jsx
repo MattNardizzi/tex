@@ -67,21 +67,20 @@ const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores inte
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
-const SPEED_HALFLIFE_S = 200;    // stretched from 80. The game is endless
-                                 // (survive on integrity), so the curve
-                                 // now climbs gradually past the 3-minute
-                                 // mark. Same peak intensity is still
-                                 // reachable, just much further out.
+const SPEED_HALFLIFE_S = 150;    // 200 was too soft early. 150 climbs
+                                 // a bit faster in the first few minutes
+                                 // while still keeping the curve gentle
+                                 // and uniform across long runs.
 const SPAWN_BASE_MS = 1800;      // initial gap between spawns (forgiving)
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
-const BONUS_SPAWN_MULT = 2.6;    // bonus double-spawns still don't fire
-                                 // inside the typical run.
-const BONUS_SPAWN_RATE = 0.10;   // per-dt probability when above threshold
 const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
 const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
-const ORANGE_MIX_RAMP_S = 200;   // matches stretched curve so orange
+const ORANGE_MIX_RAMP_S = 150;   // matches stretched curve so orange
                                  // density grows in lockstep with
                                  // speed and spawn rate.
+// Bonus double-spawns removed. The threshold-trigger model produced a
+// hard cliff the moment speed mult crossed it (~5min on the previous
+// halflife). Smooth exponential is a better long-game curve.
 
 // ── Pickup tunables (shield + injection — special falling icons) ────────
 // Pickups are NOT decisions. Player can't shoot them; they only resolve
@@ -978,27 +977,9 @@ export default function Arcade({ onComplete, onBail }) {
         spawnSfx();
       }
 
-      // Late-game double-spawn chance for variety. Threshold and rate
-      // are tunable above; under the new halflife this effectively only
-      // fires past ~90s in practice, so the 50-65s window stays clean.
-      if (g.speedMult > BONUS_SPAWN_MULT && Math.random() < BONUS_SPAWN_RATE * dt && nowFrame - g.lastSpawn > gap * 0.6) {
-        const surface = randPick(SURFACE_KEYS);
-        const { verdict, severity } = pickVerdictForSurface(surface, elapsedSec);
-        const reward = VERDICT_REWARD[verdict][severity];
-        g.icons.push({
-          id: ++g.iconCounter,
-          kind: "decision",
-          surface, verdict, severity, reward,
-          x: rand(ICON_SIZE / 2 + 16, LOGICAL_W - ICON_SIZE / 2 - 16),
-          y: -ICON_SIZE / 2,
-          vy: 1.25 + Math.random() * 0.55,
-          rot: 0,
-          rotSpeed: rand(-0.01, 0.01),
-          state: "active",
-          stateUntil: 0,
-          spawnTime: nowFrame,
-        });
-      }
+      // (Bonus double-spawn block removed — threshold-trigger model
+      // produced a hard cliff at ~5min. The smooth exponential ramp
+      // from spawnGapAt() handles long-run difficulty on its own.)
 
       // ── Spawn pickups (shield + injection) on a recurring schedule ──
       // Each type has its own ticker. When elapsed seconds crosses a

@@ -1744,15 +1744,16 @@ body::after {
        1. eyebrow
        2. Tex avatar
        3. ENTER ARCADE + audit + what-is-tex (CTA row)
-       4. headline
-       5. sub-copy
-       6. hero telemetry strip
-       7. demo ticker
+       4. quote ("I see what your agents are about to send…")
+       5. headline
+       6. sub-copy
+       7. hero telemetry strip
+       8. demo ticker
 
      Implementation: collapse the grid to a column flex, use
-     `display: contents` on .hub-hero-text so its children
-     participate in the parent flex layout alongside .hub-hero-aside,
-     then assign `order` across the unified set. NB: with
+     `display: contents` on .hub-hero-text AND .hub-hero-aside so
+     their children all participate in the parent flex layout, then
+     assign `order` across the unified set. NB: with
      display:contents, the DOM parent is still .hub-hero-text — so
      the `>` direct-child combinator from .hub-hero won't match the
      promoted children. We use descendant selectors instead.
@@ -1762,28 +1763,44 @@ body::after {
     flex-direction: column;
     gap: 16px;
   }
-  .hub-hero-text {
+  .hub-hero-text,
+  .hub-hero-aside {
     display: contents;
   }
-  .hub-hero-aside {
+  /* The avatar still needs a width cap when promoted into the flex flow */
+  .hub-hero .hub-avatar {
     max-width: 320px;
     margin-inline: auto;
   }
 
   .hub-hero .hub-eyebrow        { order: 1; margin-bottom: 0; }
-  .hub-hero .hub-hero-aside     { order: 2; }
+  .hub-hero .hub-avatar         { order: 2; }
   .hub-hero .hub-cta-row        { order: 3; margin-top: 0; margin-bottom: 6px; }
-  .hub-hero .hub-headline       { order: 4; margin-top: 4px; }
-  .hub-hero .hub-sub            { order: 5; margin-top: 12px; margin-bottom: 4px; }
-  .hub-hero .hub-hero-telemetry { order: 6; margin-top: 4px; }
-  .hub-hero .demo-ticker        { order: 7; }
+  .hub-hero .hub-aside-caption  { order: 4; margin-top: 4px; }
+  .hub-hero .hub-headline       { order: 5; margin-top: 4px; }
+  .hub-hero .hub-sub            { order: 6; margin-top: 12px; margin-bottom: 4px; }
+  .hub-hero .hub-hero-telemetry { order: 7; margin-top: 4px; }
+  .hub-hero .demo-ticker        { order: 8; }
 }
 
 @media (max-width: 760px) {
   .hub-hero { padding-top: 14px; padding-bottom: 18px; gap: 12px; }
-  .hub-hero-aside { max-width: 240px; }
+  .hub-hero .hub-avatar { max-width: 240px; }
   /* Demo ticker hidden on phones to keep the CTA above the fold. */
   .demo-ticker { display: none; }
+
+  /* ── Strip the faded white glow/halo around Tex on mobile ──────────
+     The cyan rim drop-shadow + radial avatar-glow combine to render
+     a soft rectangular halo on small viewports. Kill them so Tex sits
+     clean against the void.
+  */
+  .hub-avatar .avatar-glow { display: none; }
+  .hub-avatar img {
+    filter:
+      contrast(1.08)
+      saturate(1.04)
+      drop-shadow(0 18px 28px rgba(0, 0, 0, 0.55));
+  }
 }
 
 .hub-eyebrow {

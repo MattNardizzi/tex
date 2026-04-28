@@ -67,17 +67,20 @@ const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores inte
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
-const SPEED_HALFLIFE_S = 150;    // 200 was too soft early. 150 climbs
-                                 // a bit faster in the first few minutes
-                                 // while still keeping the curve gentle
-                                 // and uniform across long runs.
-const SPAWN_BASE_MS = 1800;      // initial gap between spawns (forgiving)
+const SPEED_HALFLIFE_S = 120;    // 150 still felt slow early — pulled to
+                                 // 120 so the climb tightens noticeably
+                                 // through the first 90s. Smooth
+                                 // exponential preserved.
+const SPAWN_BASE_MS = 1600;      // 1800 was too forgiving at t=0. Shaved
+                                 // 200ms off the starting gap so even
+                                 // the opening seconds have ~11% more
+                                 // icons in flight.
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
 const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
 const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
-const ORANGE_MIX_RAMP_S = 150;   // matches stretched curve so orange
-                                 // density grows in lockstep with
-                                 // speed and spawn rate.
+const ORANGE_MIX_RAMP_S = 120;   // matches new halflife — yellows
+                                 // tighten in lockstep with speed +
+                                 // spawn rate.
 // Bonus double-spawns removed. The threshold-trigger model produced a
 // hard cliff the moment speed mult crossed it (~5min on the previous
 // halflife). Smooth exponential is a better long-game curve.

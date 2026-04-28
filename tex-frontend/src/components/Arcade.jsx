@@ -370,20 +370,27 @@ function drawDb(ctx, cx, cy, s, pal) {
     ctx.fillRect(cx - w / 2, yTop + ellipseH / 2, w, bandH);
     // Bottom ellipse
     ctx.beginPath();
-    ctx.ellipse(cx, yTop + ellipseH / 2 + bandH, w / 2, ellipseH / 2, 0, 0, Math.PI);
+    ctx.ellipse(cx, yTop + ellipseH / 2 + bandH, Math.max(0, w / 2), Math.max(0, ellipseH / 2), 0, 0, Math.PI);
     ctx.fillStyle = pal.dark;
     ctx.fill();
     // Top ellipse
     ctx.beginPath();
-    ctx.ellipse(cx, yTop + ellipseH / 2, w / 2, ellipseH / 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, yTop + ellipseH / 2, Math.max(0, w / 2), Math.max(0, ellipseH / 2), 0, 0, Math.PI * 2);
     ctx.fillStyle = pal.base;
     ctx.fill();
-    // Top highlight
-    ctx.beginPath();
-    ctx.ellipse(cx, yTop + ellipseH / 2 - 1, w / 2 - 4, ellipseH / 2 - 2, 0, Math.PI, 0);
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Top highlight — these radii subtract absolute pixels and CAN go negative
+    // when the icon is shrunk during the captured-ring animation. Floor at 0
+    // to prevent IndexSizeError ("minor-axis radius is negative") which would
+    // throw inside the rAF loop and freeze the game.
+    const hlRx = Math.max(0, w / 2 - 4);
+    const hlRy = Math.max(0, ellipseH / 2 - 2);
+    if (hlRx > 0 && hlRy > 0) {
+      ctx.beginPath();
+      ctx.ellipse(cx, yTop + ellipseH / 2 - 1, hlRx, hlRy, 0, Math.PI, 0);
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   };
   drawDisk(top);
   drawDisk(top + bandH + ellipseH * 0.45);

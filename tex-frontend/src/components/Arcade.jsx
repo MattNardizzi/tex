@@ -682,21 +682,58 @@ export default function Arcade({ onComplete, onBail }) {
       inputRef.current.fireRequested = true;
     }
 
-    // Touch drag to move (no fire — fire is the dedicated button)
+    // Touch: drag to move, tap to fire.
+    // We track touch start position + time. If the finger lifts within
+    // TAP_MAX_MS and moved less than TAP_MAX_DIST, it's a tap → fire.
+    // Otherwise it's a drag and Tex follows the finger.
+    const TAP_MAX_MS = 250;
+    const TAP_MAX_DIST = 10;
+    let touchStartX = 0;
+    let touchStartClientX = 0;
+    let touchStartClientY = 0;
+    let touchStartTime = 0;
+    let touchMovedFar = false;
+
     function onTouchStart(e) {
       if (phase !== "playing") return;
       e.preventDefault();
-      inputRef.current.pointerActive = true;
-      inputRef.current.pointerX = localX(e.touches?.[0]?.clientX ?? 0);
+      const t = e.touches?.[0];
+      if (!t) return;
+      touchStartClientX = t.clientX;
+      touchStartClientY = t.clientY;
+      touchStartTime = performance.now();
+      touchMovedFar = false;
+      // Don't snap Tex to finger immediately — only after we know it's a drag.
+      // Store the start position for later relative movement.
+      touchStartX = localX(t.clientX);
     }
     function onTouchMove(e) {
-      if (!inputRef.current.pointerActive) return;
+      if (phase !== "playing") return;
       e.preventDefault();
-      inputRef.current.pointerX = localX(e.touches?.[0]?.clientX ?? 0);
+      const t = e.touches?.[0];
+      if (!t) return;
+      const dx = t.clientX - touchStartClientX;
+      const dy = t.clientY - touchStartClientY;
+      const dist = Math.hypot(dx, dy);
+      if (!touchMovedFar && dist > TAP_MAX_DIST) {
+        // Promote to drag — start tracking pointer
+        touchMovedFar = true;
+        inputRef.current.pointerActive = true;
+      }
+      if (touchMovedFar) {
+        inputRef.current.pointerX = localX(t.clientX);
+      }
     }
     function onTouchEnd() {
+      const dt = performance.now() - touchStartTime;
+      // Tap = short, low-distance touch → fire one shot
+      if (!touchMovedFar && dt <= TAP_MAX_MS) {
+        inputRef.current.fireRequested = true;
+      }
+      // Stop following the finger when it lifts
       inputRef.current.pointerActive = false;
       inputRef.current.pointerX = null;
+      touchMovedFar = false;
     }
 
     canvas.addEventListener("mousemove", onMouseMove);
@@ -1397,10 +1434,6 @@ export default function Arcade({ onComplete, onBail }) {
   // ── HUD click handlers ────────────────────────────────────────────────
   const handleBail = () => { clickSfx(); onBail?.(); };
 
-  // Mobile FIRE button — single shot per tap (no held continuous fire).
-  const fireBtnDown = (e) => { e.preventDefault(); inputRef.current.fireRequested = true; };
-  const fireBtnUp   = (e) => { e.preventDefault(); /* no-op — single shot */ };
-
   // ── Render JSX (chrome only) ──────────────────────────────────────────
   const intPct = clamp(hud.integrity / INTEGRITY_MAX, 0, 1);
   const intClass = intPct < 0.25 ? "crit" : intPct < 0.5 ? "warn" : "";
@@ -1477,21 +1510,6 @@ export default function Arcade({ onComplete, onBail }) {
         </div>
       </div>
 
-      {/* Mobile FIRE button — only shows on touch devices */}
-      <button
-        className="arcade-fire-btn"
-        onTouchStart={fireBtnDown}
-        onTouchEnd={fireBtnUp}
-        onTouchCancel={fireBtnUp}
-        onMouseDown={fireBtnDown}
-        onMouseUp={fireBtnUp}
-        onMouseLeave={fireBtnUp}
-        aria-label="Fire laser"
-      >
-        <span className="arcade-fire-btn-glyph">⏵</span>
-        <span className="arcade-fire-btn-label">FIRE</span>
-      </button>
-
       {/* Verdict legend strip */}
       <div className="arcade-legend">
         <div className="arcade-legend-item">
@@ -1514,7 +1532,7 @@ export default function Arcade({ onComplete, onBail }) {
           <div className="arcade-ready-num">{readyNum > 0 ? readyNum : "GO"}</div>
           <div className="arcade-ready-sub">DEFEND THE GATE</div>
           <div className="arcade-ready-tip">
-            move your mouse / drag to position TEX &nbsp;·&nbsp; CLICK or SPACE to fire ONE laser
+            move mouse / drag finger to position TEX &nbsp;·&nbsp; CLICK / TAP / SPACE to fire
             <br />
             <span style={{ opacity: 0.7 }}>shoot RED &nbsp;·&nbsp; let GREEN through &nbsp;·&nbsp; stand under ORANGE to capture</span>
           </div>

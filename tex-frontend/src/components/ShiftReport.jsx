@@ -226,6 +226,100 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
                 </div>
               </div>
             </div>
+
+            {/* Action buttons — all six live inside the score panel so the
+                player sees them at peak attention, immediately after the
+                score figures, instead of buried at the bottom of the page.
+                Order is intentional: trial (primary conversion), leaderboard,
+                explainer, replay, copy-share, home. flexWrap handles narrow
+                viewports. */}
+            <div style={{
+              marginTop: 22,
+              paddingTop: 22,
+              borderTop: "1px solid var(--rule-2)",
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+            }}>
+              <a
+                href="mailto:matt@texaegis.com?subject=Tex%20%E2%80%94%20Free%20Two-Week%20Integration%20Trial&body=Hi%20Matt%2C%20we%27d%20like%20to%20try%20Tex%20for%20two%20weeks.%0A%0ACompany%3A%20%5B%5D%0AAI%20stack%20%2F%20gateway%3A%20%5B%5D%20(Portkey%2C%20LiteLLM%2C%20MCP%2C%20AgentKit%2C%20custom%2C%20etc.)%0ASurfaces%20we%27d%20put%20Tex%20in%20front%20of%3A%20%5B%5D%20(email%2C%20Slack%2C%20DB%2C%20deploys%2C%20etc.)%0AVolume%2Fday%3A%20%5B%5D"
+                className="btn-cta"
+                aria-label="Start a free two-week Tex integration trial"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                FREE 2-WEEK TRIAL →
+              </a>
+              <a
+                href="/#leaderboard"
+                className="btn-leaderboard"
+                aria-label="View today's arcade leaderboard"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                }}
+              >
+                <span className="btn-leaderboard-label">LEADERBOARD →</span>
+                <span className="btn-leaderboard-meta">today's top operators</span>
+              </a>
+              <button
+                onClick={onOpenWhatIsTex}
+                className="btn-explainer"
+                aria-label="What is Tex"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                }}
+              >
+                <span className="btn-explainer-label">WHAT IS TEX? →</span>
+                <span className="btn-explainer-meta">5 things that make Tex different</span>
+              </button>
+              <button
+                onClick={onPlayAgain}
+                className="btn-replay"
+                aria-label="Play again"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                }}
+              >
+                <span className="btn-replay-label">PLAY AGAIN →</span>
+                <span className="btn-replay-meta">defend the gate again</span>
+              </button>
+              <button
+                onClick={() => copyShareText(result, rank, setCopied)}
+                className="btn-ghost"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                }}
+              >
+                {copied ? "✓ COPIED" : "COPY POST"}
+              </button>
+              <button
+                onClick={onHome}
+                className="btn-ghost"
+                style={{
+                  padding: "12px 18px",
+                  minHeight: 44,
+                  fontSize: "clamp(13px, 1.5vw, 15px)",
+                }}
+              >
+                HOME →
+              </button>
+            </div>
+
             <div style={{
               marginTop: 18,
               paddingTop: 18,
@@ -352,73 +446,31 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
           </div>
         )}
 
-        {/* Actions */}
-        <div className="rise-5" style={{
-          display: "flex",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 28,
-        }}>
-          <a
-            href="mailto:matt@texaegis.com?subject=Tex%20%E2%80%94%20Free%20Two-Week%20Integration%20Trial&body=Hi%20Matt%2C%20we%27d%20like%20to%20try%20Tex%20for%20two%20weeks.%0A%0ACompany%3A%20%5B%5D%0AAI%20stack%20%2F%20gateway%3A%20%5B%5D%20(Portkey%2C%20LiteLLM%2C%20MCP%2C%20AgentKit%2C%20custom%2C%20etc.)%0ASurfaces%20we%27d%20put%20Tex%20in%20front%20of%3A%20%5B%5D%20(email%2C%20Slack%2C%20DB%2C%20deploys%2C%20etc.)%0AVolume%2Fday%3A%20%5B%5D"
-            className="btn-cta"
-            aria-label="Start a free two-week Tex integration trial"
-            style={{
-              padding: "14px 26px",
-              minHeight: 48,
-              fontSize: "clamp(15px, 2vw, 18px)",
-              textDecoration: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            FREE 2-WEEK TRIAL →
-          </a>
-          <a
-            href="/#leaderboard"
-            className="btn-leaderboard"
-            aria-label="View today's arcade leaderboard"
-            style={{
-              padding: "14px 26px",
-              minHeight: 48,
-              fontSize: "clamp(15px, 2vw, 18px)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span className="btn-leaderboard-label">LEADERBOARD →</span>
-            <span className="btn-leaderboard-meta">today's top operators</span>
-          </a>
-          <button
-            onClick={onOpenWhatIsTex}
-            className="btn-explainer"
-            aria-label="What is Tex"
-            style={{
-              padding: "14px 26px",
-              minHeight: 48,
-              fontSize: "clamp(15px, 2vw, 18px)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span className="btn-explainer-label">WHAT IS TEX? →</span>
-            <span className="btn-explainer-meta">5 things that make Tex different</span>
-          </button>
-          <button onClick={() => copyShareText(result, rank, setCopied)} className="btn-ghost" style={{
-            padding: "14px 26px",
-            minHeight: 48,
-            fontSize: "clamp(15px, 2vw, 18px)",
+        {/* Fallback action row — only renders for non-arcade modes
+            (daily/training). Arcade has its full button row inside the
+            "Time on the Gate" panel above. */}
+        {mode !== "arcade" && (
+          <div className="rise-5" style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            marginBottom: 28,
           }}>
-            {copied ? "✓ COPIED" : "COPY POST"}
-          </button>
-          <button onClick={onPlayAgain} className="btn-ghost">
-            {mode === "daily" ? "TRAINING MODE →" : "PLAY AGAIN →"}
-          </button>
-          <button onClick={onHome} className="btn-ghost">
-            HOME →
-          </button>
-        </div>
+            <button onClick={() => copyShareText(result, rank, setCopied)} className="btn-ghost" style={{
+              padding: "14px 26px",
+              minHeight: 48,
+              fontSize: "clamp(15px, 2vw, 18px)",
+            }}>
+              {copied ? "✓ COPIED" : "COPY POST"}
+            </button>
+            <button onClick={onPlayAgain} className="btn-ghost">
+              {mode === "daily" ? "TRAINING MODE →" : "PLAY AGAIN →"}
+            </button>
+            <button onClick={onHome} className="btn-ghost">
+              HOME →
+            </button>
+          </div>
+        )}
 
         {/* Per-card detail collapsible */}
         <details className="rise-5" style={{ marginBottom: 28 }}>

@@ -220,10 +220,14 @@ export async function submitArcadeScore({ result, handle, dateKey = todayKey() }
   catch { return { ok: false, error: "bad-response" }; }
 
   // Mirror the result locally so hasPlayedToday/todayResult work.
+  // Best-of-day: only overwrite if this run beats the cached one. The
+  // backend's `your_score` is the authoritative best for the (handle, date)
+  // pair, so we trust it over `body.score` when the backend kept a prior
+  // higher run.
   const subs = readSubmissions();
-  subs[dateKey] = {
+  const incoming = {
     handle: cleanedHandle,
-    total: resp.your_score,
+    total: resp.your_score ?? body.score,
     breaches: body.breaches,
     rating: body.rating,
     survivedMs: body.survived_ms,
@@ -231,7 +235,16 @@ export async function submitArcadeScore({ result, handle, dateKey = todayKey() }
     submittedAt: Date.now(),
     rank: resp.your_rank,
   };
-  writeSubmissions(subs);
+  const existing = subs[dateKey];
+  if (!existing || (incoming.total ?? 0) > (existing.total ?? 0)) {
+    subs[dateKey] = incoming;
+    writeSubmissions(subs);
+  } else {
+    // Keep the existing best, but refresh the rank field since the
+    // board around us may have shifted.
+    subs[dateKey] = { ...existing, rank: resp.your_rank ?? existing.rank };
+    writeSubmissions(subs);
+  }
 
   return {
     ok: true,
@@ -359,11 +372,17 @@ export function getDailyLeaderboard(dateKey = todayKey()) {
 /** Persist the player's daily result locally. Used by ShiftReport before
  *  the backend submit returns, so the leaderboard has an immediate
  *  optimistic entry. The backend submit later overwrites with the
- *  authoritative row. */
+ *  authoritative row.
+ *
+ *  Behavior: BEST-OF-DAY. If a submission for today already exists,
+ *  the new run only replaces it if it has a higher `total`. This way
+ *  replaying the arcade in the same day surfaces your personal best
+ *  (and its rating tier) on the leaderboard, instead of pinning the
+ *  first run's score forever.
+ */
 export function submitDailyScore({ score, handle, dateKey = todayKey() }) {
   const subs = readSubmissions();
-  if (subs[dateKey]) return subs[dateKey];   // first-write-wins locally
-  const entry = {
+  const incoming = {
     handle: handle || "anonymous",
     total: score.total,
     accuracy: score.accuracy,
@@ -372,7 +391,12 @@ export function submitDailyScore({ score, handle, dateKey = todayKey() }) {
     avgResponseMs: score.avgResponseMs,
     submittedAt: Date.now(),
   };
-  subs[dateKey] = entry;
+  const existing = subs[dateKey];
+  if (existing && (existing.total ?? 0) >= (incoming.total ?? 0)) {
+    // Existing local record is at least as good — keep it.
+    return existing;
+  }
+  subs[dateKey] = incoming;
   writeSubmissions(subs);
-  return entry;
+  return incoming;
 }

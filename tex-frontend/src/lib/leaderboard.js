@@ -73,26 +73,19 @@ export function todayResult(dateKey = todayKey()) {
   return readSubmissions()[dateKey] || null;
 }
 
-// ─── Submit token (anti-replay handle on the client side) ────────────
-// The token is generated once per (handle, date) so retrying a flaky
-// network is idempotent on the server.
+// ─── Submit token (anti-replay nonce per submission) ─────────────────
+// The token is generated fresh PER RUN. Its only job is to make a single
+// submit RPC idempotent against network retries (same fetch fired twice
+// on a flaky connection). It is NOT meant to dedupe across runs — a
+// player who plays the game three times today should write three
+// distinct submissions, not have submissions 2 and 3 silently rejected.
+//
+// The legacy per-day cached token under TOKEN_KEY is deliberately
+// ignored on read; we keep TOKEN_KEY only so we can clear stale entries
+// for users coming from older builds.
 
-function readTokens() {
-  if (typeof window === "undefined") return {};
-  try { return JSON.parse(localStorage.getItem(TOKEN_KEY) || "{}"); }
-  catch { return {}; }
-}
-function writeTokens(t) {
-  if (typeof window === "undefined") return;
-  try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch {}
-}
-function getOrCreateToken(dateKey) {
-  const tokens = readTokens();
-  if (tokens[dateKey]) return tokens[dateKey];
-  const t = generateUUIDv4().replace(/-/g, "").slice(0, 32);
-  tokens[dateKey] = t;
-  writeTokens(tokens);
-  return t;
+function freshSubmitToken() {
+  return generateUUIDv4().replace(/-/g, "").slice(0, 32);
 }
 
 // ─── Cache layer ─────────────────────────────────────────────────────
@@ -185,7 +178,7 @@ export async function submitArcadeScore({ result, handle, dateKey = todayKey() }
     return { ok: false, error: "invalid handle" };
   }
 
-  const submitToken = getOrCreateToken(dateKey);
+  const submitToken = freshSubmitToken();
 
   const body = {
     handle: cleanedHandle,
@@ -359,11 +352,15 @@ export function getDailyLeaderboard(dateKey = todayKey()) {
 /** Persist the player's daily result locally. Used by ShiftReport before
  *  the backend submit returns, so the leaderboard has an immediate
  *  optimistic entry. The backend submit later overwrites with the
- *  authoritative row. */
+ *  authoritative row.
+ *
+ *  Better-write-wins: matches backend semantics. If the player already
+ *  played today and posts a higher score, the local mirror updates so
+ *  the seeded+local fallback path doesn't display a stale lower score.
+ */
 export function submitDailyScore({ score, handle, dateKey = todayKey() }) {
   const subs = readSubmissions();
-  if (subs[dateKey]) return subs[dateKey];   // first-write-wins locally
-  const entry = {
+  const incoming = {
     handle: handle || "anonymous",
     total: score.total,
     accuracy: score.accuracy,
@@ -372,7 +369,11 @@ export function submitDailyScore({ score, handle, dateKey = todayKey() }) {
     avgResponseMs: score.avgResponseMs,
     submittedAt: Date.now(),
   };
-  subs[dateKey] = entry;
+  const existing = subs[dateKey];
+  if (existing && (existing.total ?? 0) >= (incoming.total ?? 0)) {
+    return existing;
+  }
+  subs[dateKey] = incoming;
   writeSubmissions(subs);
-  return entry;
+  return incoming;
 }

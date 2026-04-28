@@ -61,6 +61,7 @@ const DAMAGE_BREACH = 25;        // red reached gate
 const DAMAGE_FALSE_POS = 8;      // shot a green
 const DAMAGE_ORANGE_MISS = 10;   // orange hit gate without tex under it
 const DAMAGE_ORANGE_SHOT = 12;   // shot an orange (worse than missing — destroyed evidence)
+const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores integrity (cap MAX)
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
@@ -585,6 +586,7 @@ export default function Arcade({ onComplete, onBail }) {
       lasers: [],         // player projectiles
       particles: [],      // hit particles
       capturedRing: [],   // ABSTAIN icons being absorbed (animation only)
+      healFlashes: [],    // floating "+N" text on capture-while-damaged
       integrity: INTEGRITY_MAX,
       score: 0,
       streak: 0,
@@ -1144,6 +1146,23 @@ export default function Arcade({ onComplete, onBail }) {
         if (g.streak === 3 || g.streak === 5 || g.streak === 8 || g.streak === 12) streakSfx(g.streak);
         abstainSfx();
         g.gateFlash = 0.7; g.gateFlashColor = "#FFD83D";
+
+        // Heal: catching restores integrity (capped at MAX). Show "+N" only if it
+        // actually mattered — i.e. integrity was below max before the catch.
+        const before = g.integrity;
+        if (before < INTEGRITY_MAX) {
+          const after = Math.min(INTEGRITY_MAX, before + HEAL_ABSTAIN_CATCH);
+          const gained = after - before;
+          g.integrity = after;
+          g.healFlashes = g.healFlashes || [];
+          g.healFlashes.push({
+            x: g.tex.x, y: g.tex.y - 60,
+            amount: gained,
+            spawnTime: now,
+            life: 900,
+          });
+        }
+
         g.capturedRing.push({
           id: ++g.iconCounter,
           x: ic.x, y: ic.y,
@@ -1257,6 +1276,30 @@ export default function Arcade({ onComplete, onBail }) {
       ctx.stroke();
     }
     g.capturedRing = g.capturedRing.filter((c) => now - c.spawnTime < c.life);
+
+    // Heal flashes — "+10" floating text rising above Tex on each catch
+    if (g.healFlashes && g.healFlashes.length) {
+      for (const hf of g.healFlashes) {
+        const t = clamp((now - hf.spawnTime) / hf.life, 0, 1);
+        const y = hf.y - t * 70;          // float upward
+        const alpha = t < 0.15
+          ? t / 0.15                       // fade in
+          : t > 0.75
+            ? (1 - t) / 0.25               // fade out
+            : 1;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = "#5FFA9F";
+        ctx.font = "bold 24px ui-monospace, JetBrains Mono, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(95, 250, 159, 0.75)";
+        ctx.shadowBlur = 14;
+        ctx.fillText(`+${hf.amount}`, hf.x, y);
+        ctx.restore();
+      }
+      g.healFlashes = g.healFlashes.filter((hf) => now - hf.spawnTime < hf.life);
+    }
 
     // ── Lasers ────────────────────────────────────────────────────────
     for (const l of g.lasers) {
@@ -1394,7 +1437,7 @@ export default function Arcade({ onComplete, onBail }) {
     const cx = g.tex.x;
     const halfW = ABSTAIN_CAPTURE_TOLERANCE;
     const topY = 0;
-    const botY = g.tex.y + 10; // beam terminates just above Tex's hands
+    const botY = g.tex.y - 30; // beam terminates above Tex's head, not through his body
     const now = performance.now();
 
     // Detect "armed" — any active orange currently inside column
@@ -1409,9 +1452,9 @@ export default function Arcade({ onComplete, onBail }) {
       }
     }
 
-    // Idle pulse 0.55..0.75; armed jumps to 0.95
-    const pulse = 0.55 + 0.10 * Math.sin(now / 380);
-    const intensity = armed ? 0.95 : pulse;
+    // Idle pulse 0.70..0.90; armed jumps to 1.15 (gradient stops will clamp at 1)
+    const pulse = 0.70 + 0.10 * Math.sin(now / 380);
+    const intensity = armed ? 1.15 : pulse;
 
     // 1. Soft outer halo column — wide, low-alpha
     const outerW = halfW * 2.6;
@@ -1472,7 +1515,9 @@ export default function Arcade({ onComplete, onBail }) {
       const r = lerp(36, 14, t);
       // Pulse adds rhythm
       const pulse = 0.85 + 0.15 * Math.sin(now / 180 + ic.id * 0.7);
-      const alpha = (0.35 + 0.55 * t) * pulse;
+      // Alpha ramp 0.55 → 1.10 (clamped at 1) as orange descends. Floored at
+      // 0.55 so newly-spawned oranges still telegraph their landing spot.
+      const alpha = clamp((0.55 + 0.55 * t) * pulse, 0, 1);
       const cx = ic.x;
       const cy = gateLine - 4;
 
@@ -1654,21 +1699,7 @@ export default function Arcade({ onComplete, onBail }) {
         </div>
       </div>
 
-      {/* Verdict legend strip */}
-      <div className="arcade-legend">
-        <div className="arcade-legend-item">
-          <span className="legend-swatch" style={{ background: "#5FFA9F" }} />
-          <span><b>GREEN</b> · let through</span>
-        </div>
-        <div className="arcade-legend-item">
-          <span className="legend-swatch" style={{ background: "#FFD83D" }} />
-          <span><b>ORANGE</b> · stand under to capture</span>
-        </div>
-        <div className="arcade-legend-item">
-          <span className="legend-swatch" style={{ background: "#FF4747" }} />
-          <span><b>RED</b> · shoot it down</span>
-        </div>
-      </div>
+      {/* (Verdict legend removed — covered by briefing screen + in-game beam visuals.) */}
 
       {/* Briefing overlay (first-time players, or replayed via help) */}
       {phase === "briefing" && (

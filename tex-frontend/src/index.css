@@ -1900,45 +1900,122 @@ body::after {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 14px 20px 12px 20px;
-  background: rgba(95, 240, 255, 0.04);
-  border: 1px solid var(--cyan);
+  gap: 3px;
+  padding: 16px 22px 14px 22px;
+  background: rgba(95, 240, 255, 0.10);
+  border: 1.5px solid var(--cyan);
   border-radius: 4px;
   color: var(--cyan);
   text-decoration: none;
   transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(95, 240, 255, 0.12), 0 4px 14px rgba(95, 240, 255, 0.10);
 }
 .btn-audit::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(120deg, transparent 30%, rgba(95,240,255,0.18) 50%, transparent 70%);
+  background: linear-gradient(120deg, transparent 30%, rgba(95,240,255,0.22) 50%, transparent 70%);
   transform: translateX(-100%);
   transition: transform 0.7s ease;
   pointer-events: none;
 }
 .btn-audit:hover {
-  background: rgba(95, 240, 255, 0.10);
+  background: rgba(95, 240, 255, 0.16);
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(95, 240, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(95, 240, 255, 0.22), 0 10px 28px rgba(95, 240, 255, 0.24);
 }
 .btn-audit:hover::after { transform: translateX(100%); }
 .btn-audit:active { transform: translateY(0); }
 .btn-audit-label {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 17px;
   letter-spacing: 0.08em;
   color: var(--cyan);
 }
 .btn-audit-meta {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--ink-dim);
   text-transform: uppercase;
+}
+
+/* Integration row — surfaces the plug-in-not-replacement positioning.
+   Sits directly under the AnatomyStrip so the eye lands here right after
+   it understands what Tex does. The marks are text-only on purpose: no
+   logo licensing concerns, no broken images, and the lo-fi terminal feel
+   matches the rest of the page. */
+.integration-row {
+  margin-bottom: 32px;
+  padding: 22px 22px 20px 22px;
+  background: var(--bg-panel);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.integration-row::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan-soft), transparent);
+}
+.integration-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+  font-family: var(--font-mono);
+}
+.integration-pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: integration-pulse 1.8s ease-in-out infinite;
+}
+@keyframes integration-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.integration-eyebrow {
+  font-size: 11px; letter-spacing: 0.22em;
+  color: var(--cyan); text-transform: uppercase;
+  font-weight: 600;
+}
+.integration-meta {
+  font-size: 10px; letter-spacing: 0.14em;
+  color: var(--ink-dim); text-transform: uppercase;
+  margin-left: auto;
+}
+.integration-marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 12px;
+}
+.integration-mark {
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.integration-sep {
+  color: var(--ink-dim);
+  opacity: 0.55;
+}
+.integration-caption {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+  margin: 0;
+}
+@media (max-width: 720px) {
+  .integration-marks { gap: 4px 8px; }
+  .integration-mark { font-size: 12px; }
+  .integration-meta { display: none; }
 }
 
 /* Hero-side telemetry: pulled inside the text column so a buyer

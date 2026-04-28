@@ -189,23 +189,65 @@ function DemoTicker() {
   );
 }
 
+// ── Integration row — surfaces the plug-in-not-replacement positioning ──
+// This is the buyer-objection killer. Engineering buyers see their existing
+// gateway listed and the integration anxiety drops to zero. Consumed
+// directly under the AnatomyStrip so the eye lands here right after it
+// understands what Tex does.
+function IntegrationRow() {
+  const platforms = [
+    "PORTKEY",
+    "LITELLM",
+    "CLOUDFLARE",
+    "BIFROST",
+    "SOLO.IO",
+    "TRUEFOUNDRY",
+    "BEDROCK",
+    "COPILOT STUDIO",
+    "AGENTKIT",
+    "MCP",
+  ];
+  return (
+    <section className="integration-row" aria-label="Integration paths">
+      <div className="integration-head">
+        <span className="integration-pulse" aria-hidden="true" />
+        <span className="integration-eyebrow">PLUGS INTO YOUR STACK</span>
+        <span className="integration-meta">native adapter · 5 min config</span>
+      </div>
+      <div className="integration-marks">
+        {platforms.map((p, i) => (
+          <span className="integration-mark" key={p}>
+            {p}
+            {i < platforms.length - 1 && (
+              <span className="integration-sep" aria-hidden="true">·</span>
+            )}
+          </span>
+        ))}
+      </div>
+      <p className="integration-caption">
+        Tex doesn't replace your AI infrastructure. It plugs into it.
+      </p>
+    </section>
+  );
+}
+
 // ── Anatomy strip — three columns ──────────────────────────────────────
 function AnatomyStrip() {
   const cards = [
     {
       n: "01",
       h: "WATCHES",
-      b: "Email, Slack, API calls, deploys, DB queries — every outbound move an agent tries to make.",
+      b: "Email, Slack, API calls, deploys, DB queries, MCP tool invocations — surface-agnostic. One engine, every channel your agents touch.",
     },
     {
       n: "02",
       h: "VERDICTS",
-      b: "Permit, Abstain, Forbid — issued in 178ms with the exact policy line that triggered it.",
+      b: "Three-way: PERMIT, ABSTAIN, FORBID. The middle path routes high-stakes actions to human review instead of forcing a binary block-or-allow.",
     },
     {
       n: "03",
       h: "RECEIPTS",
-      b: "Hash-chained, HMAC-signed evidence of every decision. Audit-ready by default.",
+      b: "SHA-256 hash-chained, HMAC-signed, OWASP ASI 2026 findings structured into the response. The audit trail SOC 2, FINRA, and EU AI Act reviewers actually want.",
     },
   ];
   return (
@@ -380,7 +422,7 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
           <div className="hub-hero-text">
             <div className="hub-eyebrow">
               <span className="hub-eyebrow-mark" aria-hidden="true" />
-              <span>FOR TEAMS RUNNING AI SDRS &amp; OUTBOUND AGENTS</span>
+              <span>FOR EVERY AI AGENT WITH A KEYBOARD</span>
             </div>
 
             <h1 className="hub-headline">
@@ -391,10 +433,12 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
             </h1>
 
             <p className="hub-sub">
-              Tex inspects every email, message, query, and deploy your AI
-              agents try to send.
-              <b> PERMIT, ABSTAIN, or FORBID</b> in 178ms — with a
-              hash-chained, signed receipt for every decision.
+              Every email, API call, Slack message, and deploy your AI agents
+              try to send gets one of three verdicts —
+              <b> PERMIT, ABSTAIN, or FORBID</b> — backed by a hash-chained,
+              regulator-grade receipt. Plug Tex into Portkey, LiteLLM,
+              Cloudflare, Copilot Studio, AgentKit, or any MCP client in
+              five minutes.
             </p>
 
             <div className="hub-cta-row">
@@ -448,6 +492,8 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
         </div>
 
         <AnatomyStrip />
+
+        <IntegrationRow />
 
         <Leaderboard
           rows={board.entries || []}

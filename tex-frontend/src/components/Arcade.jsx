@@ -587,6 +587,7 @@ export default function Arcade({ onComplete, onBail }) {
       particles: [],      // hit particles
       capturedRing: [],   // ABSTAIN icons being absorbed (animation only)
       healFlashes: [],    // floating "+N" text on capture-while-damaged
+      catchRings: [],     // expanding ring burst at Tex on each successful catch
       integrity: INTEGRITY_MAX,
       score: 0,
       streak: 0,
@@ -1172,6 +1173,16 @@ export default function Arcade({ onComplete, onBail }) {
           spawnTime: now,
           life: 380,
         });
+
+        // Catch impact ring — one-shot burst at Tex's head telegraphing the catch
+        g.catchRings = g.catchRings || [];
+        g.catchRings.push({
+          x: g.tex.x,
+          y: g.tex.y - 30,
+          spawnTime: now,
+          life: 520,
+        });
+
         recordOutcome(g, ic, "correct-abstain");
       } else {
         // MISSED: orange landed outside Tex. Mishandled review item.
@@ -1248,8 +1259,7 @@ export default function Arcade({ onComplete, onBail }) {
     // ── Background ────────────────────────────────────────────────────
     drawBackground(ctx, g);
 
-    // ── Catch beam + landing reticles (BEHIND falling icons) ─────────
-    drawCatchBeam(ctx, g);
+    // ── Landing reticles for ABSTAIN icons (BEHIND falling icons) ────
     drawCatchReticles(ctx, g);
 
     // ── Falling icons ─────────────────────────────────────────────────
@@ -1276,6 +1286,30 @@ export default function Arcade({ onComplete, onBail }) {
       ctx.stroke();
     }
     g.capturedRing = g.capturedRing.filter((c) => now - c.spawnTime < c.life);
+
+    // Catch impact rings — one-shot expanding rings on every successful catch
+    if (g.catchRings && g.catchRings.length) {
+      for (const cr of g.catchRings) {
+        const t = clamp((now - cr.spawnTime) / cr.life, 0, 1);
+        // Two concentric rings, slightly offset in time, give a "shock" feel
+        for (let i = 0; i < 2; i++) {
+          const t2 = clamp(t - i * 0.18, 0, 1);
+          if (t2 <= 0) continue;
+          const r = lerp(8, 90, t2);
+          const alpha = (1 - t2) * (i === 0 ? 0.85 : 0.50);
+          ctx.save();
+          ctx.strokeStyle = `rgba(255, 216, 61, ${alpha})`;
+          ctx.lineWidth = (i === 0 ? 3 : 2) * (1 - t2 * 0.6);
+          ctx.shadowColor = "rgba(255, 216, 61, 0.6)";
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          ctx.arc(cr.x, cr.y, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+      g.catchRings = g.catchRings.filter((cr) => now - cr.spawnTime < cr.life);
+    }
 
     // Heal flashes — "+10" floating text rising above Tex on each catch
     if (g.healFlashes && g.healFlashes.length) {
@@ -1430,76 +1464,9 @@ export default function Arcade({ onComplete, onBail }) {
     ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
   }
 
-  // ── Catch beam — vertical column projecting from Tex upward ────────────
-  // Tells the player WHERE the ABSTAIN catch zone is. Pulses softly at rest;
-  // intensifies when an active orange icon is inside the column.
-  function drawCatchBeam(ctx, g) {
-    const cx = g.tex.x;
-    const halfW = ABSTAIN_CAPTURE_TOLERANCE;
-    const topY = 0;
-    const botY = g.tex.y - 30; // beam terminates above Tex's head, not through his body
-    const now = performance.now();
-
-    // Detect "armed" — any active orange currently inside column
-    let armed = false;
-    let nearestT = Infinity; // 0 = at top, 1 = at Tex height
-    for (const ic of g.icons) {
-      if (ic.state !== "active" || ic.verdict !== "ABSTAIN") continue;
-      if (Math.abs(ic.x - cx) <= halfW * 1.4) {
-        armed = true;
-        const t = clamp((ic.y - topY) / (botY - topY), 0, 1);
-        if (t < nearestT) nearestT = t;
-      }
-    }
-
-    // Idle pulse 0.70..0.90; armed jumps to 1.15 (gradient stops will clamp at 1)
-    const pulse = 0.70 + 0.10 * Math.sin(now / 380);
-    const intensity = armed ? 1.15 : pulse;
-
-    // 1. Soft outer halo column — wide, low-alpha
-    const outerW = halfW * 2.6;
-    const outerGrad = ctx.createLinearGradient(cx - outerW, 0, cx + outerW, 0);
-    outerGrad.addColorStop(0,    "rgba(255, 216, 61, 0)");
-    outerGrad.addColorStop(0.45, `rgba(255, 216, 61, ${0.06 * intensity})`);
-    outerGrad.addColorStop(0.55, `rgba(255, 216, 61, ${0.06 * intensity})`);
-    outerGrad.addColorStop(1,    "rgba(255, 216, 61, 0)");
-    ctx.fillStyle = outerGrad;
-    ctx.fillRect(cx - outerW, topY, outerW * 2, botY - topY);
-
-    // 2. Inner core column — narrower, brighter
-    const coreGrad = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
-    coreGrad.addColorStop(0,    "rgba(255, 216, 61, 0)");
-    coreGrad.addColorStop(0.5,  `rgba(255, 216, 61, ${0.20 * intensity})`);
-    coreGrad.addColorStop(1,    "rgba(255, 216, 61, 0)");
-    ctx.fillStyle = coreGrad;
-    ctx.fillRect(cx - halfW, topY, halfW * 2, botY - topY);
-
-    // 3. Vertical edge rails — dashed, animated downward to suggest "pull"
-    const dashLen = 14, gap = 10;
-    const period = dashLen + gap;
-    const flow = (now / 60) % period; // px scrolled per frame baseline
-    ctx.strokeStyle = `rgba(255, 216, 61, ${0.55 * intensity})`;
-    ctx.lineWidth = 1.5;
-    for (const xEdge of [cx - halfW, cx + halfW]) {
-      ctx.beginPath();
-      for (let y = topY - period + flow; y < botY; y += period) {
-        ctx.moveTo(xEdge, y);
-        ctx.lineTo(xEdge, Math.min(y + dashLen, botY));
-      }
-      ctx.stroke();
-    }
-
-    // 4. When armed and the orange is near the bottom, ring-burst at Tex top
-    if (armed && nearestT > 0.7) {
-      const t = (nearestT - 0.7) / 0.3; // 0..1 as orange approaches
-      const ringR = halfW * (1.0 + t * 0.4);
-      ctx.strokeStyle = `rgba(255, 216, 61, ${0.7 * t})`;
-      ctx.lineWidth = 2 + t * 1.5;
-      ctx.beginPath();
-      ctx.arc(cx, botY - 8, ringR, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
+  // (drawCatchBeam removed — beam was visually noisy. Catch impact ring is
+  // now a one-shot animation on successful capture, see catchRings + render
+  // block in renderFrame.)
 
   // ── Landing reticle — ground marker showing where each orange will land ─
   // Small pulsing target on the gate floor directly under each active orange.

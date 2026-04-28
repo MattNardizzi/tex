@@ -452,12 +452,12 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
               </button>
               <a
                 className="btn-audit"
-                href="mailto:matt@texaegis.com?subject=AI%20Outbound%20Audit%20%E2%80%94%2020%20Free%20Emails&body=Hi%20Matt%2C%20I%27d%20like%20a%20free%20Tex%20audit%20on%2020%20of%20our%20outbound%20AI%20emails.%20Our%20company%3A%20%5B%5D.%20Outbound%20stack%3A%20%5B%5D."
+                href="mailto:matt@texaegis.com?subject=Tex%20%E2%80%94%20Free%20Two-Week%20Integration%20Trial&body=Hi%20Matt%2C%20we%27d%20like%20to%20try%20Tex%20for%20two%20weeks.%0A%0ACompany%3A%20%5B%5D%0AAI%20stack%20%2F%20gateway%3A%20%5B%5D%20(Portkey%2C%20LiteLLM%2C%20MCP%2C%20AgentKit%2C%20custom%2C%20etc.)%0ASurfaces%20we%27d%20put%20Tex%20in%20front%20of%3A%20%5B%5D%20(email%2C%20Slack%2C%20DB%2C%20deploys%2C%20etc.)%0AVolume%2Fday%3A%20%5B%5D"
                 onClick={handleAudit}
-                aria-label="Request a free 20-email AI outbound audit"
+                aria-label="Start a free two-week Tex integration trial"
               >
-                <span className="btn-audit-label">FREE AI OUTBOUND AUDIT →</span>
-                <span className="btn-audit-meta">we evaluate 20 of your real outbound emails</span>
+                <span className="btn-audit-label">FREE 2-WEEK TRIAL →</span>
+                <span className="btn-audit-meta">wire Tex into your stack · free for 14 days</span>
               </a>
               <button
                 className="btn-tertiary"

@@ -146,10 +146,12 @@ export function scoreShift(decisions) {
     ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
     : 0;
 
+  // Rating tiers — pure score-based. No accuracy/breach gates.
+  // Score is the single signal: longer survival + correct calls + override-catches all push it up.
   let rating = "ROOKIE";
-  if (accuracy >= 0.7) rating = "OPERATOR";
-  if (accuracy >= 0.85 && counts.breaches <= 1) rating = "ANALYST";
-  if (accuracy >= 0.95 && counts.breaches === 0) rating = "WARDEN";
+  if (total >= 500)  rating = "OPERATOR";
+  if (total >= 1500) rating = "ANALYST";
+  if (total >= 3000) rating = "WARDEN";
 
   const breaches = perCard.filter((x) => x.isBreach);
   const overrideCatches = perCard.filter((x) => x.isOverrideCatch);

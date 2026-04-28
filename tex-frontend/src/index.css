@@ -3606,8 +3606,14 @@ body::after {
   color: var(--ink);
   pointer-events: none; /* never blocks clicks into the canvas */
 }
-.arcade-rail-left  { left: max(20px, calc(50vw - 540px)); }
-.arcade-rail-right { right: max(20px, calc(50vw - 540px)); }
+/* Rails sit OUTSIDE the canvas, regardless of viewport shape.
+   The canvas is letterboxed/pillarboxed at aspect 540:900 (= 0.6).
+   Its displayed half-width is min(50vw, 50vh * 0.6) plus a small gap.
+   Anchoring rails to that value guarantees they never overlap the
+   canvas — even on wide IBM/Dell desktops where pillarboxing makes
+   the canvas narrower than 540px CSS pixels. */
+.arcade-rail-left  { right: calc(50vw + min(50vw, 30vh) + 20px); left: auto; }
+.arcade-rail-right { left:  calc(50vw + min(50vw, 30vh) + 20px); right: auto; }
 
 @media (max-width: 1180px) {
   .arcade-rail { display: none; }

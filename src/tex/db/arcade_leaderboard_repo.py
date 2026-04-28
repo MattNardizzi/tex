@@ -89,7 +89,21 @@ CREATE TABLE IF NOT EXISTS arcade_leaderboard_used_tokens (
 
 
 async def get_pool() -> asyncpg.Pool:
-    """Return (and lazily create) the shared connection pool."""
+    """Return (and lazily create) the shared connection pool.
+
+    Pool sizing notes:
+      - max_size was 5, which throttled the API to 5 concurrent DB
+        operations across BOTH the GET (top-50 + total + own + rank,
+        up to 4 sequential acquires per request) and POST submit paths.
+        Under any meaningful concurrency that pool saturates fast and
+        requests start queuing behind each other.
+      - 20 is comfortably below Render's basic-tier Postgres connection
+        ceiling (~97), and lets ~5 simultaneous GET-leaderboard requests
+        complete in parallel without queuing.
+      - Both bounds can be overridden via env vars without a deploy if
+        load patterns change. TEX_DB_POOL_MIN warms more idle conns at
+        startup; TEX_DB_POOL_MAX caps the burst headroom.
+    """
     global _pool
     if _pool is None:
         url = os.environ.get(DATABASE_URL_ENV)
@@ -98,10 +112,12 @@ async def get_pool() -> asyncpg.Pool:
                 f"Environment variable {DATABASE_URL_ENV} is not set. "
                 "Arcade leaderboard endpoints cannot run without it."
             )
+        min_size = int(os.environ.get("TEX_DB_POOL_MIN", "2"))
+        max_size = int(os.environ.get("TEX_DB_POOL_MAX", "20"))
         _pool = await asyncpg.create_pool(
             dsn=url,
-            min_size=1,
-            max_size=5,
+            min_size=min_size,
+            max_size=max_size,
             command_timeout=10,
         )
     return _pool

@@ -32,9 +32,10 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from tex.api.rate_limit import IPRateLimiter, enforce
 from tex.db import arcade_leaderboard_repo as repo
 
 
@@ -49,6 +50,19 @@ _MAX_SCORE = 50_000                         # 50,000 RP — far beyond any real 
 _SCORE_PER_SEC_CEILING = 50                 # max believable score per second of survival
 _MAX_BREACHES = 200
 _MAX_PEAK_SPEED = 10.0                       # game caps speedMult at 3.4; 10 is generous
+
+# Rate limits (per-IP, fixed window). The submit endpoint is the
+# expensive path (transactional upsert + 2 follow-up queries for rank
+# and total), so it gets the tighter cap. The GET endpoint is cheaper
+# and used by every page render, so it gets a looser cap.
+#
+# 30/min on submits = one run every 2 seconds sustained, which exceeds
+# any realistic human play rate (a single arcade run is ~30s+ at
+# minimum) while still catching scripted spam. 120/min on GET = two
+# per second, comfortable for normal browsing including hub auto-
+# refresh.
+_SUBMIT_LIMITER = IPRateLimiter(max_per_window=30, window_seconds=60)
+_READ_LIMITER = IPRateLimiter(max_per_window=120, window_seconds=60)
 
 router = APIRouter(prefix="/arcade/leaderboard", tags=["arcade-leaderboard"])
 
@@ -139,9 +153,11 @@ def _validate_payload(p: ArcadeSubmitRequest) -> Optional[str]:
 @router.get("", response_model=ArcadeLeaderboardResponse)
 @router.get("/", response_model=ArcadeLeaderboardResponse)
 async def get_leaderboard(
+    request: Request,
     date: str | None = Query(default=None, description="YYYY-MM-DD UTC; defaults to today"),
     handle: str | None = Query(default=None, description="Optional caller handle for own-rank lookup"),
 ) -> ArcadeLeaderboardResponse:
+    enforce(_READ_LIMITER, request)
     date_key = date or _today_utc()
     if not _DATE_RE.match(date_key):
         raise HTTPException(
@@ -201,7 +217,11 @@ async def get_leaderboard(
 # POST /arcade/leaderboard/submit
 # ────────────────────────────────────────────────────────────────────
 @router.post("/submit", response_model=ArcadeSubmitResponse)
-async def submit_arcade_score(payload: ArcadeSubmitRequest) -> ArcadeSubmitResponse:
+async def submit_arcade_score(
+    payload: ArcadeSubmitRequest,
+    request: Request,
+) -> ArcadeSubmitResponse:
+    enforce(_SUBMIT_LIMITER, request)
     err = _validate_payload(payload)
     if err is not None:
         raise HTTPException(

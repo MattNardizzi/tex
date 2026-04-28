@@ -55,7 +55,15 @@ CREATE TABLE IF NOT EXISTS leaderboard_used_decisions (
 
 
 async def get_pool() -> asyncpg.Pool:
-    """Return (and lazily create) the shared connection pool."""
+    """Return (and lazily create) the shared connection pool.
+
+    Pool sizing matches the arcade leaderboard pool (see
+    arcade_leaderboard_repo.py for the rationale). Two pools at
+    max_size=20 each = 40 client conns out of Render Starter's
+    100-conn ceiling, with comfortable headroom.
+
+    Bounds are env-var overridable so we can tune without a deploy.
+    """
     global _pool
     if _pool is None:
         url = os.environ.get(DATABASE_URL_ENV)
@@ -65,10 +73,12 @@ async def get_pool() -> asyncpg.Pool:
                 "Leaderboard endpoints cannot run without it."
             )
         # Render's internal URL uses 'postgresql://' which asyncpg accepts.
+        min_size = int(os.environ.get("TEX_DB_POOL_MIN", "2"))
+        max_size = int(os.environ.get("TEX_DB_POOL_MAX", "20"))
         _pool = await asyncpg.create_pool(
             dsn=url,
-            min_size=1,
-            max_size=5,
+            min_size=min_size,
+            max_size=max_size,
             command_timeout=10,
         )
     return _pool

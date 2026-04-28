@@ -110,6 +110,37 @@ function randPick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function rand(min, max) { return min + Math.random() * (max - min); }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
+
+// 12-char hex slice of a synthetic SHA-ish hash. Good enough for visual
+// receipt IDs; not cryptographic. Format: 0xAAAA·BBBB·CCCC.
+function fakeHash(seed) {
+  let h = 2166136261 ^ Math.floor(performance.now() * 1000);
+  const s = String(seed) + ":" + Math.random();
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hex = (h >>> 0).toString(16).padStart(8, "0");
+  // pad to 12 chars by mixing again
+  let h2 = Math.imul(h ^ 0x9e3779b1, 16777619) >>> 0;
+  const hex2 = h2.toString(16).padStart(8, "0");
+  const full = (hex + hex2).slice(0, 12);
+  return `0x${full.slice(0,4)}·${full.slice(4,8)}·${full.slice(8,12)}`;
+}
+
+// Plain-English receipt summaries per surface. Used by the right rail.
+const SURFACE_SUMMARIES = {
+  email:     ["outbound prospect email", "follow-up sequence", "renewal notice", "support reply"],
+  slack:     ["#general announcement", "DM to leadership", "channel reply", "status update"],
+  sms:       ["sms to opted-in lead", "appointment reminder", "broadcast text"],
+  crm:       ["salesforce contact write", "hubspot deal update", "lead enrichment"],
+  db_api:    ["DELETE /users/*", "UPDATE accounts SET", "SELECT pii bulk export", "DROP table"],
+  code_pr:   ["deploy to prod", "merge to main", "schema migration", "config push"],
+  calendar:  ["meeting invite", "external calendar share", "interview block"],
+  files:     ["doc export", "share link create", "drive permission"],
+  financial: ["wire transfer $48k", "refund issued", "ACH initiated", "payout to vendor"],
+};
+
 function speedMultiplierAt(elapsedSec) {
   const t = elapsedSec / SPEED_HALFLIFE_S;
   return 1 + (SPEED_CAP - 1) * (1 - Math.pow(0.5, t));
@@ -576,6 +607,14 @@ export default function Arcade({ onComplete, onBail }) {
     breaches: 0,
   });
 
+  // Side-rail state — live verdict feed + signed receipts.
+  // Updated event-driven (not at HUD tick rate) so it stays responsive.
+  const [rails, setRails] = useState({
+    feed: [],     // [{ id, verdict, surface, outcome, t (game seconds), hash }]
+    receipts: [], // [{ id, verdict, surface, t, hash, summary }]
+    counts: { permit: 0, abstain: 0, forbid: 0, total: 0 },
+  });
+
   const [overSummary, setOverSummary] = useState(null);
 
   // ── Input refs (so we don't rebind on every render) ───────────────────
@@ -610,6 +649,12 @@ export default function Arcade({ onComplete, onBail }) {
       gateFlash: 0,       // 0..1, fades each frame
       gateFlashColor: null,
     };
+    // Reset side rails alongside the game state.
+    setRails({
+      feed: [],
+      receipts: [],
+      counts: { permit: 0, abstain: 0, forbid: 0, total: 0 },
+    });
   }, []);
 
   // ── Ready countdown (3-2-1-GO) ────────────────────────────────────────
@@ -1073,6 +1118,40 @@ export default function Arcade({ onComplete, onBail }) {
       _surface: ic.surface,
       _verdict: ic.verdict,
       _severity: ic.severity,
+    });
+
+    // Rail update — last 6 feed events, last 4 receipts. Hash + summary.
+    const tSec = ((performance.now() - g.startTime) / 1000);
+    const summaries = SURFACE_SUMMARIES[ic.surface] || [ic.surface];
+    const summary = summaries[ic.id % summaries.length];
+    const hash = fakeHash(ic.id);
+    setRails((r) => {
+      const feedItem = {
+        id: ic.id,
+        verdict: ic.verdict,
+        surface: ic.surface,
+        outcome: outcomeKind,
+        t: tSec,
+        hash,
+      };
+      const receiptItem = {
+        id: ic.id,
+        verdict: ic.verdict,
+        surface: ic.surface,
+        t: tSec,
+        hash,
+        summary,
+      };
+      const counts = { ...r.counts };
+      counts.total += 1;
+      if (ic.verdict === "PERMIT")  counts.permit  += 1;
+      if (ic.verdict === "ABSTAIN") counts.abstain += 1;
+      if (ic.verdict === "FORBID")  counts.forbid  += 1;
+      return {
+        feed:     [feedItem,    ...r.feed].slice(0, 8),
+        receipts: [receiptItem, ...r.receipts].slice(0, 5),
+        counts,
+      };
     });
   }
 
@@ -1631,6 +1710,62 @@ export default function Arcade({ onComplete, onBail }) {
         className="arcade-tex-img"
         draggable={false}
       />
+
+      {/* LEFT RAIL — live verdict feed (desktop only) */}
+      <aside className="arcade-rail arcade-rail-left" aria-hidden="true">
+        <div className="rail-head">
+          <span className="rail-pulse" />
+          <span className="rail-title">LIVE VERDICT FEED</span>
+        </div>
+        <div className="rail-sub">this run · last {Math.min(8, rails.feed.length)}</div>
+        <div className="rail-feed">
+          {rails.feed.length === 0 && (
+            <div className="rail-empty">awaiting first decision…</div>
+          )}
+          {rails.feed.map((f) => (
+            <div className={`rail-feed-row v-${f.verdict.toLowerCase()}`} key={f.id}>
+              <span className="rail-feed-verdict">{f.verdict}</span>
+              <span className="rail-feed-surface">{f.surface}</span>
+              <span className="rail-feed-t">+{f.t.toFixed(1)}s</span>
+            </div>
+          ))}
+        </div>
+        <div className="rail-foot">
+          {rails.counts.total} evaluated ·{" "}
+          <span className="c-forbid">{rails.counts.forbid} forbid</span> ·{" "}
+          <span className="c-abstain">{rails.counts.abstain} abstain</span>
+        </div>
+      </aside>
+
+      {/* RIGHT RAIL — signed evidence receipts (desktop only) */}
+      <aside className="arcade-rail arcade-rail-right" aria-hidden="true">
+        <div className="rail-head">
+          <span className="rail-pulse" />
+          <span className="rail-title">EVIDENCE RECEIPTS</span>
+        </div>
+        <div className="rail-sub">SHA-256 · HMAC signed</div>
+        <div className="rail-receipts">
+          {rails.receipts.length === 0 && (
+            <div className="rail-empty">no receipts yet</div>
+          )}
+          {rails.receipts.map((r) => (
+            <div className={`rail-receipt v-${r.verdict.toLowerCase()}`} key={r.id}>
+              <div className="rail-receipt-top">
+                <span className={`rail-receipt-verdict v-${r.verdict.toLowerCase()}`}>{r.verdict}</span>
+                <span className="rail-receipt-t">+{r.t.toFixed(1)}s</span>
+              </div>
+              <div className="rail-receipt-body">
+                <span className="rail-receipt-surface">{r.surface}</span>
+                <span className="rail-receipt-summary">· {r.summary}</span>
+              </div>
+              <div className="rail-receipt-hash">{r.hash}</div>
+            </div>
+          ))}
+        </div>
+        <div className="rail-foot">
+          chain length: {rails.counts.total} · audit-ready
+        </div>
+      </aside>
 
       {/* HUD */}
       <div className="arcade-hud arcade-hud-top">

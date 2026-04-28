@@ -49,13 +49,15 @@ export default function WhatIsTex({ onBack, onPlayDaily }) {
           <div className="kicker" style={{ color: "var(--cyan)", marginBottom: 18 }}>▸ TEX // AEGIS</div>
           <h1 style={{
             fontFamily: "var(--font-display)",
-            fontSize: "clamp(56px, 11vw, 144px)",
-            lineHeight: 0.85,
+            fontSize: "clamp(36px, min(6.2vw, 10vh), 80px)",
+            lineHeight: 0.92,
             letterSpacing: "-0.005em",
             textTransform: "uppercase",
             margin: 0,
+            maxWidth: "100%",
+            overflowWrap: "break-word",
           }}>
-            THE&nbsp;GATE&nbsp;BETWEEN<br />
+            THE GATE BETWEEN<br />
             <span style={{
               background: "linear-gradient(90deg, var(--pink) 0%, var(--yellow) 50%, var(--cyan) 100%)",
               backgroundSize: "200% 100%",
@@ -65,7 +67,7 @@ export default function WhatIsTex({ onBack, onPlayDaily }) {
               animation: "holo-shift 6s ease-in-out infinite",
               filter: "drop-shadow(0 0 20px rgba(255, 61, 122, 0.25))",
             }}>
-              AI&nbsp;AND&nbsp;THE&nbsp;REAL&nbsp;WORLD.
+              AI AND THE REAL WORLD.
             </span>
           </h1>
           <p style={{

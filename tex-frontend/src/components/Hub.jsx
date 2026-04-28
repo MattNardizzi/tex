@@ -124,8 +124,8 @@ function AmbientParticles({ count = 32 }) {
   );
 }
 
-// ── Top status bar — build label / ops / breach / clock ───────────────
-function StatusBar({ now, breachCount }) {
+// ── Top status bar — live signal / eval p50 / clock ───────────────
+function StatusBar({ now }) {
   const time = now.toISOString().slice(11, 19) + " UTC";
   return (
     <div className="hub-status">
@@ -133,14 +133,14 @@ function StatusBar({ now, breachCount }) {
         <span className="status-dot" aria-hidden="true" />
         <b>VORTEXBLACK</b>
         <span className="hub-status-sep" aria-hidden="true">·</span>
-        <span>TEX AEGIS / ARENA</span>
+        <span>TEX AEGIS</span>
         <span className="hub-status-sep" aria-hidden="true">·</span>
-        <span>BUILD 0.14.2</span>
+        <span className="green">GATE LIVE</span>
       </div>
       <div className="hub-status-right">
-        <span>OPERATORS ONLINE <b>{1247 + (now.getSeconds() % 12)}</b></span>
+        <span>EVAL <b>p50 178MS</b></span>
         <span className="hub-status-sep" aria-hidden="true">·</span>
-        <span>BREACH WATCH <b className="red">{breachCount}</b></span>
+        <span>RECEIPTS <b>SHA-256</b></span>
         <span className="hub-status-sep" aria-hidden="true">·</span>
         <span className="hub-clock">{time}</span>
       </div>
@@ -345,14 +345,9 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
     setHandle(getHandle() || "");
   }, []);
 
-  const breachCount = useMemo(() => {
-    // deterministic but date-stable, avoids flicker
-    const d = new Date(dateKey + "T00:00:00Z");
-    return 41 + ((d.getUTCDate() * 7 + d.getUTCMonth() * 13) % 19);
-  }, [dateKey]);
-
   const handleArcade = () => { clickSfx(); onPlayArcade?.(); };
   const handleWhat = () => { clickSfx(); onOpenWhatIsTex?.(); };
+  const handleAudit = () => { clickSfx(); /* link follows naturally */ };
 
   return (
     <div className="hub-stage">
@@ -361,14 +356,14 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
       <AmbientParticles count={32} />
       <div className="hub-scanlines" aria-hidden="true" />
 
-      <StatusBar now={now} breachCount={breachCount} />
+      <StatusBar now={now} />
 
       <div className="hub-frame">
         <div className="hub-hero">
           <div className="hub-hero-text">
             <div className="hub-eyebrow">
               <span className="hub-eyebrow-mark" aria-hidden="true" />
-              <span>VORTEXBLACK / TEX AEGIS · LIVE GATE</span>
+              <span>FOR TEAMS RUNNING AI SDRS &amp; OUTBOUND AGENTS</span>
             </div>
 
             <h1 className="hub-headline">
@@ -379,13 +374,10 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
             </h1>
 
             <p className="hub-sub">
-              Action icons fall from above — every email, message, query, and
-              deploy your agents try to send. Tex evaluates each one in
-              <b> 178ms</b> and you decide what gets through.
-              <br />
-              <span className="hub-sub-strong">
-                Defend the gate. Survive the wave.
-              </span>
+              Tex inspects every email, message, query, and deploy your AI
+              agents try to send.
+              <b> PERMIT, ABSTAIN, or FORBID</b> in 178ms — with a
+              hash-chained, signed receipt for every decision.
             </p>
 
             <div className="hub-cta-row">
@@ -395,8 +387,17 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
                 aria-label="Enter Tex Arcade — gate defense"
               >
                 <span className="btn-cta-label">▶ ENTER ARCADE</span>
-                <span className="btn-cta-meta">gate defense · survive the wave</span>
+                <span className="btn-cta-meta">play the live gate · 60s</span>
               </button>
+              <a
+                className="btn-audit"
+                href="mailto:matt@texaegis.com?subject=AI%20Outbound%20Audit%20%E2%80%94%2020%20Free%20Emails&body=Hi%20Matt%2C%20I%27d%20like%20a%20free%20Tex%20audit%20on%2020%20of%20our%20outbound%20AI%20emails.%20Our%20company%3A%20%5B%5D.%20Outbound%20stack%3A%20%5B%5D."
+                onClick={handleAudit}
+                aria-label="Request a free 20-email AI outbound audit"
+              >
+                <span className="btn-audit-label">FREE AI OUTBOUND AUDIT →</span>
+                <span className="btn-audit-meta">we evaluate 20 of your real outbound emails</span>
+              </a>
               <button
                 className="btn-tertiary"
                 onClick={handleWhat}
@@ -404,6 +405,14 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
               >
                 WHAT IS TEX? →
               </button>
+            </div>
+
+            <div className="hub-hero-telemetry">
+              <span>EVAL <b>p50 178MS</b></span>
+              <span className="hub-status-sep" aria-hidden="true">·</span>
+              <span>RECEIPTS <b>SHA-256 + HMAC</b></span>
+              <span className="hub-status-sep" aria-hidden="true">·</span>
+              <span>SURFACES <b>EMAIL · API · SLACK · DB · DEPLOY</b></span>
             </div>
 
             <DemoTicker />
@@ -419,15 +428,6 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
               <div className="caption-attr">— TEX</div>
             </div>
           </aside>
-        </div>
-
-        <div className="telemetry-row">
-          <span>EVAL <b>178</b>MS p50</span>
-          <span>BLOCKS <b className="red">{(breachCount * 1.7).toFixed(0)}</b>/HR</span>
-          <span>PERMIT RATE <b className="green">94.2%</b></span>
-          <span>POLICY HASH <b>0xa4f1·c082</b></span>
-          <span>RECEIPTS <b>SHA-256 + HMAC</b></span>
-          <span>UPTIME <b className="green">99.99%</b></span>
         </div>
 
         <AnatomyStrip />

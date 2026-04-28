@@ -88,13 +88,13 @@ export function submitDailyScore({ score, handle, dateKey = todayKey() }) {
 
 const SEED_HANDLES = [
   "warden_one", "kira_ops", "byteguard", "redteam_42", "ops_anika",
-  "0xfaye", "miss_rev", "j_park_sec", "sdr_killer", "rev_ops_47",
-  "compl_iance", "atlas_06", "noctis", "shipit_emma", "owasp_dad",
-  "sigma_dz", "ledger_pi", "halt_catch", "deep_v", "the_clerk",
-  "polic_y", "lattice", "nine_nines", "soc2_amy", "sentinel_x",
-  "g0vern", "pre_release", "audit_trail", "permit_eli", "sigma_oz",
-  "wraith_io", "telos_q", "vault_03", "abstain_sam", "hashbrown",
-  "mona_red", "ciso_ish", "sla_breaker", "pii_negative",
+  "0xfaye", "m_rivers", "j_park_sec", "rev_ops_47", "compl_iance",
+  "atlas_06", "noctis", "n_shah", "owasp_dad", "sigma_dz",
+  "ledger_pi", "halt_catch", "deep_v", "the_clerk", "polic_y",
+  "lattice", "nine_nines", "soc2_amy", "sentinel_x", "g0vern",
+  "pre_release", "audit_trail", "operator_03", "sigma_oz", "wraith_io",
+  "telos_q", "vault_03", "k_rao", "hashbrown", "mona_red",
+  "ciso_ish", "sla_44", "pii_negative",
 ];
 
 function mulberry32(a) {

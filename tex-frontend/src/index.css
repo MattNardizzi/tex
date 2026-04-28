@@ -389,8 +389,10 @@ body::after {
 
 .hub-headline {
   font-family: var(--font-display);
-  font-size: clamp(72px, 14vw, 200px);
-  line-height: 0.82;
+  /* Sized by the SHORTER of width and height so a 4-line headline
+     never overflows the viewport on a MacBook Air-style 1440x900. */
+  font-size: clamp(40px, min(7.4vw, 11vh), 112px);
+  line-height: 0.86;
   letter-spacing: -0.005em;
   text-transform: uppercase;
   margin: 0;
@@ -1738,8 +1740,23 @@ body::after {
 .hub-hero-text { min-width: 0; }
 .hub-hero-aside { min-width: 0; }
 @media (max-width: 1080px) {
+  /* Single-column stack with TEXT FIRST so the CTA lives above the
+     fold on phones. Tex avatar drops below the CTA and gets capped
+     so it doesn't dominate the first screen. */
   .hub-hero { grid-template-columns: 1fr; }
-  .hub-hero-aside { order: -1; max-width: 480px; margin-inline: auto; }
+  .hub-hero-aside {
+    order: 2;
+    max-width: 360px;
+    margin-inline: auto;
+    margin-top: 8px;
+  }
+  .hub-hero-text { order: 1; }
+}
+@media (max-width: 760px) {
+  .hub-hero { padding-top: 18px; padding-bottom: 18px; gap: 18px; }
+  .hub-hero-aside { max-width: 280px; }
+  /* Demo ticker hidden on phones to keep the CTA above the fold. */
+  .hub-hero-text .demo-ticker { display: none; }
 }
 
 .hub-eyebrow {
@@ -1833,6 +1850,80 @@ body::after {
   transition: color 0.2s, border-color 0.2s;
 }
 .btn-tertiary:hover { color: var(--cyan); border-color: var(--rule-cyan); }
+
+/* Audit CTA — buyer path next to the arcade button */
+.btn-audit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 20px 12px 20px;
+  background: rgba(95, 240, 255, 0.04);
+  border: 1px solid var(--cyan);
+  border-radius: 4px;
+  color: var(--cyan);
+  text-decoration: none;
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.btn-audit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 30%, rgba(95,240,255,0.18) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+.btn-audit:hover {
+  background: rgba(95, 240, 255, 0.10);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(95, 240, 255, 0.18);
+}
+.btn-audit:hover::after { transform: translateX(100%); }
+.btn-audit:active { transform: translateY(0); }
+.btn-audit-label {
+  font-family: var(--font-display);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+}
+.btn-audit-meta {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+
+/* Hero-side telemetry: pulled inside the text column so a buyer
+   sees concrete proof above the fold without scrolling past the CTA. */
+.hub-hero-telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-2);
+  border-left: 2px solid var(--cyan);
+  border-radius: 2px;
+  background: rgba(8, 11, 23, 0.5);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-mid);
+}
+.hub-hero-telemetry b {
+  color: var(--cyan);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+@media (max-width: 760px) {
+  .hub-hero-telemetry { font-size: 9px; gap: 8px; padding: 6px 10px; }
+}
 
 /* Next shift */
 .next-shift {
@@ -2495,32 +2586,34 @@ body::after {
    it so the entire hero (eyebrow + headline + sub + CTAs + ticker)
    lives in 100vh on standard desktops.
 */
+/* Hub headline scaling is handled in the base .hub-headline rule.
+   The override block below is intentionally a no-op; it used to set
+   a smaller font-size cap that fought with the viewport-aware base. */
 .hub-headline {
-  font-size: clamp(56px, 9vw, 132px);
-  line-height: 0.86;
-  letter-spacing: -0.01em;
+  /* keep only spacing tweaks here, not size */
 }
 @media (max-width: 1080px) {
   .hub-headline {
-    font-size: clamp(52px, 12vw, 104px);
+    font-size: clamp(38px, min(8.8vw, 11vh), 92px);
     line-height: 0.88;
   }
 }
 @media (max-width: 760px) {
   .hub-headline {
-    font-size: clamp(44px, 13vw, 84px);
+    font-size: clamp(34px, 9vw, 60px);
+    line-height: 0.92;
   }
 }
 
 /* Tighten hero spacing so the whole composition breathes inside 100vh */
 .hub-hero {
-  padding-top: clamp(20px, 3vw, 40px);
-  padding-bottom: 24px;
+  padding-top: clamp(12px, 2vw, 24px);
+  padding-bottom: 16px;
   gap: clamp(20px, 3vw, 40px);
   align-items: center;          /* visually centers Tex against headline */
 }
-.hub-sub { margin-top: 18px; }
-.hub-cta-row { margin-top: 22px; }
+.hub-sub { margin-top: 14px; margin-bottom: 16px; }
+.hub-cta-row { margin-top: 14px; margin-bottom: 14px; }
 
 /* ── Frameless Tex on Hub ──────────────────────────────────────────
    Strip the rectangular border, inner shadow, and corner chrome.
@@ -3314,4 +3407,191 @@ body::after {
 @media (max-width: 420px) {
   .briefing-legend-grid { grid-template-columns: 1fr; }
   .briefing-icon-canvas { flex: 0 0 48px; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Arcade side rails (desktop only)
+   Two narrow vertical panels flanking the canvas. They show
+   what the game is doing in product terms — verdicts streaming
+   in real time, signed evidence receipts piling up — so a
+   spectator (LinkedIn visitor, prospective buyer) can read
+   the arcade as a demo, not just a game.
+
+   Hidden under 1180px to protect the mobile/tablet layout.
+   ───────────────────────────────────────────────────────── */
+.arcade-rail {
+  position: absolute;
+  top: 84px;            /* clears the top HUD pod */
+  bottom: 96px;         /* clears the bottom integrity bar */
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: rgba(8, 11, 23, 0.72);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(95, 240, 255, 0.18);
+  border-radius: 4px;
+  z-index: 6;
+  font-family: var(--font-mono, ui-monospace, "JetBrains Mono", monospace);
+  color: var(--ink);
+  pointer-events: none; /* never blocks clicks into the canvas */
+}
+.arcade-rail-left  { left: max(20px, calc(50vw - 540px)); }
+.arcade-rail-right { right: max(20px, calc(50vw - 540px)); }
+
+@media (max-width: 1180px) {
+  .arcade-rail { display: none; }
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+.rail-pulse {
+  width: 6px; height: 6px;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan-soft);
+  animation: status-pulse 1.6s ease-in-out infinite;
+}
+.rail-title {
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+.rail-sub {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  margin-top: -4px;
+}
+
+.rail-feed,
+.rail-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  flex: 1;
+}
+.rail-empty {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-style: italic;
+  letter-spacing: 0.06em;
+  padding: 8px 4px;
+}
+
+/* LEFT RAIL — feed rows */
+.rail-feed-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border-left: 2px solid var(--ink-faint);
+  background: rgba(255,255,255,0.02);
+  animation: rail-feed-in 220ms ease-out;
+}
+.rail-feed-row.v-permit  { border-left-color: var(--green);  background: rgba(95,250,159,0.06); }
+.rail-feed-row.v-abstain { border-left-color: var(--yellow); background: rgba(255,216,61,0.06); }
+.rail-feed-row.v-forbid  { border-left-color: var(--red);    background: rgba(255,71,71,0.06); }
+.rail-feed-verdict {
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.rail-feed-row.v-permit  .rail-feed-verdict { color: var(--green); }
+.rail-feed-row.v-abstain .rail-feed-verdict { color: var(--yellow); }
+.rail-feed-row.v-forbid  .rail-feed-verdict { color: var(--red); }
+.rail-feed-surface {
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+.rail-feed-t {
+  color: var(--ink-faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* RIGHT RAIL — receipts */
+.rail-receipt {
+  padding: 8px;
+  background: rgba(0,0,0,0.32);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 3px;
+  font-size: 10px;
+  animation: rail-feed-in 220ms ease-out;
+}
+.rail-receipt.v-permit  { border-left: 2px solid var(--green); }
+.rail-receipt.v-abstain { border-left: 2px solid var(--yellow); }
+.rail-receipt.v-forbid  { border-left: 2px solid var(--red); }
+.rail-receipt-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.rail-receipt-verdict {
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.rail-receipt-verdict.v-permit  { color: var(--green); }
+.rail-receipt-verdict.v-abstain { color: var(--yellow); }
+.rail-receipt-verdict.v-forbid  { color: var(--red); }
+.rail-receipt-t {
+  color: var(--ink-faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.rail-receipt-body {
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.rail-receipt-surface {
+  color: var(--cyan);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 600;
+}
+.rail-receipt-summary {
+  color: var(--ink-mid);
+  font-size: 10px;
+}
+.rail-receipt-hash {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.rail-foot {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid rgba(95, 240, 255, 0.14);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+}
+.rail-foot .c-forbid  { color: var(--red); }
+.rail-foot .c-abstain { color: var(--yellow); }
+
+@keyframes rail-feed-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

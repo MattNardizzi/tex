@@ -322,7 +322,6 @@ function HubAvatar({ now }) {
       <div className="avatar-glow" aria-hidden="true" />
       <div className="avatar-frame" ref={frameRef}>
         <img src="/tex/tex-full.png" alt="Tex — the gate" />
-        <div className="t-hex"><THexSvg title="" /></div>
         <div className="eye-scan" aria-hidden="true" />
       </div>
     </div>

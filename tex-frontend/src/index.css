@@ -2568,15 +2568,11 @@ body::after {
   display: none !important;
 }
 
-/* Subtle 3D rim from upper-right (matches the avatar's existing render lighting) */
+/* Subtle 3D rim from upper-right — DISABLED, was painting a visible
+   white box around Tex. Kept the rule shell so any future rim-light
+   tweak can drop into the same selector. */
 .hub-avatar .avatar-frame::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 60% 70% at 78% 18%, rgba(255, 255, 255, 0.10), transparent 55%);
-  mix-blend-mode: screen;
+  content: none;
 }
 
 /* Soft micro-breathe so he feels alive when the cursor is still */

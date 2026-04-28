@@ -375,6 +375,21 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
           >
             FREE 2-WEEK TRIAL →
           </a>
+          <a
+            href="/#leaderboard"
+            className="btn-leaderboard"
+            aria-label="View today's arcade leaderboard"
+            style={{
+              padding: "14px 26px",
+              minHeight: 48,
+              fontSize: "clamp(15px, 2vw, 18px)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span className="btn-leaderboard-label">LEADERBOARD →</span>
+            <span className="btn-leaderboard-meta">today's top operators</span>
+          </a>
           <button onClick={() => copyShareText(result, rank, setCopied)} className="btn-ghost" style={{
             padding: "14px 26px",
             minHeight: 48,

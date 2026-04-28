@@ -51,10 +51,24 @@ export default function App() {
       whatIsTex: "/what-is-tex",
     };
     const next = map[phase] || "/";
+    // Preserve hash (e.g. #leaderboard) so deep links from the shift report
+    // can scroll to the right section once the hub mounts.
+    const hash = window.location.hash || "";
     if (window.location.pathname !== next) {
-      window.history.replaceState(null, "", next);
+      window.history.replaceState(null, "", next + hash);
     }
     setWhipKey((k) => k + 1);
+
+    // If we just landed on the hub with a #leaderboard hash, scroll to it
+    // once the section has had a chance to render. The leaderboard hydrates
+    // async from the backend, so wait a frame before scrolling.
+    if (phase === "hub" && hash === "#leaderboard") {
+      const t = setTimeout(() => {
+        const el = document.getElementById("leaderboard");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 250);
+      return () => clearTimeout(t);
+    }
   }, [phase]);
 
   function go(nextPhase) {

@@ -268,7 +268,7 @@ function Leaderboard({ rows, dateKey, ownHandle }) {
   if (!rows || rows.length === 0) return null;
   const top = rows.slice(0, 8);
   return (
-    <div className="hub-leaderboard">
+    <div id="leaderboard" className="hub-leaderboard">
       <div className="leaderboard-head">
         <h3>ARCADE LEADERBOARD</h3>
         <div className="leaderboard-meta">
@@ -459,6 +459,20 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
                 <span className="btn-audit-label">FREE 2-WEEK TRIAL →</span>
                 <span className="btn-audit-meta">wire Tex into your stack · free for 14 days</span>
               </a>
+              <a
+                className="btn-leaderboard"
+                href="#leaderboard"
+                onClick={(e) => {
+                  clickSfx();
+                  e.preventDefault();
+                  const el = document.getElementById("leaderboard");
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                aria-label="View today's arcade leaderboard"
+              >
+                <span className="btn-leaderboard-label">LEADERBOARD →</span>
+                <span className="btn-leaderboard-meta">today's top operators</span>
+              </a>
               <button
                 className="btn-tertiary"
                 onClick={handleWhat}
@@ -517,6 +531,10 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
             <span>texaegis.com</span>
             <span className="hub-status-sep" aria-hidden="true">·</span>
             <span>built by Matt Nardizzi</span>
+            <span className="hub-status-sep" aria-hidden="true">·</span>
+            <span title="Build stamp — confirms which deploy you're seeing">
+              build {typeof __TEX_BUILD__ !== "undefined" ? __TEX_BUILD__ : "dev"}
+            </span>
           </div>
         </footer>
       </div>

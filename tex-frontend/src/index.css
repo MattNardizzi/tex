@@ -1942,6 +1942,54 @@ body::after {
   text-transform: uppercase;
 }
 
+/* Leaderboard CTA — green sibling of .btn-audit. Same shape, different palette. */
+.btn-leaderboard {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 16px 22px 14px 22px;
+  background: rgba(95, 250, 159, 0.10);
+  border: 1.5px solid var(--green);
+  border-radius: 4px;
+  color: var(--green);
+  text-decoration: none;
+  transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(95, 250, 159, 0.12), 0 4px 14px rgba(95, 250, 159, 0.10);
+  cursor: pointer;
+}
+.btn-leaderboard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 30%, rgba(95, 250, 159, 0.22) 50%, transparent 70%);
+  transform: translateX(-100%);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+.btn-leaderboard:hover {
+  background: rgba(95, 250, 159, 0.16);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(95, 250, 159, 0.22), 0 10px 28px rgba(95, 250, 159, 0.24);
+}
+.btn-leaderboard:hover::after { transform: translateX(100%); }
+.btn-leaderboard:active { transform: translateY(0); }
+.btn-leaderboard-label {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  color: var(--green);
+}
+.btn-leaderboard-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+
 /* Integration row — surfaces the plug-in-not-replacement positioning.
    Sits directly under the AnatomyStrip so the eye lands here right after
    it understands what Tex does. The marks are text-only on purpose: no

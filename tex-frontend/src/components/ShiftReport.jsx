@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
   submitDailyScore, getDailyLeaderboard, getHandle, setHandle,
+  submitArcadeScore, fetchDailyLeaderboard,
 } from "../lib/leaderboard.js";
 import { todayKey } from "../lib/dailyShift.js";
 import { SURFACES } from "../lib/messages.js";
@@ -21,21 +22,53 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
   const [handle, setHandleLocal] = useState(getHandle());
   const [showHandlePrompt, setShowHandlePrompt] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [submitState, setSubmitState] = useState("idle"); // idle | sending | ok | err
+  const [submitNote, setSubmitNote] = useState("");
   const submittedRef = useRef(false);
 
+  // Push the run to the backend. Optimistic local first, then remote.
+  async function pushScoreToBackend(cleanedHandle) {
+    setSubmitState("sending");
+    // Optimistic local entry so the leaderboard renders the player
+    // immediately even if the backend is slow.
+    const local = submitDailyScore({ score: result, handle: cleanedHandle });
+    setSubmitted(local);
+
+    if (mode === "arcade") {
+      const resp = await submitArcadeScore({
+        result,
+        handle: cleanedHandle,
+      });
+      if (resp.ok) {
+        setSubmitState("ok");
+        setSubmitNote(resp.label || "");
+        setRank(resp.your_rank);
+        // Refetch the live list so the rendered leaderboard reflects
+        // the new authoritative state.
+        const live = await fetchDailyLeaderboard(undefined, cleanedHandle);
+        if (live) setRank(live.myRank ?? resp.your_rank);
+      } else {
+        setSubmitState("err");
+        setSubmitNote(`couldn't post score: ${resp.error}`);
+        // Fall back to local-only ranking so the UI still shows something.
+        const lb = getDailyLeaderboard();
+        setRank(lb.myRank);
+      }
+    } else {
+      // Non-arcade modes (legacy/training) — local-only as before.
+      const lb = getDailyLeaderboard();
+      setRank(lb.myRank);
+    }
+    rankUpSfx();
+  }
+
   useEffect(() => {
-    // Both daily-conveyor and arcade scores submit to the leaderboard.
-    // (Training/practice still skip — but we no longer expose a training UI.)
     if (mode === "training" || submittedRef.current) return;
     submittedRef.current = true;
     if (!handle) {
       setShowHandlePrompt(true);
     } else {
-      const entry = submitDailyScore({ score: result, handle });
-      setSubmitted(entry);
-      const lb = getDailyLeaderboard();
-      setRank(lb.myRank);
-      rankUpSfx();
+      pushScoreToBackend(handle);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -44,11 +77,7 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
     const cleaned = setHandle(h);
     setHandleLocal(cleaned);
     setShowHandlePrompt(false);
-    const entry = submitDailyScore({ score: result, handle: cleaned });
-    setSubmitted(entry);
-    const lb = getDailyLeaderboard();
-    setRank(lb.myRank);
-    rankUpSfx();
+    pushScoreToBackend(cleaned);
   }
 
   const verdictMeta = ratingMeta(result.rating);
@@ -117,6 +146,35 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
                 fontWeight: 700,
               }}>
                 RANK <span className="tabular" style={{ color: "var(--pink)", fontSize: 16 }}>#{rank}</span> ON TODAY'S BOARD
+              </span>
+            )}
+            {mode === "arcade" && submitState !== "idle" && (
+              <span style={{
+                padding: "8px 12px",
+                border: "1px solid " + (submitState === "ok"
+                  ? "var(--green)"
+                  : submitState === "err"
+                    ? "rgba(255, 71, 71, 0.5)"
+                    : "var(--rule-cyan)"),
+                background: submitState === "ok"
+                  ? "rgba(95, 250, 159, 0.06)"
+                  : submitState === "err"
+                    ? "rgba(255, 71, 71, 0.05)"
+                    : "rgba(95, 240, 255, 0.04)",
+                borderRadius: 3,
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                color: submitState === "ok"
+                  ? "var(--green)"
+                  : submitState === "err"
+                    ? "var(--red)"
+                    : "var(--cyan)",
+              }}>
+                {submitState === "sending" && "POSTING SCORE…"}
+                {submitState === "ok" && `POSTED${submitNote ? " · " + submitNote : ""}`}
+                {submitState === "err" && (submitNote || "score not posted")}
               </span>
             )}
           </div>

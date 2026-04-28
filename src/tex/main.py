@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tex.api.arcade_leaderboard import router as arcade_leaderboard_router  # ARCADE
 from tex.api.leaderboard import router as leaderboard_router  # LEADERBOARD
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
@@ -15,6 +16,7 @@ from tex.commands.calibrate_policy import CalibratePolicyCommand
 from tex.commands.evaluate_action import EvaluateActionCommand
 from tex.commands.export_bundle import ExportBundleCommand
 from tex.commands.report_outcome import ReportOutcomeCommand
+from tex.db import arcade_leaderboard_repo  # ARCADE
 from tex.db import leaderboard_repo  # LEADERBOARD
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.policy import PolicySnapshot
@@ -346,6 +348,11 @@ def create_app(
             await leaderboard_repo.ensure_schema()
         except Exception as exc:  # pragma: no cover
             _logger.warning("leaderboard schema init failed: %s", exc)
+        # ARCADE: same pattern — best-effort schema for the arcade leaderboard.
+        try:
+            await arcade_leaderboard_repo.ensure_schema()
+        except Exception as exc:  # pragma: no cover
+            _logger.warning("arcade leaderboard schema init failed: %s", exc)
         yield
 
     app = FastAPI(
@@ -370,6 +377,7 @@ def create_app(
 
     app.include_router(build_api_router())
     app.include_router(leaderboard_router)  # LEADERBOARD
+    app.include_router(arcade_leaderboard_router)  # ARCADE
 
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:

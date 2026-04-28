@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { clickSfx } from "../lib/sounds.js";
 import {
   getDailyLeaderboard,
+  fetchDailyLeaderboard,
   getHandle,
 } from "../lib/leaderboard.js";
 import { todayKey } from "../lib/dailyShift.js";
@@ -231,7 +232,7 @@ function Leaderboard({ rows, dateKey, ownHandle }) {
         <div className="leaderboard-meta">
           <span>UTC {dateKey}</span>
           <span className="hub-status-sep" aria-hidden="true">·</span>
-          <span>TOP 8 of {rows.length}</span>
+          <span>TOP {Math.min(8, rows.length)} OF {rows.length}</span>
         </div>
       </div>
       <div className="leaderboard-table">
@@ -341,9 +342,25 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
   }, []);
 
   useEffect(() => {
+    // 1. Paint immediately with cached/seeded data so there's no empty flash.
     setBoard(getDailyLeaderboard());
-    setHandle(getHandle() || "");
-  }, []);
+    const h = getHandle() || "";
+    setHandle(h);
+
+    // 2. Then go ask the backend for the live list. If it succeeds, swap.
+    //    If it fails (network down, backend cold-start delay on Render),
+    //    keep the seeded list — the page still feels populated.
+    let cancelled = false;
+    fetchDailyLeaderboard(dateKey, h).then((live) => {
+      if (cancelled || !live) return;
+      setBoard({
+        entries: live.entries,
+        myRank: live.myRank,
+        total: live.total,
+      });
+    });
+    return () => { cancelled = true; };
+  }, [dateKey]);
 
   const handleArcade = () => { clickSfx(); onPlayArcade?.(); };
   const handleWhat = () => { clickSfx(); onOpenWhatIsTex?.(); };

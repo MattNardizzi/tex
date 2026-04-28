@@ -127,3 +127,120 @@ Visually verified on:
   - desktop 1440×900 (the launch-day target)
   - desktop 1366×768 (worst-case MacBook Air-class)
   - mobile 390×844 (iPhone-class — most LinkedIn traffic)
+
+---
+
+# Backend integration pass — real Postgres leaderboard
+
+This pass connects the frontend to a Postgres-backed arcade leaderboard
+on the existing Render `tex` service + `tex-leaderboard` Postgres.
+
+## Backend (Python)
+
+### NEW: `src/tex/db/arcade_leaderboard_repo.py`
+Postgres repo for the arcade leaderboard. Two tables:
+- `arcade_leaderboard` — one row per (handle, date_key)
+- `arcade_leaderboard_used_tokens` — replay guard
+
+Six async methods: `ensure_schema`, `top_for_day`, `top_alltime`, `get`,
+`rank_for_day`, `submit`, `total_for_day`. Uses the same `DATABASE_URL`
+env var the existing leaderboard already reads — Render auto-wires it
+from the linked Postgres service.
+
+Submit logic: better-write-wins per (handle, date_key). Replays of the
+same `submit_token` are atomically rejected.
+
+### NEW: `src/tex/api/arcade_leaderboard.py`
+FastAPI router mounted at `/arcade/leaderboard`. Two endpoints:
+- `GET /arcade/leaderboard?date=&handle=` — top 50 + caller's rank/score
+  + `is_you: true` flag on the matching row
+- `POST /arcade/leaderboard/submit` — records a run with soft anti-cheat:
+  - score ≤ 50,000 absolute ceiling
+  - score / survived_seconds ≤ 50 (rejects "1M points in 1s" trivially)
+  - future-dated keys rejected
+  - submit_token is idempotent — replays return `accepted: false` with
+    current state
+  - handle regex `^[A-Za-z0-9_.\-]{2,18}$`
+  - rating ∈ {ROOKIE, OPERATOR, ANALYST, WARDEN}
+
+Anti-cheat is deliberately **soft**, not cryptographic. The arcade is
+fully client-side; real anti-cheat would require server-side game state.
+Soft bounds + idempotency stop drive-by cheating; the leaderboard is a
+marketing surface, not a competitive ladder.
+
+### MODIFIED: `src/tex/main.py`
+- Imports the new repo + router.
+- Schema bootstrap added to the FastAPI lifespan (best-effort, won't
+  crash the app if DB is briefly unreachable).
+- Router included alongside the existing leaderboard router.
+
+## Frontend
+
+### MODIFIED: `src/lib/leaderboard.js`
+Rewrote to be backend-aware:
+- `fetchDailyLeaderboard(dateKey, handle)` — async, hits `/api/arcade/leaderboard`
+- `submitArcadeScore({result, handle})` — async, POSTs to `/api/arcade/leaderboard/submit`
+- Backend response cached under `tex.arcade.lb.cache.v1` so repeat
+  visits paint the live list immediately, then refresh in background
+- Seeded list preserved as instant-paint fallback when backend is
+  unreachable or cold-starting on Render
+- Per-day `submit_token` stored in localStorage so retries are
+  idempotent against the server's anti-replay guard
+- Storage keys migrated: `tex.arcade.handle.v1` (was `tex.conveyor.handle.v1`)
+
+All existing exports preserved (`getDailyLeaderboard`, `submitDailyScore`,
+`getHandle`, `setHandle`, `hasPlayedToday`, `todayResult`,
+`getSeededLeaderboard`) so other components don't break.
+
+### MODIFIED: `src/components/Hub.jsx`
+Effect now paints seeded immediately, then fetches the backend list and
+swaps in. Added `Math.min(8, rows.length)` to the "TOP N OF M" header so
+small player counts read sensibly.
+
+### MODIFIED: `src/components/ShiftReport.jsx`
+Arcade scores now POST to backend after the run. Adds a status pill
+next to the rank pill that shows:
+- `POSTING SCORE…` (cyan, while in flight)
+- `POSTED · WARDEN` (green, after server confirmation)
+- `score not posted: <reason>` (red, on error — UI still shows
+  local-only ranking so the player isn't left with nothing)
+
+Falls back gracefully to local-only ranking if the backend is
+unreachable.
+
+### MODIFIED: `vite.config.js`
+- Aligned the dev proxy target with `vercel.json` — both now point at
+  `https://tex-2far.onrender.com`. Override locally with
+  `VITE_API_PROXY=http://127.0.0.1:8000 npm run dev`.
+
+## End-to-end verification (run locally during this pass)
+
+1. Backend smoke against real Postgres: schema bootstraps cleanly,
+   `submit` works, last-write-wins-only-if-better is correct, token
+   replay is rejected, `rank_for_day` math is correct, `top_for_day`
+   returns the right ordering.
+2. HTTP smoke through FastAPI: empty GET, valid submission, second
+   player, GET-with-handle (own-rank flagging works), idempotent replay,
+   score-vs-survival cheat rejected, future-date rejected, bad handle
+   rejected.
+3. Frontend through vite proxy → FastAPI → Postgres:
+   - Hub renders backend leaderboard with 6 real entries
+   - "TOP 6 OF 6" header correct
+   - "YOU" pill highlights when `tex.arcade.handle.v1` matches a
+     leaderboard row
+   - `submitArcadeScore()` from JS posts the right body, gets back
+     `accepted: true, your_rank: 1, label: WARDEN`
+   - Refetch shows the new submission in position 1
+
+## Render deploy notes
+
+- The new `arcade_leaderboard` and `arcade_leaderboard_used_tokens`
+  tables are created on first request via the lifespan hook. No
+  migration step needed — same pattern as the existing leaderboard.
+- The existing `DATABASE_URL` env var (already wired from
+  `tex-leaderboard` Postgres → `tex` web service) supplies the
+  connection string. Nothing to add.
+- After deploy, the live endpoints will be:
+  - `GET https://tex-2far.onrender.com/arcade/leaderboard`
+  - `POST https://tex-2far.onrender.com/arcade/leaderboard/submit`
+- Vercel rewrites already proxy `/api/*` → these endpoints.

@@ -5,6 +5,9 @@ import {
 } from "../lib/sounds.js";
 import { SURFACES } from "../lib/messages.js";
 import { scoreShift } from "../lib/scoring.js";
+import Briefing from "./Briefing.jsx";
+
+const BRIEFED_KEY = "tex_arcade_briefed_v1";
 
 /*
   Arcade v1 — Tex Gate Defense (1945-style vertical shooter)
@@ -145,7 +148,7 @@ function pickVerdictForSurface(surfaceKey, elapsedSec) {
 // each other, premium "flat-3D" finish (light from top-left, drop shadow).
 
 // Verdict palette — tuned for premium feel against deep navy background.
-function paletteFor(verdict) {
+export function paletteFor(verdict) {
   if (verdict === "PERMIT") return {
     base:    "#5FFA9F",
     light:   "#A8FFC9",
@@ -208,9 +211,9 @@ function paintBody(ctx, palette, bbox) {
   ctx.stroke();
 }
 
-// ── Per-surface shape drawing ──────────────────────────────────────────
+// Per-surface shape drawing ──────────────────────────────────────────
 // Each draws a UNIQUE silhouette so the player learns shape→meaning fast.
-function drawIcon(ctx, key, cx, cy, size, palette) {
+export function drawIcon(ctx, key, cx, cy, size, palette) {
   const r = size / 2;
   // Drop shadow under everything
   ctx.save();
@@ -545,7 +548,14 @@ export default function Arcade({ onComplete, onBail }) {
   const containerRef = useRef(null);
   const texImgRef = useRef(null);   // DOM <img> for high-res Tex sprite
   const gameRef = useRef(null);     // mutable game state (no React renders)
-  const [phase, setPhase] = useState("ready"); // ready | playing | done
+  const [phase, setPhase] = useState(() => {
+    if (typeof window === "undefined") return "ready";
+    try {
+      return localStorage.getItem(BRIEFED_KEY) ? "ready" : "briefing";
+    } catch {
+      return "briefing";
+    }
+  }); // briefing | ready | playing | done
   const [readyNum, setReadyNum] = useState(3);
 
   // HUD-bound React state (sampled from game state at low rate)
@@ -1525,6 +1535,16 @@ export default function Arcade({ onComplete, onBail }) {
           <span><b>RED</b> · shoot it down</span>
         </div>
       </div>
+
+      {/* Briefing overlay (first-time players, or replayed via help) */}
+      {phase === "briefing" && (
+        <Briefing
+          onStart={() => {
+            try { localStorage.setItem(BRIEFED_KEY, "1"); } catch {}
+            setPhase("ready");
+          }}
+        />
+      )}
 
       {/* Ready overlay */}
       {phase === "ready" && (

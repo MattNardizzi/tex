@@ -779,6 +779,23 @@ export default function Arcade({ onComplete, onBail }) {
   //          Firing is SPACE-only.
   // Touch:   drag anywhere to move; press the FIRE button (separate JSX
   //          overlay) to fire. Tap-to-move is a follow, not a fire trigger.
+  //
+  // Mouse-tracking model (revised):
+  //   Earlier we attached mousemove/mouseleave to the canvas itself. That
+  //   caused two issues that demoers reported as "Tex lags" and "Tex
+  //   sometimes stops mid-flick":
+  //     1) Fast horizontal flicks could move the cursor past the canvas
+  //        edge mid-motion. mouseleave fired and Tex froze halfway, even
+  //        though the user was still actively pointing.
+  //     2) The chase step was tuned for keyboard-style smoothing, not for
+  //        mouse precision. The cursor would arrive instantly but Tex
+  //        would crawl toward it over many frames.
+  //
+  //   Fix: once the cursor first enters the canvas, we promote to a
+  //   window-level mousemove listener that follows the pointer anywhere
+  //   on screen. Tex stays anchored to wherever the cursor would map
+  //   inside the playfield (clamped). The chase-step is also raised so
+  //   mouse motion feels 1:1 instead of smoothed.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -789,16 +806,46 @@ export default function Arcade({ onComplete, onBail }) {
       return (clientX - rect.left) * ratio;
     }
 
-    // Desktop hover-to-move (no buttons needed)
-    function onMouseMove(e) {
+    // Window-level mousemove. Promotes to "actively following" the first
+    // time the cursor crosses the canvas; after that, follows the pointer
+    // even if it strays out of the canvas rect (mid-flick, brief excursion
+    // over the rails, etc).
+    function onWindowMouseMove(e) {
+      if (phase !== "playing") return;
+      // First-frame activation: if the cursor is already inside the
+      // canvas when the game phase flips to "playing" (very common —
+      // the player just clicked PLAY AGAIN / finished the briefing and
+      // hasn't moved their mouse), there's no mouseenter to wait for.
+      // We auto-promote on the first window mousemove whose coords fall
+      // inside the canvas rect.
+      if (!inputRef.current.pointerActive) {
+        const r = canvas.getBoundingClientRect();
+        if (
+          e.clientX >= r.left && e.clientX <= r.right &&
+          e.clientY >= r.top  && e.clientY <= r.bottom
+        ) {
+          inputRef.current.pointerActive = true;
+        } else {
+          return;
+        }
+      }
+      inputRef.current.pointerX = localX(e.clientX);
+    }
+
+    function onCanvasEnter(e) {
       if (phase !== "playing") return;
       inputRef.current.pointerActive = true;
       inputRef.current.pointerX = localX(e.clientX);
     }
-    function onMouseLeave() {
+
+    // Only deactivate on a true disengagement signal — the cursor leaving
+    // the *document* entirely (e.g. into another window). Brief excursions
+    // off the canvas don't drop control anymore.
+    function onDocumentMouseLeave() {
       inputRef.current.pointerActive = false;
       inputRef.current.pointerX = null;
     }
+
     // Desktop click-to-fire — single shot per click
     function onMouseDown(e) {
       if (phase !== "playing") return;
@@ -860,18 +907,24 @@ export default function Arcade({ onComplete, onBail }) {
       touchMovedFar = false;
     }
 
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mouseleave", onMouseLeave);
+    // Mouse: enter on canvas (promotes to "following"); move + leave at
+    // window/document level so we don't lose the cursor mid-flick.
+    canvas.addEventListener("mouseenter", onCanvasEnter);
     canvas.addEventListener("mousedown",  onMouseDown);
+    window.addEventListener("mousemove", onWindowMouseMove);
+    document.addEventListener("mouseleave", onDocumentMouseLeave);
+
     canvas.addEventListener("touchstart", onTouchStart, { passive: false });
     canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
     canvas.addEventListener("touchend",   onTouchEnd);
     canvas.addEventListener("touchcancel", onTouchEnd);
 
     return () => {
-      canvas.removeEventListener("mousemove", onMouseMove);
-      canvas.removeEventListener("mouseleave", onMouseLeave);
+      canvas.removeEventListener("mouseenter", onCanvasEnter);
       canvas.removeEventListener("mousedown",  onMouseDown);
+      window.removeEventListener("mousemove", onWindowMouseMove);
+      document.removeEventListener("mouseleave", onDocumentMouseLeave);
+
       canvas.removeEventListener("touchstart", onTouchStart);
       canvas.removeEventListener("touchmove",  onTouchMove);
       canvas.removeEventListener("touchend",   onTouchEnd);
@@ -942,10 +995,18 @@ export default function Arcade({ onComplete, onBail }) {
       if (inp.left)  dx -= TEX_SPEED * dt;
       if (inp.right) dx += TEX_SPEED * dt;
       if (inp.pointerActive && inp.pointerX != null) {
-        // Smoothly chase pointer
+        // Chase the pointer. Earlier this used a 1.6× TEX_SPEED step which
+        // was tuned for keyboard-style smoothing — fine in theory, but on
+        // a 540-logical-wide playfield displayed several hundred CSS px
+        // wide, a fast horizontal mouse flick covered hundreds of logical
+        // px while Tex chased at ~10 px/frame, giving a visible ~500ms
+        // lag. 8× TEX_SPEED traverses the full playfield in ~11 frames
+        // (~180ms) which reads as instant for mouse while still keeping a
+        // hint of inertia for touch (where finger jitter benefits from
+        // non-1:1 tracking).
         const target = inp.pointerX;
         const diff = target - g.tex.x;
-        const step = TEX_SPEED * 1.6 * dt;
+        const step = TEX_SPEED * 8 * dt;
         if (Math.abs(diff) <= step) g.tex.x = target;
         else g.tex.x += Math.sign(diff) * step;
       } else {

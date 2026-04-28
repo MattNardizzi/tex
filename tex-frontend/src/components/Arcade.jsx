@@ -65,9 +65,19 @@ const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores inte
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
-const SPEED_HALFLIFE_S = 50;     // slower ramp — feels fair through 60s, brutal at 90s+
+const SPEED_HALFLIFE_S = 65;     // gentler ramp (was 50) — flattens the
+                                 // 50-65s window where players were
+                                 // hitting a wall, while late game still
+                                 // climbs to ~2.5x by the 90s mark.
 const SPAWN_BASE_MS = 1900;      // initial gap between spawns (forgiving)
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
+const BONUS_SPAWN_MULT = 2.6;    // mult threshold for bonus double-spawns
+                                 // (was 2.2 — under the new halflife
+                                 // this pushes them past the 90s window
+                                 // entirely, so the mid-game stays clean)
+const BONUS_SPAWN_RATE = 0.10;   // per-dt probability when above threshold
+                                 // (was 0.15 — extra safety for variety
+                                 // bursts when they do trigger late)
 const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
 const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
 
@@ -942,8 +952,10 @@ export default function Arcade({ onComplete, onBail }) {
         spawnSfx();
       }
 
-      // Late-game double-spawn chance for variety
-      if (g.speedMult > 2.2 && Math.random() < 0.15 * dt && nowFrame - g.lastSpawn > gap * 0.6) {
+      // Late-game double-spawn chance for variety. Threshold and rate
+      // are tunable above; under the new halflife this effectively only
+      // fires past ~90s in practice, so the 50-65s window stays clean.
+      if (g.speedMult > BONUS_SPAWN_MULT && Math.random() < BONUS_SPAWN_RATE * dt && nowFrame - g.lastSpawn > gap * 0.6) {
         const surface = randPick(SURFACE_KEYS);
         const { verdict, severity } = pickVerdictForSurface(surface, elapsedSec);
         const reward = VERDICT_REWARD[verdict][severity];
@@ -967,6 +979,8 @@ export default function Arcade({ onComplete, onBail }) {
 
       // ── Move icons + collisions + outcomes ──────────────────────────
       const gateLineForPull = LOGICAL_H - GATE_HEIGHT;
+      const texHeadY = g.tex.y - TEX_H / 2;   // top of Tex's silhouette
+      const texFeetY = g.tex.y + TEX_H / 2;   // bottom of Tex's silhouette
       for (const ic of g.icons) {
         if (ic.state !== "active") continue;
         ic.y += ic.vy * g.speedMult * dt;
@@ -991,6 +1005,19 @@ export default function Arcade({ onComplete, onBail }) {
               // Don't overshoot: cap to actual remaining gap.
               ic.x += sign * Math.min(pullPxPerFrame * dt, adx - 0.5);
             }
+          }
+
+          // Early capture: the moment a yellow icon overlaps Tex's body
+          // anywhere on screen (not just at the gate line), Tex catches it
+          // instantly. This is the "millisecond his head touches it" feel —
+          // no waiting for the gate, no extra click required.
+          const iconBottom = ic.y + ICON_SIZE / 2;
+          const iconTop    = ic.y - ICON_SIZE / 2;
+          const dxAbs      = Math.abs(ic.x - g.tex.x);
+          const verticallyOverlaps = iconBottom >= texHeadY && iconTop <= texFeetY;
+          if (verticallyOverlaps && dxAbs <= ABSTAIN_CAPTURE_TOLERANCE) {
+            captureAbstain(g, ic, nowFrame);
+            continue;
           }
         }
       }
@@ -1225,51 +1252,7 @@ export default function Arcade({ onComplete, onBail }) {
       // Check if Tex is positioned under it.
       const dx = Math.abs(ic.x - g.tex.x);
       if (dx <= ABSTAIN_CAPTURE_TOLERANCE) {
-        // CORRECT: captured for review.
-        ic.state = "captured";
-        ic.stateUntil = now + 420;
-        g._bonusScore = (g._bonusScore || 0) + ic.reward;
-        g.streak += 1;
-        if (g.streak === 3 || g.streak === 5 || g.streak === 8 || g.streak === 12) streakSfx(g.streak);
-        abstainSfx();
-        g.gateFlash = 0.7; g.gateFlashColor = "#FFD83D";
-
-        // Heal: catching restores integrity (capped at MAX). Show "+N" only if it
-        // actually mattered — i.e. integrity was below max before the catch.
-        const before = g.integrity;
-        if (before < INTEGRITY_MAX) {
-          const after = Math.min(INTEGRITY_MAX, before + HEAL_ABSTAIN_CATCH);
-          const gained = after - before;
-          g.integrity = after;
-          g.healFlashes = g.healFlashes || [];
-          g.healFlashes.push({
-            x: g.tex.x, y: g.tex.y - 60,
-            amount: gained,
-            spawnTime: now,
-            life: 900,
-          });
-        }
-
-        g.capturedRing.push({
-          id: ++g.iconCounter,
-          x: ic.x, y: ic.y,
-          targetX: g.tex.x, targetY: g.tex.y,
-          surface: ic.surface,
-          verdict: ic.verdict,
-          spawnTime: now,
-          life: 380,
-        });
-
-        // Catch impact ring — one-shot burst at Tex's head telegraphing the catch
-        g.catchRings = g.catchRings || [];
-        g.catchRings.push({
-          x: g.tex.x,
-          y: g.tex.y - 30,
-          spawnTime: now,
-          life: 520,
-        });
-
-        recordOutcome(g, ic, "correct-abstain");
+        captureAbstain(g, ic, now);
       } else {
         // MISSED: orange landed outside Tex. Mishandled review item.
         ic.state = "dying";
@@ -1282,6 +1265,57 @@ export default function Arcade({ onComplete, onBail }) {
         recordOutcome(g, ic, "abstain-miss");
       }
     }
+  }
+
+  // ── Shared ABSTAIN capture path ──────────────────────────────────────
+  // Used by both the early mid-air contact check (icon overlapping Tex's
+  // body) and the gate-arrival fallback. Single source of truth so the
+  // two entry points can't drift apart.
+  function captureAbstain(g, ic, now) {
+    ic.state = "captured";
+    ic.stateUntil = now + 420;
+    g._bonusScore = (g._bonusScore || 0) + ic.reward;
+    g.streak += 1;
+    if (g.streak === 3 || g.streak === 5 || g.streak === 8 || g.streak === 12) streakSfx(g.streak);
+    abstainSfx();
+    g.gateFlash = 0.7; g.gateFlashColor = "#FFD83D";
+
+    // Heal: catching restores integrity (capped at MAX). Show "+N" only if it
+    // actually mattered — i.e. integrity was below max before the catch.
+    const before = g.integrity;
+    if (before < INTEGRITY_MAX) {
+      const after = Math.min(INTEGRITY_MAX, before + HEAL_ABSTAIN_CATCH);
+      const gained = after - before;
+      g.integrity = after;
+      g.healFlashes = g.healFlashes || [];
+      g.healFlashes.push({
+        x: g.tex.x, y: g.tex.y - 60,
+        amount: gained,
+        spawnTime: now,
+        life: 900,
+      });
+    }
+
+    g.capturedRing.push({
+      id: ++g.iconCounter,
+      x: ic.x, y: ic.y,
+      targetX: g.tex.x, targetY: g.tex.y,
+      surface: ic.surface,
+      verdict: ic.verdict,
+      spawnTime: now,
+      life: 380,
+    });
+
+    // Catch impact ring — one-shot burst at Tex's head telegraphing the catch
+    g.catchRings = g.catchRings || [];
+    g.catchRings.push({
+      x: g.tex.x,
+      y: g.tex.y - 30,
+      spawnTime: now,
+      life: 520,
+    });
+
+    recordOutcome(g, ic, "correct-abstain");
   }
 
   function addExplosion(g, ic, color, count = 16) {

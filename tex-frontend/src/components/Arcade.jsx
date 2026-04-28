@@ -641,14 +641,7 @@ export default function Arcade({ onComplete, onBail }) {
   const containerRef = useRef(null);
   const texImgRef = useRef(null);   // DOM <img> for high-res Tex sprite
   const gameRef = useRef(null);     // mutable game state (no React renders)
-  const [phase, setPhase] = useState(() => {
-    if (typeof window === "undefined") return "ready";
-    try {
-      return localStorage.getItem(BRIEFED_KEY) ? "ready" : "briefing";
-    } catch {
-      return "briefing";
-    }
-  }); // briefing | ready | playing | done
+  const [phase, setPhase] = useState("briefing"); // briefing | ready | playing | done
   const [readyNum, setReadyNum] = useState(3);
 
   // HUD-bound React state (sampled from game state at low rate)

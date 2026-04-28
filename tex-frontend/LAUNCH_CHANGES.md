@@ -72,11 +72,19 @@ arcade so the game reads as a demo, not just a game.
   always fits on a 1440x900 MacBook Air.
 - The previous override at line ~2498 that fought the base rule has
   been neutralised; only the responsive breakpoints below remain.
-- **Mobile hero re-stack.** At ≤1080px the layout collapses to a
-  single column with `.hub-hero-text` first (`order: 1`) and
-  `.hub-hero-aside` (Tex avatar) second (`order: 2`). Avatar
-  capped at 360px on tablets and 280px on phones. Demo ticker
-  hidden on phones to keep the CTA above the fold.
+- **Mobile hero re-stack (final order).** At ≤1080px the layout
+  collapses to a single column flex with `display: contents` on
+  `.hub-hero-text` so its children become flex siblings of
+  `.hub-hero-aside`. Order assigned via `order:`
+    1. eyebrow
+    2. Tex avatar
+    3. ENTER ARCADE + audit + WHAT IS TEX (CTA row)
+    4. headline
+    5. sub-copy
+    6. hero telemetry strip
+    7. demo ticker
+  Avatar capped at 320px on tablets and 240px on phones.
+  Demo ticker hidden under 760px to keep the CTAs above the fold.
 - New `.btn-audit` styles — cyan border, subtle hover gleam, two
   text rows.
 - New `.hub-hero-telemetry` styles — cyan-left-bordered strip with

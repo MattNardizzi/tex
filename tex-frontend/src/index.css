@@ -1740,23 +1740,50 @@ body::after {
 .hub-hero-text { min-width: 0; }
 .hub-hero-aside { min-width: 0; }
 @media (max-width: 1080px) {
-  /* Single-column stack with TEXT FIRST so the CTA lives above the
-     fold on phones. Tex avatar drops below the CTA and gets capped
-     so it doesn't dominate the first screen. */
-  .hub-hero { grid-template-columns: 1fr; }
-  .hub-hero-aside {
-    order: 2;
-    max-width: 360px;
-    margin-inline: auto;
-    margin-top: 8px;
+  /* Mobile / tablet stack. Target visual order:
+       1. eyebrow
+       2. Tex avatar
+       3. ENTER ARCADE + audit + what-is-tex (CTA row)
+       4. headline
+       5. sub-copy
+       6. hero telemetry strip
+       7. demo ticker
+
+     Implementation: collapse the grid to a column flex, use
+     `display: contents` on .hub-hero-text so its children
+     participate in the parent flex layout alongside .hub-hero-aside,
+     then assign `order` across the unified set. NB: with
+     display:contents, the DOM parent is still .hub-hero-text — so
+     the `>` direct-child combinator from .hub-hero won't match the
+     promoted children. We use descendant selectors instead.
+  */
+  .hub-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
-  .hub-hero-text { order: 1; }
+  .hub-hero-text {
+    display: contents;
+  }
+  .hub-hero-aside {
+    max-width: 320px;
+    margin-inline: auto;
+  }
+
+  .hub-hero .hub-eyebrow        { order: 1; margin-bottom: 0; }
+  .hub-hero .hub-hero-aside     { order: 2; }
+  .hub-hero .hub-cta-row        { order: 3; margin-top: 0; margin-bottom: 6px; }
+  .hub-hero .hub-headline       { order: 4; margin-top: 4px; }
+  .hub-hero .hub-sub            { order: 5; margin-top: 12px; margin-bottom: 4px; }
+  .hub-hero .hub-hero-telemetry { order: 6; margin-top: 4px; }
+  .hub-hero .demo-ticker        { order: 7; }
 }
+
 @media (max-width: 760px) {
-  .hub-hero { padding-top: 18px; padding-bottom: 18px; gap: 18px; }
-  .hub-hero-aside { max-width: 280px; }
+  .hub-hero { padding-top: 14px; padding-bottom: 18px; gap: 12px; }
+  .hub-hero-aside { max-width: 240px; }
   /* Demo ticker hidden on phones to keep the CTA above the fold. */
-  .hub-hero-text .demo-ticker { display: none; }
+  .demo-ticker { display: none; }
 }
 
 .hub-eyebrow {

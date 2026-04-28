@@ -67,19 +67,19 @@ const HEAL_ABSTAIN_CATCH = 10;   // catching an orange in the beam restores inte
 
 // Difficulty curve. Speed multiplier ramps from 1.0 toward SPEED_CAP.
 const SPEED_CAP = 3.4;
-const SPEED_HALFLIFE_S = 70;     // pulled in again from 90 — at 60s
-                                 // we now hit 2.20x speed mult.
-const SPAWN_BASE_MS = 1200;      // tightened again from 1400. Opening
-                                 // seconds run at a 1.2s gap, so even
-                                 // the early game has more icons in
-                                 // flight than before.
+const SPEED_HALFLIFE_S = 70;     // climb shape unchanged — by 30s the
+                                 // spawn gap matches the prior build,
+                                 // so engaged-player difficulty is the
+                                 // same. Only the first 20s eases.
+const SPAWN_BASE_MS = 1500;      // 1200 was hostile to first-time
+                                 // players. 1500 gives a fair
+                                 // onboarding window without softening
+                                 // the mid- or late-game.
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
 const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
 const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
-const ORANGE_MIX_RAMP_S = 90;    // orange density ramp left untouched
-                                 // — speed and spawn rate keep climbing
-                                 // faster while the yellow:other ratio
-                                 // stays where it was.
+const ORANGE_MIX_RAMP_S = 90;    // orange density ramp untouched —
+                                 // yellow ratio holds.
 // Bonus double-spawns removed. The threshold-trigger model produced a
 // hard cliff the moment speed mult crossed it (~5min on the previous
 // halflife). Smooth exponential is a better long-game curve.
@@ -94,9 +94,16 @@ const ORANGE_MIX_RAMP_S = 90;    // orange density ramp left untouched
 //
 // Interleaved cadence (15, 30, 35, 50, 55, 70, ...) means the player
 // always knows roughly when the next threat or rescue is coming.
-const PICKUP_INJECTION_FIRST_S = 15;
+const PICKUP_INJECTION_FIRST_S = 30;     // pushed from 15s — at 15s a
+                                         // first-time player is still
+                                         // learning verdicts and would
+                                         // grab the trap. 30s gives them
+                                         // a chance to find rhythm.
 const PICKUP_INJECTION_EVERY_S = 20;
-const PICKUP_SHIELD_FIRST_S    = 30;
+const PICKUP_SHIELD_FIRST_S    = 40;     // bumped from 30 to interleave
+                                         // with new injection schedule:
+                                         // injection 30s, shield 40s,
+                                         // injection 50s, shield 60s, ...
 const PICKUP_SHIELD_EVERY_S    = 20;
 const PICKUP_FALL_SPEED        = 1.05;  // px/frame at speedMult=1 (slightly
                                         // slower than icons so the player

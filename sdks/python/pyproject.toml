@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tex-guardrail"
+version = "1.0.0"
+description = "Official Python SDK for Tex - the gate between AI and the real world."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [
+    {name = "VortexBlack"},
+]
+keywords = [
+    "ai",
+    "agent",
+    "guardrail",
+    "governance",
+    "owasp",
+    "asi",
+    "compliance",
+    "audit",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://texaegis.com"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tex_guardrail*"]

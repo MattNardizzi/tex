@@ -9,7 +9,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tex.api.arcade_leaderboard import router as arcade_leaderboard_router  # ARCADE
+from tex.api.guardrail import router as guardrail_router  # GUARDRAIL: canonical webhook
+from tex.api.guardrail_adapters import router as guardrail_adapters_router  # GUARDRAIL: gateway adapters
+from tex.api.guardrail_streaming import router as guardrail_streaming_router  # GUARDRAIL: SSE + async
 from tex.api.leaderboard import router as leaderboard_router  # LEADERBOARD
+from tex.api.mcp_server import router as mcp_router  # MCP: server interface
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
 from tex.commands.calibrate_policy import CalibratePolicyCommand
@@ -378,6 +382,10 @@ def create_app(
     app.include_router(build_api_router())
     app.include_router(leaderboard_router)  # LEADERBOARD
     app.include_router(arcade_leaderboard_router)  # ARCADE
+    app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
+    app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
+    app.include_router(guardrail_streaming_router)  # GUARDRAIL: SSE + async + chunk streaming
+    app.include_router(mcp_router)  # MCP: server interface
 
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:
@@ -392,6 +400,29 @@ def create_app(
             "precedent_count": len(resolved_runtime.precedent_store.list_all()),
             "entity_count": len(resolved_runtime.entity_store.list_all()),
             "evidence_path": str(resolved_runtime.evidence_recorder.path),
+            "integrations": {
+                "canonical_guardrail": "POST /v1/guardrail",
+                "guardrail_formats": "GET /v1/guardrail/formats",
+                "streaming": {
+                    "sse_progressive": "POST /v1/guardrail/stream",
+                    "token_chunk": "POST /v1/guardrail/stream/chunk",
+                },
+                "async": {
+                    "submit": "POST /v1/guardrail/async",
+                    "poll": "GET /v1/guardrail/async/{decision_id}",
+                },
+                "gateway_adapters": {
+                    "portkey": "POST /v1/guardrail/portkey",
+                    "litellm": "POST /v1/guardrail/litellm",
+                    "cloudflare": "POST /v1/guardrail/cloudflare",
+                    "solo": "POST /v1/guardrail/solo",
+                    "truefoundry": "POST /v1/guardrail/truefoundry",
+                    "bedrock": "POST /v1/guardrail/bedrock",
+                    "copilot_studio": "POST /v1/guardrail/copilot-studio",
+                    "agentkit": "POST /v1/guardrail/agentkit",
+                },
+                "mcp_server": "POST /mcp",
+            },
         }
 
     return app

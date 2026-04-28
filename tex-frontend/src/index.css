@@ -3188,7 +3188,7 @@ body::after {
   background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-panel) 100%);
   border: 1px solid var(--rule-3);
   border-radius: 14px;
-  padding: 28px 36px 26px;
+  padding: 36px 40px 32px;
   box-shadow:
     0 30px 80px rgba(0, 0, 0, 0.65),
     0 0 0 1px rgba(95, 240, 255, 0.08) inset,
@@ -3234,7 +3234,7 @@ body::after {
   letter-spacing: 0.18em;
   color: var(--cyan);
   text-transform: uppercase;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 .briefing-eyebrow-mark {
   width: 8px;
@@ -3253,13 +3253,13 @@ body::after {
   font-size: 38px;
   font-weight: 800;
   letter-spacing: 0.02em;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   color: var(--ink);
   text-shadow: 0 0 24px rgba(95, 240, 255, 0.18);
 }
 
 .briefing-sub {
-  margin: 0 0 18px;
+  margin: 0 0 22px;
   font-size: 15px;
   line-height: 1.55;
   color: var(--ink-dim);
@@ -3271,14 +3271,14 @@ body::after {
 .briefing-rules {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 22px;
 }
 
 .briefing-rule {
   display: flex;
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--rule-2);
@@ -3320,8 +3320,8 @@ body::after {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 10px 14px;
-  margin-bottom: 18px;
+  padding: 12px 16px;
+  margin-bottom: 26px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--rule-2);
   border-radius: 8px;
@@ -3341,8 +3341,8 @@ body::after {
   display: inline-block;
   min-width: 22px;
   padding: 3px 7px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--bg-elev);
+  border: 1px solid var(--rule-3);
   border-bottom-width: 2px;
   border-radius: 4px;
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -3351,7 +3351,6 @@ body::after {
   color: var(--ink);
   text-align: center;
   line-height: 1.2;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 .briefing-controls .ctrl-or {
   font-size: 10px;
@@ -3362,10 +3361,10 @@ body::after {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-dim);
   padding: 3px 7px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--bg-elev);
+  border: 1px solid var(--rule-3);
   border-radius: 4px;
 }
 .briefing-controls .ctrl-label {
@@ -3375,19 +3374,16 @@ body::after {
 }
 
 /* Icon legend ─────────────────────────────────────── */
-.briefing-legend-head {
-  margin-bottom: 10px;
-}
 .briefing-legend-title {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.16em;
-  color: var(--ink);
-  margin-bottom: 4px;
+  color: var(--ink-dim);
+  margin-bottom: 6px;
 }
 .briefing-legend-sub {
-  margin: 0;
+  margin: 0 0 14px;
   font-size: 12px;
   color: var(--ink-mid);
   line-height: 1.5;
@@ -3396,108 +3392,65 @@ body::after {
 .briefing-legend-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 22px;
+  gap: 10px;
+  margin-bottom: 26px;
 }
 
 .briefing-legend-cell {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--rule-2);
   border-radius: 8px;
 }
 
+.briefing-icon-canvas {
+  flex: 0 0 56px;
+  display: block;
+}
+
+.briefing-legend-text { min-width: 0; }
 .briefing-legend-label {
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--ink);
-  flex: 0 0 auto;
+  margin-bottom: 3px;
 }
-
-.briefing-legend-triad {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.briefing-mini-canvas {
-  display: block;
-  width: 36px;
-  height: 36px;
+.briefing-legend-desc {
+  font-size: 12px;
+  color: var(--ink-mid);
+  line-height: 1.4;
 }
 
 /* CTA row ─────────────────────────────────────── */
 .briefing-cta-row {
   display: flex;
   justify-content: center;
-  padding-top: 4px;
+  padding-top: 6px;
 }
-/* Override .btn-cta's pink to PERMIT-green specifically for the briefing —
-   "yes, let me in" reads green, not hot pink. Keeps the same structural
-   button and breathe animation. */
 .briefing-cta {
   min-width: 360px;
-  background: var(--green);
-  color: #02160B;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.10) inset,
-    0 0 24px rgba(95, 250, 159, 0.35),
-    0 0 64px rgba(95, 250, 159, 0.18),
-    0 12px 32px rgba(0, 0, 0, 0.4);
-}
-.briefing-cta:hover {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
-    0 0 36px rgba(95, 250, 159, 0.55),
-    0 0 96px rgba(95, 250, 159, 0.32),
-    0 16px 40px rgba(0, 0, 0, 0.5);
-}
-.briefing-cta.breathe {
-  animation: briefing-cta-breathe 2.6s ease-in-out infinite;
-}
-@keyframes briefing-cta-breathe {
-  0%, 100% {
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.10) inset,
-      0 0 24px rgba(95, 250, 159, 0.35),
-      0 0 64px rgba(95, 250, 159, 0.18),
-      0 12px 32px rgba(0, 0, 0, 0.4);
-  }
-  50% {
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.18) inset,
-      0 0 44px rgba(95, 250, 159, 0.6),
-      0 0 110px rgba(95, 250, 159, 0.36),
-      0 14px 36px rgba(0, 0, 0, 0.5);
-  }
 }
 
 /* Mobile responsive ───────────────────────────── */
-@media (max-width: 920px) {
-  .briefing-card { padding: 28px 28px 24px; }
-  .briefing-legend-grid { grid-template-columns: repeat(2, 1fr); }
-}
 @media (max-width: 720px) {
   .briefing-overlay { padding: 12px; }
-  .briefing-card { padding: 22px 18px 20px; }
+  .briefing-card { padding: 24px 20px 22px; }
   .briefing-title { font-size: 28px; }
   .briefing-sub { font-size: 14px; }
   .briefing-rules { grid-template-columns: 1fr; }
-  .briefing-legend-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .briefing-legend-grid { grid-template-columns: repeat(2, 1fr); }
   .briefing-controls { gap: 14px; padding: 10px 12px; }
   .briefing-cta { min-width: 0; width: 100%; }
-  .briefing-mini-canvas { width: 30px; height: 30px; }
 }
 
 @media (max-width: 420px) {
   .briefing-legend-grid { grid-template-columns: 1fr; }
-  .briefing-mini-canvas { width: 28px; height: 28px; }
+  .briefing-icon-canvas { flex: 0 0 48px; }
 }
 
 /* ─────────────────────────────────────────────────────────────

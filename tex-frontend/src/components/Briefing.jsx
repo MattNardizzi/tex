@@ -3,48 +3,46 @@ import { drawIcon, paletteFor } from "./Arcade.jsx";
 import { clickSfx } from "../lib/sounds.js";
 
 /*
-  Briefing v1 — pre-game how-to-play screen for /arcade.
+  Briefing v2 — pre-game how-to-play screen for /arcade.
   ─────────────────────────────────────────────────────
   Renders a single overlay above the arcade stage with:
     • the three core rules (one block per verdict color)
-    • the full 9-icon legend (real canvas sprites, neutral palette)
+    • the 9-icon legend, each rendered AS A TRIAD of green/yellow/red
+      mini-icons so the player can SEE that the same shape carries
+      different verdicts. The verdict-color teaching happens in the
+      legend itself rather than in three paragraphs above it.
     • a primary CTA to start, plus dismiss-on-Enter/Space
-
-  This component does NOT render the canvas game. It assumes the
-  parent (Arcade.jsx) is already mounted and is gated on phase.
 
   Props:
     onStart  — fire when player clicks "DEFEND THE GATE" or hits Enter/Space
-    onClose  — optional secondary close (X). If provided, renders the X
-               (used when briefing is opened mid-game from "?" button).
-    canSkip  — boolean; when true, "X" / "skip" is shown even without
-               onClose (it just calls onStart). Use after first play.
+    onClose  — optional secondary close (X). If provided, renders the X.
+    canSkip  — boolean; when true, "X" is shown even without onClose.
 */
 
-// The 9 surfaces with one-line plain-English descriptions. Order is
-// matched to the SURFACE_KEYS array in Arcade.jsx for consistency.
+// The 9 surfaces. Order matched to SURFACE_KEYS in Arcade.jsx.
 const SURFACES_LEGEND = [
-  { key: "email",     label: "EMAIL",      desc: "Outbound email drafts" },
-  { key: "slack",     label: "SLACK",      desc: "Internal team messages" },
-  { key: "sms",       label: "SMS",        desc: "Text messages to contacts" },
-  { key: "crm",       label: "CRM",        desc: "Salesforce / HubSpot writes" },
-  { key: "db_api",    label: "DATABASE",   desc: "Direct database queries" },
-  { key: "code_pr",   label: "CODE PR",    desc: "Pull requests / deploys" },
-  { key: "calendar",  label: "CALENDAR",   desc: "Meetings and invites" },
-  { key: "files",     label: "FILES",      desc: "Document exports / shares" },
-  { key: "financial", label: "FINANCIAL",  desc: "Wires, refunds, payments" },
+  { key: "email",     label: "EMAIL"     },
+  { key: "slack",     label: "SLACK"     },
+  { key: "sms",       label: "SMS"       },
+  { key: "crm",       label: "CRM"       },
+  { key: "db_api",    label: "DATABASE"  },
+  { key: "code_pr",   label: "CODE PR"   },
+  { key: "calendar",  label: "CALENDAR"  },
+  { key: "files",     label: "FILES"     },
+  { key: "financial", label: "FINANCIAL" },
 ];
 
-// Small canvas tile that renders one of the real game icons at small size.
-// Uses the ABSTAIN (yellow) palette so it reads neutral on the dark panel —
-// the verdict colors are reserved for the rule blocks above the legend.
-function IconTile({ surfaceKey }) {
+const VERDICTS = ["PERMIT", "ABSTAIN", "FORBID"];
+
+// Single mini-canvas for one (surface, verdict) pair. Small enough that
+// three sit side by side in one legend cell.
+function MiniIcon({ surfaceKey, verdict }) {
   const ref = useRef(null);
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cssSize = 56;
+    const cssSize = 36;
     cv.width = cssSize * dpr;
     cv.height = cssSize * dpr;
     cv.style.width = `${cssSize}px`;
@@ -52,17 +50,23 @@ function IconTile({ surfaceKey }) {
     const ctx = cv.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssSize, cssSize);
-    // Subtle dark backdrop circle so the icon reads on the panel
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    ctx.beginPath();
-    ctx.arc(cssSize / 2, cssSize / 2, cssSize / 2 - 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    // Draw the real game icon, neutral (yellow) palette so we don't imply verdict
-    drawIcon(ctx, surfaceKey, cssSize / 2, cssSize / 2, 42, paletteFor("ABSTAIN"));
-  }, [surfaceKey]);
-  return <canvas ref={ref} className="briefing-icon-canvas" aria-hidden="true" />;
+    drawIcon(ctx, surfaceKey, cssSize / 2, cssSize / 2, 28, paletteFor(verdict));
+  }, [surfaceKey, verdict]);
+  return <canvas ref={ref} className="briefing-mini-canvas" aria-hidden="true" />;
+}
+
+// One legend cell = label + a triad of green/yellow/red versions of the icon.
+function IconTriadCell({ surfaceKey, label }) {
+  return (
+    <div className="briefing-legend-cell">
+      <div className="briefing-legend-label">{label}</div>
+      <div className="briefing-legend-triad">
+        {VERDICTS.map((v) => (
+          <MiniIcon key={v} surfaceKey={surfaceKey} verdict={v} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function Briefing({ onStart, onClose, canSkip = false }) {
@@ -117,18 +121,16 @@ export default function Briefing({ onStart, onClose, canSkip = false }) {
             <div className="rule-body">
               <div className="rule-label">GREEN · PERMIT</div>
               <div className="rule-desc">
-                Safe action. <b>Let it pass.</b> Don't shoot it. It will
-                clear the gate on its own.
+                Safe action. <b>Let it pass.</b> Don't shoot — it'll clear the gate on its own.
               </div>
             </div>
           </div>
           <div className="briefing-rule rule-abstain">
             <div className="rule-swatch" />
             <div className="rule-body">
-              <div className="rule-label">ORANGE · ABSTAIN</div>
+              <div className="rule-label">YELLOW · ABSTAIN</div>
               <div className="rule-desc">
-                Needs a human. <b>Move under the yellow target marker</b> —
-                Tex captures it for review. Don't shoot.
+                Needs a human. <b>Stand under it</b> — Tex captures it for review.
               </div>
             </div>
           </div>
@@ -138,7 +140,6 @@ export default function Briefing({ onStart, onClose, canSkip = false }) {
               <div className="rule-label">RED · FORBID</div>
               <div className="rule-desc">
                 Dangerous. <b>Shoot it down</b> before it reaches the gate.
-                Misses cause breaches.
               </div>
             </div>
           </div>
@@ -170,21 +171,16 @@ export default function Briefing({ onStart, onClose, canSkip = false }) {
           </div>
         </div>
 
-        {/* Icon legend */}
-        <div className="briefing-legend-title">WHAT EACH ICON MEANS</div>
-        <p className="briefing-legend-sub">
-          Color tells you the verdict. Shape tells you what kind of action
-          the agent is about to take.
-        </p>
+        {/* Icon legend — each surface shows all three verdict colors */}
+        <div className="briefing-legend-head">
+          <div className="briefing-legend-title">SAME SHAPE, THREE VERDICTS</div>
+          <div className="briefing-legend-sub">
+            Color decides what you do. Shape tells you which surface the agent's hitting.
+          </div>
+        </div>
         <div className="briefing-legend-grid">
           {SURFACES_LEGEND.map((s) => (
-            <div className="briefing-legend-cell" key={s.key}>
-              <IconTile surfaceKey={s.key} />
-              <div className="briefing-legend-text">
-                <div className="briefing-legend-label">{s.label}</div>
-                <div className="briefing-legend-desc">{s.desc}</div>
-              </div>
-            </div>
+            <IconTriadCell key={s.key} surfaceKey={s.key} label={s.label} />
           ))}
         </div>
 

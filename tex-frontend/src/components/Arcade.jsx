@@ -911,10 +911,33 @@ export default function Arcade({ onComplete, onBail }) {
       g.lasers = g.lasers.filter((l) => l.y > -20);
 
       // ── Move icons + collisions + outcomes ──────────────────────────
+      const gateLineForPull = LOGICAL_H - GATE_HEIGHT;
       for (const ic of g.icons) {
         if (ic.state !== "active") continue;
         ic.y += ic.vy * g.speedMult * dt;
         ic.rot += ic.rotSpeed * dt;
+
+        // Magnetic pull: ABSTAIN icons in the lower 30% of fall get gently
+        // tugged toward Tex if Tex is roughly under them. Preserves player
+        // skill (won't save a way-off-target Tex) but rewards being close.
+        if (ic.verdict === "ABSTAIN") {
+          const fallT = ic.y / gateLineForPull;        // 0 at top, 1 at gate
+          if (fallT > 0.70) {
+            const dx = g.tex.x - ic.x;
+            const adx = Math.abs(dx);
+            const reach = ABSTAIN_CAPTURE_TOLERANCE * 1.6;
+            if (adx > 1 && adx < reach) {
+              // Strength ramps with proximity to gate (0 → 1 over last 30%)
+              // and falls off at the edge of reach.
+              const proxStrength = (fallT - 0.70) / 0.30;             // 0..1
+              const horizFalloff  = 1 - (adx / reach);                 // 0..1
+              const pullPxPerFrame = 0.95 * proxStrength * horizFalloff;
+              const sign = dx > 0 ? 1 : -1;
+              // Don't overshoot: cap to actual remaining gap.
+              ic.x += sign * Math.min(pullPxPerFrame * dt, adx - 0.5);
+            }
+          }
+        }
       }
 
       // Laser ↔ icon collisions
@@ -1206,6 +1229,10 @@ export default function Arcade({ onComplete, onBail }) {
     // ── Background ────────────────────────────────────────────────────
     drawBackground(ctx, g);
 
+    // ── Catch beam + landing reticles (BEHIND falling icons) ─────────
+    drawCatchBeam(ctx, g);
+    drawCatchReticles(ctx, g);
+
     // ── Falling icons ─────────────────────────────────────────────────
     for (const ic of g.icons) {
       drawFallingIcon(ctx, ic);
@@ -1360,6 +1387,121 @@ export default function Arcade({ onComplete, onBail }) {
     ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
   }
 
+  // ── Catch beam — vertical column projecting from Tex upward ────────────
+  // Tells the player WHERE the ABSTAIN catch zone is. Pulses softly at rest;
+  // intensifies when an active orange icon is inside the column.
+  function drawCatchBeam(ctx, g) {
+    const cx = g.tex.x;
+    const halfW = ABSTAIN_CAPTURE_TOLERANCE;
+    const topY = 0;
+    const botY = g.tex.y + 10; // beam terminates just above Tex's hands
+    const now = performance.now();
+
+    // Detect "armed" — any active orange currently inside column
+    let armed = false;
+    let nearestT = Infinity; // 0 = at top, 1 = at Tex height
+    for (const ic of g.icons) {
+      if (ic.state !== "active" || ic.verdict !== "ABSTAIN") continue;
+      if (Math.abs(ic.x - cx) <= halfW * 1.4) {
+        armed = true;
+        const t = clamp((ic.y - topY) / (botY - topY), 0, 1);
+        if (t < nearestT) nearestT = t;
+      }
+    }
+
+    // Idle pulse 0.55..0.75; armed jumps to 0.95
+    const pulse = 0.55 + 0.10 * Math.sin(now / 380);
+    const intensity = armed ? 0.95 : pulse;
+
+    // 1. Soft outer halo column — wide, low-alpha
+    const outerW = halfW * 2.6;
+    const outerGrad = ctx.createLinearGradient(cx - outerW, 0, cx + outerW, 0);
+    outerGrad.addColorStop(0,    "rgba(255, 216, 61, 0)");
+    outerGrad.addColorStop(0.45, `rgba(255, 216, 61, ${0.06 * intensity})`);
+    outerGrad.addColorStop(0.55, `rgba(255, 216, 61, ${0.06 * intensity})`);
+    outerGrad.addColorStop(1,    "rgba(255, 216, 61, 0)");
+    ctx.fillStyle = outerGrad;
+    ctx.fillRect(cx - outerW, topY, outerW * 2, botY - topY);
+
+    // 2. Inner core column — narrower, brighter
+    const coreGrad = ctx.createLinearGradient(cx - halfW, 0, cx + halfW, 0);
+    coreGrad.addColorStop(0,    "rgba(255, 216, 61, 0)");
+    coreGrad.addColorStop(0.5,  `rgba(255, 216, 61, ${0.20 * intensity})`);
+    coreGrad.addColorStop(1,    "rgba(255, 216, 61, 0)");
+    ctx.fillStyle = coreGrad;
+    ctx.fillRect(cx - halfW, topY, halfW * 2, botY - topY);
+
+    // 3. Vertical edge rails — dashed, animated downward to suggest "pull"
+    const dashLen = 14, gap = 10;
+    const period = dashLen + gap;
+    const flow = (now / 60) % period; // px scrolled per frame baseline
+    ctx.strokeStyle = `rgba(255, 216, 61, ${0.55 * intensity})`;
+    ctx.lineWidth = 1.5;
+    for (const xEdge of [cx - halfW, cx + halfW]) {
+      ctx.beginPath();
+      for (let y = topY - period + flow; y < botY; y += period) {
+        ctx.moveTo(xEdge, y);
+        ctx.lineTo(xEdge, Math.min(y + dashLen, botY));
+      }
+      ctx.stroke();
+    }
+
+    // 4. When armed and the orange is near the bottom, ring-burst at Tex top
+    if (armed && nearestT > 0.7) {
+      const t = (nearestT - 0.7) / 0.3; // 0..1 as orange approaches
+      const ringR = halfW * (1.0 + t * 0.4);
+      ctx.strokeStyle = `rgba(255, 216, 61, ${0.7 * t})`;
+      ctx.lineWidth = 2 + t * 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, botY - 8, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // ── Landing reticle — ground marker showing where each orange will land ─
+  // Small pulsing target on the gate floor directly under each active orange.
+  // Tightens as the icon falls closer to the gate.
+  function drawCatchReticles(ctx, g) {
+    const gateLine = LOGICAL_H - GATE_HEIGHT;
+    const now = performance.now();
+    for (const ic of g.icons) {
+      if (ic.state !== "active" || ic.verdict !== "ABSTAIN") continue;
+      // 0 at spawn, 1 at gate
+      const t = clamp((ic.y + ICON_SIZE / 2) / gateLine, 0, 1);
+      // Reticle radius shrinks 36 → 14 as the orange descends
+      const r = lerp(36, 14, t);
+      // Pulse adds rhythm
+      const pulse = 0.85 + 0.15 * Math.sin(now / 180 + ic.id * 0.7);
+      const alpha = (0.35 + 0.55 * t) * pulse;
+      const cx = ic.x;
+      const cy = gateLine - 4;
+
+      ctx.save();
+      // Outer ring
+      ctx.strokeStyle = `rgba(255, 216, 61, ${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner cross-hair tick marks (N/S/E/W)
+      const tick = r * 0.35;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy - r + tick);
+      ctx.moveTo(cx, cy + r); ctx.lineTo(cx, cy + r - tick);
+      ctx.moveTo(cx - r, cy); ctx.lineTo(cx - r + tick, cy);
+      ctx.moveTo(cx + r, cy); ctx.lineTo(cx + r - tick, cy);
+      ctx.stroke();
+
+      // Center dot
+      ctx.fillStyle = `rgba(255, 216, 61, ${alpha * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   function drawFallingIcon(ctx, ic) {
     const pal = paletteFor(ic.verdict);
 
@@ -1430,15 +1572,7 @@ export default function Arcade({ onComplete, onBail }) {
     ctx.lineTo(LOGICAL_W, top);
     ctx.stroke();
 
-    // Tex's column highlight (where ABSTAIN captures)
-    const colCenter = g.tex.x;
-    const colHalf = ABSTAIN_CAPTURE_TOLERANCE;
-    const colGrad = ctx.createLinearGradient(colCenter - colHalf, 0, colCenter + colHalf, 0);
-    colGrad.addColorStop(0, "rgba(95, 240, 255, 0)");
-    colGrad.addColorStop(0.5, "rgba(95, 240, 255, 0.10)");
-    colGrad.addColorStop(1, "rgba(95, 240, 255, 0)");
-    ctx.fillStyle = colGrad;
-    ctx.fillRect(colCenter - colHalf, 0, colHalf * 2, LOGICAL_H);
+    // (Capture-zone visualization moved to drawCatchBeam, drawn behind icons.)
   }
 
   // ── HUD click handlers ────────────────────────────────────────────────

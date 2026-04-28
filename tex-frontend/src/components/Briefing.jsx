@@ -127,8 +127,8 @@ export default function Briefing({ onStart, onClose, canSkip = false }) {
             <div className="rule-body">
               <div className="rule-label">ORANGE · ABSTAIN</div>
               <div className="rule-desc">
-                Needs a human. <b>Stand under it</b> — Tex captures it for
-                review. Don't shoot.
+                Needs a human. <b>Move into the yellow beam</b> under it —
+                Tex captures it for review. Don't shoot.
               </div>
             </div>
           </div>

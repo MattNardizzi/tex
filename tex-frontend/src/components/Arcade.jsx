@@ -562,9 +562,9 @@ export default function Arcade({ onComplete, onBail }) {
 
   // ── Input refs (so we don't rebind on every render) ───────────────────
   const inputRef = useRef({
-    left: false, right: false, fire: false,
+    left: false, right: false,
+    fireRequested: false,        // single-shot trigger; consumed by game loop
     pointerActive: false, pointerX: null,
-    autoFire: true,
   });
 
   // ── Init / reset game state ───────────────────────────────────────────
@@ -621,23 +621,26 @@ export default function Arcade({ onComplete, onBail }) {
   }, [phase, initGame]);
 
   // ── Keyboard input ────────────────────────────────────────────────────
+  // Single-shot fire: each SPACE press triggers ONE laser. No auto-repeat,
+  // no held-button continuous fire. This makes shooting a deliberate
+  // PER-ICON decision, matching the Tex mechanic.
   useEffect(() => {
     function onDown(e) {
       if (phase !== "playing") {
         if (e.key === "Escape") onBail?.();
         return;
       }
+      if (e.repeat) return; // ignore key auto-repeat
       if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") inputRef.current.left = true;
       else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") inputRef.current.right = true;
       else if (e.key === " " || e.code === "Space") {
         e.preventDefault();
-        inputRef.current.fire = true;
+        inputRef.current.fireRequested = true; // single-shot trigger
       } else if (e.key === "Escape") onBail?.();
     }
     function onUp(e) {
       if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") inputRef.current.left = false;
       else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") inputRef.current.right = false;
-      else if (e.key === " " || e.code === "Space") inputRef.current.fire = false;
     }
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
@@ -648,10 +651,10 @@ export default function Arcade({ onComplete, onBail }) {
   }, [phase, onBail]);
 
   // ── Pointer (mouse / touch) input ─────────────────────────────────────
-  // Mouse: hover to move, hold left-click to fire.
-  // Touch: drag anywhere to move; press the FIRE button (rendered as JSX
-  // overlay) to fire. This separation prevents the "tap to move = accidental
-  // shot" problem.
+  // Desktop: mouse hover follows Tex (no click required, no click-to-fire).
+  //          Firing is SPACE-only.
+  // Touch:   drag anywhere to move; press the FIRE button (separate JSX
+  //          overlay) to fire. Tap-to-move is a follow, not a fire trigger.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -661,43 +664,57 @@ export default function Arcade({ onComplete, onBail }) {
       const ratio = LOGICAL_W / rect.width;
       return (clientX - rect.left) * ratio;
     }
-    function onPointerDown(e) {
+
+    // Desktop hover-to-move (no buttons needed)
+    function onMouseMove(e) {
+      if (phase !== "playing") return;
+      inputRef.current.pointerActive = true;
+      inputRef.current.pointerX = localX(e.clientX);
+    }
+    function onMouseLeave() {
+      inputRef.current.pointerActive = false;
+      inputRef.current.pointerX = null;
+    }
+    // Desktop click-to-fire — single shot per click
+    function onMouseDown(e) {
+      if (phase !== "playing") return;
+      e.preventDefault();
+      inputRef.current.fireRequested = true;
+    }
+
+    // Touch drag to move (no fire — fire is the dedicated button)
+    function onTouchStart(e) {
       if (phase !== "playing") return;
       e.preventDefault();
       inputRef.current.pointerActive = true;
-      inputRef.current.pointerX = localX(e.clientX ?? e.touches?.[0]?.clientX ?? 0);
-      // Mouse button = fire. Touch = move only (fire button is separate).
-      if (e.pointerType === "mouse" || e.type === "mousedown") {
-        inputRef.current.fire = true;
-      }
+      inputRef.current.pointerX = localX(e.touches?.[0]?.clientX ?? 0);
     }
-    function onPointerMove(e) {
+    function onTouchMove(e) {
       if (!inputRef.current.pointerActive) return;
       e.preventDefault();
-      inputRef.current.pointerX = localX(e.clientX ?? e.touches?.[0]?.clientX ?? 0);
+      inputRef.current.pointerX = localX(e.touches?.[0]?.clientX ?? 0);
     }
-    function onPointerUp(e) {
+    function onTouchEnd() {
       inputRef.current.pointerActive = false;
       inputRef.current.pointerX = null;
-      if (e?.pointerType === "mouse" || e?.type === "mouseup") {
-        inputRef.current.fire = false;
-      }
     }
 
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("touchstart", onPointerDown, { passive: false });
-    canvas.addEventListener("touchmove", onPointerMove,  { passive: false });
-    canvas.addEventListener("touchend", onPointerUp);
+    canvas.addEventListener("mousemove", onMouseMove);
+    canvas.addEventListener("mouseleave", onMouseLeave);
+    canvas.addEventListener("mousedown",  onMouseDown);
+    canvas.addEventListener("touchstart", onTouchStart, { passive: false });
+    canvas.addEventListener("touchmove",  onTouchMove,  { passive: false });
+    canvas.addEventListener("touchend",   onTouchEnd);
+    canvas.addEventListener("touchcancel", onTouchEnd);
 
     return () => {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("touchstart", onPointerDown);
-      canvas.removeEventListener("touchmove", onPointerMove);
-      canvas.removeEventListener("touchend", onPointerUp);
+      canvas.removeEventListener("mousemove", onMouseMove);
+      canvas.removeEventListener("mouseleave", onMouseLeave);
+      canvas.removeEventListener("mousedown",  onMouseDown);
+      canvas.removeEventListener("touchstart", onTouchStart);
+      canvas.removeEventListener("touchmove",  onTouchMove);
+      canvas.removeEventListener("touchend",   onTouchEnd);
+      canvas.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [phase]);
 
@@ -775,22 +792,24 @@ export default function Arcade({ onComplete, onBail }) {
       }
       g.tex.x = clamp(g.tex.x, TEX_W / 2 + 8, LOGICAL_W - TEX_W / 2 - 8);
 
-      // ── Fire ────────────────────────────────────────────────────────
-      // Important: firing is a CHOICE — green icons should be let through.
-      // Auto-fire would break that. So we require the player to actively
-      // hold space (desktop) or tap-and-hold (mobile) to fire. The pointer
-      // movement controls Tex; firing is a separate intentional action.
-      const wantsFire = inp.fire;
-      if (wantsFire && nowFrame - g.lastFire >= FIRE_COOLDOWN_MS) {
-        g.lasers.push({
-          id: ++g.iconCounter,
-          x: g.tex.x,
-          y: g.tex.y - TEX_H / 2 - 4,
-          vy: -LASER_SPEED,
-        });
-        g.lastFire = nowFrame;
-        g.tex.recoilUntil = nowFrame + 90;
-        chargeSfx();
+      // ── Fire (single-shot per request) ──────────────────────────────
+      // Each SPACE press, mouse click, or FIRE-button tap sets
+      // `fireRequested = true`. The loop consumes that flag (sets it back
+      // to false) and emits exactly ONE laser per request, respecting the
+      // cooldown so spammed clicks don't bypass it.
+      if (inp.fireRequested) {
+        inp.fireRequested = false;
+        if (nowFrame - g.lastFire >= FIRE_COOLDOWN_MS) {
+          g.lasers.push({
+            id: ++g.iconCounter,
+            x: g.tex.x,
+            y: g.tex.y - TEX_H / 2 - 4,
+            vy: -LASER_SPEED,
+          });
+          g.lastFire = nowFrame;
+          g.tex.recoilUntil = nowFrame + 90;
+          chargeSfx();
+        }
       }
 
       // ── Spawn icons ─────────────────────────────────────────────────
@@ -1378,10 +1397,9 @@ export default function Arcade({ onComplete, onBail }) {
   // ── HUD click handlers ────────────────────────────────────────────────
   const handleBail = () => { clickSfx(); onBail?.(); };
 
-  // Mobile FIRE button — onTouchStart/End so we don't conflict with canvas
-  // pointer events. The button only renders on touch devices via CSS.
-  const fireBtnDown = (e) => { e.preventDefault(); inputRef.current.fire = true; };
-  const fireBtnUp   = (e) => { e.preventDefault(); inputRef.current.fire = false; };
+  // Mobile FIRE button — single shot per tap (no held continuous fire).
+  const fireBtnDown = (e) => { e.preventDefault(); inputRef.current.fireRequested = true; };
+  const fireBtnUp   = (e) => { e.preventDefault(); /* no-op — single shot */ };
 
   // ── Render JSX (chrome only) ──────────────────────────────────────────
   const intPct = clamp(hud.integrity / INTEGRITY_MAX, 0, 1);
@@ -1496,9 +1514,9 @@ export default function Arcade({ onComplete, onBail }) {
           <div className="arcade-ready-num">{readyNum > 0 ? readyNum : "GO"}</div>
           <div className="arcade-ready-sub">DEFEND THE GATE</div>
           <div className="arcade-ready-tip">
-            ← / → or drag to move &nbsp;·&nbsp; HOLD SPACE / FIRE to shoot RED
+            move your mouse / drag to position TEX &nbsp;·&nbsp; CLICK or SPACE to fire ONE laser
             <br />
-            <span style={{ opacity: 0.7 }}>let GREEN through &nbsp;·&nbsp; stand under ORANGE to capture</span>
+            <span style={{ opacity: 0.7 }}>shoot RED &nbsp;·&nbsp; let GREEN through &nbsp;·&nbsp; stand under ORANGE to capture</span>
           </div>
         </div>
       )}

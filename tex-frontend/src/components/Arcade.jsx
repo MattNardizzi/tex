@@ -76,8 +76,12 @@ const SPAWN_BASE_MS = 1500;      // 1200 was hostile to first-time
                                  // onboarding window without softening
                                  // the mid- or late-game.
 const SPAWN_FLOOR_MS = 380;      // minimum gap at peak difficulty
-const ORANGE_MIX_START = 0.08;   // 8% of spawns are orange early
-const ORANGE_MIX_PEAK = 0.30;    // 30% at peak
+const ORANGE_MIX_START = 0.06;   // 6% of spawns are orange early (was
+                                 // 0.08 — slightly gentler opening)
+const ORANGE_MIX_PEAK = 0.18;    // 18% at peak (was 0.30 — yellows were
+                                 // dominating mid-late game and letting
+                                 // the player farm them while ignoring
+                                 // reds)
 const ORANGE_MIX_RAMP_S = 90;    // orange density ramp untouched —
                                  // yellow ratio holds.
 // Bonus double-spawns removed. The threshold-trigger model produced a
@@ -193,6 +197,16 @@ function orangeMixAt(elapsedSec) {
   return lerp(ORANGE_MIX_START, ORANGE_MIX_PEAK, t);
 }
 
+// Past the 1-min mark, players were farming yellows and ignoring reds.
+// This bias adds a forbid-leaning push to the green/red coin flip,
+// ramping in from 30s to 120s. By 60s it bumps the red share of the
+// non-orange pool by ~12%; by 120s by ~22%. Caps at 80% so green
+// doesn't disappear entirely.
+function forbidBiasAt(elapsedSec) {
+  const t = clamp((elapsedSec - 30) / 90, 0, 1);  // start at 30s, peak at 120s
+  return t * 0.22;                                // 0 → +22% added to red share
+}
+
 // Pick a verdict + severity for a given surface, using its profile,
 // but respecting the orange-mix curve (forces some ABSTAIN over time).
 function pickVerdictForSurface(surfaceKey, elapsedSec) {
@@ -203,10 +217,12 @@ function pickVerdictForSurface(surfaceKey, elapsedSec) {
     return { verdict: "ABSTAIN", severity: randPick(SEVERITY_BIAS.ABSTAIN) };
   }
   const prof = SURFACE_PROFILE[surfaceKey];
-  // Renormalize permit/forbid (skip abstain since we already gated)
+  // Renormalize permit/forbid (skip abstain since we already gated),
+  // then apply time-based forbid bias so reds don't get drowned out.
   const pSum = prof.permit + prof.forbid;
-  const choose = Math.random() * pSum;
-  if (choose < prof.permit) {
+  const baseForbidShare = prof.forbid / pSum;
+  const forbidShare = Math.min(0.80, baseForbidShare + forbidBiasAt(elapsedSec));
+  if (Math.random() >= forbidShare) {
     return { verdict: "PERMIT", severity: randPick(SEVERITY_BIAS.PERMIT) };
   }
   return { verdict: "FORBID", severity: randPick(SEVERITY_BIAS.FORBID) };

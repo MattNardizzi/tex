@@ -343,7 +343,7 @@ function NextShiftCountdown({ now }) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────
-export default function Hub({ onPlayDaily, onPlayTraining, onOpenWhatIsTex }) {
+export default function Hub({ onPlayDaily, onPlayTraining, onPlayArcade, onOpenWhatIsTex }) {
   const [now, setNow] = useState(() => new Date());
   const [played, setPlayed] = useState(false);
   const [todayRes, setTodayRes] = useState(null);
@@ -378,6 +378,7 @@ export default function Hub({ onPlayDaily, onPlayTraining, onOpenWhatIsTex }) {
     }
   };
   const handleTraining = () => { clickSfx(); onPlayTraining(); };
+  const handleArcade = () => { clickSfx(); onPlayArcade?.(); };
   const handleWhat = () => { clickSfx(); onOpenWhatIsTex(); };
 
   return (
@@ -435,6 +436,14 @@ export default function Hub({ onPlayDaily, onPlayTraining, onOpenWhatIsTex }) {
               >
                 <span className="btn-secondary-label">PRACTICE</span>
                 <span className="btn-secondary-meta">unlimited · no leaderboard</span>
+              </button>
+              <button
+                className="btn-secondary btn-arcade"
+                onClick={handleArcade}
+                aria-label="Arcade mode — gate defense shooter"
+              >
+                <span className="btn-secondary-label">▼ ARCADE</span>
+                <span className="btn-secondary-meta">gate defense · survive the wave</span>
               </button>
               <button
                 className="btn-tertiary"

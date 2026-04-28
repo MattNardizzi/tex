@@ -2622,3 +2622,386 @@ body::after {
 /* Kill the on-figure status pod ("TEX // AEGIS · CLEAR") since the
    frame is gone — it now floats awkwardly. */
 .tex-figure .tex-id { display: none !important; }
+
+/* ──────────────────────────────────────────────────────────────────
+   ARCADE — Tex Gate Defense (vertical shooter)
+   ────────────────────────────────────────────────────────────────── */
+.arcade-stage {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 30%, #0A0E22 0%, #02030A 70%),
+    var(--bg-void);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, "JetBrains Mono", "Fira Code", monospace);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.arcade-canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  box-shadow:
+    0 0 0 1px rgba(95, 240, 255, 0.12),
+    0 30px 80px rgba(0, 0, 0, 0.7),
+    0 0 80px rgba(95, 240, 255, 0.06);
+  border-radius: 4px;
+}
+
+/* HUD — top */
+.arcade-hud-top {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.arcade-hud-pod {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 8px 14px;
+  background: rgba(8, 11, 23, 0.78);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(95, 240, 255, 0.18);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.arcade-hud-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  min-width: 60px;
+}
+.arcade-hud-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+}
+.arcade-hud-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.arcade-hud-divider {
+  width: 1px;
+  background: rgba(95, 240, 255, 0.18);
+}
+
+/* HUD — bottom (integrity bar) */
+.arcade-hud-bottom {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(540px, calc(100vw - 32px));
+  z-index: 10;
+}
+
+.arcade-integrity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(8, 11, 23, 0.78);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(95, 240, 255, 0.18);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.arcade-integrity-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.arcade-integrity-bar {
+  position: relative;
+  height: 14px;
+  background: var(--bg-deep);
+  border: 1px solid rgba(95, 240, 255, 0.22);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.arcade-integrity-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  box-shadow: 0 0 16px rgba(95, 240, 255, 0.5);
+  transition: width 200ms ease-out, background 300ms ease;
+}
+.arcade-integrity.warn .arcade-integrity-fill {
+  background: linear-gradient(90deg, var(--yellow), #FF9F3D);
+  box-shadow: 0 0 16px rgba(255, 216, 61, 0.6);
+}
+.arcade-integrity.crit .arcade-integrity-fill {
+  background: linear-gradient(90deg, var(--red), #FF8A8A);
+  box-shadow: 0 0 22px rgba(255, 71, 71, 0.8);
+  animation: arcade-pulse-red 0.7s ease-in-out infinite;
+}
+@keyframes arcade-pulse-red {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+.arcade-integrity-pct {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 6px rgba(0,0,0,0.9);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Verdict legend */
+.arcade-legend {
+  position: absolute;
+  top: 50%;
+  right: max(16px, calc((100vw - 540px) / 2 - 220px));
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(8, 11, 23, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(95, 240, 255, 0.15);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+  z-index: 5;
+  max-width: 200px;
+}
+.arcade-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.arcade-legend-item b {
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  box-shadow: 0 0 10px currentColor;
+}
+
+/* Hide legend on narrow screens */
+@media (max-width: 900px) {
+  .arcade-legend { display: none; }
+}
+
+/* Ready overlay */
+.arcade-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  background: rgba(2, 3, 10, 0.55);
+  backdrop-filter: blur(2px);
+  padding-top: 80px; /* clear the HUD */
+}
+.arcade-ready-num {
+  font-size: 140px;
+  font-weight: 800;
+  color: var(--cyan);
+  text-shadow: 0 0 40px rgba(95, 240, 255, 0.7);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  animation: arcade-ready-pop 0.8s ease-out;
+}
+.arcade-ready-sub {
+  margin-top: -8px;
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.arcade-ready-tip {
+  margin-top: 26px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--ink-mid);
+}
+@keyframes arcade-ready-pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Game over */
+.arcade-gameover {
+  background: rgba(2, 3, 10, 0.78);
+}
+.arcade-gameover-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 36px 48px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent), var(--bg-panel);
+  border: 1px solid rgba(255, 71, 71, 0.4);
+  border-radius: 6px;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.6),
+    0 0 60px rgba(255, 71, 71, 0.18);
+  pointer-events: auto;
+}
+.arcade-gameover-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.4em;
+  color: var(--red);
+  text-transform: uppercase;
+}
+.arcade-gameover-title {
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  text-shadow: 0 0 20px rgba(255, 71, 71, 0.4);
+}
+.arcade-gameover-stats {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 28px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(95, 240, 255, 0.12);
+  border-bottom: 1px solid rgba(95, 240, 255, 0.12);
+}
+.arcade-gameover-stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.arcade-gameover-stat .stat-label {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+}
+.arcade-gameover-stat .stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.arcade-gameover-cta {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--ink-mid);
+  text-transform: uppercase;
+}
+
+/* Mobile sizing */
+@media (max-width: 540px) {
+  .arcade-hud-top { top: 10px; }
+  .arcade-hud-pod { padding: 6px 10px; }
+  .arcade-hud-block { padding: 0 8px; min-width: 48px; }
+  .arcade-hud-value { font-size: 18px; }
+  .arcade-hud-bottom { bottom: 12px; width: calc(100vw - 16px); }
+  .arcade-gameover-card { padding: 24px; max-width: 92vw; }
+  .arcade-gameover-stats { gap: 14px; grid-template-columns: repeat(2, 1fr); }
+  .arcade-gameover-title { font-size: 28px; }
+  .arcade-ready-num { font-size: 96px; }
+}
+
+/* Arcade button accent — sits between PRACTICE and WHAT IS TEX */
+.btn-secondary.btn-arcade {
+  border-color: rgba(255, 216, 61, 0.35);
+  background: linear-gradient(180deg, rgba(255, 216, 61, 0.05), transparent),
+              var(--bg-elev);
+}
+.btn-secondary.btn-arcade:hover {
+  border-color: var(--yellow);
+  background: linear-gradient(180deg, rgba(255, 216, 61, 0.10), transparent),
+              var(--bg-elev);
+  box-shadow: 0 0 18px rgba(255, 216, 61, 0.18);
+}
+.btn-secondary.btn-arcade .btn-secondary-label {
+  color: var(--yellow);
+  text-shadow: 0 0 12px rgba(255, 216, 61, 0.35);
+}
+
+/* Mobile FIRE button — only shown on touch / narrow viewports */
+.arcade-fire-btn {
+  position: absolute;
+  bottom: 110px;
+  right: 16px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 2px solid var(--red);
+  background: radial-gradient(circle at 35% 35%, rgba(255, 71, 71, 0.35), rgba(255, 71, 71, 0.15));
+  color: var(--ink);
+  display: none; /* hidden by default; shown via media query */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  box-shadow:
+    0 0 24px rgba(255, 71, 71, 0.5),
+    inset 0 0 14px rgba(255, 71, 71, 0.2);
+  z-index: 12;
+  transition: transform 80ms ease, background 100ms ease;
+}
+.arcade-fire-btn:active {
+  transform: scale(0.94);
+  background: radial-gradient(circle at 35% 35%, rgba(255, 138, 138, 0.6), rgba(255, 71, 71, 0.35));
+  box-shadow:
+    0 0 36px rgba(255, 71, 71, 0.85),
+    inset 0 0 22px rgba(255, 138, 138, 0.45);
+}
+.arcade-fire-btn-glyph {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--red);
+  text-shadow: 0 0 12px rgba(255, 71, 71, 0.8);
+  transform: rotate(-90deg);
+  margin-bottom: 4px;
+}
+.arcade-fire-btn-label {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Show on touch / narrow */
+@media (hover: none), (max-width: 900px) {
+  .arcade-fire-btn { display: flex; }
+}

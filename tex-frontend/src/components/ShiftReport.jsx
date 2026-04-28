@@ -72,7 +72,7 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
           flexWrap: "wrap",
         }}>
           <div className="kicker" style={{ color: verdictMeta.color }}>
-            ▸ SHIFT REPORT · {mode === "daily" ? `DAILY · ${todayKey()}` : "TRAINING"}
+            ▸ SHIFT REPORT · {mode === "daily" ? `DAILY · ${todayKey()}` : mode === "arcade" ? "ARCADE · GATE DEFENSE" : "TRAINING"}
           </div>
           <button onClick={onHome} className="bail-btn">← HOME</button>
         </div>
@@ -120,7 +120,65 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
           </div>
         </div>
 
-        {/* THE CENTERPIECE — slowdown vs Tex */}
+        {/* THE CENTERPIECE — slowdown vs Tex (or survival time for arcade) */}
+        {mode === "arcade" ? (
+          <div className="rise-2" style={{
+            margin: "44px 0 36px 0",
+            padding: "28px 32px",
+            border: "1px solid var(--rule-pink)",
+            borderRadius: 4,
+            background:
+              "linear-gradient(135deg, rgba(255, 216, 61, 0.07) 0%, rgba(95, 240, 255, 0.05) 100%), var(--bg-panel)",
+            position: "relative",
+            overflow: "hidden",
+          }}>
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 1,
+              background: "linear-gradient(90deg, transparent, var(--yellow), transparent)",
+            }} />
+            <div className="kicker" style={{ color: "var(--yellow)", marginBottom: 12 }}>
+              ▸ TIME ON THE GATE
+            </div>
+            <div style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: "clamp(20px, 4vw, 56px)",
+              flexWrap: "wrap",
+            }}>
+              <div>
+                <div className="micro" style={{ color: "var(--ink-faint)", marginBottom: 4 }}>SURVIVED</div>
+                <div className="display tabular" style={{
+                  fontSize: "clamp(56px, 9vw, 96px)",
+                  color: "var(--cyan)",
+                  lineHeight: 1,
+                }}>
+                  {Math.floor((result._arcadeSurvivedMs || 0) / 1000)}<span style={{ fontSize: "0.4em", opacity: 0.7 }}>S</span>
+                </div>
+              </div>
+              <div>
+                <div className="micro" style={{ color: "var(--ink-faint)", marginBottom: 4 }}>PEAK SPEED</div>
+                <div className="display tabular" style={{
+                  fontSize: "clamp(56px, 9vw, 96px)",
+                  color: "var(--yellow)",
+                  lineHeight: 1,
+                }}>
+                  {(result._arcadePeakSpeed || 1).toFixed(1)}<span style={{ fontSize: "0.4em", opacity: 0.7 }}>×</span>
+                </div>
+              </div>
+            </div>
+            <div style={{
+              marginTop: 18,
+              paddingTop: 18,
+              borderTop: "1px solid var(--rule-2)",
+              color: "var(--ink-dim)",
+              fontSize: "clamp(14px, 2vw, 17px)",
+              lineHeight: 1.5,
+            }}>
+              Tex evaluates every action in <b style={{ color: "var(--cyan)" }}>178ms</b> and never gets tired.
+              <br />You held the gate for <b style={{ color: "var(--ink)" }}>{Math.floor((result._arcadeSurvivedMs || 0) / 1000)} seconds</b> against {result.counts?.totalSeen || 0} actions.
+            </div>
+          </div>
+        ) : (
         <div className="rise-2" style={{
           margin: "44px 0 36px 0",
           padding: "28px 32px",
@@ -191,6 +249,7 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
             </span>
           </div>
         </div>
+        )}
 
         {/* Stats grid */}
         <div className="rise-3" style={{ marginBottom: 36 }}>

@@ -1,22 +1,24 @@
 import React, { useEffect, useState } from "react";
 import Hub from "./components/Hub.jsx";
 import Game from "./components/Game.jsx";
+import Arcade from "./components/Arcade.jsx";
 import ShiftReport from "./components/ShiftReport.jsx";
 import WhatIsTex from "./components/WhatIsTex.jsx";
 
 /*
-  App v14 — phase router with transition whip flash
-  ─────────────────────────────────────────────────
-  Adds: a 1-frame scanline whip flash between phase changes for cinema continuity.
+  App v15 — phase router with arcade route
+  ─────────────────────────────────────────
   Routes:
     hub          → landing + leaderboard
     game         → conveyor (mode: "daily" | "training")
+    arcade       → vertical-shooter gate defense
     shiftReport  → end-of-shift cinema
     whatIsTex    → scrolling explainer
 
   Deep links honored on initial mount:
     /training       → start training
     /daily          → start daily (if not played)
+    /arcade         → start arcade
     /what-is-tex    → explainer
 */
 
@@ -34,6 +36,8 @@ export default function App() {
     } else if (path.startsWith("/daily")) {
       setMode("daily");
       setPhase("game");
+    } else if (path.startsWith("/arcade")) {
+      setPhase("arcade");
     } else if (path.startsWith("/what-is-tex")) {
       setPhase("whatIsTex");
     }
@@ -44,6 +48,7 @@ export default function App() {
     const map = {
       hub: "/",
       game: mode === "daily" ? "/daily" : "/training",
+      arcade: "/arcade",
       shiftReport: "/report",
       whatIsTex: "/what-is-tex",
     };
@@ -51,7 +56,6 @@ export default function App() {
     if (window.location.pathname !== next) {
       window.history.replaceState(null, "", next);
     }
-    // Trigger transition flash whenever phase changes
     setWhipKey((k) => k + 1);
   }, [phase, mode]);
 
@@ -66,6 +70,7 @@ export default function App() {
         <Hub
           onPlayDaily={() => go("game", "daily")}
           onPlayTraining={() => go("game", "training")}
+          onPlayArcade={() => go("arcade")}
           onOpenWhatIsTex={() => go("whatIsTex")}
         />
       )}
@@ -78,11 +83,18 @@ export default function App() {
         />
       )}
 
+      {phase === "arcade" && (
+        <Arcade
+          onComplete={(r) => { setResult(r); go("shiftReport"); }}
+          onBail={() => go("hub")}
+        />
+      )}
+
       {phase === "shiftReport" && result && (
         <ShiftReport
           result={result}
-          mode={mode}
-          onPlayAgain={() => go("game", "training")}
+          mode={result?._mode === "arcade" ? "arcade" : mode}
+          onPlayAgain={() => go(result?._mode === "arcade" ? "arcade" : "game", "training")}
           onHome={() => go("hub")}
         />
       )}
@@ -94,7 +106,6 @@ export default function App() {
         />
       )}
 
-      {/* Phase transition whip flash */}
       {whipKey > 0 && <div key={whipKey} className="phase-whip" aria-hidden="true" />}
     </>
   );

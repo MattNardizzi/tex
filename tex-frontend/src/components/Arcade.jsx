@@ -1085,14 +1085,19 @@ export default function Arcade({ onComplete, onBail }) {
       for (const l of g.lasers) {
         for (const ic of g.icons) {
           if (ic.state !== "active") continue;
-          // Pickups are bypass-only — lasers pass through without effect.
-          if (ic.kind === "pickup") continue;
+          // Shields are bypass-only — laser passes through.
+          // Injections CAN be shot — preempting the threat.
+          if (ic.kind === "pickup" && ic.pickupType === "shield") continue;
           const dx2 = ic.x - l.x;
           const dy2 = ic.y - l.y;
           const r = ICON_SIZE / 2;
           if (Math.abs(dx2) <= r && Math.abs(dy2) <= r) {
-            // Hit. Outcome depends on verdict.
-            handleShot(g, ic, nowFrame);
+            // Hit. Outcome depends on what got shot.
+            if (ic.kind === "pickup" && ic.pickupType === "injection") {
+              shootInjection(g, ic, nowFrame);
+            } else {
+              handleShot(g, ic, nowFrame);
+            }
             l.y = -1000; // mark for removal
             break;
           }
@@ -1408,6 +1413,21 @@ export default function Arcade({ onComplete, onBail }) {
     spawnSfx();
   }
 
+  function shootInjection(g, ic, now) {
+    // Shooting a prompt injection is the unambiguously correct play.
+    // Small score reward, no integrity change. Distinct VFX so the
+    // player feels the win — not a regular kill.
+    g._bonusScore = (g._bonusScore || 0) + 1;
+    g.streak += 1;
+    g.gateFlash = 0.7; g.gateFlashColor = "#FF4747";
+    g.tex.eyeFlashUntil = now + 320;
+    g.tex.eyeFlashColor = "#FF4747";
+    addExplosion(g, ic, "#FF4747", 28);
+    forbidSfx();
+    ic.state = "dying";
+    ic.stateUntil = now + 320;
+  }
+
   function collectPickup(g, ic, now) {
     if (ic.pickupType === "shield") {
       // Heal to full and show a celebratory burst.
@@ -1433,8 +1453,9 @@ export default function Arcade({ onComplete, onBail }) {
       ic.state = "captured";
       ic.stateUntil = now + 320;
     } else {
-      // PROMPT INJECTION — instant game over.
-      g.integrity = 0;
+      // PROMPT INJECTION — major integrity hit (half of MAX) but not
+      // instant game-over. Player can recover by grabbing a shield.
+      g.integrity = Math.max(0, g.integrity - INTEGRITY_MAX / 2);
       g.gateFlash = 1.0; g.gateFlashColor = "#FF4747";
       g.tex.eyeFlashUntil = now + 600;
       g.tex.eyeFlashColor = "#FF4747";
@@ -1879,7 +1900,9 @@ export default function Arcade({ onComplete, onBail }) {
 
   // PROMPT INJECTION — black hex with red corruption glyph + ominous pulse
   function drawInjectionPickup(ctx, cx, cy, alpha, pulse) {
-    const s = ICON_SIZE * 1.05;
+    const s = ICON_SIZE * 0.95;     // same scale as regular decision icons
+                                    // (was 1.05 — shrunk so it reads as a
+                                    // peer threat, not a boss)
     // Ominous red halo, larger and more saturated
     ctx.globalAlpha = 0.95 * alpha;
     const haloR = s * 1.7;

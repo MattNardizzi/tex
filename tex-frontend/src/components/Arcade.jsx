@@ -2266,12 +2266,32 @@ function buildShiftResult(summary) {
       d._arcadeOutcome === "abstain-shot" ||
       d._arcadeOutcome === "abstain-miss"
     );
-  // Rating tuned for arcade: time-survived weighted
+  // Rating: hybrid — either a clean-survival run OR a high score earns
+  // the tier. Earlier behavior gated WARDEN on breaches === 0, which
+  // meant a long, messy, high-scoring run looked worse on tier than a
+  // short clean one. The score path rewards engagement; the clean path
+  // rewards precision. Whichever you clear first wins.
+  //
+  // Calibration notes:
+  //   ~1 pt/s time-alive + verdict bonuses 5–36 pt each.
+  //   90s clean ≈ 2,000–2,500 pts (matches WARDEN floor on score path).
+  //   60s clean ≈ 1,200–1,500 pts (matches ANALYST floor).
+  //   30s any   ≈ 300–500 pts    (OPERATOR is mostly survival-gated).
   const surv = summary.elapsedMs / 1000;
+  const total = summary.score;
   let rating = "ROOKIE";
-  if (surv >= 30 && summary.breaches <= 4) rating = "OPERATOR";
-  if (surv >= 60 && summary.breaches <= 2) rating = "ANALYST";
-  if (surv >= 90 && summary.breaches === 0) rating = "WARDEN";
+  // OPERATOR: 30s with ≤4 breaches OR score ≥ 1500
+  if ((surv >= 30 && summary.breaches <= 4) || total >= 1500) {
+    rating = "OPERATOR";
+  }
+  // ANALYST: 60s with ≤2 breaches OR score ≥ 3000
+  if ((surv >= 60 && summary.breaches <= 2) || total >= 3000) {
+    rating = "ANALYST";
+  }
+  // WARDEN: 90s clean OR score ≥ 5000
+  if ((surv >= 90 && summary.breaches === 0) || total >= 5000) {
+    rating = "WARDEN";
+  }
   baseline.rating = rating;
   baseline.avgResponseMs = decisions.length
     ? Math.round(decisions.reduce((s, d) => s + (d.responseMs || 0), 0) / decisions.length)

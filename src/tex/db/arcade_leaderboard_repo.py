@@ -24,9 +24,14 @@ Schema:
     used_at          TIMESTAMPTZ
 
 Rationale:
-- (handle, date_key) PK gives one daily slot per handle, last-write-wins.
-- A separate used-tokens table prevents the same client-generated token
-  from being replayed.
+- (handle, date_key) PK gives one daily slot per handle, with the upsert
+  applying GREATEST(score) so a worse run never overwrites a better one.
+  This — not the token table — is what makes resubmissions safe.
+- The used-tokens table is kept for forensic/audit purposes only. Earlier
+  revisions used it to reject duplicate tokens; that broke same-day
+  replays from older clients that issued one token per day. The PK +
+  GREATEST already enforce idempotency, so the token check is no longer
+  load-bearing.
 - We keep score as the leaderboard-sort key; ties broken by submitted_at
   (earlier submitter wins ties).
 """
@@ -216,34 +221,41 @@ async def submit(
     submit_token: str,
 ) -> ArcadeEntry:
     """
-    Atomically:
-      1. Mark this submit_token as used (rejects replays).
-      2. Upsert the (handle, date_key) row IF the new score is >= the existing
-         score for that day (last-write-wins for ties; better-write-wins
-         otherwise). For first submission, insert.
+    Atomically upsert a (handle, date_key) row, keeping best-of-day on score.
 
-    Raises:
-      ValueError("token-replay") if submit_token has already been used.
+    Idempotency model:
+      - The (handle, date_key) primary key + GREATEST(...) on score make
+        resubmissions naturally idempotent. The same payload upserts to
+        the same row; a better score updates; a worse score is preserved.
+      - The submit_token is recorded in arcade_leaderboard_used_tokens
+        for forensic audit, but is NOT used to reject submissions. Earlier
+        revisions raised "token-replay" on a duplicate token, which broke
+        same-day replays whose client (older bundle) reused one token per
+        day. The current frontend generates a fresh token per submission;
+        for older clients we simply tolerate token reuse.
+      - Net effect: every legitimate run lands. A captured-and-replayed
+        POST body is harmless because the upsert is idempotent under
+        GREATEST.
+
+    Returns the authoritative row after the upsert.
     """
     peak_speed_x10 = int(round(peak_speed * 10))
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Anti-replay token guard.
-            inserted = await conn.fetchrow(
+            # Audit-only: record the token if we haven't seen it before.
+            # No longer raises on conflict — same-day replays from older
+            # clients that reuse a per-day token must still be allowed.
+            await conn.execute(
                 """
                 INSERT INTO arcade_leaderboard_used_tokens (submit_token)
                 VALUES ($1)
                 ON CONFLICT (submit_token) DO NOTHING
-                RETURNING submit_token
                 """,
                 submit_token,
             )
-            if inserted is None:
-                raise ValueError("token-replay")
 
-            # Upsert with score-improvement check baked into the WHERE clause
-            # of the DO UPDATE.
+            # Upsert with score-improvement check baked into the DO UPDATE.
             row = await conn.fetchrow(
                 """
                 INSERT INTO arcade_leaderboard

@@ -74,8 +74,17 @@ export function todayResult(dateKey = todayKey()) {
 }
 
 // ─── Submit token (anti-replay handle on the client side) ────────────
-// The token is generated once per (handle, date) so retrying a flaky
-// network is idempotent on the server.
+// One token per submission attempt. The token's job is to make a single
+// POST idempotent if the network blips and we retry — NOT to dedupe
+// across separate runs in the same day. Reusing a per-day token across
+// multiple runs caused the backend's replay guard to reject every run
+// after the first, which is why same-day high scores never updated the
+// leaderboard.
+//
+// Each call to submitArcadeScore now creates a fresh token. The
+// localStorage machinery is preserved so a future "retry on network
+// failure" path could bind a token to an in-flight submission, but
+// right now we just generate-and-go.
 
 function readTokens() {
   if (typeof window === "undefined") return {};
@@ -86,9 +95,11 @@ function writeTokens(t) {
   if (typeof window === "undefined") return;
   try { localStorage.setItem(TOKEN_KEY, JSON.stringify(t)); } catch {}
 }
-function getOrCreateToken(dateKey) {
+function freshSubmitToken(dateKey) {
+  // Always returns a brand-new token. We persist the most recent token
+  // per day in localStorage so we have a record of the last submit
+  // attempt, but each call gets its own fresh value.
   const tokens = readTokens();
-  if (tokens[dateKey]) return tokens[dateKey];
   const t = generateUUIDv4().replace(/-/g, "").slice(0, 32);
   tokens[dateKey] = t;
   writeTokens(tokens);
@@ -185,7 +196,7 @@ export async function submitArcadeScore({ result, handle, dateKey = todayKey() }
     return { ok: false, error: "invalid handle" };
   }
 
-  const submitToken = getOrCreateToken(dateKey);
+  const submitToken = freshSubmitToken(dateKey);
 
   const body = {
     handle: cleanedHandle,

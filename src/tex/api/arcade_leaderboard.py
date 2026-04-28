@@ -211,52 +211,48 @@ async def submit_arcade_score(payload: ArcadeSubmitRequest) -> ArcadeSubmitRespo
 
     handle = _normalize_handle(payload.handle)
 
-    try:
-        entry = await repo.submit(
-            handle=handle,
-            date_key=payload.date_key,
-            score=payload.score,
-            survived_ms=payload.survived_ms,
-            breaches=payload.breaches,
-            peak_speed=payload.peak_speed,
-            rating=payload.rating,
-            submit_token=payload.submit_token,
-        )
-    except ValueError as exc:
-        if str(exc) == "token-replay":
-            # Idempotent: client retried with the same token. Return the
-            # current state for this (handle, date_key) so the UI syncs.
-            existing = await repo.get(handle, payload.date_key)
-            if existing is None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="submit_token already used and no row found",
-                )
-            return ArcadeSubmitResponse(
-                accepted=False,
-                your_rank=await repo.rank_for_day(handle, payload.date_key),
-                your_score=existing.score,
-                total_players=await repo.total_for_day(payload.date_key),
-                label="ALREADY POSTED",
-                note="this submission was already recorded",
-            )
-        raise
+    # The repo's submit() is fully idempotent — (handle, date_key) PK plus
+    # GREATEST on score guarantees one row per player per day with their
+    # best run preserved. No token-replay rejection anymore; that earlier
+    # behavior broke same-day replays from older clients that reused a
+    # per-day token.
+    entry = await repo.submit(
+        handle=handle,
+        date_key=payload.date_key,
+        score=payload.score,
+        survived_ms=payload.survived_ms,
+        breaches=payload.breaches,
+        peak_speed=payload.peak_speed,
+        rating=payload.rating,
+        submit_token=payload.submit_token,
+    )
 
+    # `accepted` reflects whether this submission improved the player's
+    # daily best. The label updates only when the run actually advanced
+    # the score (or matched it — last-write-wins on ties).
+    improved = entry.score == payload.score
     return ArcadeSubmitResponse(
-        accepted=True,
+        accepted=improved,
         your_rank=await repo.rank_for_day(handle, payload.date_key),
         your_score=entry.score,
         total_players=await repo.total_for_day(payload.date_key),
-        label=_label_for(entry.score, entry.breaches, entry.survived_ms),
+        label=_label_for(entry.score, entry.breaches, entry.survived_ms)
+        if improved
+        else "PERSONAL BEST HELD",
+        note=None if improved else "your earlier run today still leads",
     )
 
 
 def _label_for(score: int, breaches: int, survived_ms: int) -> str:
+    """Server-side echo of the rating shown to the player. Mirrors the
+    hybrid rules in Arcade.jsx — either a clean-survival threshold OR a
+    score threshold earns each tier. Kept in sync by hand; if the
+    frontend rules drift, update both."""
     survived_sec = survived_ms // 1000
-    if breaches == 0 and survived_sec >= 90:
+    if (survived_sec >= 90 and breaches == 0) or score >= 5000:
         return "WARDEN"
-    if survived_sec >= 60 and breaches <= 2:
+    if (survived_sec >= 60 and breaches <= 2) or score >= 3000:
         return "ANALYST"
-    if survived_sec >= 30:
+    if (survived_sec >= 30 and breaches <= 4) or score >= 1500:
         return "OPERATOR"
     return "ROOKIE"

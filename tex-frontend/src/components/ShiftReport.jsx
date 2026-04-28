@@ -16,7 +16,7 @@ import { rankUpSfx } from "../lib/sounds.js";
   - Copy-share generates LinkedIn-ready text
 */
 
-export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHome }) {
+export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHome, onOpenWhatIsTex }) {
   const [, setSubmitted] = useState(null);
   const [rank, setRank] = useState(null);
   const [handle, setHandleLocal] = useState(getHandle());
@@ -390,6 +390,21 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
             <span className="btn-leaderboard-label">LEADERBOARD →</span>
             <span className="btn-leaderboard-meta">today's top operators</span>
           </a>
+          <button
+            onClick={onOpenWhatIsTex}
+            className="btn-explainer"
+            aria-label="What is Tex"
+            style={{
+              padding: "14px 26px",
+              minHeight: 48,
+              fontSize: "clamp(15px, 2vw, 18px)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <span className="btn-explainer-label">WHAT IS TEX? →</span>
+            <span className="btn-explainer-meta">5 things that make Tex different</span>
+          </button>
           <button onClick={() => copyShareText(result, rank, setCopied)} className="btn-ghost" style={{
             padding: "14px 26px",
             minHeight: 48,

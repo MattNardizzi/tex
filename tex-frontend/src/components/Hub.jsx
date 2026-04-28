@@ -474,11 +474,12 @@ export default function Hub({ onPlayArcade, onOpenWhatIsTex }) {
                 <span className="btn-leaderboard-meta">today's top operators</span>
               </a>
               <button
-                className="btn-tertiary"
+                className="btn-explainer"
                 onClick={handleWhat}
                 aria-label="What is Tex"
               >
-                WHAT IS TEX? →
+                <span className="btn-explainer-label">WHAT IS TEX? →</span>
+                <span className="btn-explainer-meta">5 things that make Tex different</span>
               </button>
             </div>
 

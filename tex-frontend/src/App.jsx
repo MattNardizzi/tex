@@ -97,6 +97,7 @@ export default function App() {
           mode="arcade"
           onPlayAgain={() => go("arcade")}
           onHome={() => go("hub")}
+          onOpenWhatIsTex={() => go("whatIsTex")}
         />
       )}
 

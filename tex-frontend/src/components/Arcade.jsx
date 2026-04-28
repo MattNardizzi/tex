@@ -1287,48 +1287,61 @@ export default function Arcade({ onComplete, onBail }) {
     }
     g.capturedRing = g.capturedRing.filter((c) => now - c.spawnTime < c.life);
 
-    // Catch impact rings — one-shot expanding rings on every successful catch
+    // Catch impact rings — one-shot expanding rings on every successful catch.
+    // No shadowBlur (it stacks badly and chokes the canvas when multiple
+    // rings overlap). Glow faked via a wider, fainter outer ring instead.
     if (g.catchRings && g.catchRings.length) {
       for (const cr of g.catchRings) {
         const t = clamp((now - cr.spawnTime) / cr.life, 0, 1);
+        if (t >= 1) continue;
         // Two concentric rings, slightly offset in time, give a "shock" feel
         for (let i = 0; i < 2; i++) {
           const t2 = clamp(t - i * 0.18, 0, 1);
-          if (t2 <= 0) continue;
+          if (t2 <= 0 || t2 >= 1) continue;
           const r = lerp(8, 90, t2);
-          const alpha = (1 - t2) * (i === 0 ? 0.85 : 0.50);
-          ctx.save();
-          ctx.strokeStyle = `rgba(255, 216, 61, ${alpha})`;
-          ctx.lineWidth = (i === 0 ? 3 : 2) * (1 - t2 * 0.6);
-          ctx.shadowColor = "rgba(255, 216, 61, 0.6)";
-          ctx.shadowBlur = 10;
+          const fade = 1 - t2;
+          // Soft outer halo (no shadow — just a fat low-alpha stroke)
+          ctx.strokeStyle = `rgba(255, 216, 61, ${fade * (i === 0 ? 0.30 : 0.18)})`;
+          ctx.lineWidth = (i === 0 ? 8 : 6) * (1 - t2 * 0.4);
           ctx.beginPath();
           ctx.arc(cr.x, cr.y, r, 0, Math.PI * 2);
           ctx.stroke();
-          ctx.restore();
+          // Crisp inner ring
+          ctx.strokeStyle = `rgba(255, 230, 110, ${fade * (i === 0 ? 0.95 : 0.55)})`;
+          ctx.lineWidth = (i === 0 ? 2.4 : 1.6) * (1 - t2 * 0.4);
+          ctx.beginPath();
+          ctx.arc(cr.x, cr.y, r, 0, Math.PI * 2);
+          ctx.stroke();
         }
       }
       g.catchRings = g.catchRings.filter((cr) => now - cr.spawnTime < cr.life);
     }
 
-    // Heal flashes — "+10" floating text rising above Tex on each catch
+    // Heal flashes — "+10" floating text rising above Tex on each catch.
+    // No shadowBlur (compounds with catch-ring rendering and chokes canvas).
+    // Glow faked by drawing the text twice: a wider stroke behind, then fill.
     if (g.healFlashes && g.healFlashes.length) {
       for (const hf of g.healFlashes) {
         const t = clamp((now - hf.spawnTime) / hf.life, 0, 1);
-        const y = hf.y - t * 70;          // float upward
+        if (t >= 1) continue;
+        const y = hf.y - t * 70;
         const alpha = t < 0.15
-          ? t / 0.15                       // fade in
+          ? t / 0.15
           : t > 0.75
-            ? (1 - t) / 0.25               // fade out
+            ? (1 - t) / 0.25
             : 1;
         ctx.save();
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = "#5FFA9F";
         ctx.font = "bold 24px ui-monospace, JetBrains Mono, monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.shadowColor = "rgba(95, 250, 159, 0.75)";
-        ctx.shadowBlur = 14;
+        // Outer glow (stroke)
+        ctx.strokeStyle = "rgba(95, 250, 159, 0.45)";
+        ctx.lineWidth = 5;
+        ctx.lineJoin = "round";
+        ctx.strokeText(`+${hf.amount}`, hf.x, y);
+        // Crisp fill
+        ctx.fillStyle = "#5FFA9F";
         ctx.fillText(`+${hf.amount}`, hf.x, y);
         ctx.restore();
       }

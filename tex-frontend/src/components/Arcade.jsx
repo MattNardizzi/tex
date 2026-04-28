@@ -42,15 +42,16 @@ import { scoreShift } from "../lib/scoring.js";
 const LOGICAL_W = 540;          // canvas internal logical width
 const LOGICAL_H = 900;          // canvas internal logical height
 const TEX_Y_FROM_BOTTOM = 150;  // px from bottom of canvas
-const TEX_W = 72;
-const TEX_H = 86;
+const TEX_W = 110;              // visual width of Tex DOM <img>
+const TEX_H = 138;              // visual height of Tex DOM <img>
+const TEX_HITBOX_W = 70;        // narrower hitbox for ABSTAIN capture under Tex
 const TEX_SPEED = 6.2;          // px / frame at 60fps
 const GATE_HEIGHT = 80;         // bottom strip
-const ICON_SIZE = 56;
+const ICON_SIZE = 68;
 const LASER_SPEED = 24;         // px / frame
 const LASER_W = 4;
 const FIRE_COOLDOWN_MS = 140;
-const ABSTAIN_CAPTURE_TOLERANCE = ICON_SIZE * 0.65; // distance from tex.x to capture
+const ABSTAIN_CAPTURE_TOLERANCE = TEX_HITBOX_W; // distance from tex.x to capture
 
 const INTEGRITY_MAX = 100;
 const DAMAGE_BREACH = 25;        // red reached gate
@@ -138,256 +139,411 @@ function pickVerdictForSurface(surfaceKey, elapsedSec) {
   return { verdict: "FORBID", severity: randPick(SEVERITY_BIAS.FORBID) };
 }
 
-// ── Pixel-art draw routines for surface icons ───────────────────────────
-// Each function paints a stylized pixel-art glyph centered in the given
-// cell. They're intentionally chunky and silhouette-readable at speed.
-// `palette` provides the fill / outline / accent colors per verdict.
-function drawIcon(ctx, key, cx, cy, size, palette) {
-  const s = size / 16; // each pixel = 1/16th of the cell
-  const px = (gx, gy, w = 1, h = 1, color) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(
-      Math.round(cx - size / 2 + gx * s),
-      Math.round(cy - size / 2 + gy * s),
-      Math.ceil(w * s),
-      Math.ceil(h * s),
-    );
-  };
-  const { fill, outline, accent, dark } = palette;
+// ── Modern shape-based icon rendering ───────────────────────────────────
+// Each surface gets a uniquely-shaped silhouette drawn with vector primitives
+// and gradient fills. Goals: instantly readable at speed, distinguishable from
+// each other, premium "flat-3D" finish (light from top-left, drop shadow).
 
-  switch (key) {
-    case "email": {
-      // envelope
-      px(2, 4, 12, 9, outline);
-      px(3, 5, 10, 7, fill);
-      // diagonals
-      px(3, 5, 5, 1, dark);
-      px(8, 5, 5, 1, dark);
-      px(4, 6, 3, 1, dark);
-      px(9, 6, 3, 1, dark);
-      px(5, 7, 1, 1, dark);
-      px(10, 7, 1, 1, dark);
-      px(6, 7, 4, 1, dark);
-      // accent dot
-      px(7, 9, 2, 2, accent);
-      break;
-    }
-    case "slack": {
-      // hash with corner blocks
-      px(3, 3, 2, 10, outline);
-      px(8, 3, 2, 10, outline);
-      px(2, 5, 12, 2, outline);
-      px(2, 9, 12, 2, outline);
-      px(3, 3, 2, 10, fill);
-      px(8, 3, 2, 10, fill);
-      px(2, 5, 12, 2, fill);
-      px(2, 9, 12, 2, fill);
-      // accent corners
-      px(2, 3, 2, 2, accent);
-      px(12, 11, 2, 2, accent);
-      break;
-    }
-    case "sms": {
-      // chat bubble
-      px(2, 3, 12, 8, outline);
-      px(3, 4, 10, 6, fill);
-      // tail
-      px(4, 11, 2, 2, outline);
-      px(4, 11, 1, 1, fill);
-      // dots
-      px(5, 6, 2, 2, dark);
-      px(8, 6, 2, 2, dark);
-      px(11, 6, 1, 2, dark);
-      break;
-    }
-    case "crm": {
-      // person + chart bars
-      px(6, 3, 4, 4, outline);
-      px(7, 4, 2, 2, fill);
-      px(4, 7, 8, 6, outline);
-      px(5, 8, 6, 4, fill);
-      // bars
-      px(6, 10, 1, 2, accent);
-      px(8, 9, 1, 3, accent);
-      px(10, 8, 1, 4, accent);
-      break;
-    }
-    case "db_api": {
-      // database cylinder
-      px(3, 3, 10, 2, outline);
-      px(3, 5, 10, 2, fill);
-      px(3, 7, 10, 1, outline);
-      px(3, 8, 10, 2, fill);
-      px(3, 10, 10, 1, outline);
-      px(3, 11, 10, 2, fill);
-      px(3, 13, 10, 1, outline);
-      // top ellipse highlight
-      px(5, 3, 6, 1, accent);
-      break;
-    }
-    case "code_pr": {
-      // angle brackets / commit
-      px(3, 5, 2, 1, outline);
-      px(2, 6, 2, 1, outline);
-      px(3, 7, 2, 1, outline);
-      px(11, 5, 2, 1, outline);
-      px(12, 6, 2, 1, outline);
-      px(11, 7, 2, 1, outline);
-      // slash
-      px(9, 4, 1, 1, fill);
-      px(8, 5, 1, 1, fill);
-      px(7, 6, 1, 1, fill);
-      px(6, 7, 1, 1, fill);
-      // commit dot
-      px(7, 10, 2, 2, accent);
-      px(7, 12, 2, 1, outline);
-      break;
-    }
-    case "calendar": {
-      // calendar
-      px(3, 4, 10, 9, outline);
-      px(4, 5, 8, 7, fill);
-      // header band
-      px(3, 4, 10, 2, accent);
-      // pegs
-      px(5, 3, 1, 2, outline);
-      px(10, 3, 1, 2, outline);
-      // day cells
-      px(5, 7, 1, 1, dark);
-      px(7, 7, 1, 1, dark);
-      px(9, 7, 1, 1, dark);
-      px(11, 7, 1, 1, dark);
-      px(5, 9, 1, 1, dark);
-      px(7, 9, 1, 1, dark);
-      px(9, 9, 2, 2, accent); // a "marked" date
-      break;
-    }
-    case "files": {
-      // folder + share arrow
-      px(2, 5, 6, 1, outline);
-      px(2, 5, 12, 8, outline);
-      px(3, 6, 10, 6, fill);
-      // arrow up-right
-      px(8, 9, 4, 1, accent);
-      px(11, 8, 1, 3, accent);
-      px(10, 7, 1, 1, accent);
-      px(11, 6, 1, 2, accent);
-      break;
-    }
-    case "financial": {
-      // dollar sign / bill
-      px(3, 3, 10, 10, outline);
-      px(4, 4, 8, 8, fill);
-      // S strokes
-      px(6, 5, 4, 1, dark);
-      px(6, 6, 1, 1, dark);
-      px(6, 7, 4, 1, dark);
-      px(9, 8, 1, 1, dark);
-      px(6, 9, 4, 1, dark);
-      // vertical bar
-      px(7, 4, 1, 1, dark);
-      px(7, 10, 1, 1, dark);
-      // glint
-      px(11, 4, 1, 1, accent);
-      break;
-    }
-    default: {
-      px(3, 3, 10, 10, outline);
-      px(4, 4, 8, 8, fill);
-    }
-  }
-}
-
-// Verdict palette — tinted so even silhouette-readers see the call instantly
+// Verdict palette — tuned for premium feel against deep navy background.
 function paletteFor(verdict) {
   if (verdict === "PERMIT") return {
-    fill:    "#1A4A2E",
-    outline: "#5FFA9F",
-    accent:  "#B5FFD0",
-    dark:    "#0E2F1C",
+    base:    "#5FFA9F",
+    light:   "#A8FFC9",
+    dark:    "#1F8C52",
+    deep:    "#0E4A2A",
     glow:    "rgba(95, 250, 159, 0.55)",
-    aura:    "#5FFA9F",
+    glowSoft:"rgba(95, 250, 159, 0.18)",
+    rim:     "rgba(255, 255, 255, 0.55)",
   };
   if (verdict === "ABSTAIN") return {
-    fill:    "#5A4410",
-    outline: "#FFD83D",
-    accent:  "#FFF1A8",
-    dark:    "#3A2C08",
+    base:    "#FFD83D",
+    light:   "#FFF1A8",
+    dark:    "#B58E10",
+    deep:    "#5A4410",
     glow:    "rgba(255, 216, 61, 0.55)",
-    aura:    "#FFD83D",
+    glowSoft:"rgba(255, 216, 61, 0.18)",
+    rim:     "rgba(255, 255, 255, 0.55)",
   };
-  // FORBID
   return {
-    fill:    "#5A1414",
-    outline: "#FF4747",
-    accent:  "#FF8A8A",
-    dark:    "#3A0808",
+    base:    "#FF4747",
+    light:   "#FF9C9C",
+    dark:    "#A11818",
+    deep:    "#5A0A0A",
     glow:    "rgba(255, 71, 71, 0.6)",
-    aura:    "#FF4747",
+    glowSoft:"rgba(255, 71, 71, 0.18)",
+    rim:     "rgba(255, 255, 255, 0.55)",
   };
 }
 
-// ── Tex sprite (canvas pixel-art) ───────────────────────────────────────
-function drawTex(ctx, x, y, w, h, eyeFlash, recoil) {
-  const sx = w / 16;
-  const sy = h / 18;
-  const px = (gx, gy, gw, gh, color) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(
-      Math.round(x - w / 2 + gx * sx),
-      Math.round(y - h / 2 + gy * sy + (recoil ? 1 : 0)),
-      Math.ceil(gw * sx),
-      Math.ceil(gh * sy),
-    );
-  };
+// Helper: rounded rect path
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.arcTo(x + w, y, x + w, y + rr, rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
+  ctx.lineTo(x + rr, y + h);
+  ctx.arcTo(x, y + h, x, y + h - rr, rr);
+  ctx.lineTo(x, y + rr);
+  ctx.arcTo(x, y, x + rr, y, rr);
+  ctx.closePath();
+}
 
-  // Helmet armor (dark plate)
-  const armor = "#1B2150";
-  const armorMid = "#2A3170";
-  const armorLight = "#3D4690";
-  const visor = eyeFlash || "#5FF0FF";
+// Apply the standard "flat-3D" finish to a path-defined shape: gradient body,
+// rim highlight, soft inner shadow.
+function paintBody(ctx, palette, bbox) {
+  const { x, y, w, h } = bbox;
+  // Body: diagonal gradient (top-left lighter)
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  grad.addColorStop(0, palette.light);
+  grad.addColorStop(0.45, palette.base);
+  grad.addColorStop(1, palette.dark);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  // Rim highlight
+  ctx.strokeStyle = palette.rim;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+}
 
-  // shoulders / lower body wedge
-  px(1, 13, 14, 5, armor);
-  px(2, 12, 12, 1, armorMid);
-  px(0, 14, 16, 3, armor);
-  px(1, 17, 14, 1, armorLight);
+// ── Per-surface shape drawing ──────────────────────────────────────────
+// Each draws a UNIQUE silhouette so the player learns shape→meaning fast.
+function drawIcon(ctx, key, cx, cy, size, palette) {
+  const r = size / 2;
+  // Drop shadow under everything
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
 
-  // chest plate accent
-  px(6, 14, 4, 2, armorMid);
-  px(7, 14, 2, 1, "#5FF0FF");
+  switch (key) {
+    case "email":     drawEmail(ctx, cx, cy, size, palette); break;
+    case "slack":     drawSlack(ctx, cx, cy, size, palette); break;
+    case "sms":       drawSms(ctx, cx, cy, size, palette); break;
+    case "crm":       drawCrm(ctx, cx, cy, size, palette); break;
+    case "db_api":    drawDb(ctx, cx, cy, size, palette); break;
+    case "code_pr":   drawCode(ctx, cx, cy, size, palette); break;
+    case "calendar":  drawCalendar(ctx, cx, cy, size, palette); break;
+    case "files":     drawFiles(ctx, cx, cy, size, palette); break;
+    case "financial": drawFinancial(ctx, cx, cy, size, palette); break;
+    default:          drawEmail(ctx, cx, cy, size, palette);
+  }
+  ctx.restore();
+}
 
-  // helmet dome
-  px(4, 2, 8, 1, armor);
-  px(3, 3, 10, 1, armorMid);
-  px(2, 4, 12, 8, armor);
-  px(2, 4, 12, 1, armorLight);   // top edge highlight
-  px(2, 11, 12, 1, armorLight);  // chin band
+// 1. EMAIL — envelope with V-flap (instantly recognizable)
+function drawEmail(ctx, cx, cy, s, pal) {
+  const w = s * 0.92, h = s * 0.66;
+  const x = cx - w / 2, y = cy - h / 2;
+  // Body
+  roundRectPath(ctx, x, y, w, h, 5);
+  paintBody(ctx, pal, { x, y, w, h });
+  // V-flap inner shadow
+  ctx.beginPath();
+  ctx.moveTo(x + 2, y + 4);
+  ctx.lineTo(x + w / 2, y + h * 0.55);
+  ctx.lineTo(x + w - 2, y + 4);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = pal.deep;
+  ctx.stroke();
+  // Highlight on top edge
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y + 1);
+  ctx.lineTo(x + w - 4, y + 1);
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
 
-  // visor band (the iconic glowing strip)
-  px(3, 6, 10, 3, "#000000");
-  px(3, 6, 10, 1, visor);        // top glow line
-  px(4, 7, 8, 1, visor);         // middle band
-  px(3, 8, 10, 1, "#000000");
+// 2. SLACK / Chat — speech bubble with tail (rounded square + triangle)
+function drawSlack(ctx, cx, cy, s, pal) {
+  const w = s * 0.88, h = s * 0.74;
+  const x = cx - w / 2, y = cy - h / 2 - s * 0.06;
+  // Bubble body
+  roundRectPath(ctx, x, y, w, h, 12);
+  paintBody(ctx, pal, { x, y, w, h });
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.28, y + h - 1);
+  ctx.lineTo(x + w * 0.18, y + h + s * 0.18);
+  ctx.lineTo(x + w * 0.42, y + h - 1);
+  ctx.closePath();
+  const tg = ctx.createLinearGradient(x, y + h, x, y + h + s * 0.2);
+  tg.addColorStop(0, pal.base);
+  tg.addColorStop(1, pal.dark);
+  ctx.fillStyle = tg;
+  ctx.fill();
+  ctx.strokeStyle = pal.rim;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // Three lines (chat content)
+  ctx.strokeStyle = pal.deep;
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  const pad = s * 0.18;
+  ctx.beginPath();
+  ctx.moveTo(x + pad, y + h * 0.32); ctx.lineTo(x + w - pad, y + h * 0.32);
+  ctx.moveTo(x + pad, y + h * 0.55); ctx.lineTo(x + w - pad - 6, y + h * 0.55);
+  ctx.moveTo(x + pad, y + h * 0.78); ctx.lineTo(x + w - pad - 12, y + h * 0.78);
+  ctx.stroke();
+  ctx.lineCap = "butt";
+}
 
-  // T-hex glyph on forehead
-  px(7, 4, 2, 2, "#FF3D7A");
-
-  // antenna / signal blip
-  px(7, 0, 2, 2, "#FF3D7A");
-  px(8, 1, 1, 1, "#FFFFFF");
-
-  // recoil flash glow under chin
-  if (recoil) {
-    ctx.fillStyle = "rgba(95, 240, 255, 0.35)";
-    ctx.fillRect(x - w / 2, y + h / 2 - 4, w, 4);
+// 3. SMS — small bubble with three dots (chat-bubble distinct from slack)
+function drawSms(ctx, cx, cy, s, pal) {
+  const w = s * 0.86, h = s * 0.62;
+  const x = cx - w / 2, y = cy - h / 2 - s * 0.08;
+  // Stadium-shaped bubble
+  roundRectPath(ctx, x, y, w, h, h * 0.5);
+  paintBody(ctx, pal, { x, y, w, h });
+  // Tail
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.74, y + h - 1);
+  ctx.lineTo(x + w * 0.86, y + h + s * 0.18);
+  ctx.lineTo(x + w * 0.6, y + h - 1);
+  ctx.closePath();
+  const tg = ctx.createLinearGradient(x, y + h, x, y + h + s * 0.2);
+  tg.addColorStop(0, pal.base);
+  tg.addColorStop(1, pal.dark);
+  ctx.fillStyle = tg;
+  ctx.fill();
+  // Three dots
+  ctx.fillStyle = pal.deep;
+  const dotR = s * 0.06;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(x + w * (0.28 + i * 0.22), y + h / 2, dotR, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
+
+// 4. CRM — rolodex card with horizontal divider + person silhouette
+function drawCrm(ctx, cx, cy, s, pal) {
+  const w = s * 0.82, h = s * 0.78;
+  const x = cx - w / 2, y = cy - h / 2;
+  // Card body
+  roundRectPath(ctx, x, y, w, h, 6);
+  paintBody(ctx, pal, { x, y, w, h });
+  // Top "binding" notches
+  ctx.fillStyle = pal.deep;
+  ctx.fillRect(x + w * 0.22, y - 3, w * 0.12, 5);
+  ctx.fillRect(x + w * 0.66, y - 3, w * 0.12, 5);
+  // Person silhouette: head circle + shoulders arc
+  ctx.fillStyle = pal.deep;
+  ctx.beginPath();
+  ctx.arc(cx, cy - s * 0.06, s * 0.13, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy + s * 0.18, s * 0.22, Math.PI, 2 * Math.PI);
+  ctx.lineTo(cx - s * 0.22, cy + s * 0.18);
+  ctx.fill();
+  // Highlight on head
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.04, cy - s * 0.10, s * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// 5. DATABASE / API — stacked cylinder (3 disks)
+function drawDb(ctx, cx, cy, s, pal) {
+  const w = s * 0.74;
+  const ellipseH = s * 0.13;
+  const bandH = s * 0.18;
+  const totalH = ellipseH + bandH * 3 + ellipseH * 0.4;
+  const top = cy - totalH / 2;
+
+  // Helper to draw an "ellipse band" (cylinder section)
+  const drawDisk = (yTop, last) => {
+    // Side fill (rectangle minus top arc)
+    const grad = ctx.createLinearGradient(cx - w / 2, 0, cx + w / 2, 0);
+    grad.addColorStop(0, pal.dark);
+    grad.addColorStop(0.4, pal.base);
+    grad.addColorStop(0.6, pal.light);
+    grad.addColorStop(1, pal.dark);
+    ctx.fillStyle = grad;
+    ctx.fillRect(cx - w / 2, yTop + ellipseH / 2, w, bandH);
+    // Bottom ellipse
+    ctx.beginPath();
+    ctx.ellipse(cx, yTop + ellipseH / 2 + bandH, w / 2, ellipseH / 2, 0, 0, Math.PI);
+    ctx.fillStyle = pal.dark;
+    ctx.fill();
+    // Top ellipse
+    ctx.beginPath();
+    ctx.ellipse(cx, yTop + ellipseH / 2, w / 2, ellipseH / 2, 0, 0, Math.PI * 2);
+    ctx.fillStyle = pal.base;
+    ctx.fill();
+    // Top highlight
+    ctx.beginPath();
+    ctx.ellipse(cx, yTop + ellipseH / 2 - 1, w / 2 - 4, ellipseH / 2 - 2, 0, Math.PI, 0);
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+  drawDisk(top);
+  drawDisk(top + bandH + ellipseH * 0.45);
+  drawDisk(top + (bandH + ellipseH * 0.45) * 2);
+}
+
+// 6. CODE / PR — angle brackets < / > with merge dot
+function drawCode(ctx, cx, cy, s, pal) {
+  const w = s * 0.92, h = s * 0.66;
+  const x = cx - w / 2, y = cy - h / 2;
+  // Background plate
+  roundRectPath(ctx, x, y, w, h, 6);
+  // Darker plate so brackets pop
+  const grad = ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, pal.dark);
+  grad.addColorStop(1, pal.deep);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = pal.base;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  // < bracket (left)
+  ctx.strokeStyle = pal.light;
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.30, y + h * 0.25);
+  ctx.lineTo(x + w * 0.16, y + h * 0.5);
+  ctx.lineTo(x + w * 0.30, y + h * 0.75);
+  ctx.stroke();
+  // > bracket (right)
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.70, y + h * 0.25);
+  ctx.lineTo(x + w * 0.84, y + h * 0.5);
+  ctx.lineTo(x + w * 0.70, y + h * 0.75);
+  ctx.stroke();
+  // / slash
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.58, y + h * 0.20);
+  ctx.lineTo(x + w * 0.42, y + h * 0.80);
+  ctx.stroke();
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+}
+
+// 7. CALENDAR — page with header band + binder rings + grid dots
+function drawCalendar(ctx, cx, cy, s, pal) {
+  const w = s * 0.82, h = s * 0.84;
+  const x = cx - w / 2, y = cy - h / 2 + 2;
+  // Body
+  roundRectPath(ctx, x, y, w, h, 5);
+  paintBody(ctx, pal, { x, y, w, h });
+  // Header band (darker)
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h * 0.26, 5);
+  ctx.clip();
+  const hg = ctx.createLinearGradient(x, y, x, y + h * 0.26);
+  hg.addColorStop(0, pal.dark);
+  hg.addColorStop(1, pal.deep);
+  ctx.fillStyle = hg;
+  ctx.fillRect(x, y, w, h * 0.26);
+  ctx.restore();
+  // Binder rings
+  ctx.fillStyle = pal.light;
+  ctx.fillRect(x + w * 0.22, y - 4, 3, 8);
+  ctx.fillRect(x + w * 0.74, y - 4, 3, 8);
+  // Grid dots (3 cols × 2 rows, last one accent)
+  const gx = x + w * 0.18, gy = y + h * 0.45;
+  const gw = w * 0.65, gh = h * 0.42;
+  const dotR = Math.max(1.4, s * 0.035);
+  for (let r2 = 0; r2 < 2; r2++) {
+    for (let c = 0; c < 3; c++) {
+      ctx.beginPath();
+      ctx.arc(gx + c * (gw / 2), gy + r2 * (gh / 2), dotR, 0, Math.PI * 2);
+      ctx.fillStyle = (r2 === 1 && c === 2) ? pal.light : pal.deep;
+      ctx.fill();
+    }
+  }
+}
+
+// 8. FILES — folder with tab + share arrow
+function drawFiles(ctx, cx, cy, s, pal) {
+  const w = s * 0.88, h = s * 0.66;
+  const x = cx - w / 2, y = cy - h / 2 + s * 0.04;
+  // Folder tab (small rectangle on top-left)
+  ctx.fillStyle = pal.dark;
+  roundRectPath(ctx, x + 2, y - s * 0.12, w * 0.42, s * 0.16, 3);
+  ctx.fill();
+  // Folder body
+  roundRectPath(ctx, x, y, w, h, 4);
+  paintBody(ctx, pal, { x, y, w, h });
+  // Top edge highlight (suggests "folder fold")
+  ctx.beginPath();
+  ctx.moveTo(x + 4, y + 4);
+  ctx.lineTo(x + w - 4, y + 4);
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // Share arrow (out of folder, up-right)
+  ctx.strokeStyle = pal.light;
+  ctx.lineWidth = 2.2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.42, y + h * 0.62);
+  ctx.lineTo(x + w * 0.78, y + h * 0.30);
+  ctx.stroke();
+  // Arrowhead
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.78, y + h * 0.30);
+  ctx.lineTo(x + w * 0.62, y + h * 0.30);
+  ctx.moveTo(x + w * 0.78, y + h * 0.30);
+  ctx.lineTo(x + w * 0.78, y + h * 0.46);
+  ctx.stroke();
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
+}
+
+// 9. FINANCIAL — coin disc with $ sign (instantly "money")
+function drawFinancial(ctx, cx, cy, s, pal) {
+  const r = s * 0.42;
+  // Outer rim ring (coin edge)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  const rg = ctx.createRadialGradient(cx - r * 0.4, cy - r * 0.4, r * 0.1, cx, cy, r);
+  rg.addColorStop(0, pal.light);
+  rg.addColorStop(0.55, pal.base);
+  rg.addColorStop(1, pal.dark);
+  ctx.fillStyle = rg;
+  ctx.fill();
+  ctx.strokeStyle = pal.rim;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  // Inner ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.78, 0, Math.PI * 2);
+  ctx.strokeStyle = pal.dark;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  // $ sign
+  ctx.fillStyle = pal.deep;
+  ctx.font = `bold ${Math.round(s * 0.5)}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("$", cx, cy + s * 0.02);
+  // Highlight glint
+  ctx.fillStyle = "rgba(255,255,255,0.45)";
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.45, cy - r * 0.45, r * 0.18, r * 0.10, -Math.PI / 4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ── Tex sprite — DOM image overlay (handled in component JSX) ──────────
+// We no longer paint Tex on the canvas. The component renders the
+// /tex/tex-full.png via an <img> positioned to the canvas tex.x coordinate.
+// This gives us the actual high-res character at full quality.
+
 
 // ── Component ───────────────────────────────────────────────────────────
 export default function Arcade({ onComplete, onBail }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const texImgRef = useRef(null);   // DOM <img> for high-res Tex sprite
   const gameRef = useRef(null);     // mutable game state (no React renders)
   const [phase, setPhase] = useState("ready"); // ready | playing | done
   const [readyNum, setReadyNum] = useState(3);
@@ -1001,7 +1157,7 @@ export default function Arcade({ onComplete, onBail }) {
       drawIcon(ctx, cap.surface, x, y, sz, pal);
       ctx.globalAlpha = 1;
       // ring
-      ctx.strokeStyle = pal.outline;
+      ctx.strokeStyle = pal.base;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(x, y, sz * 0.7 * (1 - t * 0.5), 0, Math.PI * 2);
@@ -1028,15 +1184,67 @@ export default function Arcade({ onComplete, onBail }) {
     }
     ctx.globalAlpha = 1;
 
-    // ── Tex sprite ────────────────────────────────────────────────────
+    // ── Tex sprite — rendered as DOM <img> overlay, NOT on canvas ─────
+    // The actual <img> is positioned in the game-loop's HUD-update branch.
+    // This block only updates the dynamic glow/aura ring AROUND tex on canvas.
     const recoil = now < g.tex.recoilUntil;
     const eyeFlashColor = now < g.tex.eyeFlashUntil ? g.tex.eyeFlashColor : null;
-    drawTex(ctx, g.tex.x, g.tex.y, TEX_W, TEX_H, eyeFlashColor, recoil);
+    // Aura under Tex (cyan, pulses on fire)
+    const auraR = 70 + (recoil ? 14 : 0);
+    const auraG = ctx.createRadialGradient(g.tex.x, g.tex.y + 30, 6, g.tex.x, g.tex.y + 30, auraR);
+    auraG.addColorStop(0, eyeFlashColor ? `${eyeFlashColor}` : "rgba(95, 240, 255, 0.45)");
+    auraG.addColorStop(0.5, "rgba(95, 240, 255, 0.18)");
+    auraG.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = auraG;
+    ctx.beginPath();
+    ctx.arc(g.tex.x, g.tex.y + 30, auraR, 0, Math.PI * 2);
+    ctx.fill();
 
     // ── Gate strip (bottom) ──────────────────────────────────────────
     drawGate(ctx, g);
 
     ctx.restore();
+
+    // ── Position the high-res Tex <img> overlay ──────────────────────
+    // Map canvas-logical (g.tex.x, g.tex.y) into screen pixels via the
+    // canvas's bounding rect, then position the DOM <img> there.
+    if (texImgRef.current) {
+      const rect = canvas.getBoundingClientRect();
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      if (containerRect) {
+        const drawW = rect.width;
+        const drawH = rect.height;
+        // logical → display scale (same as drawing scale)
+        const sx = drawW / LOGICAL_W;
+        const sy = drawH / LOGICAL_H;
+        const dispScale = Math.min(sx, sy);
+        // letterbox offsets within canvas display area
+        const dispOffX = (drawW - LOGICAL_W * dispScale) / 2;
+        const dispOffY = (drawH - LOGICAL_H * dispScale) / 2;
+        // Tex's screen position
+        const screenX = (rect.left - containerRect.left) + dispOffX + g.tex.x * dispScale;
+        const screenY = (rect.top  - containerRect.top)  + dispOffY + g.tex.y * dispScale;
+        // Visual width scales with display
+        const visW = TEX_W * dispScale;
+        const visH = TEX_H * dispScale;
+        const recoiling = now < g.tex.recoilUntil;
+        const flashing = now < g.tex.eyeFlashUntil;
+        const img = texImgRef.current;
+        img.style.transform =
+          `translate3d(${Math.round(screenX - visW / 2)}px, ${Math.round(screenY - visH / 2 + (recoiling ? 2 : 0))}px, 0)`;
+        img.style.width = `${visW}px`;
+        img.style.height = `${visH}px`;
+        // visor flash class for color change
+        const flashColor = g.tex.eyeFlashColor;
+        if (flashing && flashColor) {
+          img.dataset.flash = "1";
+          img.style.filter = `drop-shadow(0 6px 12px rgba(0,0,0,0.6)) drop-shadow(0 0 18px ${flashColor})`;
+        } else {
+          img.dataset.flash = "0";
+          img.style.filter = `drop-shadow(0 6px 12px rgba(0,0,0,0.6)) drop-shadow(0 0 14px rgba(95, 240, 255, 0.35))`;
+        }
+      }
+    }
   }
 
   function drawBackground(ctx, g) {
@@ -1100,12 +1308,12 @@ export default function Arcade({ onComplete, onBail }) {
       drawY = ic.y + (1 - rem) * 24; // continues sinking through gate
     }
 
-    // Glow halo
-    ctx.globalAlpha = 0.85 * alpha;
-    const haloR = ICON_SIZE * 1.05;
+    // Outer glow halo (verdict color signals call from across the screen)
+    ctx.globalAlpha = 0.95 * alpha;
+    const haloR = ICON_SIZE * 1.15;
     const halo = ctx.createRadialGradient(ic.x, drawY, 4, ic.x, drawY, haloR);
     halo.addColorStop(0, pal.glow);
-    halo.addColorStop(0.6, pal.glow.replace(/[\d.]+\)$/, "0.18)"));
+    halo.addColorStop(0.5, pal.glowSoft);
     halo.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = halo;
     ctx.beginPath();
@@ -1113,28 +1321,8 @@ export default function Arcade({ onComplete, onBail }) {
     ctx.fill();
     ctx.globalAlpha = alpha;
 
-    // Containment frame (bracket corners) so it reads as "an action capsule"
-    const half = ICON_SIZE / 2;
-    ctx.strokeStyle = pal.outline;
-    ctx.lineWidth = 2;
-    const cl = 10;
-    // top-left
-    ctx.beginPath();
-    ctx.moveTo(ic.x - half, drawY - half + cl); ctx.lineTo(ic.x - half, drawY - half); ctx.lineTo(ic.x - half + cl, drawY - half);
-    // top-right
-    ctx.moveTo(ic.x + half - cl, drawY - half); ctx.lineTo(ic.x + half, drawY - half); ctx.lineTo(ic.x + half, drawY - half + cl);
-    // bot-left
-    ctx.moveTo(ic.x - half, drawY + half - cl); ctx.lineTo(ic.x - half, drawY + half); ctx.lineTo(ic.x - half + cl, drawY + half);
-    // bot-right
-    ctx.moveTo(ic.x + half - cl, drawY + half); ctx.lineTo(ic.x + half, drawY + half); ctx.lineTo(ic.x + half, drawY + half - cl);
-    ctx.stroke();
-
-    // Pixel-art icon
-    drawIcon(ctx, ic.surface, ic.x, drawY, ICON_SIZE * 0.78, pal);
-
-    // Verdict tick mark in corner
-    ctx.fillStyle = pal.outline;
-    ctx.fillRect(ic.x + half - 8, drawY - half + 2, 6, 2);
+    // The shape itself is the icon — no containment bracket needed
+    drawIcon(ctx, ic.surface, ic.x, drawY, ICON_SIZE * 0.95, pal);
 
     ctx.globalAlpha = 1;
   }
@@ -1206,6 +1394,16 @@ export default function Arcade({ onComplete, onBail }) {
   return (
     <div className="arcade-stage" ref={containerRef}>
       <canvas ref={canvasRef} className="arcade-canvas" />
+
+      {/* High-res Tex sprite — positioned via game loop, not React state */}
+      <img
+        ref={texImgRef}
+        src="/tex/tex-full.png"
+        alt=""
+        aria-hidden="true"
+        className="arcade-tex-img"
+        draggable={false}
+      />
 
       {/* HUD */}
       <div className="arcade-hud arcade-hud-top">

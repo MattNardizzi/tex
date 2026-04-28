@@ -260,11 +260,15 @@ export default function Game({ mode = "daily", onComplete, onBail }) {
       // Tex flinches
       texFigureRef.current?.classList.add("shake-lite");
       setTimeout(() => texFigureRef.current?.classList.remove("shake-lite"), 280);
-      // Pass 2 — heavy HEAT and a permanent gate crack
-      bumpHeat(28);
+      // Pass 2 — heavy HEAT and a permanent gate crack.
+      // Tuned 28 → 22 so the player gets ~one more breach before
+      // overflow ends the shift (≈3.6 breaches → ≈4.5).
+      bumpHeat(22);
       setGateCracks((cs) => [...cs, { id: Math.random().toString(36).slice(2) }]);
     } else if (verdict === "TIMEOUT" && correct === "FORBID") {
-      bumpHeat(20);
+      // Letting a FORBID time out at the gate — same "one more chance"
+      // tuning as breaches above, scaled down (20 → 16).
+      bumpHeat(16);
     } else if (verdict !== correct && verdict !== "TIMEOUT") {
       bumpHeat(8);
     } else if (verdict === correct) {

@@ -5,9 +5,9 @@
 //  00:00 UTC. The seed is the date string, which feeds a tiny PRNG
 //  that picks and orders ~32 messages with difficulty ramping:
 //
-//    seconds 0–30    → mostly tier 1
-//    seconds 30–60   → tier 1 + tier 2 mix
-//    seconds 60–90   → tier 2 + tier 3 mix
+//    seconds 0–37    → mostly tier 1  (14 cards)
+//    seconds 37–65   → tier 1 + tier 2 mix (10 cards)
+//    seconds 65–90   → tier 2 + tier 3 mix (8 cards)
 //
 //  The conveyor speed also ramps; speed lives in the Game component,
 //  but the message stream alone produces enough variety on its own.
@@ -64,10 +64,10 @@ function pickN(rng, pool, n) {
 export function buildDailyStream(dateKey = todayKey()) {
   const rng = mulberry32(hashString(dateKey));
 
-  const seg1 = pickN(rng, TIER_1, 12); // 12 obvious to start
+  const seg1 = pickN(rng, TIER_1, 14); // 14 obvious to start (was 12 — eases the 50-60s spike)
   const seg2Mix = [
     ...pickN(rng, TIER_1, 4),
-    ...pickN(rng, TIER_2, 8),
+    ...pickN(rng, TIER_2, 6),
   ];
   const seg3Mix = [
     ...pickN(rng, TIER_2, 4),
@@ -122,10 +122,13 @@ export function buildSchedule(stream) {
     // (later cards arrive a touch faster, but we don't compress them).
     const enterAtMs = Math.round(firstSpawn + span * progress);
 
-    // Dwell ramps by progress.
+    // Dwell ramps by progress. Tuned to 4 steps (was 3) so the 50-60s
+    // window — which is right where players were complaining of a
+    // sudden difficulty spike — sits at 6000ms instead of 5500ms.
     const dwellMs =
-      progress < 0.33 ? 6500 :
-      progress < 0.66 ? 5500 :
+      progress < 0.30 ? 6500 :
+      progress < 0.55 ? 6000 :
+      progress < 0.80 ? 5000 :
                         4500;
 
     out.push({ message: stream[i], enterAtMs, dwellMs, index: i });

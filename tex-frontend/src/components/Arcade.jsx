@@ -44,13 +44,22 @@ const BRIEFED_KEY = "tex_arcade_briefed_v1";
 // ── Tunables ────────────────────────────────────────────────────────────
 const LOGICAL_W = 540;          // canvas internal logical width
 const LOGICAL_H = 900;          // canvas internal logical height
-const TEX_Y_FROM_BOTTOM = 150;  // px from bottom of canvas
-const TEX_W = 110;              // visual width of Tex DOM <img>
-const TEX_H = 138;              // visual height of Tex DOM <img>
-const TEX_HITBOX_W = 70;        // narrower hitbox for ABSTAIN capture under Tex
-const TEX_SPEED = 6.2;          // px / frame at 60fps
-const GATE_HEIGHT = 80;         // bottom strip
-const ICON_SIZE = 68;
+
+// Mobile scale-up: phones render the canvas much smaller, so we scale Tex
+// and the icons in LOGICAL space to make them larger on screen. This lets
+// the player actually see Tex and the icons under their thumb.
+const _vw = (typeof window !== "undefined") ? window.innerWidth : 1024;
+const IS_PHONE = _vw <= 480;
+const IS_TABLET = _vw > 480 && _vw <= 820;
+const MOBILE_SCALE = IS_PHONE ? 1.55 : (IS_TABLET ? 1.25 : 1);
+
+const TEX_Y_FROM_BOTTOM = Math.round(150 * (IS_PHONE ? 1.2 : 1));  // px from bottom of canvas
+const TEX_W = Math.round(110 * MOBILE_SCALE);              // visual width of Tex DOM <img>
+const TEX_H = Math.round(138 * MOBILE_SCALE);              // visual height of Tex DOM <img>
+const TEX_HITBOX_W = Math.round(70 * MOBILE_SCALE);        // narrower hitbox for ABSTAIN capture under Tex
+const TEX_SPEED = 6.2 * (IS_PHONE ? 1.25 : 1); // px / frame at 60fps — keep traversal time similar with bigger Tex
+const GATE_HEIGHT = Math.round(80 * (IS_PHONE ? 1.15 : 1));         // bottom strip
+const ICON_SIZE = Math.round(68 * MOBILE_SCALE);
 const LASER_SPEED = 24;         // px / frame
 const LASER_W = 4;
 const FIRE_COOLDOWN_MS = 140;

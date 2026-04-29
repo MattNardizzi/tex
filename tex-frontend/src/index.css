@@ -2447,10 +2447,11 @@ body::after {
   }
 }
 @media (max-width: 720px) {
-  .lane { height: 220px; }
-  .gate { width: 220px; }
-  .tex-figure { width: 200px; }
-  .card { width: 240px; font-size: 11px; }
+  .lane { height: 260px; }
+  .gate { width: 170px; }
+  .tex-figure { width: 150px; right: 10px; }
+  .card { width: 56vw; max-width: 280px; font-size: 11px; }
+  .lane-rails, .lane-ticks { right: 170px; }
   .hud { padding: 12px 14px; gap: 10px; }
   .hud-pod { padding: 8px 12px; gap: 12px; }
   .hud-value { font-size: 22px; }
@@ -2459,6 +2460,23 @@ body::after {
   .verdict-btn { min-width: 88px; padding: 10px 12px; }
   .threat-preview { display: none; }
   .light-cone { display: none; }
+}
+
+/* Narrow phones — tighten further so cards and Tex both fit */
+@media (max-width: 480px) {
+  .lane { height: 240px; }
+  .gate { width: 130px; }
+  .gate-bars { left: 14px; width: 8px; }
+  .tex-figure { width: 120px; right: 6px; }
+  .card { width: 60vw; max-width: 240px; font-size: 10.5px; }
+  .lane-rails, .lane-ticks { right: 130px; }
+  .hud { padding: 10px 10px; gap: 8px; }
+  .hud-pod { padding: 6px 10px; gap: 10px; }
+  .hud-value { font-size: 20px; }
+  .hud-timer { width: 64px; height: 64px; }
+  .hud-divider { height: 24px; }
+  .bail-btn { padding: 6px 10px; font-size: 10px; }
+  .verdict-btn { min-width: 72px; padding: 9px 10px; font-size: 10px; }
 }
 
 /* Reduced motion */

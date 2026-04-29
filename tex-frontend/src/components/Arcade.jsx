@@ -51,7 +51,7 @@ const LOGICAL_H = 900;          // canvas internal logical height
 const _vw = (typeof window !== "undefined") ? window.innerWidth : 1024;
 const IS_PHONE = _vw <= 480;
 const IS_TABLET = _vw > 480 && _vw <= 820;
-const MOBILE_SCALE = IS_PHONE ? 1.55 : (IS_TABLET ? 1.25 : 1);
+const MOBILE_SCALE = IS_PHONE ? 1.40 : (IS_TABLET ? 1.18 : 1);
 
 const TEX_Y_FROM_BOTTOM = Math.round(150 * (IS_PHONE ? 1.2 : 1));  // px from bottom of canvas
 const TEX_W = Math.round(110 * MOBILE_SCALE);              // visual width of Tex DOM <img>

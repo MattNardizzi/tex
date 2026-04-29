@@ -242,7 +242,7 @@ export default function ShiftReport({ result, mode = "daily", onPlayAgain, onHom
               flexWrap: "wrap",
             }}>
               <a
-                href="mailto:matt@texaegis.com?subject=Tex%20%E2%80%94%20Free%20Two-Week%20Integration%20Trial&body=Hi%20Matt%2C%20we%27d%20like%20to%20try%20Tex%20for%20two%20weeks.%0A%0ACompany%3A%20%5B%5D%0AAI%20stack%20%2F%20gateway%3A%20%5B%5D%20(Portkey%2C%20LiteLLM%2C%20MCP%2C%20AgentKit%2C%20custom%2C%20etc.)%0ASurfaces%20we%27d%20put%20Tex%20in%20front%20of%3A%20%5B%5D%20(email%2C%20Slack%2C%20DB%2C%20deploys%2C%20etc.)%0AVolume%2Fday%3A%20%5B%5D"
+                href="mailto:matt@vortexblack.ai?subject=Tex%20%E2%80%94%20Free%20Two-Week%20Integration%20Trial&body=Hi%20Matt%2C%20we%27d%20like%20to%20try%20Tex%20for%20two%20weeks.%0A%0ACompany%3A%20%5B%5D%0AAI%20stack%20%2F%20gateway%3A%20%5B%5D%20(Portkey%2C%20LiteLLM%2C%20MCP%2C%20AgentKit%2C%20custom%2C%20etc.)%0ASurfaces%20we%27d%20put%20Tex%20in%20front%20of%3A%20%5B%5D%20(email%2C%20Slack%2C%20DB%2C%20deploys%2C%20etc.)%0AVolume%2Fday%3A%20%5B%5D"
                 className="btn-cta"
                 aria-label="Start a free two-week Tex integration trial"
                 style={{

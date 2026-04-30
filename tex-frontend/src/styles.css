@@ -1249,3 +1249,147 @@ body::after {
   .chip-name { font-size: 10px; }
   .hero-stats { grid-template-columns: 1fr 1fr; gap: 18px; }
 }
+
+/* =============================================================
+   TRIAL MODAL — Calendly inline embed
+   ============================================================= */
+.trial-modal {
+  position: fixed; inset: 0;
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+  animation: trial-fade-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes trial-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.trial-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.trial-panel {
+  position: relative;
+  width: 100%; max-width: 980px;
+  max-height: calc(100vh - 64px);
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(12, 16, 24, 0.96), rgba(8, 11, 18, 0.96));
+  border: 1px solid var(--edge-tex);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px rgba(86, 230, 220, 0.12),
+    0 40px 100px rgba(0, 0, 0, 0.7),
+    0 0 80px rgba(86, 230, 220, 0.18);
+  overflow: hidden;
+  animation: trial-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes trial-rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.trial-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 24px; padding: 22px 26px;
+  border-bottom: 1px solid var(--edge);
+  background:
+    linear-gradient(180deg, rgba(86, 230, 220, 0.06), transparent),
+    rgba(4, 6, 10, 0.6);
+}
+.trial-head-left { display: flex; flex-direction: column; gap: 6px; }
+.trial-tag {
+  font-family: var(--mono);
+  font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--tex);
+}
+.trial-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400; font-size: 26px;
+  color: var(--bone-100);
+  letter-spacing: -0.01em;
+}
+.trial-sub {
+  margin: 4px 0 0;
+  font-family: var(--sans);
+  font-weight: 300; font-size: 13.5px;
+  color: var(--bone-400);
+  line-height: 1.5;
+}
+.trial-close {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border: 1px solid var(--edge-strong);
+  border-radius: 2px;
+  color: var(--bone-300);
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  flex-shrink: 0;
+}
+.trial-close:hover {
+  border-color: var(--edge-tex);
+  color: var(--tex);
+  background: rgba(86, 230, 220, 0.06);
+}
+.trial-body {
+  position: relative;
+  flex: 1;
+  min-height: 640px;
+  overflow: hidden;
+  background: #04060a;
+}
+.trial-embed {
+  width: 100%; height: 100%;
+  min-height: 640px;
+}
+.trial-embed iframe {
+  border: 0;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 640px;
+}
+.trial-loading {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--bone-400);
+  pointer-events: none;
+  z-index: 1;
+}
+.trial-spinner {
+  width: 32px; height: 32px;
+  border: 1px solid var(--edge-strong);
+  border-top-color: var(--tex);
+  border-radius: 50%;
+  animation: trial-spin 0.9s linear infinite;
+}
+@keyframes trial-spin {
+  to { transform: rotate(360deg); }
+}
+.trial-fallback {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px; padding: 40px;
+  text-align: center;
+}
+.trial-fallback p {
+  margin: 0;
+  font-family: var(--sans);
+  font-weight: 300; font-size: 15px;
+  color: var(--bone-300);
+}
+
+@media (max-width: 720px) {
+  .trial-modal { padding: 0; }
+  .trial-panel {
+    max-width: 100%; max-height: 100vh;
+    height: 100vh; border-radius: 0; border: 0;
+  }
+  .trial-head { padding: 16px 18px; }
+  .trial-title { font-size: 20px; }
+  .trial-sub { font-size: 12px; }
+  .trial-body { min-height: 0; }
+  .trial-embed, .trial-embed iframe { min-height: 0; height: 100%; }
+}

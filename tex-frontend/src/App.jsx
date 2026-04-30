@@ -1,6 +1,15 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useContext, createContext } from 'react';
 import texAvatar from './tex-avatar.png';
 import './styles.css';
+
+/* =============================================================
+   CALENDLY — booking config
+   ============================================================= */
+const CALENDLY_URL = 'https://calendly.com/matt-vortexblack/tex-trial';
+const FOUNDER_EMAIL = 'matt@vortexblack.ai';
+
+const TrialContext = createContext({ openTrial: () => {} });
+const useTrial = () => useContext(TrialContext);
 
 /* =============================================================
    THE SEVEN LAYERS
@@ -260,6 +269,7 @@ function PerspectiveGrid() {
    LAYER BAR — top-of-page navigation
    ============================================================= */
 function LayerBar({ active, setActive }) {
+  const { openTrial: onActivate } = useTrial();
   return (
     <nav className="layer-bar" aria-label="Seven layer navigation">
       <div className="bar-brand">
@@ -291,10 +301,10 @@ function LayerBar({ active, setActive }) {
           </li>
         ))}
       </ol>
-      <a className="bar-cta" href="#trial">
+      <button type="button" className="bar-cta" onClick={onActivate}>
         <span>Activate</span>
         <span className="cta-arrow">→</span>
-      </a>
+      </button>
     </nav>
   );
 }
@@ -541,6 +551,7 @@ function VerdictTicker() {
    HERO
    ============================================================= */
 function Hero({ active, setActive }) {
+  const { openTrial } = useTrial();
   return (
     <section className="hero" id="top">
       <div className="hero-grid">
@@ -578,10 +589,10 @@ function Hero({ active, setActive }) {
           </div>
 
           <div className="hero-actions">
-            <a href="#trial" className="btn-primary">
+            <button type="button" onClick={openTrial} className="btn-primary">
               <span>Activate 2-week trial</span>
               <span className="btn-arrow">→</span>
-            </a>
+            </button>
             <a href="#layer-01" className="btn-ghost">
               <span>Trace the seven layers</span>
             </a>
@@ -1243,6 +1254,7 @@ function ChainBand() {
    CLOSING
    ============================================================= */
 function ClosingPanel() {
+  const { openTrial } = useTrial();
   return (
     <section className="closing" id="trial">
       <div className="cl-grid">
@@ -1261,11 +1273,11 @@ function ClosingPanel() {
             bundle. One control plane in. Eight tools out.
           </p>
           <div className="hero-actions">
-            <a href="https://texaegis.com" className="btn-primary">
+            <button type="button" onClick={openTrial} className="btn-primary">
               <span>Activate 2-week trial</span>
               <span className="btn-arrow">→</span>
-            </a>
-            <a href="mailto:hello@texaegis.com" className="btn-ghost">
+            </button>
+            <a href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`} className="btn-ghost">
               <span>Talk to the founder</span>
             </a>
           </div>
@@ -1315,8 +1327,144 @@ function Footer() {
 /* =============================================================
    APP
    ============================================================= */
+/* =============================================================
+   TRIAL MODAL — Calendly inline embed in a fullscreen overlay
+   Loads Calendly's widget script on demand. Falls back to opening
+   the booking link in a new tab if the script fails.
+   ============================================================= */
+function TrialModal({ open, onClose }) {
+  const containerRef = useRef(null);
+  const [scriptStatus, setScriptStatus] = useState('idle'); // idle | loading | ready | error
+
+  // Load Calendly script lazily on first open
+  useEffect(() => {
+    if (!open) return;
+    if (window.Calendly) {
+      setScriptStatus('ready');
+      return;
+    }
+    if (scriptStatus === 'loading' || scriptStatus === 'ready') return;
+    setScriptStatus('loading');
+
+    const existing = document.querySelector('script[data-tex-calendly]');
+    if (existing) {
+      existing.addEventListener('load', () => setScriptStatus('ready'));
+      existing.addEventListener('error', () => setScriptStatus('error'));
+      return;
+    }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://assets.calendly.com/assets/external/widget.css';
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = 'https://assets.calendly.com/assets/external/widget.js';
+    script.async = true;
+    script.dataset.texCalendly = 'true';
+    script.onload = () => setScriptStatus('ready');
+    script.onerror = () => setScriptStatus('error');
+    document.body.appendChild(script);
+  }, [open, scriptStatus]);
+
+  // Independent safety timeout — surfaces fallback if script never loads
+  useEffect(() => {
+    if (scriptStatus !== 'loading') return;
+    const t = setTimeout(() => {
+      if (!window.Calendly) setScriptStatus('error');
+    }, 9000);
+    return () => clearTimeout(t);
+  }, [scriptStatus]);
+
+  // Initialize the inline widget once script + container are ready
+  useEffect(() => {
+    if (!open || scriptStatus !== 'ready') return;
+    if (!containerRef.current) return;
+    // Clear any prior render (in case modal was reopened)
+    containerRef.current.innerHTML = '';
+    if (window.Calendly && window.Calendly.initInlineWidget) {
+      window.Calendly.initInlineWidget({
+        url: `${CALENDLY_URL}?hide_landing_page_details=1&hide_gdpr_banner=1&background_color=04060a&text_color=f6f4ee&primary_color=56e6dc`,
+        parentElement: containerRef.current,
+        prefill: {},
+        utm: { utmSource: 'texaegis.com', utmMedium: 'website', utmCampaign: 'trial-cta' },
+      });
+      // Sanity check — if the iframe never lands, surface fallback
+      const sanityTimeout = setTimeout(() => {
+        if (containerRef.current && containerRef.current.querySelector('iframe') == null) {
+          setScriptStatus('error');
+        }
+      }, 6000);
+      return () => clearTimeout(sanityTimeout);
+    } else {
+      setScriptStatus('error');
+    }
+  }, [open, scriptStatus]);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="trial-modal" role="dialog" aria-modal="true" aria-label="Activate 2-week trial">
+      <div className="trial-backdrop" onClick={onClose} />
+      <div className="trial-panel">
+        <header className="trial-head">
+          <div className="trial-head-left">
+            <span className="trial-tag">TRIAL · INTAKE</span>
+            <h3 className="trial-title">Activate 2-week trial</h3>
+            <p className="trial-sub">
+              Founder-led 30-min qualification call. Book a slot below.
+            </p>
+          </div>
+          <button type="button" className="trial-close" onClick={onClose} aria-label="Close">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M5 5 L19 19 M19 5 L5 19" strokeLinecap="round" />
+            </svg>
+          </button>
+        </header>
+        <div className="trial-body">
+          {scriptStatus === 'error' ? (
+            <div className="trial-fallback">
+              <p>Couldn't load the inline scheduler.</p>
+              <a className="btn-primary" href={CALENDLY_URL} target="_blank" rel="noopener noreferrer">
+                <span>Open scheduler</span>
+                <span className="btn-arrow">→</span>
+              </a>
+            </div>
+          ) : (
+            <>
+              {scriptStatus !== 'ready' && (
+                <div className="trial-loading">
+                  <div className="trial-spinner" aria-hidden="true" />
+                  <span>Loading scheduler…</span>
+                </div>
+              )}
+              <div ref={containerRef} className="trial-embed" />
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   const [active, setActive] = useState(0);
+  const [trialOpen, setTrialOpen] = useState(false);
   const onSelect = useCallback((i) => {
     setActive(i);
     const target = document.getElementById(`layer-${LAYERS[i].id}`);
@@ -1324,30 +1472,36 @@ function App() {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, []);
+  const openTrial = useCallback(() => setTrialOpen(true), []);
+  const closeTrial = useCallback(() => setTrialOpen(false), []);
 
   return (
-    <div className="root-shell">
-      <PerspectiveGrid />
-      <LayerBar active={active} setActive={onSelect} />
+    <TrialContext.Provider value={{ openTrial }}>
+      <div className="root-shell">
+        <PerspectiveGrid />
+        <LayerBar active={active} setActive={onSelect} />
 
-      <main className="page">
-        <Hero active={active} setActive={setActive} />
-        <div className="layers-stack">
-          {LAYERS.map((layer, i) => (
-            <LayerSection
-              key={layer.id}
-              layer={layer}
-              index={i}
-              active={active}
-              setActive={setActive}
-            />
-          ))}
-        </div>
-        <ChainBand />
-        <ClosingPanel />
-        <Footer />
-      </main>
-    </div>
+        <main className="page">
+          <Hero active={active} setActive={setActive} />
+          <div className="layers-stack">
+            {LAYERS.map((layer, i) => (
+              <LayerSection
+                key={layer.id}
+                layer={layer}
+                index={i}
+                active={active}
+                setActive={setActive}
+              />
+            ))}
+          </div>
+          <ChainBand />
+          <ClosingPanel />
+          <Footer />
+        </main>
+
+        <TrialModal open={trialOpen} onClose={closeTrial} />
+      </div>
+    </TrialContext.Provider>
   );
 }
 

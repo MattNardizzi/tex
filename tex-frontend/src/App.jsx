@@ -59,10 +59,66 @@ const CONNECTORS = [
 ];
 
 const ENFORCEMENT_SHAPES = [
-  { name: 'Decorator',   surface: '@tex_gated',      where: 'Inside any Python codebase' },
-  { name: 'HTTP proxy',  surface: 'Tex ASGI proxy',  where: 'In front of any agent action endpoint' },
-  { name: 'MCP middleware', surface: 'tex.enforcement.adapters', where: 'In any MCP server tool function' },
-  { name: 'Framework adapters', surface: 'LangChain · CrewAI', where: 'Drop-in tool wrapper, agent recovers gracefully' },
+  {
+    name: 'Decorator',
+    where: 'Inside any Python codebase',
+    lang: 'python',
+    code: `from tex import gated
+
+@gated(action="email.send")
+def send_email(to, subject, body):
+    return mailer.send(to, subject, body)`,
+  },
+  {
+    name: 'HTTP proxy',
+    where: 'In front of any agent action endpoint',
+    lang: 'yaml',
+    code: `# tex.yaml
+proxy:
+  upstream: https://agent.internal
+  evaluate:
+    paths: ["/send", "/post", "/exec"]`,
+  },
+  {
+    name: 'MCP middleware',
+    where: 'In any MCP server tool function',
+    lang: 'python',
+    code: `from tex.mcp import wrap
+
+@server.tool()
+@wrap(action="slack.dm")
+async def post(channel, text):
+    return await slack.post(channel, text)`,
+  },
+  {
+    name: 'Framework adapter',
+    where: 'LangChain · CrewAI · drop-in',
+    lang: 'python',
+    code: `from tex.adapters.langchain import gate
+
+tools = [gate(t, action=t.name) for t in tools]
+agent = create_react_agent(llm, tools)`,
+  },
+];
+
+/* — Where Tex sits next to the rest of the "AI agent security" market.
+ *   Every row is the shortest true sentence describing what that
+ *   category governs. The buyer leaves this section knowing the one
+ *   sentence to repeat to their CISO. */
+const COMPETITOR_MAP = [
+  { layer: 'Identity',     vendors: 'Okta · Oasis · Auth0',           governs: 'who the agent is' },
+  { layer: 'Posture',      vendors: 'Zenity · Noma · Geordie',        governs: 'what the agent could do' },
+  { layer: 'Behavior',     vendors: 'Rubrik SAGE · Virtue AI',        governs: 'what the agent has done' },
+  { layer: 'Policy',       vendors: 'Microsoft AGT · OPA · Cedar',    governs: 'what the agent is allowed to do' },
+  { layer: 'Tex',          vendors: 'VortexBlack',                    governs: 'what the agent is about to send', tex: true },
+];
+
+/* — What ships in the free 20-email AI outbound audit. */
+const AUDIT_DELIVERABLES = [
+  { n: '01', label: 'Verdict per message',       body: 'Each of your 20 emails returned with PERMIT, ABSTAIN, or FORBID and the fused score against thresholds.' },
+  { n: '02', label: 'Stream-by-stream evidence', body: 'Identity, capability, behavior, deterministic, retrieval, specialist, semantic — what each judge saw and weighted.' },
+  { n: '03', label: 'Cryptographic bundle',      body: 'A SHA-256 hash-chained evidence file your security team can replay independently. Tamper-evident by construction.' },
+  { n: '04', label: 'Risk brief',                body: 'A one-page write-up of the patterns we found across your 20 — what your AI SDR is doing that you would not approve in writing.' },
 ];
 
 // ────────────────────────────────────────────────────────────────────
@@ -199,8 +255,24 @@ export default function App() {
         <ScrollCue />
       </section>
 
-      {/* ─────────── ANATOMY ─────────── */}
-      <section className="anatomy">
+      {/* ─────────── 01 · WEDGE ─────────── */}
+      <section className="wedge">
+        <div className="wedge-inner">
+          <span className="wedge-eyebrow mono">The category mistake</span>
+          <h2 className="wedge-title">
+            Everyone else watches the agent.<br />
+            <em>Tex reads what it's about to send.</em>
+          </h2>
+          <p className="wedge-lede">
+            Identity tells you who the agent is. Posture tells you what it could do. Behavior monitoring tells you what it already did.
+            None of them read the email, the DM, the database write, or the IAM grant <em>before it leaves the machine</em>. Tex does — in 2.2 milliseconds, against seven independent judges, with cryptographic proof of every decision.
+          </p>
+          <CompetitorMap rows={COMPETITOR_MAP} />
+        </div>
+      </section>
+
+      {/* ─────────── 02 · ANATOMY (light) ─────────── */}
+      <section className="anatomy anatomy-light">
         <SectionHead
           eyebrow="Anatomy of a decision"
           title={<>One verdict. Seven evidence streams.<br />Fused at the moment of release.</>}
@@ -209,8 +281,19 @@ export default function App() {
         <StreamsAnatomy streams={STREAMS} />
       </section>
 
-      {/* ─────────── DISCOVERY ─────────── */}
-      <section className="discovery">
+      {/* ─────────── 03 · PROOF (dark) ─────────── */}
+      <section className="proof">
+        <SectionHead
+          eyebrow="Audit-grade by construction"
+          title={<>Every decision, hashed.<br />Every hash, linked.</>}
+          lede="record_hash = sha256(payload || previous_hash). Replay any decision. Export auditor-verifiable bundles. The discovery ledger uses the same shape — there is no second system to reconcile."
+        />
+        <ChainVisual chain={chainHead.slice(0, 8)} />
+        <ProofStats />
+      </section>
+
+      {/* ─────────── 04 · DISCOVERY (light) ─────────── */}
+      <section className="discovery discovery-light">
         <SectionHead
           eyebrow="The upstream half"
           title={<>Find the agents.<br />Bind them to the same chain.</>}
@@ -219,41 +302,90 @@ export default function App() {
         <DiscoveryPanel connectors={CONNECTORS} events={discoveryEvents} />
       </section>
 
-      {/* ─────────── CHAIN ─────────── */}
-      <section className="chain-section">
-        <SectionHead
-          eyebrow="Cryptographically-linked"
-          title={<>Every decision, hashed.<br />Every hash, linked.</>}
-          lede="record_hash = sha256(payload || previous_hash). Replay any decision. Export auditor-verifiable bundles. Tamper-evident by construction — the discovery ledger uses the same shape."
-        />
-        <ChainVisual chain={chainHead.slice(0, 8)} />
-      </section>
-
-      {/* ─────────── ENFORCEMENT ─────────── */}
-      <section className="enforcement">
+      {/* ─────────── 05 · INSTALL (dark) ─────────── */}
+      <section className="install">
         <SectionHead
           eyebrow="From verdict to stop"
           title={<>The decision is enforced<br />where the action is taken.</>}
-          lede="Decorator, proxy, MCP middleware, framework adapter. FORBID actions physically don't happen. Platform-agnostic by construction — you do not need to be on Copilot Studio, AgentForce, or ServiceNow."
+          lede="Decorator, proxy, MCP middleware, framework adapter. FORBID actions physically don't happen. Platform-agnostic by construction — you do not need to be on Copilot Studio, AgentForce, or ServiceNow. AGT and OPA govern what the agent is allowed to do; Tex evaluates what it's about to send. Run them together."
         />
         <EnforcementPanel shapes={ENFORCEMENT_SHAPES} />
       </section>
 
-      {/* ─────────── MANIFESTO ─────────── */}
+      {/* ─────────── 06 · AUDIT OFFER (light, primary conversion) ─────────── */}
+      <section className="audit">
+        <div className="audit-inner">
+          <header className="audit-head">
+            <span className="audit-eyebrow mono">Free · 48-hour turnaround</span>
+            <h2 className="audit-title">
+              Send us 20 emails your AI SDR has sent.<br />
+              <em>We'll show you what should never have left the building.</em>
+            </h2>
+            <p className="audit-lede">
+              No commitment. No integration. Forward the last 20 outbound emails from Artisan, 11x, AiSDR — or whatever you're running.
+              In 48 hours you receive a verdict per message, the seven-stream evidence behind each one, and a hash-chained bundle your security team can replay independently.
+            </p>
+          </header>
+          <ol className="audit-grid">
+            {AUDIT_DELIVERABLES.map((d) => (
+              <li className="audit-card" key={d.n}>
+                <span className="audit-num mono">{d.n}</span>
+                <h3 className="audit-card-title">{d.label}</h3>
+                <p className="audit-card-body">{d.body}</p>
+              </li>
+            ))}
+          </ol>
+          <a className="audit-cta" href="https://vortexblack.ai/audit" rel="noopener">
+            <span>Request the free audit</span>
+            <Arrow />
+          </a>
+          <p className="audit-fineprint mono">
+            we read your 20 · we run them through tex · we send you the bundle · we delete the originals
+          </p>
+        </div>
+      </section>
+
+      {/* ─────────── 07 · MANIFESTO (dark, closing thesis) ─────────── */}
       <section className="manifesto">
-        <p className="manifesto-eyebrow">VortexBlack — Tex</p>
+        <p className="manifesto-eyebrow mono">VortexBlack — Tex</p>
         <h2 className="manifesto-text">
-          Most platforms control a moment, or a single layer.
-          <br /><em>Tex is the entire authority loop.</em>
+          AI agents are taking real-world actions across your business right now.
         </h2>
-        <p className="manifesto-sub">
-          Discovery. Registration. Capability. Evaluation. Enforcement. Evidence. Learning.
-          One cryptographically-linked event — not seven products stitched across vendors.
+        <p className="manifesto-body">
+          Writing emails. Updating your database. Posting in Slack.<br />
+          Making promises to customers.
         </p>
-        <a className="cta" href="https://vortexblack.ai/contact" rel="noopener">
-          <span>Request a working demo</span>
-          <Arrow />
-        </a>
+        <h2 className="manifesto-text manifesto-text-emph">
+          Most platforms control a moment, or a single layer.<br />
+          <em>Tex controls the entire system.</em>
+        </h2>
+        <ul className="manifesto-list">
+          <li>It finds every agent.</li>
+          <li>Defines what it can do.</li>
+          <li>Evaluates every action before it executes.</li>
+          <li>Blocks what shouldn't happen.</li>
+          <li>And records it in a way your auditor can independently verify.</li>
+        </ul>
+        <p className="manifesto-body manifesto-body-tight">
+          Not fragments. Not handoffs. Not gaps.<br />
+          One continuous loop of control, enforcement, and proof.
+        </p>
+        <p className="manifesto-signoff">
+          <em>I am Tex.</em>
+        </p>
+        <p className="manifesto-line">
+          The authority layer between AI and the real world.
+        </p>
+        <div className="manifesto-cta-row">
+          <a className="cta cta-primary" href="https://vortexblack.ai/audit" rel="noopener">
+            <span>Get the free audit</span>
+            <Arrow />
+          </a>
+          <a className="cta cta-secondary" href="https://vortexblack.ai/contact" rel="noopener">
+            <span>See it run on your stack</span>
+            <Arrow />
+          </a>
+        </div>
       </section>
 
       <Foot />
@@ -910,7 +1042,7 @@ function ChainVisual({ chain }) {
 }
 
 /* ────────────────────────────────────────────────────────────────────
- *  ENFORCEMENT
+ *  ENFORCEMENT — four shapes, real code, copy-pasteable
  * ──────────────────────────────────────────────────────────────────── */
 
 function EnforcementPanel({ shapes }) {
@@ -918,12 +1050,66 @@ function EnforcementPanel({ shapes }) {
     <div className="enforce-grid">
       {shapes.map((s, i) => (
         <article className="ef-card" key={s.name}>
-          <span className="ef-num mono">0{i + 1}</span>
+          <header className="ef-head">
+            <span className="ef-num mono">0{i + 1}</span>
+            <span className="ef-lang mono">{s.lang}</span>
+          </header>
           <h3 className="ef-name">{s.name}</h3>
-          <p className="ef-surface mono">{s.surface}</p>
           <p className="ef-where">{s.where}</p>
+          <pre className="ef-code mono"><code>{s.code}</code></pre>
         </article>
       ))}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  COMPETITOR MAP — the layer table that ends the "what is Tex" question
+ * ──────────────────────────────────────────────────────────────────── */
+
+function CompetitorMap({ rows }) {
+  return (
+    <div className="cmap">
+      <header className="cmap-head mono">
+        <span>Layer</span>
+        <span>Representative vendors</span>
+        <span>Governs</span>
+      </header>
+      {rows.map((r) => (
+        <div className={`cmap-row ${r.tex ? 'cmap-row-tex' : ''}`} key={r.layer}>
+          <span className="cmap-layer">{r.layer}</span>
+          <span className="cmap-vendors mono">{r.vendors}</span>
+          <span className="cmap-governs">
+            {r.tex ? <em>{r.governs}</em> : r.governs}
+          </span>
+        </div>
+      ))}
+      <footer className="cmap-foot">
+        Four layers, four product categories, four budget lines. Tex is the fifth — and the one nobody else is building.
+      </footer>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  PROOF STATS — three numbers below the chain visual
+ * ──────────────────────────────────────────────────────────────────── */
+
+function ProofStats() {
+  return (
+    <div className="proof-stats">
+      <div className="ps-cell">
+        <span className="ps-num mono">SHA-256</span>
+        <span className="ps-label">hash function · NIST FIPS 180-4</span>
+      </div>
+      <div className="ps-cell">
+        <span className="ps-num mono">2.2 ms</span>
+        <span className="ps-label">median fusion latency · seven streams · one verdict</span>
+      </div>
+      <div className="ps-cell">
+        <span className="ps-num mono">replay</span>
+        <span className="ps-label">any decision, on demand · tamper-evident by construction</span>
+      </div>
     </div>
   );
 }

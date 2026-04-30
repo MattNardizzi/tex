@@ -418,8 +418,23 @@ class ActionLedgerEntry(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     content_sha256: str = Field(min_length=64, max_length=64)
 
+    policy_version: str | None = Field(default=None, max_length=100)
+    evidence_hash: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description="Hash-chain record produced by the evidence recorder.",
+    )
+
     capability_violations: tuple[str, ...] = Field(default_factory=tuple)
     asi_short_codes: tuple[str, ...] = Field(default_factory=tuple)
+
+    system_prompt_hash: str | None = Field(default=None, max_length=512)
+    tool_manifest_hash: str | None = Field(default=None, max_length=512)
+    memory_hash: str | None = Field(default=None, max_length=512)
+    mcp_server_ids: tuple[str, ...] = Field(default_factory=tuple)
+    tools: tuple[str, ...] = Field(default_factory=tuple)
+    data_scopes: tuple[str, ...] = Field(default_factory=tuple)
 
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -452,18 +467,23 @@ class ActionLedgerEntry(BaseModel):
     @field_validator(
         "capability_violations",
         "asi_short_codes",
+        "mcp_server_ids",
+        "tools",
+        "data_scopes",
         mode="before",
     )
     @classmethod
     def _normalize_string_tuple(cls, value: Any) -> tuple[str, ...]:
         return _normalize_lowercase_string_tuple(value)
 
-    @field_validator("content_sha256", mode="after")
+    @field_validator("content_sha256", "evidence_hash", mode="after")
     @classmethod
-    def _validate_sha(cls, value: str) -> str:
+    def _validate_sha(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = value.strip().lower()
         if len(normalized) != 64 or any(c not in "0123456789abcdef" for c in normalized):
-            raise ValueError("content_sha256 must be a 64-char lowercase hex digest")
+            raise ValueError("hash must be a 64-char lowercase hex digest")
         return normalized
 
     @field_validator("recorded_at", mode="after")

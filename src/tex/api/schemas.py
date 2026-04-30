@@ -18,7 +18,7 @@ from tex.domain.asi_finding import (
     ASITriggerSource,
     ASIVerdictInfluence,
 )
-from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
+from tex.domain.evaluation import AgentRuntimeIdentity, EvaluationRequest, EvaluationResponse
 from tex.domain.finding import Finding
 from tex.domain.latency import LatencyBreakdown
 from tex.domain.outcome import OutcomeKind, OutcomeLabel, OutcomeRecord
@@ -319,6 +319,51 @@ class CalibrationRecommendationDTO(BaseModel):
         )
 
 
+class AgentRuntimeIdentityDTO(BaseModel):
+    """Public API shape for adjudication-derived agent discovery."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    agent_id: UUID | None = None
+    external_agent_id: str | None = Field(default=None, max_length=300)
+    agent_name: str | None = Field(default=None, max_length=200)
+    agent_type: str | None = Field(default=None, max_length=100)
+    tenant_id: str = Field(default="default", min_length=1, max_length=200)
+    owner: str | None = Field(default=None, max_length=200)
+    environment: str | None = Field(default=None, max_length=50)
+    model_provider: str | None = Field(default=None, max_length=100)
+    model_name: str | None = Field(default=None, max_length=200)
+    framework: str | None = Field(default=None, max_length=100)
+    system_prompt_hash: str | None = Field(default=None, max_length=512)
+    tool_manifest_hash: str | None = Field(default=None, max_length=512)
+    memory_hash: str | None = Field(default=None, max_length=512)
+    tools: tuple[str, ...] = Field(default_factory=tuple)
+    mcp_server_ids: tuple[str, ...] = Field(default_factory=tuple)
+    data_scopes: tuple[str, ...] = Field(default_factory=tuple)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_domain(self) -> AgentRuntimeIdentity:
+        return AgentRuntimeIdentity(
+            agent_id=self.agent_id,
+            external_agent_id=self.external_agent_id,
+            agent_name=self.agent_name,
+            agent_type=self.agent_type,
+            tenant_id=self.tenant_id,
+            owner=self.owner,
+            environment=self.environment,
+            model_provider=self.model_provider,
+            model_name=self.model_name,
+            framework=self.framework,
+            system_prompt_hash=self.system_prompt_hash,
+            tool_manifest_hash=self.tool_manifest_hash,
+            memory_hash=self.memory_hash,
+            tools=self.tools,
+            mcp_server_ids=self.mcp_server_ids,
+            data_scopes=self.data_scopes,
+            metadata=self.metadata,
+        )
+
+
 class EvaluateRequestDTO(BaseModel):
     """
     Public inbound request for evaluating one action through Tex.
@@ -354,6 +399,13 @@ class EvaluateRequestDTO(BaseModel):
         max_length=200,
         description="Optional caller-supplied logical session identifier.",
     )
+    agent_identity: AgentRuntimeIdentityDTO | None = Field(
+        default=None,
+        description=(
+            "Optional runtime identity/fingerprint block. This turns the "
+            "adjudication request into a controlled discovery signal."
+        ),
+    )
 
     @field_validator("requested_at", mode="after")
     @classmethod
@@ -377,6 +429,11 @@ class EvaluateRequestDTO(BaseModel):
             "policy_id": self.policy_id,
             "agent_id": self.agent_id,
             "session_id": self.session_id,
+            "agent_identity": (
+                self.agent_identity.to_domain()
+                if self.agent_identity is not None
+                else None
+            ),
         }
         if self.requested_at is not None:
             payload["requested_at"] = self.requested_at

@@ -12,6 +12,108 @@ from tex.domain.latency import LatencyBreakdown
 from tex.domain.verdict import Verdict
 
 
+class AgentRuntimeIdentity(BaseModel):
+    """Runtime identity block for adjudication-derived discovery."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    agent_id: UUID | None = None
+    external_agent_id: str | None = Field(default=None, max_length=300)
+    agent_name: str | None = Field(default=None, max_length=200)
+    agent_type: str | None = Field(default=None, max_length=100)
+    tenant_id: str = Field(default="default", min_length=1, max_length=200)
+    owner: str | None = Field(default=None, max_length=200)
+    environment: str | None = Field(default=None, max_length=50)
+    model_provider: str | None = Field(default=None, max_length=100)
+    model_name: str | None = Field(default=None, max_length=200)
+    framework: str | None = Field(default=None, max_length=100)
+    system_prompt_hash: str | None = Field(default=None, max_length=512)
+    tool_manifest_hash: str | None = Field(default=None, max_length=512)
+    memory_hash: str | None = Field(default=None, max_length=512)
+    tools: tuple[str, ...] = Field(default_factory=tuple)
+    mcp_server_ids: tuple[str, ...] = Field(default_factory=tuple)
+    data_scopes: tuple[str, ...] = Field(default_factory=tuple)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("external_agent_id", "agent_name", "agent_type", "owner", "environment", "model_provider", "model_name", "framework", "system_prompt_hash", "tool_manifest_hash", "memory_hash", mode="before")
+    @classmethod
+    def _normalize_optional_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("value must be a string when provided")
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("tenant_id", mode="before")
+    @classmethod
+    def _normalize_tenant_id(cls, value: Any) -> str:
+        if value is None:
+            return "default"
+        if not isinstance(value, str):
+            raise TypeError("tenant_id must be a string")
+        normalized = value.strip().casefold()
+        if not normalized:
+            raise ValueError("tenant_id must not be blank")
+        return normalized
+
+    @field_validator("tools", "mcp_server_ids", "data_scopes", mode="before")
+    @classmethod
+    def _normalize_tuple(cls, value: Any) -> tuple[str, ...]:
+        if value is None:
+            return tuple()
+        if isinstance(value, str):
+            raise TypeError("expected a sequence of strings, not a string")
+        if not isinstance(value, (list, tuple, set, frozenset)):
+            raise TypeError("expected a sequence of strings")
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise TypeError("sequence items must be strings")
+            normalized = item.strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            out.append(normalized)
+        out.sort()
+        return tuple(out)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _normalize_metadata(cls, value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError("metadata must be a dictionary")
+        return dict(value)
+
+    @property
+    def stable_key(self) -> str:
+        parts = [
+            self.tenant_id,
+            str(self.agent_id) if self.agent_id is not None else "",
+            self.external_agent_id or "",
+            self.agent_name or "",
+            self.agent_type or "",
+            self.framework or "",
+            self.model_provider or "",
+            self.model_name or "",
+            self.system_prompt_hash or "",
+            self.tool_manifest_hash or "",
+            self.memory_hash or "",
+            ",".join(self.tools),
+            ",".join(self.mcp_server_ids),
+            ",".join(self.data_scopes),
+        ]
+        return "|".join(parts).casefold()
+
+    @property
+    def fingerprint_hash(self) -> str:
+        import hashlib
+        return hashlib.sha256(self.stable_key.encode("utf-8")).hexdigest()
+
+
 class EvaluationRequest(BaseModel):
     """
     Canonical input to Tex for one content adjudication event.
@@ -63,6 +165,14 @@ class EvaluationRequest(BaseModel):
         description=(
             "Caller-supplied stable identifier for a logical agent session. "
             "Lets Tex compute behavioral signals scoped to a single run."
+        ),
+    )
+    agent_identity: AgentRuntimeIdentity | None = Field(
+        default=None,
+        description=(
+            "Runtime identity/fingerprint block. When supplied, Tex treats "
+            "the adjudication request itself as a discovery signal and "
+            "auto-registers or upgrades the agent to CONTROLLED."
         ),
     )
 

@@ -58,6 +58,7 @@ class DiscoverySource(StrEnum):
     AWS_BEDROCK = "aws_bedrock"
     GITHUB = "github"
     OPENAI = "openai"
+    SLACK = "slack"
     MCP_SERVER = "mcp_server"
     LANGSMITH = "langsmith"
     GENERIC = "generic"

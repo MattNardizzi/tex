@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from datetime import UTC, datetime
+from typing import Any, Protocol, runtime_checkable
+from uuid import UUID, uuid5
 
-from tex.domain.agent import ActionLedgerEntry
+from tex.domain.agent import ActionLedgerEntry, AgentEnvironment, AgentIdentity, AgentLifecycleStatus, AgentTrustTier, CapabilitySurface
 from tex.domain.decision import Decision
-from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
+from tex.domain.evaluation import AgentRuntimeIdentity, EvaluationRequest, EvaluationResponse
 from tex.domain.evidence import EvidenceRecord
 from tex.domain.policy import PolicySnapshot
 from tex.domain.tenant_baseline import (
@@ -21,6 +23,8 @@ from tex.stores.decision_store import InMemoryDecisionStore
 from tex.stores.policy_store import InMemoryPolicyStore
 from tex.stores.precedent_store import InMemoryPrecedentStore
 from tex.stores.tenant_content_baseline import InMemoryTenantContentBaseline
+
+AGENT_IDENTITY_NAMESPACE = UUID("9d9d47ff-e665-4abc-9316-390ec97f02fb")
 
 
 @runtime_checkable
@@ -127,54 +131,279 @@ class EvaluateActionCommand:
         write to the agent action ledger when applicable, and optionally
         record evidence.
         """
+        # Resolve the policy first so we can stamp every registry write
+        # that follows with policy_version provenance. This is what
+        # turns the durable registry from "storage" into a forensic
+        # source of truth — every revision row carries the policy
+        # version that was active when the write happened.
         policy = self._resolve_policy(request)
-        pdp_result = self._pdp.evaluate(
-            request=request,
-            policy=policy,
-        )
+        registry = self._agent_registry
+        if registry is not None and hasattr(registry, "set_audit_context"):
+            try:
+                registry.set_audit_context(
+                    policy_version=policy.version,
+                    write_source="evaluate_action",
+                )
+            except Exception:  # noqa: BLE001
+                # Audit context is best-effort. A registry that
+                # doesn't support it (in-memory, tests, future
+                # backends) still saves correctly without it.
+                pass
 
-        self._validate_pdp_alignment(
-            request=request,
-            policy=policy,
-            pdp_result=pdp_result,
-        )
-
-        decision = pdp_result.decision
-        self._decision_store.save(decision)
-        self._save_precedent(decision)
-        self._record_action_ledger_entry(
-            request=request,
-            decision=decision,
-            pdp_result=pdp_result,
-        )
-        self._update_tenant_baseline(
-            request=request,
-            decision=decision,
-        )
-
-        evidence_record = None
-        response = pdp_result.response
-
-        if self._evidence_recorder is not None:
-            evidence_record = self._record_decision_evidence(
-                decision=decision,
+        try:
+            request = self._ensure_controlled_agent_registered(request)
+            pdp_result = self._pdp.evaluate(
                 request=request,
-            )
-            # Back-propagate the recorded hash onto the response so API
-            # callers see a real evidence_hash instead of "". The domain
-            # Decision and EvaluationResponse are both frozen, so we build
-            # a new response with the hash attached. This is the only
-            # mutation we allow at the application layer.
-            response = response.model_copy(
-                update={"evidence_hash": evidence_record.record_hash}
+                policy=policy,
             )
 
-        return EvaluateActionResult(
-            response=response,
-            decision=decision,
-            policy=policy,
-            pdp_result=pdp_result,
-            evidence_record=evidence_record,
+            self._validate_pdp_alignment(
+                request=request,
+                policy=policy,
+                pdp_result=pdp_result,
+            )
+
+            decision = pdp_result.decision
+            self._decision_store.save(decision)
+            self._save_precedent(decision)
+
+            evidence_record = None
+            response = pdp_result.response
+
+            if self._evidence_recorder is not None:
+                evidence_record = self._record_decision_evidence(
+                    decision=decision,
+                    request=request,
+                )
+                # Back-propagate the recorded hash onto the response so API
+                # callers see a real evidence_hash instead of "". The domain
+                # Decision and EvaluationResponse are both frozen, so we build
+                # a new response with the hash attached. This is the only
+                # mutation we allow at the application layer.
+                response = response.model_copy(
+                    update={"evidence_hash": evidence_record.record_hash}
+                )
+
+            self._record_action_ledger_entry(
+                request=request,
+                decision=decision,
+                pdp_result=pdp_result,
+                evidence_hash=(
+                    evidence_record.record_hash if evidence_record is not None else None
+                ),
+            )
+            self._update_tenant_baseline(
+                request=request,
+                decision=decision,
+            )
+
+            return EvaluateActionResult(
+                response=response,
+                decision=decision,
+                policy=policy,
+                pdp_result=pdp_result,
+                evidence_record=evidence_record,
+            )
+        finally:
+            # Always clear the audit context so a subsequent unrelated
+            # save (e.g. an admin endpoint, a discovery scan running
+            # concurrently on the same registry) doesn't accidentally
+            # inherit this evaluation's policy_version.
+            if registry is not None and hasattr(registry, "clear_audit_context"):
+                try:
+                    registry.clear_audit_context()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _ensure_controlled_agent_registered(
+        self,
+        request: EvaluationRequest,
+    ) -> EvaluationRequest:
+        """
+        Treat every adjudication with agent context as a controlled discovery signal.
+
+        If the caller supplies only an agent_identity block, derive a stable UUID
+        from its fingerprint. If the registry does not know the agent yet,
+        register it before PDP evaluation so identity/capability/behavior streams
+        run on the first controlled action. If the agent already exists, upgrade
+        metadata to mark it CONTROLLED and refresh its runtime fingerprint only
+        when the fingerprint actually changed.
+        """
+        registry = self._agent_registry
+        identity = request.agent_identity
+
+        if registry is None:
+            return request
+        if identity is None and request.agent_id is None:
+            return request
+
+        resolved_agent_id = request.agent_id
+        if resolved_agent_id is None and identity is not None:
+            resolved_agent_id = identity.agent_id or uuid5(
+                AGENT_IDENTITY_NAMESPACE,
+                identity.stable_key,
+            )
+
+        if resolved_agent_id is None:
+            return request
+
+        request = request.model_copy(update={"agent_id": resolved_agent_id})
+
+        existing = registry.get(resolved_agent_id)
+        if existing is None:
+            registry.save(self._build_controlled_agent_identity(
+                agent_id=resolved_agent_id,
+                identity=identity,
+                request=request,
+            ))
+            return request
+
+        if identity is None:
+            if existing.metadata.get("visibility_status") != "controlled":
+                metadata = dict(existing.metadata)
+                metadata["visibility_status"] = "controlled"
+                metadata["controlled_first_seen_at"] = datetime.now(UTC).isoformat()
+                registry.save(existing.model_copy(update={"metadata": metadata}))
+            return request
+
+        fingerprint_hash = identity.fingerprint_hash
+        current_fingerprint = existing.metadata.get("agent_fingerprint_hash")
+        if (
+            existing.metadata.get("visibility_status") == "controlled"
+            and current_fingerprint == fingerprint_hash
+        ):
+            return request
+
+        metadata = dict(existing.metadata)
+        metadata.update(self._runtime_identity_metadata(identity))
+        metadata.setdefault("controlled_first_seen_at", datetime.now(UTC).isoformat())
+        metadata["controlled_last_seen_at"] = datetime.now(UTC).isoformat()
+
+        updates: dict[str, Any] = {
+            "metadata": metadata,
+            "model_provider": identity.model_provider or existing.model_provider,
+            "model_name": identity.model_name or existing.model_name,
+            "framework": identity.framework or existing.framework,
+        }
+        if identity.environment is not None:
+            updates["environment"] = self._coerce_environment(
+                identity.environment,
+                existing.environment,
+            )
+        if identity.tools or identity.mcp_server_ids or identity.data_scopes:
+            updates["capability_surface"] = self._merge_capability_surface(
+                existing.capability_surface,
+                identity,
+            )
+
+        registry.save(existing.model_copy(update=updates))
+        return request
+
+    def _build_controlled_agent_identity(
+        self,
+        *,
+        agent_id: UUID,
+        identity: AgentRuntimeIdentity | None,
+        request: EvaluationRequest,
+    ) -> AgentIdentity:
+        now = datetime.now(UTC)
+        metadata: dict[str, Any] = {
+            "visibility_status": "controlled",
+            "discovery_mode": "adjudication_derived",
+            "controlled_first_seen_at": now.isoformat(),
+            "controlled_last_seen_at": now.isoformat(),
+            "first_controlled_request_id": str(request.request_id),
+        }
+
+        if identity is not None:
+            metadata.update(self._runtime_identity_metadata(identity))
+
+        return AgentIdentity(
+            agent_id=agent_id,
+            name=(
+                identity.agent_name
+                if identity is not None and identity.agent_name is not None
+                else f"controlled-agent-{str(agent_id)[:8]}"
+            ),
+            owner=(
+                identity.owner
+                if identity is not None and identity.owner is not None
+                else "unknown"
+            ),
+            description="Auto-registered by Tex from an adjudication request.",
+            tenant_id=identity.tenant_id if identity is not None else "default",
+            model_provider=identity.model_provider if identity is not None else None,
+            model_name=identity.model_name if identity is not None else None,
+            framework=identity.framework if identity is not None else None,
+            environment=self._coerce_environment(
+                identity.environment if identity is not None else request.environment,
+                AgentEnvironment.PRODUCTION,
+            ),
+            trust_tier=AgentTrustTier.UNVERIFIED,
+            lifecycle_status=AgentLifecycleStatus.ACTIVE,
+            capability_surface=(
+                self._capability_surface_from_runtime_identity(identity)
+                if identity is not None
+                else CapabilitySurface()
+            ),
+            tags=("controlled", "adjudication-derived"),
+            metadata=metadata,
+            registered_at=now,
+            updated_at=now,
+        )
+
+    @staticmethod
+    def _runtime_identity_metadata(identity: AgentRuntimeIdentity) -> dict[str, Any]:
+        return {
+            "visibility_status": "controlled",
+            "agent_fingerprint_hash": identity.fingerprint_hash,
+            "external_agent_id": identity.external_agent_id,
+            "agent_type": identity.agent_type,
+            "system_prompt_hash": identity.system_prompt_hash,
+            "tool_manifest_hash": identity.tool_manifest_hash,
+            "memory_hash": identity.memory_hash,
+            "tools": list(identity.tools),
+            "mcp_server_ids": list(identity.mcp_server_ids),
+            "data_scopes": list(identity.data_scopes),
+            "runtime_identity_metadata": dict(identity.metadata),
+        }
+
+    @staticmethod
+    def _coerce_environment(
+        value: str | None,
+        fallback: AgentEnvironment,
+    ) -> AgentEnvironment:
+        if value is None:
+            return fallback
+        normalized = value.strip().upper()
+        aliases = {"DEV": "SANDBOX", "DEVELOPMENT": "SANDBOX", "PROD": "PRODUCTION"}
+        normalized = aliases.get(normalized, normalized)
+        try:
+            return AgentEnvironment(normalized)
+        except ValueError:
+            return fallback
+
+    @staticmethod
+    def _capability_surface_from_runtime_identity(
+        identity: AgentRuntimeIdentity,
+    ) -> CapabilitySurface:
+        return CapabilitySurface(
+            allowed_tools=identity.tools,
+            allowed_mcp_servers=identity.mcp_server_ids,
+            data_scopes=identity.data_scopes,
+        )
+
+    @staticmethod
+    def _merge_capability_surface(
+        current: CapabilitySurface,
+        identity: AgentRuntimeIdentity,
+    ) -> CapabilitySurface:
+        return current.model_copy(
+            update={
+                "allowed_tools": tuple(sorted(set(current.allowed_tools) | set(identity.tools))),
+                "allowed_mcp_servers": tuple(sorted(set(current.allowed_mcp_servers) | set(identity.mcp_server_ids))),
+                "data_scopes": tuple(sorted(set(current.data_scopes) | set(identity.data_scopes))),
+            }
         )
 
     def _resolve_policy(self, request: EvaluationRequest) -> PolicySnapshot:
@@ -288,6 +517,11 @@ class EvaluateActionCommand:
             metadata["requested_policy_id"] = request.policy_id
         if request.metadata:
             metadata["request_metadata"] = dict(request.metadata)
+        if request.agent_id is not None:
+            metadata["agent_id"] = str(request.agent_id)
+        if request.agent_identity is not None:
+            metadata["agent_identity"] = request.agent_identity.model_dump(mode="json")
+            metadata["agent_fingerprint_hash"] = request.agent_identity.fingerprint_hash
 
         return recorder.record_decision(
             decision,
@@ -300,6 +534,7 @@ class EvaluateActionCommand:
         request: EvaluationRequest,
         decision: Decision,
         pdp_result: PDPResult,
+        evidence_hash: str | None = None,
     ) -> None:
         """
         Append an action ledger entry when the request was tied to an agent.
@@ -335,8 +570,40 @@ class EvaluateActionCommand:
             final_score=decision.final_score,
             confidence=decision.confidence,
             content_sha256=decision.content_sha256,
+            policy_version=decision.policy_version,
+            evidence_hash=evidence_hash,
             capability_violations=capability_violations,
             asi_short_codes=asi_short_codes,
+            system_prompt_hash=(
+                request.agent_identity.system_prompt_hash
+                if request.agent_identity is not None
+                else None
+            ),
+            tool_manifest_hash=(
+                request.agent_identity.tool_manifest_hash
+                if request.agent_identity is not None
+                else None
+            ),
+            memory_hash=(
+                request.agent_identity.memory_hash
+                if request.agent_identity is not None
+                else None
+            ),
+            mcp_server_ids=(
+                request.agent_identity.mcp_server_ids
+                if request.agent_identity is not None
+                else tuple()
+            ),
+            tools=(
+                request.agent_identity.tools
+                if request.agent_identity is not None
+                else tuple()
+            ),
+            data_scopes=(
+                request.agent_identity.data_scopes
+                if request.agent_identity is not None
+                else tuple()
+            ),
         )
         ledger.append(entry)
 

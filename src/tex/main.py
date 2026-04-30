@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,8 +33,11 @@ from tex.discovery.connectors import (
     GitHubConnector,
     MCPServerConnector,
     MicrosoftGraphConnector,
+    OpenAIAssistantsLiveConnector,
     OpenAIConnector,
     SalesforceConnector,
+    SlackConnector,
+    SlackLiveConnector,
 )
 from tex.discovery.service import DiscoveryService
 from tex.domain.evaluation import EvaluationRequest
@@ -96,6 +101,20 @@ class TexRuntime:
     activate_policy_command: ActivatePolicyCommand
     calibrate_policy_command: CalibratePolicyCommand
     export_bundle_command: ExportBundleCommand
+
+    # V15: durable persistence + drift detection + alerts. Optional so
+    # the runtime composes cleanly with or without DATABASE_URL.
+    governance_snapshot_store: Any = None
+    drift_event_store: Any = None
+    alert_engine: Any = None
+    scan_scheduler: Any = None
+
+    # V16: discovery hardening — scan-run lifecycle, per-tenant locking,
+    # connector health, soft-disappearance state, in-process metrics.
+    scan_run_store: Any = None
+    connector_health_store: Any = None
+    presence_tracker: Any = None
+    discovery_metrics: Any = None
 
 
 class InMemoryPolicyClauseStoreAdapter:
@@ -292,7 +311,22 @@ def build_runtime(
     outcome_store = InMemoryOutcomeStore()
     precedent_store = InMemoryPrecedentStore()
     entity_store = InMemoryEntityStore()
-    agent_registry = InMemoryAgentRegistry()
+
+    # V15: agent registry + discovery ledger now have durable
+    # write-through-cache implementations. When DATABASE_URL is set
+    # they persist every write to Postgres and bootstrap from there
+    # on startup. When it's not set they degrade to pure in-memory
+    # (V14 behavior). The runtime never raises on missing DB; it
+    # logs a warning and continues.
+    if os.environ.get("DATABASE_URL", "").strip():
+        from tex.stores.agent_registry_postgres import PostgresAgentRegistry
+        from tex.stores.discovery_ledger_postgres import PostgresDiscoveryLedger
+        agent_registry = PostgresAgentRegistry()
+        discovery_ledger = PostgresDiscoveryLedger()
+    else:
+        agent_registry = InMemoryAgentRegistry()
+        discovery_ledger = InMemoryDiscoveryLedger()
+
     action_ledger = InMemoryActionLedger()
     tenant_baseline = InMemoryTenantContentBaseline()
 
@@ -317,26 +351,117 @@ def build_runtime(
     # ----- Discovery layer composition ------------------------------------
     #
     # Discovery is wired with mock connectors by default. Real production
-    # deployments replace these by registering live-API connectors against
-    # the same DiscoveryConnector Protocol via
-    # `runtime.discovery_service.register_connector(...)`.
+    # deployments set the appropriate environment variables and the
+    # matching live-API connector is used in place of the mock for that
+    # source. Mocks are still wired for the other sources so the rest of
+    # the discovery surface stays exercised.
     #
-    # The mock connectors start with empty record lists, so a default
-    # boot of Tex runs cleanly with zero discovery output. Operators
-    # populate them by calling `connector.replace_records([...])` from
-    # an admin script, or fixtures populate them in tests.
-    discovery_ledger = InMemoryDiscoveryLedger()
+    #   TEX_DISCOVERY_OPENAI_API_KEY   → OpenAIAssistantsLiveConnector
+    #   TEX_DISCOVERY_OPENAI_ORG       → optional, X-Organization header
+    #   TEX_DISCOVERY_OPENAI_PROJECT   → optional, X-Project header
+    #
+    #   TEX_DISCOVERY_SLACK_TOKEN      → SlackLiveConnector
+    #   TEX_DISCOVERY_SLACK_TEAM_ID    → optional, scope to one workspace
+    #
+    # Mock connectors start with empty record lists so a default boot
+    # produces zero candidates. Live connectors start scanning real
+    # tenants the moment they're wired. If a live connector raises a
+    # ConnectorError mid-scan, the discovery service catches it and
+    # records a structured error on the run — it never crashes the
+    # runtime.
     discovery_service = DiscoveryService(
         registry=agent_registry,
         ledger=discovery_ledger,
-        connectors=[
-            MicrosoftGraphConnector(),
-            SalesforceConnector(),
-            AwsBedrockConnector(),
-            GitHubConnector(),
-            OpenAIConnector(),
-            MCPServerConnector(),
-        ],
+        connectors=_build_discovery_connectors(),
+    )
+
+    # V15: governance snapshots, drift detection, real-time alerts,
+    # and the background scheduler. All optional; when DATABASE_URL
+    # is unset, snapshots/drift run in pure in-memory mode and the
+    # scheduler is started only if TEX_DISCOVERY_SCAN_TENANTS is set.
+    from tex.discovery.alerts import AlertEngine
+    from tex.discovery.presence import PresenceTracker
+    from tex.discovery.scheduler import BackgroundScanScheduler
+    from tex.stores.connector_health import ConnectorHealthStore
+    from tex.stores.drift_events import DriftEventStore
+    from tex.stores.governance_snapshots import GovernanceSnapshotStore
+    from tex.stores.scan_runs import ScanRunStore
+
+    governance_snapshot_store = GovernanceSnapshotStore()
+    drift_event_store = DriftEventStore()
+    alert_engine = AlertEngine.from_environment()
+
+    # V16: durable scan-run lifecycle, connector health, presence
+    # tracking. All Postgres-write-through with in-memory fallback.
+    scan_run_store = ScanRunStore()
+    connector_health_store = ConnectorHealthStore()
+
+    # Soft-disappearance threshold defaults to 3 (two grace passes
+    # before CONFIRMED). Operators tune via env var when their
+    # platform stability profile differs.
+    presence_threshold = int(
+        os.environ.get("TEX_DISCOVERY_PRESENCE_THRESHOLD", "3").strip() or "3"
+    )
+    presence_tracker = PresenceTracker(missing_threshold=presence_threshold)
+
+    # V16 in-process metrics surface for the discovery control loop.
+    from tex.observability.discovery_metrics import DiscoveryMetrics
+    discovery_metrics = DiscoveryMetrics()
+
+    # Bind the new stores into the discovery service so every scan
+    # (manual or scheduled) gets idempotency, locking, and health
+    # tracking automatically.
+    discovery_service = DiscoveryService(
+        registry=agent_registry,
+        ledger=discovery_ledger,
+        connectors=_build_discovery_connectors(),
+        scan_run_store=scan_run_store,
+        health_store=connector_health_store,
+    )
+
+    # ---- V16 control-loop closure ---------------------------------
+    # The scheduler can auto-capture a governance snapshot at the
+    # end of every cycle, bound to that cycle's scan_run_id and the
+    # registry state it produced. Tex's full control loop is then:
+    #
+    #   discovery scan → registry mutation → ledger append →
+    #   drift detection → alerts → governance snapshot → evidence
+    #
+    # all on a hash-chained, signed audit trail.
+    def _capture_snapshot_after_scan(*, tenant_id, run):
+        try:
+            from tex.api.agent_routes import _build_governance
+            gov = _build_governance(
+                registry=agent_registry,
+                action_ledger=action_ledger,
+                discovery_ledger=discovery_ledger,
+            )
+            return governance_snapshot_store.capture(
+                governance_payload=gov.model_dump(mode="json"),
+                label=f"auto:scheduled-scan:{tenant_id}",
+                scan_run_id=str(run.scan_run_id) if run.scan_run_id else None,
+                ledger_seq_start=run.ledger_seq_start,
+                ledger_seq_end=run.ledger_seq_end,
+                registry_state_hash=run.registry_state_hash,
+                policy_version=run.policy_version,
+                tenant_id=tenant_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "auto-snapshot capture failed for tenant=%s: %s", tenant_id, exc,
+            )
+            return None
+
+    scan_scheduler = BackgroundScanScheduler(
+        service=discovery_service,
+        drift_store=drift_event_store,
+        alert_engine=alert_engine,
+        presence_tracker=presence_tracker,
+        snapshot_capture_callable=_capture_snapshot_after_scan,
+        policy_version=os.environ.get(
+            "TEX_DISCOVERY_SCAN_POLICY_VERSION", ""
+        ).strip() or None,
+        metrics=discovery_metrics,
     )
 
     pdp = PolicyDecisionPoint(
@@ -397,6 +522,14 @@ def build_runtime(
         activate_policy_command=activate_policy_command,
         calibrate_policy_command=calibrate_policy_command,
         export_bundle_command=export_bundle_command,
+        governance_snapshot_store=governance_snapshot_store,
+        drift_event_store=drift_event_store,
+        alert_engine=alert_engine,
+        scan_scheduler=scan_scheduler,
+        scan_run_store=scan_run_store,
+        connector_health_store=connector_health_store,
+        presence_tracker=presence_tracker,
+        discovery_metrics=discovery_metrics,
     )
 
 
@@ -426,7 +559,25 @@ def create_app(
             await arcade_leaderboard_repo.ensure_schema()
         except Exception as exc:  # pragma: no cover
             _logger.warning("arcade leaderboard schema init failed: %s", exc)
-        yield
+        # V15: start the background discovery scheduler. ``start()`` is
+        # idempotent and a no-op when no tenants are configured, so
+        # local-dev boots stay quiet.
+        scheduler = getattr(resolved_runtime, "scan_scheduler", None)
+        if scheduler is not None:
+            try:
+                scheduler.start()
+            except Exception as exc:  # pragma: no cover
+                _logger.warning("discovery scheduler start failed: %s", exc)
+        try:
+            yield
+        finally:
+            # Tear down the scheduler on shutdown so the daemon
+            # thread exits cleanly.
+            if scheduler is not None:
+                try:
+                    scheduler.stop()
+                except Exception as exc:  # pragma: no cover
+                    _logger.warning("discovery scheduler stop failed: %s", exc)
 
     app = FastAPI(
         title=APP_TITLE,
@@ -452,6 +603,18 @@ def create_app(
     app.include_router(build_agent_router())  # AGENT GOVERNANCE
     app.include_router(build_tenant_router())  # V11: TENANT BASELINE
     app.include_router(build_discovery_router())  # V13: DISCOVERY
+    # V15: governance history + drift + scheduler admin
+    from tex.api.governance_history_routes import (
+        build_drift_router,
+        build_governance_history_router,
+        build_scheduler_router,
+    )
+    app.include_router(build_governance_history_router())
+    app.include_router(build_drift_router())
+    app.include_router(build_scheduler_router())
+    # V16: aggregate read endpoint
+    from tex.api.system_state_routes import build_system_state_router
+    app.include_router(build_system_state_router())
     app.include_router(leaderboard_router)  # LEADERBOARD
     app.include_router(arcade_leaderboard_router)  # ARCADE
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
@@ -525,6 +688,18 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.discovery_ledger = runtime.discovery_ledger
     app.state.discovery_service = runtime.discovery_service
 
+    # V15
+    app.state.governance_snapshot_store = runtime.governance_snapshot_store
+    app.state.drift_event_store = runtime.drift_event_store
+    app.state.alert_engine = runtime.alert_engine
+    app.state.scan_scheduler = runtime.scan_scheduler
+
+    # V16
+    app.state.scan_run_store = runtime.scan_run_store
+    app.state.connector_health_store = runtime.connector_health_store
+    app.state.presence_tracker = runtime.presence_tracker
+    app.state.discovery_metrics = runtime.discovery_metrics
+
     app.state.evidence_recorder = runtime.evidence_recorder
     app.state.evidence_exporter = runtime.evidence_exporter
 
@@ -590,6 +765,76 @@ def _seed_default_entities(
                 )
             )
             rank += 1
+
+
+def _build_discovery_connectors() -> list:
+    """
+    Construct the discovery connector list, preferring live connectors
+    where credentials are present in the environment.
+
+    Each entry follows the same rule:
+
+      1. If the live env vars are set, instantiate the live connector.
+         If construction itself raises (e.g. malformed token), log the
+         error and fall back to the mock for that source so a single
+         broken credential does not take down discovery.
+      2. Otherwise, instantiate the mock connector.
+
+    The discovery service does not care which is which — they both
+    satisfy the ``DiscoveryConnector`` Protocol.
+    """
+    connectors: list = [
+        MicrosoftGraphConnector(),
+        SalesforceConnector(),
+        AwsBedrockConnector(),
+        GitHubConnector(),
+        MCPServerConnector(),
+    ]
+
+    # OpenAI Assistants
+    openai_key = os.environ.get("TEX_DISCOVERY_OPENAI_API_KEY", "").strip()
+    if openai_key:
+        try:
+            connectors.append(
+                OpenAIAssistantsLiveConnector(
+                    api_key=openai_key,
+                    organization=os.environ.get("TEX_DISCOVERY_OPENAI_ORG") or None,
+                    project=os.environ.get("TEX_DISCOVERY_OPENAI_PROJECT") or None,
+                )
+            )
+            _logger.info("discovery: OpenAI Assistants live connector wired")
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "discovery: OpenAI live connector failed to construct (%s); "
+                "falling back to mock",
+                exc,
+            )
+            connectors.append(OpenAIConnector())
+    else:
+        connectors.append(OpenAIConnector())
+
+    # Slack
+    slack_token = os.environ.get("TEX_DISCOVERY_SLACK_TOKEN", "").strip()
+    if slack_token:
+        try:
+            connectors.append(
+                SlackLiveConnector(
+                    token=slack_token,
+                    team_id=os.environ.get("TEX_DISCOVERY_SLACK_TEAM_ID") or None,
+                )
+            )
+            _logger.info("discovery: Slack live connector wired")
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "discovery: Slack live connector failed to construct (%s); "
+                "falling back to mock",
+                exc,
+            )
+            connectors.append(SlackConnector())
+    else:
+        connectors.append(SlackConnector())
+
+    return connectors
 
 
 app = create_app()

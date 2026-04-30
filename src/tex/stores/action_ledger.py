@@ -36,7 +36,7 @@ class InMemoryActionLedger:
     contribute least to the behavioral baseline anyway.
     """
 
-    __slots__ = ("_lock", "_by_agent", "_per_agent_limit", "_global_count")
+    __slots__ = ("_lock", "_by_agent", "_per_agent_limit", "_global_count", "_global_order")
 
     def __init__(
         self,
@@ -50,6 +50,7 @@ class InMemoryActionLedger:
         self._by_agent: dict[UUID, deque[ActionLedgerEntry]] = {}
         self._per_agent_limit = per_agent_limit
         self._global_count = 0
+        self._global_order: list[ActionLedgerEntry] = []
 
         if initial:
             for entry in initial:
@@ -65,9 +66,22 @@ class InMemoryActionLedger:
                 queue = deque(maxlen=self._per_agent_limit)
                 self._by_agent[entry.agent_id] = queue
             queue.append(entry)
+            self._global_order.append(entry)
             self._global_count += 1
 
     # ------------------------------------------------------------------ reads
+
+    def list_all(self, *, limit: int | None = None) -> tuple[ActionLedgerEntry, ...]:
+        """
+        Return all ledger entries in global chronological order.
+        Used for fleet/systemic-risk analytics.
+        """
+        with self._lock:
+            if limit is None:
+                return tuple(self._global_order)
+            if limit <= 0:
+                return tuple()
+            return tuple(self._global_order[-limit:])
 
     def list_for_agent(
         self,

@@ -101,24 +101,55 @@ agent = create_react_agent(llm, tools)`,
   },
 ];
 
-/* — Where Tex sits next to the rest of the "AI agent security" market.
- *   Every row is the shortest true sentence describing what that
- *   category governs. The buyer leaves this section knowing the one
- *   sentence to repeat to their CISO. */
-const COMPETITOR_MAP = [
-  { layer: 'Identity',     vendors: 'Okta · Oasis · Auth0',           governs: 'who the agent is' },
-  { layer: 'Posture',      vendors: 'Zenity · Noma · Geordie',        governs: 'what the agent could do' },
-  { layer: 'Behavior',     vendors: 'Rubrik SAGE · Virtue AI',        governs: 'what the agent has done' },
-  { layer: 'Policy',       vendors: 'Microsoft AGT · OPA · Cedar',    governs: 'what the agent is allowed to do' },
-  { layer: 'Tex',          vendors: 'VortexBlack',                    governs: 'what the agent is about to send', tex: true },
+/* — The seven nodes of the Tex authority loop.
+ *   This is the architecture diagram in data form: the buyer sees one
+ *   continuous ring of control, each node a real subsystem with a
+ *   plain-language headline and a technical credential underneath. */
+const LOOP_NODES = [
+  { id: 'discovery',    label: 'Discovery',    plain: 'Scan every connected platform for agents already running.',                   tech: '7 connectors · 8 reconciliation outcomes · same hash chain' },
+  { id: 'registration', label: 'Registration', plain: 'Bind every agent to an identity, a trust tier, a lifecycle.',                  tech: 'UNVERIFIED · STANDARD · TRUSTED · PRIVILEGED' },
+  { id: 'capability',   label: 'Capability',   plain: 'Define what each agent is allowed to do.',                                     tech: 'action_type · channel · environment · recipient bounds' },
+  { id: 'evaluation',   label: 'Evaluation',   plain: 'Score every action against seven streams of evidence.',                        tech: 'fused score · two thresholds · sub-3ms · structured judges' },
+  { id: 'enforcement',  label: 'Enforcement',  plain: 'Block what shouldn\'t happen, before it leaves the machine.',                  tech: 'decorator · proxy · MCP middleware · LangChain · CrewAI' },
+  { id: 'evidence',     label: 'Evidence',     plain: 'Hash every decision. Link every hash. Replay any one.',                        tech: 'sha256(payload || prev_hash) · auditor-replayable' },
+  { id: 'learning',     label: 'Learning',     plain: 'Calibrate thresholds and detect drift from observed outcomes.',                tech: 'calibrator · drift detection · outcome classification' },
 ];
 
-/* — What ships in the free 20-email AI outbound audit. */
-const AUDIT_DELIVERABLES = [
-  { n: '01', label: 'Verdict per message',       body: 'Each of your 20 emails returned with PERMIT, ABSTAIN, or FORBID and the fused score against thresholds.' },
-  { n: '02', label: 'Stream-by-stream evidence', body: 'Identity, capability, behavior, deterministic, retrieval, specialist, semantic — what each judge saw and weighted.' },
-  { n: '03', label: 'Cryptographic bundle',      body: 'A SHA-256 hash-chained evidence file your security team can replay independently. Tamper-evident by construction.' },
-  { n: '04', label: 'Risk brief',                body: 'A one-page write-up of the patterns we found across your 20 — what your AI SDR is doing that you would not approve in writing.' },
+/* — The four-layer market vs. Tex. Used in the Stack Collapse section
+ *   that visually replaces "Tex is the fifth layer" with "Tex is the
+ *   loop everyone else broke into pieces." */
+const STACK_LAYERS = [
+  { id: 'identity', label: 'Identity', vendors: 'Okta · Oasis · Auth0',         governs: 'who the agent is' },
+  { id: 'posture',  label: 'Posture',  vendors: 'Zenity · Noma · Pillar',       governs: 'what the agent could do' },
+  { id: 'behavior', label: 'Behavior', vendors: 'Rubrik SAGE · Virtue AI',      governs: 'what the agent has done' },
+  { id: 'policy',   label: 'Policy',   vendors: 'Microsoft AGT · OPA · Cedar',  governs: 'what the agent is allowed to do' },
+];
+
+/* — Production fusion weights. These are the actual numbers from
+ *   src/tex/policies/defaults.py. Showing the math = credibility no
+ *   marketing copy can match. */
+const FUSION_WEIGHTS = [
+  { id: 'semantic',       label: 'Semantic',       weight: 0.328, role: 'LLM judge · 5-dimension structured analysis' },
+  { id: 'deterministic',  label: 'Deterministic',  weight: 0.218, role: '7 recognizers · regex · structural rules' },
+  { id: 'specialists',    label: 'Specialists',    weight: 0.172, role: '4 domain judges · finding extraction · severity' },
+  { id: 'capability',     label: 'Capability',     weight: 0.090, role: 'declared surface · out-of-bounds = CRITICAL' },
+  { id: 'behavioral',     label: 'Behavioral',     weight: 0.070, role: 'tenant baseline · 64-band MinHash novelty' },
+  { id: 'criticality',    label: 'Criticality',    weight: 0.062, role: 'recipient sensitivity · environment risk' },
+  { id: 'identity',       label: 'Identity',       weight: 0.060, role: 'trust tier · lifecycle · attestation chain' },
+];
+
+/* — Compliance frameworks the evidence chain maps to. */
+const COMPLIANCE_MARKS = [
+  'OWASP ASI 2026', 'NIST AI RMF', 'ISO 42001', 'EU AI Act', 'SOC 2', 'FINRA', 'HIPAA',
+];
+
+/* — What you get in the 14-day free trial. The trial is the full
+ *   system in production, not a paper exercise. */
+const TRIAL_DELIVERABLES = [
+  { n: '01', label: 'Full discovery scan',         body: 'Every agent across Microsoft Graph, Salesforce, Bedrock, GitHub, OpenAI, MCP, and custom platforms — registered, scored, and bound to the chain.' },
+  { n: '02', label: 'Live evaluation on every action', body: 'Seven-stream fusion, sub-3ms verdicts, deployed via decorator, HTTP proxy, MCP middleware, or framework adapter. Production traffic, not a sandbox.' },
+  { n: '03', label: 'Cryptographic evidence ledger',   body: 'Every decision hashed. Every hash linked. Auditor-replayable bundles your security team can verify independently.' },
+  { n: '04', label: 'Day-14 readout',                  body: 'What your agents tried to send. What Tex caught. The patterns nobody told you about. Delivered as a board-ready brief plus the raw chain.' },
 ];
 
 // ────────────────────────────────────────────────────────────────────
@@ -255,97 +286,132 @@ export default function App() {
         <ScrollCue />
       </section>
 
-      {/* ─────────── 01 · WEDGE ─────────── */}
-      <section className="wedge">
-        <div className="wedge-inner">
-          <span className="wedge-eyebrow mono">The category mistake</span>
-          <h2 className="wedge-title">
-            Everyone else watches the agent.<br />
-            <em>Tex reads what it's about to send.</em>
+      {/* ─────────── 01 · THESIS — single sentence, page mission ─────────── */}
+      <section className="thesis">
+        <div className="thesis-axis" aria-hidden="true" />
+        <div className="thesis-inner">
+          <p className="thesis-eyebrow mono">The whole system, in one sentence</p>
+          <h2 className="thesis-line">
+            <span>Identity.</span>
+            <span>Discovery.</span>
+            <span>Capability.</span>
+            <span>Evaluation.</span>
+            <span>Enforcement.</span>
+            <span>Evidence.</span>
+            <span>Learning.</span>
           </h2>
-          <p className="wedge-lede">
-            Identity tells you who the agent is. Posture tells you what it could do. Behavior monitoring tells you what it already did.
-            None of them read the email, the DM, the database write, or the IAM grant <em>before it leaves the machine</em>. Tex does — in 2.2 milliseconds, against seven independent judges, with cryptographic proof of every decision.
-          </p>
-          <CompetitorMap rows={COMPETITOR_MAP} />
+          <p className="thesis-coda mono">One loop. One fingerprint. One chain.</p>
         </div>
       </section>
 
-      {/* ─────────── 02 · ANATOMY (light) ─────────── */}
-      <section className="anatomy anatomy-light">
+      {/* ─────────── 02 · THE LOOP — animated authority ring ─────────── */}
+      <section className="loop">
+        <SectionHead
+          eyebrow="The architecture"
+          title={<>One agent. One action.<br /><em>One ring.</em></>}
+          lede="Every other vendor's diagram has an arrow leaving their box and disappearing into 'your existing security stack.' Tex's diagram closes. A single decision travels every node — identity, capability, behavior, content, policy, evidence, learning — and comes back to the start."
+        />
+        <LoopRing nodes={LOOP_NODES} />
+      </section>
+
+      {/* ─────────── 03 · STACK COLLAPSE — competitive demolition ─────────── */}
+      <section className="collapse">
+        <SectionHead
+          eyebrow="The category mistake"
+          title={<>The market broke this into four products.<br /><em>Tex is the loop.</em></>}
+          lede="Today's enterprise pays for identity, posture, behavior, and policy as four separate invoices, four dashboards, four teams reconciling alerts. Each product governs one face of the agent. None of them evaluate the action itself. Tex fuses all of it — and adds the layer nobody else builds — into one decision, on one chain."
+        />
+        <StackCollapse layers={STACK_LAYERS} />
+      </section>
+
+      {/* ─────────── 04 · ANATOMY — the math ─────────── */}
+      <section className="anatomy">
         <SectionHead
           eyebrow="Anatomy of a decision"
-          title={<>One verdict. Seven evidence streams.<br />Fused at the moment of release.</>}
-          lede="Tex doesn't have a posture system that talks to a runtime system through alerts. Identity, capability, behavior, and content are peer evidence streams in the same fusion event. One fingerprint. One chain."
+          title={<>Seven streams. One fused score.<br /><em>Two thresholds.</em></>}
+          lede="The numbers below are the actual production weights from policies/defaults.py. Identity, capability, and behavior are peer evidence streams alongside content judges — not separate systems handing off through alerts. PERMIT below 0.18. FORBID above 0.72. Everything in between is held."
         />
-        <StreamsAnatomy streams={STREAMS} />
+        <FusionMath weights={FUSION_WEIGHTS} />
       </section>
 
-      {/* ─────────── 03 · PROOF (dark) ─────────── */}
-      <section className="proof">
-        <SectionHead
-          eyebrow="Audit-grade by construction"
-          title={<>Every decision, hashed.<br />Every hash, linked.</>}
-          lede="record_hash = sha256(payload || previous_hash). Replay any decision. Export auditor-verifiable bundles. The discovery ledger uses the same shape — there is no second system to reconcile."
-        />
-        <ChainVisual chain={chainHead.slice(0, 8)} />
-        <ProofStats />
-      </section>
-
-      {/* ─────────── 04 · DISCOVERY (light) ─────────── */}
-      <section className="discovery discovery-light">
+      {/* ─────────── 05 · DISCOVERY THEATER ─────────── */}
+      <section className="discovery">
         <SectionHead
           eyebrow="The upstream half"
-          title={<>Find the agents.<br />Bind them to the same chain.</>}
-          lede="Most products treat discovery and runtime as two systems that hand off through a dashboard. Tex's discovery output is a registry action — the next thing the agent does flows through the same fused decision as everything else."
+          title={<>Find the agents that are already running.<br /><em>Bind them to the same chain.</em></>}
+          lede="Every enterprise has hundreds of agents running that nobody officially registered. Zenity points at this and stops at a dashboard. Tex's discovery output is a registry action — the next thing the agent does flows through the same fused decision as everything else. No second system to reconcile."
         />
-        <DiscoveryPanel connectors={CONNECTORS} events={discoveryEvents} />
+        <DiscoveryTheater connectors={CONNECTORS} events={discoveryEvents} />
       </section>
 
-      {/* ─────────── 05 · INSTALL (dark) ─────────── */}
-      <section className="install">
+      {/* ─────────── 06 · CAPABILITY + BEHAVIOR ─────────── */}
+      <section className="surface">
         <SectionHead
-          eyebrow="From verdict to stop"
-          title={<>The decision is enforced<br />where the action is taken.</>}
-          lede="Decorator, proxy, MCP middleware, framework adapter. FORBID actions physically don't happen. Platform-agnostic by construction — you do not need to be on Copilot Studio, AgentForce, or ServiceNow. AGT and OPA govern what the agent is allowed to do; Tex evaluates what it's about to send. Run them together."
+          eyebrow="What the agent could do · what the tenant has seen"
+          title={<>Every agent has a surface.<br /><em>Every tenant has a baseline.</em></>}
+          lede="Capability is a polygon: action_type, channel, environment, recipient bounds. Anything outside the polygon is CRITICAL — the verdict math forces FORBID. Behavior is a barcode: 64-band MinHash signatures across the tenant. Far signatures fire tenant_novel_content as peer evidence. This is what your posture and behavior tools sell as separate products. In Tex, they're two streams in one decision."
+        />
+        <CapabilitySurface />
+        <BehaviorBarcode />
+      </section>
+
+      {/* ─────────── 07 · ENFORCEMENT ─────────── */}
+      <section className="enforce">
+        <SectionHead
+          eyebrow="Where the verdict becomes a stop"
+          title={<>FORBID actions<br /><em>physically don't happen.</em></>}
+          lede="Decorator. HTTP proxy. MCP middleware. Framework adapter. Tex enforces inside any Python codebase, in front of any endpoint, in any MCP tool function, drop-in for LangChain and CrewAI. Platform-agnostic by construction — you do not need to be on Copilot Studio, AgentForce, or ServiceNow."
         />
         <EnforcementPanel shapes={ENFORCEMENT_SHAPES} />
       </section>
 
-      {/* ─────────── 06 · AUDIT OFFER (light, primary conversion) ─────────── */}
-      <section className="audit">
-        <div className="audit-inner">
-          <header className="audit-head">
-            <span className="audit-eyebrow mono">Free · 48-hour turnaround</span>
-            <h2 className="audit-title">
-              Send us 20 emails your AI SDR has sent.<br />
-              <em>We'll show you what should never have left the building.</em>
+      {/* ─────────── 08 · EVIDENCE CHAIN ─────────── */}
+      <section className="proof">
+        <SectionHead
+          eyebrow="Audit-grade by construction"
+          title={<>Every decision, hashed.<br /><em>Every hash, linked.</em></>}
+          lede="record_hash = sha256(payload || previous_hash). Replay any decision. Export auditor-verifiable bundles. Discovery uses the same shape as runtime — no second ledger, no reconciliation, no vendor portal lock-in. Your auditor verifies the chain independently."
+        />
+        <ChainVisual chain={chainHead.slice(0, 6)} />
+        <ComplianceMarks marks={COMPLIANCE_MARKS} />
+      </section>
+
+      {/* ─────────── 09 · TRIAL — full system, 14 days ─────────── */}
+      <section className="trial">
+        <div className="trial-inner">
+          <header className="trial-head">
+            <span className="trial-eyebrow mono">Free · 14 days · full system</span>
+            <h2 className="trial-title">
+              Run Tex against your live agent traffic for 14 days.<br />
+              <em>Discovery, evaluation, enforcement, evidence chain.</em>
             </h2>
-            <p className="audit-lede">
-              No commitment. No integration. Forward the last 20 outbound emails from Artisan, 11x, AiSDR — or whatever you're running.
-              In 48 hours you receive a verdict per message, the seven-stream evidence behind each one, and a hash-chained bundle your security team can replay independently.
+            <p className="trial-lede">
+              Not an audit. Not a sandbox. The full system, deployed against your real workload — every connector scanning, every action evaluated, every decision hashed and linked. Cancel anytime. Keep the chain.
             </p>
           </header>
-          <ol className="audit-grid">
-            {AUDIT_DELIVERABLES.map((d) => (
-              <li className="audit-card" key={d.n}>
-                <span className="audit-num mono">{d.n}</span>
-                <h3 className="audit-card-title">{d.label}</h3>
-                <p className="audit-card-body">{d.body}</p>
+          <ol className="trial-grid">
+            {TRIAL_DELIVERABLES.map((d) => (
+              <li className="trial-card" key={d.n}>
+                <span className="trial-num mono">{d.n}</span>
+                <h3 className="trial-card-title">{d.label}</h3>
+                <p className="trial-card-body">{d.body}</p>
               </li>
             ))}
           </ol>
-          <a className="audit-cta" href="https://vortexblack.ai/audit" rel="noopener">
-            <span>Request the free audit</span>
-            <Arrow />
-          </a>
-          <p className="audit-fineprint mono">
-            we read your 20 · we run them through tex · we send you the bundle · we delete the originals
-          </p>
+          <div className="trial-cta-row">
+            <a className="cta cta-primary" href="https://vortexblack.ai/trial" rel="noopener">
+              <span>Start the 14-day trial</span>
+              <Arrow />
+            </a>
+            <a className="cta cta-secondary" href="https://vortexblack.ai/contact" rel="noopener">
+              <span>See it run on a sample workload</span>
+              <Arrow />
+            </a>
+          </div>
         </div>
       </section>
 
-      {/* ─────────── 07 · MANIFESTO (dark, closing thesis) ─────────── */}
+      {/* ─────────── 10 · MANIFESTO — closing thesis ─────────── */}
       <section className="manifesto">
         <p className="manifesto-eyebrow mono">VortexBlack — Tex</p>
         <h2 className="manifesto-text">
@@ -377,8 +443,8 @@ export default function App() {
           The authority layer between AI and the real world.
         </p>
         <div className="manifesto-cta-row">
-          <a className="cta cta-primary" href="https://vortexblack.ai/audit" rel="noopener">
-            <span>Get the free audit</span>
+          <a className="cta cta-primary" href="https://vortexblack.ai/trial" rel="noopener">
+            <span>Start the 14-day trial</span>
             <Arrow />
           </a>
           <a className="cta cta-secondary" href="https://vortexblack.ai/contact" rel="noopener">
@@ -1059,6 +1125,465 @@ function EnforcementPanel({ shapes }) {
           <pre className="ef-code mono"><code>{s.code}</code></pre>
         </article>
       ))}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  LOOP RING — the architecture in one screen
+ *  Seven nodes arranged around a circle, a single violet pulse traveling
+ *  the whole ring as one continuous decision.
+ * ──────────────────────────────────────────────────────────────────── */
+
+function LoopRing({ nodes }) {
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setActive((a) => (a + 1) % nodes.length), 1800);
+    return () => clearInterval(id);
+  }, [nodes.length]);
+
+  // Compute node positions on a circle
+  const cx = 360, cy = 360, r = 260;
+  const positions = nodes.map((_, i) => {
+    const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
+    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), angle };
+  });
+
+  return (
+    <div className="loop-wrap">
+      <div className="loop-stage">
+        <svg className="loop-svg" viewBox="0 0 720 720" aria-hidden="true">
+          <defs>
+            <radialGradient id="loop-core" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(107, 91, 255, 0.42)" />
+              <stop offset="60%" stopColor="rgba(107, 91, 255, 0.08)" />
+              <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
+            </radialGradient>
+            <linearGradient id="loop-pulse" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="rgba(107, 91, 255, 0)" />
+              <stop offset="50%" stopColor="rgba(107, 91, 255, 1)" />
+              <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
+            </linearGradient>
+          </defs>
+
+          {/* Inner glow */}
+          <circle cx={cx} cy={cy} r={r - 60} fill="url(#loop-core)" />
+
+          {/* Main ring */}
+          <circle
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke="rgba(107, 91, 255, 0.22)"
+            strokeWidth="1"
+          />
+          <circle
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke="rgba(235, 232, 224, 0.04)"
+            strokeWidth="1"
+            strokeDasharray="2 6"
+          />
+
+          {/* Animated pulse traveling the ring */}
+          <circle
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke="url(#loop-pulse)"
+            strokeWidth="2.5"
+            strokeDasharray={`${2 * Math.PI * r * 0.12} ${2 * Math.PI * r * 0.88}`}
+            className="loop-pulse-stroke"
+          />
+
+          {/* Connectors between nodes (subtle) */}
+          {positions.map((p, i) => {
+            const next = positions[(i + 1) % positions.length];
+            return (
+              <line
+                key={`conn-${i}`}
+                x1={p.x} y1={p.y} x2={next.x} y2={next.y}
+                stroke="rgba(235, 232, 224, 0.06)"
+                strokeWidth="1"
+              />
+            );
+          })}
+
+          {/* Node markers */}
+          {positions.map((p, i) => (
+            <g key={`node-${i}`} className={`loop-node ${i === active ? 'is-active' : ''}`}>
+              <circle cx={p.x} cy={p.y} r="22" fill="var(--ink-bg)" stroke="rgba(107, 91, 255, 0.32)" strokeWidth="1" />
+              <circle cx={p.x} cy={p.y} r="6" fill={i === active ? '#6b5bff' : 'rgba(107, 91, 255, 0.42)'} />
+              {i === active && (
+                <circle cx={p.x} cy={p.y} r="22" fill="none" stroke="rgba(107, 91, 255, 0.6)" strokeWidth="1.5" className="loop-node-ring" />
+              )}
+            </g>
+          ))}
+
+          {/* Node labels */}
+          {positions.map((p, i) => {
+            const labelR = r + 64;
+            const lx = cx + labelR * Math.cos(p.angle);
+            const ly = cy + labelR * Math.sin(p.angle);
+            return (
+              <text
+                key={`lab-${i}`}
+                x={lx} y={ly}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className={`loop-label ${i === active ? 'is-active' : ''}`}
+              >
+                {nodes[i].label}
+              </text>
+            );
+          })}
+
+          {/* Center mark */}
+          <text x={cx} y={cy - 14} textAnchor="middle" className="loop-center-eyebrow">tex</text>
+          <text x={cx} y={cy + 18} textAnchor="middle" className="loop-center-num">{String(active + 1).padStart(2, '0')} / {String(nodes.length).padStart(2, '0')}</text>
+        </svg>
+      </div>
+
+      <aside className="loop-detail">
+        <div className="loop-detail-num mono">{String(active + 1).padStart(2, '0')}</div>
+        <h3 className="loop-detail-label">{nodes[active].label}</h3>
+        <p className="loop-detail-plain">{nodes[active].plain}</p>
+        <p className="loop-detail-tech mono">{nodes[active].tech}</p>
+        <div className="loop-detail-pips">
+          {nodes.map((_, i) => (
+            <button
+              key={i}
+              className={`loop-pip ${i === active ? 'is-active' : ''}`}
+              onClick={() => setActive(i)}
+              aria-label={`Show ${nodes[i].label}`}
+            />
+          ))}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  STACK COLLAPSE — competitive demolition.
+ *  Left: four dim boxes, gappy connectors, "today's stack."
+ *  Right: one bright violet ring, "Tex."
+ *  Animation on scroll: left collapses into right.
+ * ──────────────────────────────────────────────────────────────────── */
+
+function StackCollapse({ layers }) {
+  return (
+    <div className="collapse-stage">
+      <div className="collapse-side collapse-before">
+        <header className="collapse-side-head mono">
+          <span className="collapse-tag">today's stack</span>
+          <span className="collapse-tag-sub">4 invoices · 4 dashboards · gaps</span>
+        </header>
+        <ul className="collapse-list">
+          {layers.map((l, i) => (
+            <li className="collapse-row" key={l.id} style={{ '--i': i }}>
+              <span className="collapse-row-num mono">0{i + 1}</span>
+              <div className="collapse-row-text">
+                <span className="collapse-row-label">{l.label}</span>
+                <span className="collapse-row-vendors mono">{l.vendors}</span>
+              </div>
+              <span className="collapse-row-governs">{l.governs}</span>
+              <span className="collapse-row-gap" aria-hidden="true" />
+            </li>
+          ))}
+        </ul>
+        <p className="collapse-side-foot">
+          Each row is a separate product, a separate procurement cycle, a separate dashboard, a separate alert queue. The handoffs are where agents do damage.
+        </p>
+      </div>
+
+      <div className="collapse-bridge" aria-hidden="true">
+        <span className="collapse-bridge-arrow">→</span>
+        <span className="collapse-bridge-label mono">collapse</span>
+      </div>
+
+      <div className="collapse-side collapse-after">
+        <header className="collapse-side-head mono">
+          <span className="collapse-tag collapse-tag-tex">tex</span>
+          <span className="collapse-tag-sub">1 system · 1 chain · no gaps</span>
+        </header>
+        <div className="collapse-ring">
+          <svg viewBox="0 0 320 320" aria-hidden="true">
+            <defs>
+              <radialGradient id="cring-glow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(107, 91, 255, 0.32)" />
+                <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
+              </radialGradient>
+            </defs>
+            <circle cx="160" cy="160" r="140" fill="url(#cring-glow)" />
+            <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(107, 91, 255, 0.6)" strokeWidth="1.5" />
+            <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(107, 91, 255, 0.9)" strokeWidth="2" strokeDasharray="20 880" className="collapse-ring-pulse" />
+            {[
+              { l: 'Identity',  a: -90 },
+              { l: 'Posture',   a: -18 },
+              { l: 'Behavior',  a: 54 },
+              { l: 'Policy',    a: 126 },
+              { l: 'Content',   a: 198 },
+            ].map((n, i) => {
+              const rad = (n.a * Math.PI) / 180;
+              const x = 160 + 120 * Math.cos(rad);
+              const y = 160 + 120 * Math.sin(rad);
+              const lx = 160 + 152 * Math.cos(rad);
+              const ly = 160 + 152 * Math.sin(rad);
+              const isContent = n.l === 'Content';
+              return (
+                <g key={i}>
+                  <circle cx={x} cy={y} r="6" fill={isContent ? '#6b5bff' : 'rgba(107, 91, 255, 0.7)'} />
+                  {isContent && <circle cx={x} cy={y} r="11" fill="none" stroke="#6b5bff" strokeWidth="1" className="collapse-ring-content-halo" />}
+                  <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" className={`collapse-ring-label ${isContent ? 'is-content' : ''}`}>{n.l}</text>
+                </g>
+              );
+            })}
+            <text x="160" y="156" textAnchor="middle" className="collapse-ring-center-eyebrow">tex</text>
+            <text x="160" y="178" textAnchor="middle" className="collapse-ring-center-line">one decision</text>
+          </svg>
+        </div>
+        <p className="collapse-side-foot">
+          The four layers above plus the one nobody else builds — the actual content of the action — fused at the moment of release. One decision. One chain.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  FUSION MATH — the actual production weights from defaults.py,
+ *  rendered as a horizontal bar chart you can scan in 3 seconds.
+ * ──────────────────────────────────────────────────────────────────── */
+
+function FusionMath({ weights }) {
+  const max = Math.max(...weights.map((w) => w.weight));
+  const total = weights.reduce((a, w) => a + w.weight, 0);
+  return (
+    <div className="fusion">
+      <header className="fusion-head mono">
+        <span>stream</span>
+        <span>role</span>
+        <span>weight</span>
+      </header>
+      <ul className="fusion-list">
+        {weights.map((w, i) => (
+          <li className="fusion-row" key={w.id} style={{ '--i': i, '--bar': `${(w.weight / max) * 100}%` }}>
+            <span className="fusion-num mono">0{i + 1}</span>
+            <span className="fusion-label">{w.label}</span>
+            <span className="fusion-role mono">{w.role}</span>
+            <span className="fusion-weight mono">{w.weight.toFixed(3)}</span>
+            <span className="fusion-bar" aria-hidden="true"><span className="fusion-bar-fill" /></span>
+          </li>
+        ))}
+      </ul>
+      <footer className="fusion-foot">
+        <div className="fusion-foot-cell">
+          <span className="fusion-foot-num mono">Σ {total.toFixed(3)}</span>
+          <span className="fusion-foot-label">sum of weights · normalized fusion</span>
+        </div>
+        <div className="fusion-foot-cell">
+          <span className="fusion-foot-num mono">≤ 0.18</span>
+          <span className="fusion-foot-label">PERMIT threshold · action passes through</span>
+        </div>
+        <div className="fusion-foot-cell">
+          <span className="fusion-foot-num mono">≥ 0.72</span>
+          <span className="fusion-foot-label">FORBID threshold · action physically blocked</span>
+        </div>
+        <div className="fusion-foot-cell">
+          <span className="fusion-foot-num mono">2.2 ms</span>
+          <span className="fusion-foot-label">median fusion latency · seven streams</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  DISCOVERY THEATER — connectors as a scanning strip + live ledger
+ * ──────────────────────────────────────────────────────────────────── */
+
+function DiscoveryTheater({ connectors, events }) {
+  return (
+    <div className="dt">
+      <div className="dt-scanner">
+        <div className="dt-scan-line" aria-hidden="true" />
+        {connectors.map((c, i) => (
+          <article className="dt-conn" key={c.id} style={{ '--i': i }}>
+            <span className="dt-conn-pip" aria-hidden="true" />
+            <span className="dt-conn-name">{c.name}</span>
+            <span className="dt-conn-finds">{c.finds}</span>
+          </article>
+        ))}
+      </div>
+      <div className="dt-ledger">
+        <header className="dt-ledger-head mono">
+          <span>hash</span>
+          <span>source</span>
+          <span>candidate</span>
+          <span>outcome</span>
+          <span>conf</span>
+        </header>
+        <div className="dt-ledger-list">
+          {events.map((e, i) => (
+            <div className={`dt-ledger-row dt-${e.outcome}`} key={i} style={{ '--i': i }}>
+              <span className="dt-l-hash mono">{e.hash.slice(0, 10)}</span>
+              <span className="dt-l-source">{e.source}</span>
+              <span className="dt-l-cand mono">{e.candidate}</span>
+              <span className={`dt-l-out dt-l-out-${e.outcome}`}>{labelOutcome(e.outcome)}</span>
+              <span className="dt-l-conf mono">{e.confidence.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  CAPABILITY SURFACE — declared polygon + attempted action point
+ * ──────────────────────────────────────────────────────────────────── */
+
+function CapabilitySurface() {
+  const [phase, setPhase] = useState(0); // 0 = inside, 1 = outside, 2 = critical
+  useEffect(() => {
+    const id = setInterval(() => setPhase((p) => (p + 1) % 3), 2400);
+    return () => clearInterval(id);
+  }, []);
+
+  // Polygon vertices for capability surface
+  const verts = [
+    { x: 200, y: 60,  l: 'action_type' },
+    { x: 340, y: 160, l: 'channel' },
+    { x: 320, y: 300, l: 'environment' },
+    { x: 200, y: 340, l: 'recipient' },
+    { x: 80,  y: 300, l: 'rate' },
+    { x: 60,  y: 160, l: 'tenant' },
+  ];
+  const path = verts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${v.x} ${v.y}`).join(' ') + ' Z';
+
+  // Action points
+  const points = [
+    { x: 200, y: 200, label: 'email.send · finance@tenant', verdict: 'permit' },
+    { x: 380, y: 220, label: 'email.send · external@unknown', verdict: 'forbid' },
+    { x: 410, y: 320, label: 'database.delete · production', verdict: 'forbid' },
+  ];
+  const point = points[phase];
+
+  return (
+    <div className="surface-block surface-cap">
+      <div className="surface-block-head">
+        <span className="surface-block-eyebrow mono">capability</span>
+        <h3 className="surface-block-title">A polygon. An action plotted as a point.</h3>
+        <p className="surface-block-body">If the action lands inside the polygon, evaluation continues. Outside the polygon is CRITICAL — capability_violation forces FORBID before the rest of the streams matter.</p>
+      </div>
+      <div className="surface-block-viz">
+        <svg viewBox="0 0 440 400" aria-hidden="true">
+          <defs>
+            <linearGradient id="cap-fill" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="rgba(107, 91, 255, 0.16)" />
+              <stop offset="100%" stopColor="rgba(107, 91, 255, 0.04)" />
+            </linearGradient>
+          </defs>
+          {/* grid */}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <line key={`gx${i}`} x1={88 * i} y1="0" x2={88 * i} y2="400" stroke="rgba(235, 232, 224, 0.04)" />
+          ))}
+          {[0, 1, 2, 3, 4].map((i) => (
+            <line key={`gy${i}`} x1="0" y1={80 * i} x2="440" y2={80 * i} stroke="rgba(235, 232, 224, 0.04)" />
+          ))}
+          {/* polygon */}
+          <path d={path} fill="url(#cap-fill)" stroke="rgba(107, 91, 255, 0.62)" strokeWidth="1.5" />
+          {verts.map((v, i) => (
+            <g key={i}>
+              <circle cx={v.x} cy={v.y} r="3" fill="rgba(107, 91, 255, 0.8)" />
+              <text x={v.x} y={v.y - 12} textAnchor="middle" className="surface-vert-label">{v.l}</text>
+            </g>
+          ))}
+          {/* action point */}
+          <g className={`surface-point surface-point-${point.verdict}`} key={phase}>
+            <circle cx={point.x} cy={point.y} r="22" fill="none" className="surface-point-halo" />
+            <circle cx={point.x} cy={point.y} r="6" />
+            <text x={point.x} y={point.y - 24} textAnchor="middle" className="surface-point-label mono">{point.label}</text>
+            <text x={point.x} y={point.y + 32} textAnchor="middle" className={`surface-point-verdict surface-point-verdict-${point.verdict}`}>{point.verdict.toUpperCase()}</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  BEHAVIOR BARCODE — 64-band MinHash signature + novelty match
+ * ──────────────────────────────────────────────────────────────────── */
+
+function BehaviorBarcode() {
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setPhase((p) => p + 1), 2200);
+    return () => clearInterval(id);
+  }, []);
+
+  // Generate three "baseline" signatures and one "candidate"
+  const baselines = useMemo(() => {
+    const seeds = [0.28, 0.62, 0.91];
+    return seeds.map((s) => Array.from({ length: 64 }, (_, i) => ((i * 37 + s * 1000) % 11) / 11));
+  }, []);
+  const candidates = useMemo(() => [
+    { sig: Array.from({ length: 64 }, (_, i) => ((i * 37 + 280) % 11) / 11), novelty: 0.12, label: 'in baseline · matched' },
+    { sig: Array.from({ length: 64 }, (_, i) => ((i * 91 + 444) % 17) / 17), novelty: 0.78, label: 'novel · tenant_novel_content fired' },
+    { sig: Array.from({ length: 64 }, (_, i) => ((i * 53 + 117) % 13) / 13), novelty: 0.34, label: 'partial match · borderline' },
+  ], []);
+  const cand = candidates[phase % candidates.length];
+  const isNovel = cand.novelty > 0.5;
+
+  return (
+    <div className="surface-block surface-bar">
+      <div className="surface-block-head">
+        <span className="surface-block-eyebrow mono">behavior</span>
+        <h3 className="surface-block-title">A 64-band MinHash signature. A tenant baseline.</h3>
+        <p className="surface-block-body">Every piece of content gets reduced to a signature. The tenant's last N decisions form a baseline. Far signatures fire tenant_novel_content as peer evidence — not a separate behavioral product, just one stream in the same fusion.</p>
+      </div>
+      <div className="surface-block-viz surface-block-viz-bar">
+        <div className="bar-col">
+          <span className="bar-col-label mono">tenant baseline · last N</span>
+          {baselines.map((b, bi) => (
+            <div className="bar-row" key={bi}>
+              {b.map((v, i) => (
+                <span key={i} className="bar-cell" style={{ opacity: 0.18 + v * 0.5 }} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="bar-col bar-col-cand">
+          <span className="bar-col-label mono">candidate signature</span>
+          <div className={`bar-row bar-row-cand ${isNovel ? 'is-novel' : ''}`} key={phase}>
+            {cand.sig.map((v, i) => (
+              <span key={i} className="bar-cell bar-cell-cand" style={{ opacity: 0.32 + v * 0.6 }} />
+            ))}
+          </div>
+          <div className={`bar-readout mono ${isNovel ? 'is-novel' : ''}`}>
+            <span>novelty</span>
+            <span className="bar-readout-num">{cand.novelty.toFixed(2)}</span>
+            <span className="bar-readout-label">{cand.label}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────
+ *  COMPLIANCE MARKS — frameworks the chain maps to
+ * ──────────────────────────────────────────────────────────────────── */
+
+function ComplianceMarks({ marks }) {
+  return (
+    <div className="compliance">
+      <header className="compliance-head mono">maps to · auditor-recognized frameworks</header>
+      <ul className="compliance-list">
+        {marks.map((m) => (
+          <li className="compliance-mark mono" key={m}>{m}</li>
+        ))}
+      </ul>
     </div>
   );
 }

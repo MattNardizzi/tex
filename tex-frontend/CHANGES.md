@@ -1,72 +1,72 @@
-# Tex Frontend — Redesign Notes (April 2026)
+# Tex Frontend — v3 Redesign
 
 ## What changed
 
-Hero (top of page) is **untouched**. Avatar, header counters, INBOUND ACTION
-panel, EVIDENCE STREAMS bars, Σ FUSED bar, and the SCROLL · SYSTEM ANATOMY
-ticker all render exactly as before.
+Below the frozen hero (TopBar, Conduit, Theater Strip, VerdictOverlay, ChainTicker, ScrollCue), every section was rebuilt as one continuous dark cinematic scroll. No more checkerboard alternation. No more "Tex is the fifth layer" framing. Tex is presented as the entire authority loop.
 
-Everything **below the ticker** has been replaced. The previous five sections
-(Anatomy / Discovery / Chain / Enforcement / Manifesto) are now seven sections
-that read as one continuous argument:
+## Section structure (post-hero)
 
-```
-01 · Wedge          — dark   — "Everyone else watches the agent. Tex reads
-                                what it's about to send." Plus a five-row
-                                competitor map: Identity / Posture / Behavior /
-                                Policy / Tex.
-02 · Anatomy        — light  — Seven evidence streams as an editorial spread
-                                on bone (#ebe8e0). The verdict card is the
-                                climactic moment, set apart with violet.
-03 · Proof          — dark   — Cryptographic chain visual + three trust
-                                statements (SHA-256 / 2.2ms / replay).
-04 · Discovery      — light  — Connectors + reconciliation ledger, on bone.
-05 · Install        — dark   — Four enforcement shapes, each with real
-                                copy-pasteable code (Python decorator, YAML
-                                proxy config, MCP middleware, LangChain
-                                adapter). 2-up grid, not 4-up.
-06 · Audit offer    — light  — Free 20-email AI outbound audit. Four
-                                deliverables. Primary CTA: "Request the
-                                free audit."
-07 · Manifesto      — dark   — Full closing thesis ending in "I am Tex.
-                                The authority layer between AI and the
-                                real world." Dual CTA: audit + demo.
-```
+01. **Thesis** — `.thesis`
+    Massive serif litany. `Identity. Discovery. Capability. Evaluation. Enforcement. Evidence. Learning.` with `Evaluation` highlighted in violet. Coda: "One loop. One fingerprint. One chain." Violet axis line slides in on the right.
 
-## Why this structure
+02. **The Loop** — `.loop`
+    7-node animated SVG ring. Single violet pulse travels the whole ring. Detail panel auto-cycles through each node showing plain-language + technical credential. Pips below allow manual selection.
 
-The market is crowded (Zenity, Noma, Rubrik SAGE, Microsoft AGT, Proofpoint,
-Geordie, Virtue, Cequence, Prefactor — $3.6B raised across the top 10).
-Buyers cannot tell vendors apart by the time they reach Tex. The wedge
-section exists to give the buyer one sentence to repeat to their CISO:
-*"Tex evaluates what the agent is about to send — that's the layer no one
-else is building."*
+03. **Stack Collapse** — `.collapse`
+    Left: today's stack as 4 dim rows (Identity/Posture/Behavior/Policy) with vendor names (Okta · Oasis · Auth0 / Zenity · Noma · Pillar / Rubrik SAGE · Virtue AI / Microsoft AGT · OPA · Cedar). Bridge: "collapse →". Right: one violet Tex ring with 5 nodes including Content highlighted as the layer nobody else builds.
 
-Light/dark choreography (per Cloudflare/Zscaler/Vanta convention) signals
-the rhythm: dark = "this is technically deep," light = "this is something
-I can read and forward." The audit section is intentionally light, because
-it converts.
+04. **Anatomy of a Decision** — `.anatomy`
+    Real production fusion weights from `policies/defaults.py` as horizontal bar chart. Footer: Σ 1.000 / ≤ 0.18 (PERMIT) / ≥ 0.72 (FORBID) / 2.2 ms median latency.
 
-## Build & deploy
+05. **Discovery Theater** — `.discovery`
+    7 connectors as horizontal scanner with violet scan line moving across. Live reconciliation ledger below with hash prefixes, sources, candidates, color-coded outcomes (REGISTERED / UPDATED · DRIFT / QUARANTINED / NO-OP / HELD).
 
-```bash
-npm install
-npm run dev      # http://localhost:5173
-npm run build    # → dist/ — ~184KB JS, ~48KB CSS
-```
+06. **Surface** — `.surface`
+    Two stacked sub-blocks. (a) Capability polygon SVG with attempted action plotted as a point — inside polygon = PERMIT, outside = CRITICAL → FORBID with red halo pulse. (b) 64-band MinHash barcode showing tenant baseline vs candidate signature, novelty readout firing `tenant_novel_content` on far signatures.
 
-Drop `dist/` on Vercel as before. No new dependencies.
+07. **Enforcement** — `.enforce`
+    Four code shapes in 2×2 grid: Decorator, HTTP proxy, MCP middleware, Framework adapter.
 
-## Files touched
+08. **Evidence Chain** — `.proof`
+    Six chain blocks flowing horizontally with violet arrow links. Each block: index, verdict (color border), hash, prev hash, kind. Below: compliance marks bar (OWASP ASI 2026 · NIST AI RMF · ISO 42001 · EU AI Act · SOC 2 · FINRA · HIPAA).
 
-- `src/App.jsx`     — replaced 5 sections (~50 lines) with 7 sections,
-                      added CompetitorMap + ProofStats components,
-                      rewrote EnforcementPanel to render code blocks,
-                      added COMPETITOR_MAP + AUDIT_DELIVERABLES constants.
-- `src/styles.css`  — kept all hero / ticker / sh / chainviz / discovery
-                      / anatomy-grid styles intact. Added: wedge, cmap,
-                      anatomy-light overrides, proof + ps, discovery-light
-                      overrides, install (refined enforcement),
-                      audit, new manifesto block. ~620 new lines.
+09. **Trial** — `.trial`
+    "Free · 14 days · full system" badge. Headline: "Run Tex against your live agent traffic for 14 days. Discovery, evaluation, enforcement, evidence chain." Four numbered cards: Full discovery scan / Live evaluation / Cryptographic evidence ledger / Day-14 readout. Two CTAs: "Start the 14-day trial" + "See it run on a sample workload".
 
-Top half of the page is byte-identical to v1 in DOM structure.
+10. **Manifesto** — `.manifesto`
+    Verbatim manifesto. "I am Tex. The authority layer between AI and the real world." Final CTA row.
+
+## Removed
+
+- `.wedge` section (replaced by Loop + Collapse)
+- `.audit` section (replaced by `.trial` — full system, not a service)
+- `CompetitorMap` component (replaced by `StackCollapse`)
+- `ProofStats` component (replaced by `ComplianceMarks`)
+- "Tex is the fifth layer" framing throughout
+- Bone background experiment (everything dark now)
+- Mechanical dark/light alternation between sections
+
+## Added
+
+- `LoopRing` component — animated 7-node authority ring
+- `StackCollapse` component — competitive demolition (4 layers vs 1 ring)
+- `FusionMath` component — production weights as bar chart
+- `DiscoveryTheater` component — connectors scanner + live ledger
+- `CapabilitySurface` component — polygon + action point SVG
+- `BehaviorBarcode` component — MinHash signature visualizer
+- `ComplianceMarks` component — auditor framework bar
+- `LOOP_NODES`, `STACK_LAYERS`, `FUSION_WEIGHTS`, `COMPLIANCE_MARKS`, `TRIAL_DELIVERABLES` constants
+
+## Technical
+
+- Frozen hero (`stage`, `TopBar`, `Conduit`, `theater-strip`, `VerdictOverlay`, `ChainTicker`, `ScrollCue`) untouched
+- Verdict engine (`TexLife.js`) untouched
+- Build: 198 KB JS, 57 KB CSS (gzip: 62 KB / 11 KB)
+- All animations CSS-only or SVG-driven — no JS animation libraries added
+- Reduced motion respected
+- Responsive breakpoints at 1100px, 900px, 640px
+
+## Pages affected
+
+- `src/App.jsx` — section structure rewritten below hero, new components added
+- `src/styles.css` — section styles below `SECTION HEADS` rewritten; manifesto/CTA/foot preserved verbatim

@@ -47,7 +47,10 @@ export default function App() {
         phase={bridge.activePhase}
         counters={bridge.counters}
         chain={bridge.chain}
-        calibration={bridge.calibration}
+        activeAction={bridge.activeAction}
+        activeStreams={bridge.activeStreams}
+        activeFused={bridge.activeFused}
+        activeLayers={bridge.activeLayers}
       />
 
       <SceneDiscovery feed={bridge.feed} stats={bridge.discoveryStats} verdict={bridge.activeVerdict} />

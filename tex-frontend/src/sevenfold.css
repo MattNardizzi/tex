@@ -1,0 +1,642 @@
+/* =================================================================
+   THE SEVENFOLD — texaegis.com hero (v4)
+   Split layout. Live transcript on the left. Tex + ring on the right.
+   Fits in one viewport (100vh - 56px hud). No scroll required.
+   ================================================================= */
+
+.sf {
+  position: relative;
+  width: 100%;
+  /* Fits exactly in one viewport below the fixed 56px HUD. */
+  height: calc(100vh - 56px);
+  min-height: 680px;
+  margin-top: 56px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+  background: #04050a;
+}
+
+/* ── Atmosphere ───────────────────────────────────────────── */
+
+.sf-atmos {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.sf-atmos-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(to right,  rgba(94,224,255,0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(94,224,255,0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 70% at 70% 50%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 70% 50%, black 30%, transparent 80%);
+  opacity: 0.55;
+}
+.sf-atmos-glow {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 40% 60% at 70% 52%, rgba(94,224,255,0.12), transparent 70%),
+    radial-gradient(circle 280px at 20% 32%, rgba(94,224,255,0.04), transparent 70%);
+  transition: opacity 600ms ease;
+}
+.sf-atmos-fog {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 0;
+  height: 36%;
+  background: linear-gradient(to top, rgba(94,224,255,0.05) 0%, transparent 100%);
+  filter: blur(20px);
+}
+.sf-atmos-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 100% 80% at 50% 50%, transparent 50%, rgba(0,0,0,0.6) 100%);
+  pointer-events: none;
+}
+
+/* ── Frame: 60/40 split ───────────────────────────────────── */
+
+.sf-frame {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1640px;
+  height: 100%;
+  padding: 28px 48px 28px 56px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+
+/* ── LEFT: narrative ──────────────────────────────────────── */
+
+.sf-narrative {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 720px;
+  min-width: 0;
+}
+
+.sf-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  color: var(--cyan);
+  padding: 8px 18px;
+  border: 1px solid rgba(94,224,255,0.22);
+  background: rgba(7,8,15,0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.sf-eyebrow-pip {
+  width: 6px; height: 6px;
+  background: var(--cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--cyan);
+  animation: sf-pip 1.6s ease-in-out infinite;
+}
+@keyframes sf-pip {
+  0%, 100% { opacity: 1;   transform: scale(1);   }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+.sf-eyebrow-divider {
+  width: 1px; height: 12px;
+  background: rgba(94,224,255,0.4);
+}
+.sf-eyebrow-spec {
+  color: var(--ink-2);
+  letter-spacing: 0.28em;
+}
+
+/* The headline does the 5-second job */
+.sf-headline {
+  font-family: var(--serif);
+  font-size: clamp(40px, 5vw, 78px);
+  line-height: 1.02;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  font-weight: 400;
+  margin: 0;
+}
+.sf-headline em {
+  font-style: italic;
+  color: var(--cyan);
+}
+
+.sf-deck {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  color: var(--ink-dim);
+  margin: 0;
+  max-width: 580px;
+}
+.sf-deck-em {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+/* ── Transcript — the black box ────────────────────────────── */
+
+.sf-tx {
+  position: relative;
+  margin-top: 4px;
+}
+.sf-tx-frame {
+  position: relative;
+  background: linear-gradient(180deg, rgba(7,9,16,0.72), rgba(4,5,10,0.78));
+  border: 1px solid rgba(94,224,255,0.14);
+  padding: 14px 18px 12px;
+  /* Cyan corner accents */
+  background-image:
+    linear-gradient(180deg, rgba(7,9,16,0.72), rgba(4,5,10,0.78));
+  box-shadow:
+    inset 0 1px 0 rgba(94,224,255,0.05),
+    0 12px 36px rgba(0,0,0,0.4),
+    0 0 36px rgba(94,224,255,0.04);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.sf-tx-frame::before,
+.sf-tx-frame::after {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 1px solid rgba(94,224,255,0.55);
+  pointer-events: none;
+}
+.sf-tx-frame::before {
+  top: -1px; left: -1px;
+  border-right: none;
+  border-bottom: none;
+}
+.sf-tx-frame::after {
+  bottom: -1px; right: -1px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Verdict-driven left edge accent — recolors with verdict */
+.sf-tx-frame::before { border-color: rgba(94,224,255,0.55); }
+.sf-tx-verdict-permit  .sf-tx-frame { border-left: 2px solid rgba(111,220,165,0.55); }
+.sf-tx-verdict-abstain .sf-tx-frame { border-left: 2px solid rgba(255,181,71,0.55); }
+.sf-tx-verdict-forbid  .sf-tx-frame { border-left: 2px solid rgba(255,91,91,0.55); }
+
+.sf-tx-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 10px;
+}
+.sf-tx-rule-mark {
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+}
+.sf-tx-rule-label { color: var(--ink-dim); }
+.sf-tx-rule-fill {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, rgba(94,224,255,0.18), transparent);
+}
+.sf-tx-rule-status {
+  color: var(--cyan);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sf-tx-rule-pip {
+  display: inline-block;
+  width: 5px; height: 5px;
+  background: var(--cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--cyan);
+  animation: sf-pip 1.6s ease-in-out infinite;
+}
+
+.sf-tx-body {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Lock height so the box doesn't jitter as lines stream in.
+     Sized for: 1 head + 7 layers + 1 fuse + 1 chain + 1 gate = 11 rows. */
+  min-height: 268px;
+}
+
+.sf-tx-row {
+  display: grid;
+  grid-template-columns: 60px 42px auto 1fr 50px 16px;
+  gap: 10px;
+  align-items: center;
+  white-space: nowrap;
+  animation: sf-tx-row-in 220ms cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes sf-tx-row-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sf-tx-row-head {
+  grid-template-columns: 60px 42px 1fr;
+  margin-bottom: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(94,224,255,0.1);
+}
+.sf-tx-row-fuse {
+  grid-template-columns: 60px 42px 80px 1fr 50px auto;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(94,224,255,0.1);
+}
+.sf-tx-row-chain,
+.sf-tx-row-gate {
+  grid-template-columns: 60px 42px auto 1fr auto;
+}
+.sf-tx-row-idle {
+  grid-template-columns: 60px 42px 1fr;
+  opacity: 0.5;
+}
+
+.sf-tx-ts {
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.sf-tx-tag {
+  color: var(--cyan-deep);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  font-weight: 500;
+}
+.sf-tx-n {
+  color: var(--cyan);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  width: 18px;
+}
+.sf-tx-name {
+  color: var(--ink-2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+.sf-tx-name.sf-tx-dim { color: var(--ink-faint); }
+.sf-tx-bar {
+  position: relative;
+  height: 4px;
+  background: rgba(94,224,255,0.08);
+  border-radius: 1px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.sf-tx-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  background: linear-gradient(to right, var(--cyan-deep), var(--cyan));
+  box-shadow: 0 0 6px rgba(94,224,255,0.4);
+  transition: width 280ms cubic-bezier(0.16,1,0.3,1);
+}
+.sf-tx-bar-fused {
+  background: linear-gradient(to right, #1d8fb8, #9af0ff);
+  box-shadow: 0 0 8px rgba(154,240,255,0.5);
+}
+.sf-tx-bar-spacer {
+  height: 4px;
+}
+
+/* per-flag tinting on the bar */
+.sf-tx-flag-warn .sf-tx-bar-fill {
+  background: linear-gradient(to right, #b07a2a, var(--amber));
+  box-shadow: 0 0 6px rgba(255,181,71,0.4);
+}
+.sf-tx-flag-high-risk .sf-tx-bar-fill {
+  background: linear-gradient(to right, #8a2424, var(--red));
+  box-shadow: 0 0 6px rgba(255,91,91,0.5);
+}
+
+.sf-tx-score {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  text-align: right;
+}
+.sf-tx-mark {
+  font-size: 12px;
+  text-align: center;
+  font-weight: 600;
+}
+.sf-tx-mark-ok       { color: var(--green); }
+.sf-tx-mark-high-ok  { color: var(--green); }
+.sf-tx-mark-warn     { color: var(--amber); }
+.sf-tx-mark-high-risk { color: var(--red); }
+.sf-tx-mark-sealed   {
+  color: var(--cyan-soft);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.sf-tx-mark-pending  {
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.sf-tx-val {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 11.5px;
+}
+.sf-tx-agent  { color: var(--cyan-soft); font-weight: 500; }
+.sf-tx-verb   { color: var(--ink); }
+.sf-tx-target { color: var(--ink-dim); }
+.sf-tx-arrow  { color: var(--ink-faint); }
+
+.sf-tx-hash {
+  color: var(--cyan-soft);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.sf-tx-verdict {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-align: right;
+}
+.sf-tx-verdict-permit  { color: var(--green-soft); }
+.sf-tx-verdict-abstain { color: var(--amber-soft); }
+.sf-tx-verdict-forbid  { color: var(--red-soft);   }
+.sf-tx-verdict-pending,
+.sf-tx-verdict-idle    { color: var(--ink-faint);  }
+
+.sf-tx-gate-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+}
+.sf-tx-gate-label-permit  { color: var(--green); }
+.sf-tx-gate-label-abstain { color: var(--amber); }
+.sf-tx-gate-label-forbid  { color: var(--red);   }
+
+.sf-tx-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.sf-tx-foot-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(94,224,255,0.14), transparent);
+}
+.sf-tx-foot-label em { color: var(--cyan-soft); font-style: normal; font-weight: 500; }
+
+/* ── CTAs ──────────────────────────────────────────────── */
+
+.sf-cta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 8px;
+}
+.sf-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  border: 1px solid var(--ink-ghost);
+  background: rgba(7,8,15,0.7);
+  color: var(--ink-2);
+  transition: all 200ms var(--ease-out);
+  cursor: pointer;
+  text-decoration: none;
+}
+.sf-cta:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(94,224,255,0.05);
+}
+.sf-cta-primary {
+  border-color: rgba(94,224,255,0.45);
+  color: var(--cyan-soft);
+  background: rgba(94,224,255,0.05);
+}
+.sf-cta-primary:hover {
+  background: rgba(94,224,255,0.10);
+  box-shadow: 0 0 28px rgba(94,224,255,0.18);
+}
+.sf-cta-arrow {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+/* ── RIGHT: stage with avatar + ring ─────────────────── */
+
+.sf-stage {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  min-width: 0;
+}
+.sf-stage-svg {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 92px); /* leave room for callout */
+  display: block;
+  overflow: visible;
+}
+
+/* Verdict callout under the figure */
+.sf-callout {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 320ms var(--ease-out);
+  white-space: nowrap;
+  z-index: 4;
+}
+.sf-callout.is-visible { opacity: 1; }
+.sf-callout-rule {
+  display: inline-block;
+  width: 36px; height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+.sf-callout-label {
+  color: var(--cyan-soft);
+  font-weight: 600;
+}
+.sf-callout-permit  .sf-callout-label { color: var(--green-soft); }
+.sf-callout-abstain .sf-callout-label { color: var(--amber-soft); }
+.sf-callout-forbid  .sf-callout-label { color: var(--red-soft);   }
+.sf-callout-score {
+  color: var(--ink-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+}
+.sf-callout-score strong {
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+/* ── Ring node labels & numbers ─────────────────────── */
+
+.sf-node-label {
+  font-family: var(--mono);
+  font-size: 13px;
+  fill: var(--ink-faint);
+  font-weight: 600;
+  transition: fill 240ms ease, font-size 240ms ease;
+  pointer-events: none;
+}
+.sf-node-label.is-lit {
+  fill: var(--cyan-soft);
+  filter: drop-shadow(0 0 6px rgba(94,224,255,0.7));
+}
+.sf-node-name {
+  font-family: var(--mono);
+  font-size: 7.5px;
+  fill: var(--ink-faint);
+  letter-spacing: 0.32em;
+  font-weight: 500;
+  text-transform: uppercase;
+  transition: fill 240ms ease;
+  pointer-events: none;
+}
+.sf-node.is-lit .sf-node-name { fill: var(--ink-2); }
+.sf-node.is-fired .sf-node-name {
+  fill: var(--cyan-soft);
+  filter: drop-shadow(0 0 4px rgba(94,224,255,0.6));
+}
+.sf-node-tone-permit  .sf-node-label.is-lit { fill: var(--green-soft); filter: drop-shadow(0 0 8px rgba(111,220,165,0.7)); }
+.sf-node-tone-abstain .sf-node-label.is-lit { fill: var(--amber-soft); filter: drop-shadow(0 0 8px rgba(255,181,71,0.7)); }
+.sf-node-tone-forbid  .sf-node-label.is-lit { fill: var(--red-soft);   filter: drop-shadow(0 0 8px rgba(255,91,91,0.7));  }
+
+/* ── Hash flight text ───────────────────────────────── */
+
+.sf-flight-hash {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  fill: var(--cyan-soft);
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+/* ── Eye flash on verdict ──────────────────────────── */
+
+.sf-eyeoverlay.is-flash ellipse {
+  animation: sf-eye-flash 0.7s var(--ease-out);
+}
+@keyframes sf-eye-flash {
+  0%   { opacity: 0.42; }
+  35%  { opacity: 1;    }
+  100% { opacity: 0.5;  }
+}
+
+/* ── Responsive ────────────────────────────────────── */
+
+@media (max-width: 1280px) {
+  .sf-frame {
+    padding: 24px 32px 24px 40px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  .sf-headline { font-size: clamp(36px, 4.6vw, 60px); }
+}
+
+@media (max-width: 1080px) {
+  .sf {
+    height: auto;
+    min-height: calc(100vh - 56px);
+    padding: 32px 0;
+  }
+  .sf-frame {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 20px 24px;
+  }
+  .sf-narrative { max-width: 100%; }
+  .sf-stage {
+    height: auto;
+    min-height: 460px;
+  }
+  .sf-stage-svg { max-height: 540px; }
+}
+
+@media (max-width: 720px) {
+  .sf-eyebrow { font-size: 9.5px; padding: 6px 12px; letter-spacing: 0.22em; }
+  .sf-headline { font-size: 36px; }
+  .sf-deck { font-size: 12px; }
+  .sf-tx-body { min-height: 240px; font-size: 11px; }
+  .sf-tx-row { grid-template-columns: 56px 36px auto 1fr 42px 14px; gap: 8px; }
+  .sf-cta-row { flex-direction: column; align-items: stretch; }
+  .sf-cta { justify-content: center; }
+}
+
+/* ── Reduced motion ──────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-eyebrow-pip,
+  .sf-tx-rule-pip,
+  .sf-eyeoverlay.is-flash ellipse,
+  .sf-tx-row {
+    animation: none !important;
+  }
+}

@@ -1,141 +1,278 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import texHero from './tex-hero.png';
 import './styles.css';
 
-const layers = [
-  { id:'01', name:'Discovery', short:'Find every agent', detail:'Inventory every AI agent, workflow, bot, tool call, and shadow automation before it acts outside control.', signal:'AGENTS FOUND', color:'#49f5ff' },
-  { id:'02', name:'Identity', short:'Know who is acting', detail:'Bind each action to an agent, owner, tenant, environment, permissions, and trust level.', signal:'ACTOR BOUND', color:'#77a7ff' },
-  { id:'03', name:'Authority', short:'Define what is allowed', detail:'Convert policy into live boundaries for what agents may access, change, promise, delete, or escalate.', signal:'POLICY LOADED', color:'#ffd66b' },
-  { id:'04', name:'Judgment', short:'Read the real action', detail:'Evaluate the exact email, Slack post, API call, database change, or workflow before it is released.', signal:'ACTION READ', color:'#b577ff' },
-  { id:'05', name:'Enforcement', short:'Stop, hold, or release', detail:'Return PERMIT, ABSTAIN, or FORBID while the action is still stoppable.', signal:'VERDICT ISSUED', color:'#ff4d86' },
-  { id:'06', name:'Evidence', short:'Seal the proof', detail:'Record request, policy, verdict, permit, verification, execution state, and outcome in a hash-linked trail.', signal:'PROOF SEALED', color:'#5cffb0' },
-  { id:'07', name:'Calibration', short:'Improve without chaos', detail:'Tune thresholds from outcomes and overrides without allowing the system to rewrite its own rules.', signal:'THRESHOLD TUNED', color:'#f2fbff' },
+const LAYERS = [
+  { id: '01', name: 'Discovery', verb: 'Find every agent', detail: 'Inventory agents, copilots, automations, tools, owners, and execution surfaces.', tone: '#53ffe2' },
+  { id: '02', name: 'Identity', verb: 'Bind who is acting', detail: 'Tie action to agent, human owner, tenant, environment, permissions, and trust.', tone: '#6eb7ff' },
+  { id: '03', name: 'Authority', verb: 'Define what is allowed', detail: 'Convert policy into live boundaries for access, changes, promises, and escalation.', tone: '#ffe16a' },
+  { id: '04', name: 'Judgment', verb: 'Read the real action', detail: 'Inspect the actual email, Slack post, API call, database change, or workflow step.', tone: '#a874ff' },
+  { id: '05', name: 'Enforcement', verb: 'Stop, hold, or release', detail: 'Return PERMIT, ABSTAIN, or FORBID before the action reaches production.', tone: '#ff477e' },
+  { id: '06', name: 'Evidence', verb: 'Seal the proof', detail: 'Record request, policy, verdict, permit, verification, outcome, and chain hash.', tone: '#47ff9a' },
+  { id: '07', name: 'Calibration', verb: 'Improve without chaos', detail: 'Tune thresholds from outcomes without letting the system rewrite its own rules.', tone: '#f2fbff' },
 ];
 
-const loop = ['Intercept','Authorize','Verify','Execute','Record','Learn'];
+const LOOP = ['Intercept', 'Authorize', 'Verify', 'Execute', 'Record', 'Learn'];
+const FIVE_SECONDS = ['Find every agent', 'Control every action', 'Prove every decision'];
 
-function useActiveLayer() {
-  const [active, setActive] = useState(4);
+function useTicker(ms = 1800) {
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setActive(v => (v + 1) % layers.length), 2800);
-    return () => clearInterval(id);
+    const timer = setInterval(() => setTick((v) => v + 1), ms);
+    return () => clearInterval(timer);
+  }, [ms]);
+  return tick;
+}
+
+function usePointer() {
+  const [p, setP] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    const move = (e) => setP({ x: (e.clientX / window.innerWidth - 0.5) * 2, y: (e.clientY / window.innerHeight - 0.5) * 2 });
+    window.addEventListener('pointermove', move, { passive: true });
+    return () => window.removeEventListener('pointermove', move);
   }, []);
-  return [active, setActive];
+  return p;
+}
+
+function CinematicField({ active }) {
+  const ref = useRef(null);
+  const pointer = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const move = (e) => {
+      pointer.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
+      pointer.current.y = (e.clientY / window.innerHeight - 0.5) * 2;
+    };
+    window.addEventListener('pointermove', move, { passive: true });
+    return () => window.removeEventListener('pointermove', move);
+  }, []);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas.getContext('2d');
+    let raf;
+    let t = 0;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = () => {
+      canvas.width = Math.floor(innerWidth * dpr);
+      canvas.height = Math.floor(innerHeight * dpr);
+      canvas.style.width = `${innerWidth}px`;
+      canvas.style.height = `${innerHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const draw = () => {
+      t += 0.006;
+      const w = innerWidth;
+      const h = innerHeight;
+      const layer = LAYERS[active % LAYERS.length];
+      ctx.clearRect(0, 0, w, h);
+
+      const base = ctx.createRadialGradient(w * 0.62, h * 0.28, 0, w * 0.62, h * 0.28, Math.max(w, h));
+      base.addColorStop(0, `${layer.tone}22`);
+      base.addColorStop(0.32, 'rgba(8,14,23,.58)');
+      base.addColorStop(1, 'rgba(2,4,10,.96)');
+      ctx.fillStyle = base;
+      ctx.fillRect(0, 0, w, h);
+
+      const horizon = h * 0.53 + pointer.current.y * 22;
+      const vx = w * 0.5 + pointer.current.x * 60;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 54; i++) {
+        const p = i / 53;
+        const y = horizon + Math.pow(p, 2.55) * h * 0.82 + ((t * 130) % 34) * p;
+        ctx.strokeStyle = `rgba(83,255,226,${0.05 + 0.15 * (1 - p)})`;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y + Math.sin(t * 2 + i) * 2);
+        ctx.stroke();
+      }
+      for (let i = -36; i <= 36; i++) {
+        const spread = i * 72;
+        ctx.strokeStyle = `rgba(125,136,255,${0.035 + (Math.abs(i) < 3 ? 0.05 : 0)})`;
+        ctx.beginPath();
+        ctx.moveTo(vx, horizon);
+        ctx.lineTo(vx + spread + pointer.current.x * 20, h + 90);
+        ctx.stroke();
+      }
+
+      // moving data sparks
+      for (let i = 0; i < 95; i++) {
+        const z = ((i * 0.041 + t * 0.23) % 1);
+        const x = (w * (0.08 + ((i * 89) % 100) / 118)) + Math.sin(i + t) * 22;
+        const y = horizon + z * z * h * 0.78;
+        const a = Math.max(0, 0.28 - z * 0.2);
+        ctx.fillStyle = i % 7 === active ? `${layer.tone}cc` : `rgba(120,255,246,${a})`;
+        ctx.fillRect(x, y, 1 + z * 2.4, 1 + z * 2.4);
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize); };
+  }, [active]);
+
+  return <canvas className="cinematic-field" ref={ref} aria-hidden="true" />;
 }
 
 function Nav() {
-  return <header className="nav-shell">
-    <a className="brand" href="#top" aria-label="Tex by VortexBlack home"><span>T</span><b>Tex</b><i>by VortexBlack</i></a>
-    <nav><a href="#system">System</a><a href="#layers">Seven Layers</a><a href="#evidence">Chain Hash</a></nav>
-    <a className="nav-pill" href="#trial">2-week trial</a>
-  </header>
+  return <nav className="topbar">
+    <a className="wordmark" href="#top"><span>T</span><b>Tex</b><i>by VortexBlack</i></a>
+    <div className="navlinks"><a href="#system">System</a><a href="#layers">Layers</a><a href="#proof">Proof</a></div>
+    <a className="navbutton" href="#trial">2-week trial</a>
+  </nav>;
 }
 
-function Ambient() {
-  return <div className="ambient" aria-hidden="true">
-    <div className="aurora a1"/><div className="aurora a2"/><div className="scanline"/><div className="grid-plane"/><div className="noise"/>
-  </div>
-}
-
-function LayerConstellation({ active, setActive, compact=false }) {
-  const activeLayer = layers[active];
-  return <div className={compact ? 'constellation compact' : 'constellation'} style={{'--active': activeLayer.color}}>
-    <div className="orbit o1"/><div className="orbit o2"/><div className="orbit o3"/>
-    <div className="pulse-core"><span>TEX</span><b>CONTROL CORE</b></div>
-    {layers.map((l, index) => {
-      const angle = (-90 + index * 360 / layers.length) * Math.PI / 180;
-      const r = compact ? 38 : 43;
-      const x = 50 + Math.cos(angle) * r;
-      const y = 50 + Math.sin(angle) * r;
-      return <button key={l.name} className={`layer-node ${active === index ? 'active':''}`} onMouseEnter={() => setActive(index)} onClick={() => setActive(index)} style={{left:`${x}%`, top:`${y}%`, '--c': l.color}}>
-        <em>{l.id}</em><strong>{l.name}</strong><small>{l.short}</small>
-      </button>
-    })}
-    <svg className="signal-lines" viewBox="0 0 100 100" preserveAspectRatio="none">
-      {layers.map((l,index) => {
-        const angle = (-90 + index * 360 / layers.length) * Math.PI / 180;
-        const x = 50 + Math.cos(angle) * (compact ? 32 : 36);
-        const y = 50 + Math.sin(angle) * (compact ? 32 : 36);
-        return <line key={l.name} x1="50" y1="50" x2={x} y2={y} className={active===index?'live':''}/>
-      })}
-    </svg>
-  </div>
-}
-
-function Hero({ active, setActive }) {
-  const l = layers[active];
-  return <section id="top" className="hero" style={{'--active': l.color}}>
-    <div className="hero-copy">
-      <div className="eyebrow"><span/> Tex by VortexBlack</div>
-      <h1>The control layer for AI agents.</h1>
-      <p className="plain">Tex finds agents, binds identity, defines authority, judges every action, enforces the decision, seals the proof, and calibrates from outcomes.</p>
-      <div className="five-second"><b>In 5 seconds:</b><span>One system controls the full AI agent lifecycle — not fragments.</span></div>
-      <div className="hero-actions"><a href="#trial" className="primary">Activate 2-week trial</a><a href="#layers" className="secondary">See the seven layers</a></div>
-    </div>
-    <div className="tex-system-stage">
-      <LayerConstellation active={active} setActive={setActive}/>
-      <div className="avatar-core">
-        <img src={texHero} alt="Tex avatar, central AI agent control system"/>
-        <div className="avatar-glow"/>
+function HeroSystem({ active, setActive }) {
+  const layer = LAYERS[active];
+  const pointer = usePointer();
+  return <div className="hero-system" style={{ '--tone': layer.tone, '--mx': pointer.x, '--my': pointer.y }}>
+    <div className="core-stage">
+      <div className="orbit orbit-a" />
+      <div className="orbit orbit-b" />
+      <div className="orbit orbit-c" />
+      <div className="orbit orbit-d" />
+      <div className="data-ray ray-1" />
+      <div className="data-ray ray-2" />
+      <div className="data-ray ray-3" />
+      <div className="avatar-shell">
+        <img src={texHero} alt="Tex control system avatar" />
+        <div className="avatar-vignette" />
+        <div className="scanline" />
       </div>
-      <div className="verdict-console">
-        <div><span>LIVE SEVEN-LAYER EVALUATION</span><b>SHA256:TX-{active+1}A9F</b></div>
-        <h2>{l.name}</h2>
-        <h3>{l.short}</h3>
-        <p>{l.detail}</p>
-        <footer><strong>{l.signal}</strong><i>{active === 4 ? 'FORBID / ABSTAIN / PERMIT' : 'CONTROLLED'}</i></footer>
-      </div>
+      {LAYERS.map((item, i) => <button
+        key={item.name}
+        className={`layer-pin pin-${i + 1} ${i === active ? 'active' : ''}`}
+        onMouseEnter={() => setActive(i)}
+        onClick={() => setActive(i)}
+        style={{ '--pin': item.tone }}
+      >
+        <span>{item.id}</span><b>{item.name}</b><em>{item.verb}</em>
+      </button>)}
     </div>
-  </section>
+    <div className="verdict-hud">
+      <div className="hud-top"><span>LIVE EVALUATION</span><b>sha256:tx-{active + 1}c9f</b></div>
+      <h3>{layer.name}</h3>
+      <p>{layer.detail}</p>
+      <div className="hud-meter"><i /><i /><i /><i /><i /></div>
+      <strong>{layer.verb}</strong>
+    </div>
+  </div>;
 }
 
-function SystemSection() {
-  return <section id="system" className="system-panel section">
-    <div className="section-title"><div className="eyebrow"><span/> Not a point product</div><h2>Other tools protect slices. Tex connects the system.</h2></div>
+function LayerConsole({ active, setActive }) {
+  const layer = LAYERS[active];
+  return <section id="layers" className="section layer-console" style={{ '--tone': layer.tone }}>
+    <div className="section-intro compact">
+      <span className="eyebrow">Seven-layer system loop</span>
+      <h2>Every action passes through the same control spine.</h2>
+      <p>Discovery → Identity → Authority → Judgment → Enforcement → Evidence → Calibration.</p>
+    </div>
+    <div className="console-grid">
+      <div className="spine">
+        {LAYERS.map((l, i) => <button key={l.name} onMouseEnter={() => setActive(i)} onClick={() => setActive(i)} className={i === active ? 'active' : ''} style={{ '--pin': l.tone }}>
+          <span>{l.id}</span><b>{l.name}</b><em>{l.verb}</em>
+        </button>)}
+      </div>
+      <div className="active-command">
+        <div className="command-top"><span>ACTIVE LAYER</span><b>{layer.id}</b></div>
+        <h3>{layer.name}</h3>
+        <h4>{layer.verb}</h4>
+        <p>{layer.detail}</p>
+        <div className="code-readout">
+          <span>policy.snapshot.locked</span>
+          <span>runtime.verdict.pending</span>
+          <span>chain.hash.sealed</span>
+        </div>
+      </div>
+      <div className="buyer-box">
+        <span className="eyebrow">Buyer takeaway</span>
+        <p>Tex is not a dashboard. It is the runtime authority layer that decides whether an AI agent is allowed to act before the action reaches the real world.</p>
+        <ul>{FIVE_SECONDS.map(x => <li key={x}>{x}</li>)}</ul>
+      </div>
+    </div>
+  </section>;
+}
+
+function ProofLoop({ active }) {
+  return <section id="proof" className="section proof-loop">
+    <div className="loop-card">
+      <div className="section-intro slim">
+        <span className="eyebrow">Cryptographically-linked loop</span>
+        <h2>Every decision becomes evidence.</h2>
+        <p>Tex records request, policy, verdict, permit, execution state, outcome, and the next hash.</p>
+      </div>
+      <div className="loop-track">
+        {LOOP.map((item, i) => <div key={item} className={(active % LOOP.length) === i ? 'active' : ''}>
+          <span>{String(i + 1).padStart(2, '0')}</span><b>{item}</b><em>{i === active % LOOP.length ? 'live pulse' : 'linked'}</em>
+        </div>)}
+      </div>
+    </div>
+  </section>;
+}
+
+function Comparison() {
+  const rows = [
+    ['Posture', 'sees agents', 'slice'],
+    ['Identity', 'names actors', 'slice'],
+    ['Guardrails', 'scan text', 'slice'],
+    ['DLP / CASB', 'watch leakage', 'slice'],
+    ['Monitoring', 'records after', 'late'],
+    ['Tex', 'controls lifecycle', 'system'],
+  ];
+  return <section id="system" className="section comparison">
+    <div className="section-intro">
+      <span className="eyebrow">Not another point product</span>
+      <h2>Other tools protect slices. Tex controls the system.</h2>
+      <p>One homepage sentence buyers should remember: Tex controls whether AI agents can take real-world actions — before they execute.</p>
+    </div>
     <div className="slice-grid">
-      {['Posture tools see agents','Identity tools name actors','Prompt guardrails scan text','DLP watches leakage','Monitoring records events'].map((x,i)=><div className="slice" key={x}><span>{String(i+1).padStart(2,'0')}</span><p>{x}</p><b>one slice</b></div>)}
-      <div className="slice tex-slice"><span>06</span><p>Tex controls the full lifecycle</p><b>seven layers</b></div>
+      {rows.map(([a,b,c], i) => <div key={a} className={a === 'Tex' ? 'tex' : ''}>
+        <span>{String(i + 1).padStart(2, '0')}</span><b>{a}</b><em>{b}</em><strong>{c}</strong>
+      </div>)}
     </div>
-  </section>
+  </section>;
 }
 
-function LayersSection({ active, setActive }) {
-  const l = layers[active];
-  return <section id="layers" className="layers-section section" style={{'--active': l.color}}>
-    <div className="section-title narrow"><div className="eyebrow"><span/> Seven-layer system loop</div><h2>Tex sits above the agent ecosystem and governs every action path.</h2></div>
-    <div className="layer-workbench">
-      <div className="layer-list">{layers.map((layer,i)=><button key={layer.name} onMouseEnter={()=>setActive(i)} onClick={()=>setActive(i)} className={i===active?'active':''} style={{'--c': layer.color}}><span>{layer.id}</span><b>{layer.name}</b><em>{layer.short}</em></button>)}</div>
-      <div className="layer-focus"><div className="metric">ACTIVE LAYER <b>{l.id}</b></div><h3>{l.name}</h3><h4>{l.short}</h4><p>{l.detail}</p><div className="thin-bars"><i/><i/><i/><i/><i/><i/><i/></div></div>
-      <div className="buyer-card"><h3>Buyer takeaway</h3><p>Tex is not another dashboard. It is the runtime authority layer that decides what an AI agent is allowed to do before the action reaches the real world.</p><ul><li>Find every agent</li><li>Bind identity and ownership</li><li>Evaluate real actions</li><li>Enforce before execution</li><li>Seal proof for audit</li></ul></div>
+function Trial() {
+  return <section id="trial" className="section trial">
+    <div className="trial-panel">
+      <span className="eyebrow">Tex by VortexBlack</span>
+      <h2>Start with a 2-week Agent Control Audit.</h2>
+      <p>Inventory agents, map authority, run real actions through the seven-layer loop, and export the proof chain.</p>
+      <a className="primary" href="mailto:founder@vortexblack.ai?subject=Activate%20Tex%202-week%20trial">Activate 2-week trial</a>
     </div>
-  </section>
+  </section>;
 }
 
-function EvidenceSection() {
-  return <section id="evidence" className="evidence section">
-    <div><div className="eyebrow"><span/> Cryptographically-linked loop</div><h2>Every decision becomes evidence.</h2><p>Tex records the request, policy, verdict, permit, verification, execution state, outcome, and calibration event into a chain buyers can trust.</p></div>
-    <div className="loop-stack">{loop.map((item,i)=><div key={item} className={i===1||i===4?'hot':''}><span>{String(i+1).padStart(2,'0')}</span><b>{item}</b><em>{['request captured','policy verdict','permit checked','action released','hash sealed','threshold tuned'][i]}</em></div>)}</div>
-  </section>
-}
+export default function App() {
+  const tick = useTicker(1600);
+  const [selected, setSelected] = useState(null);
+  const active = selected ?? tick % LAYERS.length;
+  const activeLayer = useMemo(() => LAYERS[active], [active]);
+  const hold = (i) => { setSelected(i); window.clearTimeout(window.__texLayerHold); window.__texLayerHold = window.setTimeout(() => setSelected(null), 9000); };
 
-function TrialSection() {
-  return <section id="trial" className="trial section">
-    <div><div className="eyebrow"><span/> Start with the audit</div><h2>Tex by VortexBlack gives buyers one clear answer: who controls your agents?</h2><p>The trial should be concrete: inventory the agents, map authority, run actions through the seven layers, and export the proof.</p><a className="primary" href="mailto:founder@vortexblack.ai">Activate 2-week trial</a></div>
-    <div className="trial-steps"><div><span>01</span><b>Inventory</b><p>Find agents and owners.</p></div><div><span>02</span><b>Control</b><p>Run real actions through Tex.</p></div><div><span>03</span><b>Proof</b><p>Export the evidence bundle.</p></div></div>
-  </section>
-}
-
-export default function App(){
-  const [active,setActive] = useActiveLayer();
-  return <>
-    <Ambient/><Nav/>
-    <main>
-      <Hero active={active} setActive={setActive}/>
-      <SystemSection/>
-      <LayersSection active={active} setActive={setActive}/>
-      <EvidenceSection/>
-      <TrialSection/>
-    </main>
-    <footer className="site-footer"><b>Tex by VortexBlack</b><span>Central control system for AI agents.</span></footer>
-  </>
+  return <main id="top" className="site" style={{ '--tone': activeLayer.tone }}>
+    <CinematicField active={active} />
+    <div className="noise" aria-hidden="true" />
+    <div className="aurora" aria-hidden="true" />
+    <Nav />
+    <section className="hero section">
+      <div className="hero-copy">
+        <span className="eyebrow">Tex by VortexBlack</span>
+        <h1>The command layer for AI agents.</h1>
+        <p>Tex finds agents, binds identity, defines authority, judges actions, enforces decisions, seals proof, and calibrates from outcomes.</p>
+        <div className="hero-sentence"><b>In 5 seconds:</b> one system controls the full AI-agent lifecycle before actions reach the real world.</div>
+        <div className="hero-cta"><a className="primary" href="#trial">Activate 2-week trial</a><a className="secondary" href="#layers">See the 7-layer loop</a></div>
+      </div>
+      <HeroSystem active={active} setActive={hold} />
+    </section>
+    <Comparison />
+    <LayerConsole active={active} setActive={hold} />
+    <ProofLoop active={active} />
+    <Trial />
+    <footer><b>Tex by VortexBlack</b><span>Central control system for AI agents.</span></footer>
+  </main>;
 }

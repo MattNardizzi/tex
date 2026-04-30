@@ -1,83 +1,88 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import texHero from './tex-hero.png';
 
 /* ────────────────────────────────────────────────────────────────────
- * The Sevenfold — texaegis.com homepage hero.
+ * The Sevenfold — texaegis.com homepage hero (v3).
  *
- * One closed cryptographic chain. Seven layers running live, one at
- * each vertex. Tex's sigil at the center as the witness. A pulse of
- * light traverses the chain, completing the full circuit (Discovery →
- * Registration → ... → Learning → back to Discovery) every ~6.5
- * seconds. The loop visibly closes, repeatedly, forever.
+ * Composition:
+ *   Tex stands center, life-sized. Around him orbits a single closed
+ *   cryptographic ring — viewed at a slight perspective tilt so it
+ *   reads as a halo of governance encircling the being. Seven layer
+ *   nodes sit on the ring at evenly distributed positions. A pulse of
+ *   light traverses the ring, lighting each node as it passes. The
+ *   loop closes, repeatedly, forever.
  *
- * No new dependencies. Pure React + SVG + RAF. Honors prefers-reduced-
- * motion. Mobile-responsive via preserveAspectRatio.
+ *   Tex is the system. The system is him.
+ *
+ * Pure React + SVG + RAF. No new dependencies. Honors prefers-reduced-
+ * motion. Mobile-responsive. Atmospheric layers (fog, grid, scanlines,
+ * bloom) all SVG/CSS — no canvas, no WebGL.
  * ──────────────────────────────────────────────────────────────────── */
 
+/* ─── Geometry ─────────────────────────────────────────────────────── */
+
 const VIEW_W = 1600;
-const VIEW_H = 980;
+const VIEW_H = 1100;
 const CX = VIEW_W / 2;
-const CY = VIEW_H / 2 + 12;
+const CY = 600; // ring center — at chest height of avatar
 
-const R_HEPT  = 290;
-const R_SIGIL = 168;
-const STATION_W = 252;
-const STATION_H = 138;
-const STATION_OFFSET = 90;
+// The ring is drawn as a perspective ellipse. Major axis horizontal,
+// minor axis vertical (foreshortened to suggest tilt).
+const RING_RX = 600;
+const RING_RY = 140;
 
-function vertex(i, r = R_HEPT) {
-  const angle = (-Math.PI / 2) + (i * 2 * Math.PI) / 7;
-  return { x: CX + r * Math.cos(angle), y: CY + r * Math.sin(angle), angle };
+// Tex avatar dimensions on stage.
+const TEX_W = 580;
+const TEX_H = 720;
+const TEX_X = CX - TEX_W / 2;
+const TEX_Y = CY - 360; // place chest emblem near ring center
+
+// Card dimensions for each layer node.
+const CARD_W = 232;
+const CARD_H = 96;
+
+// Compute node position on the perspective ring at angle theta.
+// theta=0 is right side (3 o'clock), increases counterclockwise.
+function ringPoint(theta) {
+  return {
+    x: CX + RING_RX * Math.cos(theta),
+    y: CY + RING_RY * Math.sin(theta),
+  };
 }
 
-const STATIONS = [
-  { key: 'discovery',    n: '01', name: 'DISCOVERY' },
-  { key: 'registration', n: '02', name: 'REGISTRATION' },
-  { key: 'capability',   n: '03', name: 'CAPABILITY' },
-  { key: 'evaluation',   n: '04', name: 'EVALUATION' },
-  { key: 'enforcement',  n: '05', name: 'ENFORCEMENT' },
-  { key: 'evidence',     n: '06', name: 'EVIDENCE' },
-  { key: 'learning',     n: '07', name: 'LEARNING' },
-].map((s, i) => ({ ...s, ...vertex(i) }));
+// Seven layer nodes spaced evenly on the ring, starting from top
+// (Discovery), proceeding clockwise. Card positions are hand-tuned so
+// every card stays inside the viewport and never overlaps the avatar
+// or another card.
+const STATIONS_RAW = [
+  // theta in radians, measured from +x axis going clockwise (so -π/2 = top)
+  // cardX/cardY: explicit center position of the card in viewBox coords
+  { key: 'discovery',    n: '01', name: 'DISCOVERY',    theta: -Math.PI / 2,                                cardX: CX,           cardY: 70  },
+  { key: 'registration', n: '02', name: 'REGISTRATION', theta: -Math.PI / 2 + (2 * Math.PI) / 7,           cardX: VIEW_W - 180, cardY: 270 },
+  { key: 'capability',   n: '03', name: 'CAPABILITY',   theta: -Math.PI / 2 + (4 * Math.PI) / 7,           cardX: VIEW_W - 180, cardY: 580 },
+  { key: 'evaluation',   n: '04', name: 'EVALUATION',   theta: -Math.PI / 2 + (6 * Math.PI) / 7,           cardX: VIEW_W - 220, cardY: 880 },
+  { key: 'enforcement',  n: '05', name: 'ENFORCEMENT',  theta: -Math.PI / 2 + (8 * Math.PI) / 7,           cardX: 220,          cardY: 880 },
+  { key: 'evidence',     n: '06', name: 'EVIDENCE',     theta: -Math.PI / 2 + (10 * Math.PI) / 7,          cardX: 180,          cardY: 580 },
+  { key: 'learning',     n: '07', name: 'LEARNING',     theta: -Math.PI / 2 + (12 * Math.PI) / 7,          cardX: 180,          cardY: 270 },
+];
 
-const HEPT_PATH = (() => {
-  const pts = STATIONS.map(s => `${s.x.toFixed(1)},${s.y.toFixed(1)}`);
-  return `M${pts[0]} L${pts.slice(1).join(' L')} Z`;
-})();
+const STATIONS = STATIONS_RAW.map((s) => {
+  const p = ringPoint(s.theta);
+  // Front-half: lower portion of ring (sin > -0.15). Drawn after avatar.
+  const isFront = Math.sin(s.theta) > -0.15;
+  return { ...s, x: p.x, y: p.y, isFront };
+});
 
-const SEGMENTS = (() => {
-  const segs = [];
-  let total = 0;
-  for (let i = 0; i < STATIONS.length; i++) {
-    const a = STATIONS[i];
-    const b = STATIONS[(i + 1) % STATIONS.length];
-    const len = Math.hypot(b.x - a.x, b.y - a.y);
-    segs.push({ from: i, to: (i + 1) % STATIONS.length, len, cum: total });
-    total += len;
-  }
-  return { list: segs, total };
-})();
-
-function sampleLoop(t) {
-  const target = ((t % 1) + 1) % 1 * SEGMENTS.total;
-  for (const seg of SEGMENTS.list) {
-    if (target >= seg.cum && target < seg.cum + seg.len) {
-      const local = (target - seg.cum) / seg.len;
-      const a = STATIONS[seg.from];
-      const b = STATIONS[seg.to];
-      return { x: a.x + (b.x - a.x) * local, y: a.y + (b.y - a.y) * local, seg: seg.from, local };
-    }
-  }
-  const a = STATIONS[0];
-  return { x: a.x, y: a.y, seg: 0, local: 0 };
+function cardPosition(s) {
+  return {
+    cx: s.cardX,
+    cy: s.cardY,
+    bx: s.cardX - CARD_W / 2,
+    by: s.cardY - CARD_H / 2,
+  };
 }
 
-function stationBox(s) {
-  const dirX = (s.x - CX) / R_HEPT;
-  const dirY = (s.y - CY) / R_HEPT;
-  const cx2 = s.x + dirX * STATION_OFFSET;
-  const cy2 = s.y + dirY * STATION_OFFSET;
-  return { bx: cx2 - STATION_W / 2, by: cy2 - STATION_H / 2, cx: cx2, cy: cy2 };
-}
+/* ─── Hash helpers ────────────────────────────────────────────────── */
 
 function hashFragment(seed) {
   let h1 = 0x811c9dc5 ^ seed;
@@ -93,7 +98,9 @@ function shortHash(seed) {
   return `${h.slice(0, 4)}..${h.slice(-4)}`;
 }
 
-const CYCLE_MS = 6500;
+/* ─── Clock ────────────────────────────────────────────────────────── */
+
+const CYCLE_MS = 7000;
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false);
@@ -115,188 +122,220 @@ function useSevenfoldClock() {
   useEffect(() => {
     if (reducedMotion) { setTick(0); return; }
     let raf = 0;
-    const step = (now) => { setTick(now - startRef.current); raf = requestAnimationFrame(step); };
+    const step = (now) => {
+      setTick(now - startRef.current);
+      raf = requestAnimationFrame(step);
+    };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [reducedMotion]);
+
+  // t ∈ [0, 1) — phase along the ring perimeter
   const t = (tick % CYCLE_MS) / CYCLE_MS;
   const cycle = Math.floor(tick / CYCLE_MS);
-  const pulse = sampleLoop(t);
-  return { t, cycle, pulse, tick, reducedMotion };
+
+  // Pulse position on the ring. Same starting orientation as STATIONS.
+  const pulseTheta = -Math.PI / 2 + t * 2 * Math.PI;
+  const pulseP = ringPoint(pulseTheta);
+  const pulseFront = Math.sin(pulseTheta) > -0.15;
+
+  return { t, cycle, tick, reducedMotion, pulseP, pulseTheta, pulseFront };
 }
 
-export default function Sevenfold({ verdict, phase, counters, chain, calibration }) {
-  const { t, cycle, pulse, tick, reducedMotion } = useSevenfoldClock();
+/* ─── Component ───────────────────────────────────────────────────── */
+
+export default function Sevenfold({ verdict, phase, counters }) {
+  const { t, cycle, tick, reducedMotion, pulseP, pulseTheta, pulseFront } = useSevenfoldClock();
   const [hovered, setHovered] = useState(null);
 
+  // Active station — pulse is currently within ~12° of which node.
   const activeStation = useMemo(() => {
+    let best = -1, bestD = Infinity;
     for (let i = 0; i < STATIONS.length; i++) {
-      const v = STATIONS[i];
-      const d = Math.hypot(pulse.x - v.x, pulse.y - v.y);
-      if (d < R_HEPT * 0.18) return i;
+      const s = STATIONS[i];
+      // angular distance, wrapped
+      let d = Math.abs(((pulseTheta - s.theta + Math.PI) % (2 * Math.PI)) - Math.PI);
+      if (d < bestD) { bestD = d; best = i; }
     }
-    return -1;
-  }, [pulse.x, pulse.y]);
+    return bestD < 0.32 ? best : -1;
+  }, [pulseTheta]);
 
   const verdictKey = verdict || 'idle';
 
+  // Split stations: back-half (drawn behind avatar) vs front-half (in front).
+  const backStations = STATIONS.map((s, i) => ({ s, i })).filter(x => !x.s.isFront);
+  const frontStations = STATIONS.map((s, i) => ({ s, i })).filter(x => x.s.isFront);
+
   return (
     <section className={`sevenfold sevenfold-verdict-${verdictKey}`} aria-label="Tex — the sevenfold adjudicator">
-      <div className="sevenfold-glass" aria-hidden="true" />
-      <div className="sevenfold-vignette" aria-hidden="true" />
-
-      <div className="sevenfold-eyebrow">
-        <span className="sevenfold-pip" aria-hidden="true" />
-        TEX&nbsp;·&nbsp;THE&nbsp;SEVENFOLD&nbsp;ADJUDICATOR&nbsp;·&nbsp;LIVE
+      {/* Atmospheric backdrop */}
+      <div className="sf-bg" aria-hidden="true">
+        <div className="sf-bg-grid" />
+        <div className="sf-bg-glow" />
+        <div className="sf-bg-fog" />
+        <div className="sf-bg-scanlines" />
       </div>
 
-      <div className="sevenfold-counters" role="status">
-        <CounterCell label="permit"  value={counters?.permit  ?? 0} tone="permit" />
+      {/* Eyebrow */}
+      <div className="sf-eyebrow">
+        <span className="sf-eyebrow-pip" aria-hidden="true" />
+        <span className="sf-eyebrow-text">TEX&nbsp;·&nbsp;THE&nbsp;SEVENFOLD&nbsp;ADJUDICATOR</span>
+        <span className="sf-eyebrow-divider" />
+        <span className="sf-eyebrow-live">LIVE</span>
+      </div>
+
+      {/* Counters */}
+      <div className="sf-counters" role="status">
+        <CounterCell label="permit"  value={counters?.permit  ?? 0} tone="permit"  />
         <CounterCell label="abstain" value={counters?.abstain ?? 0} tone="abstain" />
-        <CounterCell label="forbid"  value={counters?.forbid  ?? 0} tone="forbid" />
+        <CounterCell label="forbid"  value={counters?.forbid  ?? 0} tone="forbid"  />
       </div>
 
-      <div className="sevenfold-stage">
+      {/* The stage */}
+      <div className="sf-stage">
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           xmlns="http://www.w3.org/2000/svg"
           preserveAspectRatio="xMidYMid meet"
-          className="sevenfold-svg"
+          className="sf-svg"
           role="img"
           aria-label="Seven-layer cryptographic governance loop"
         >
           <defs>
-            <radialGradient id="sf-pulse-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--cyan-soft)" stopOpacity="1"   />
-              <stop offset="35%"  stopColor="var(--cyan)"      stopOpacity="0.6" />
-              <stop offset="100%" stopColor="var(--cyan)"      stopOpacity="0"   />
+            <radialGradient id="sf-pulse" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#cef5ff" stopOpacity="1"   />
+              <stop offset="35%"  stopColor="#5ee0ff" stopOpacity="0.7" />
+              <stop offset="100%" stopColor="#5ee0ff" stopOpacity="0"   />
             </radialGradient>
-            <radialGradient id="sf-sigil-aura" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--cyan)"   stopOpacity="0.32" />
-              <stop offset="55%"  stopColor="var(--cyan)"   stopOpacity="0.06" />
-              <stop offset="100%" stopColor="var(--cyan)"   stopOpacity="0"    />
+            <radialGradient id="sf-aura" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#5ee0ff" stopOpacity="0.30" />
+              <stop offset="55%"  stopColor="#2fb8e0" stopOpacity="0.06" />
+              <stop offset="100%" stopColor="#5ee0ff" stopOpacity="0"    />
             </radialGradient>
-            <radialGradient id="sf-eye-permit"  cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--green)"  stopOpacity="1"   />
-              <stop offset="60%"  stopColor="var(--green)"  stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--green)"  stopOpacity="0"   />
+            <radialGradient id="sf-floor" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#5ee0ff" stopOpacity="0.22" />
+              <stop offset="60%"  stopColor="#5ee0ff" stopOpacity="0.04" />
+              <stop offset="100%" stopColor="#5ee0ff" stopOpacity="0"    />
             </radialGradient>
-            <radialGradient id="sf-eye-abstain" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--amber)"  stopOpacity="1"   />
-              <stop offset="60%"  stopColor="var(--amber)"  stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--amber)"  stopOpacity="0"   />
-            </radialGradient>
-            <radialGradient id="sf-eye-forbid"  cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--red)"    stopOpacity="1"   />
-              <stop offset="60%"  stopColor="var(--red)"    stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--red)"    stopOpacity="0"   />
-            </radialGradient>
-            <radialGradient id="sf-eye-idle"    cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="var(--cyan)"   stopOpacity="1"   />
-              <stop offset="60%"  stopColor="var(--cyan)"   stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--cyan)"   stopOpacity="0"   />
-            </radialGradient>
-            <filter id="sf-soft-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="6" result="b" />
-              <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+            <linearGradient id="sf-ring-stroke" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%"   stopColor="#2fb8e0" stopOpacity="0.4" />
+              <stop offset="50%"  stopColor="#9af0ff" stopOpacity="1"   />
+              <stop offset="100%" stopColor="#2fb8e0" stopOpacity="0.4" />
+            </linearGradient>
+            <linearGradient id="sf-card-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%"   stopColor="#0a0e1a" stopOpacity="0.92" />
+              <stop offset="100%" stopColor="#04060c" stopOpacity="0.92" />
+            </linearGradient>
+            <filter id="sf-glow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="8" />
             </filter>
-            {STATIONS.map((s) => {
-              const { bx, by } = stationBox(s);
-              return (
-                <clipPath key={`clip-${s.key}`} id={`sf-clip-${s.key}`}>
-                  <rect x={bx + 12} y={by + 32} width={STATION_W - 24} height={STATION_H - 44} />
-                </clipPath>
-              );
-            })}
+            <filter id="sf-glow-sm" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="3" />
+            </filter>
           </defs>
 
-          <BackgroundGrid />
+          {/* FLOOR DISC — a soft glowing ellipse at Tex's feet */}
+          <ellipse cx={CX} cy={CY + 380} rx={420} ry={60}
+                   fill="url(#sf-floor)" opacity="0.85" />
 
-          <circle cx={CX} cy={CY} r={R_HEPT + 22} fill="none"
-                  stroke="var(--ink-ghost)" strokeWidth="1" strokeDasharray="2 6" opacity="0.32" />
+          {/* RING — back half (behind avatar) */}
+          <RingArcBack tick={tick} reducedMotion={reducedMotion} />
 
-          {/* THE CHAIN */}
-          <path d={HEPT_PATH} fill="none"
-                stroke="var(--cyan)" strokeWidth="2.4" opacity="0.72"
-                strokeLinejoin="round" />
-          <path d={HEPT_PATH} fill="none"
-                stroke="var(--cyan-soft)" strokeWidth="0.8" opacity="0.5"
-                strokeLinejoin="round" />
-
-          <ChainHexMarks tick={tick} />
-
-          {STATIONS.map((s, i) => {
-            const isActive = activeStation === i;
-            return (
-              <line key={`spoke-${s.key}`}
-                x1={CX} y1={CY} x2={s.x} y2={s.y}
-                stroke={isActive ? 'var(--cyan-soft)' : 'var(--ink-ghost)'}
-                strokeWidth={isActive ? 1.6 : 0.7}
-                opacity={isActive ? 0.95 : 0.5}
-                strokeDasharray={isActive ? '0' : '1 6'}
-                style={{ transition: 'all 240ms var(--ease-out)' }} />
-            );
-          })}
-
-          <TexSigil verdict={verdictKey} phase={phase} tick={tick} />
-
-          {STATIONS.map((s, i) => (
-            <Station
+          {/* Back-half station nodes (behind avatar) */}
+          {backStations.map(({ s, i }) => (
+            <StationNode
               key={s.key}
               station={s}
               index={i}
               active={activeStation === i}
               hovered={hovered === i}
               onHover={() => setHovered(i)}
-              onLeave={() => setHovered((h) => (h === i ? null : h))}
+              onLeave={() => setHovered(h => h === i ? null : h)}
               tick={tick}
               cycle={cycle}
-              chain={chain}
-              calibration={calibration}
               counters={counters}
               verdict={verdictKey}
             />
           ))}
 
-          {!reducedMotion && (
-            <g pointerEvents="none">
-              {[0.014, 0.030, 0.05].map((dt, i) => {
-                const p = sampleLoop(t - dt);
-                return (
-                  <circle key={`trail-${i}`} cx={p.x} cy={p.y}
-                          r={5 - i * 1.3}
-                          fill="var(--cyan)"
-                          opacity={0.7 - i * 0.2} />
-                );
-              })}
-              <circle cx={pulse.x} cy={pulse.y} r="44"
-                      fill="url(#sf-pulse-glow)" opacity="0.85" />
-              <circle cx={pulse.x} cy={pulse.y} r="6.5"
-                      fill="var(--cyan-soft)"
-                      style={{ filter: 'drop-shadow(0 0 8px var(--cyan))' }} />
-              <text x={pulse.x} y={pulse.y - 22}
-                    textAnchor="middle" className="sf-pulse-hash">
-                {shortHash(cycle * 7 + pulse.seg)}
-              </text>
-            </g>
-          )}
+          {/* Pulse on back half of ring */}
+          {!reducedMotion && !pulseFront && <Pulse p={pulseP} cycle={cycle} t={t} />}
+
+          {/* TEX — the avatar */}
+          <g>
+            {/* Soft aura behind avatar */}
+            <ellipse cx={CX} cy={CY - 60} rx={340} ry={420}
+                     fill="url(#sf-aura)" opacity="0.7" />
+            <image
+              href={texHero}
+              x={TEX_X}
+              y={TEX_Y}
+              width={TEX_W}
+              height={TEX_H}
+              preserveAspectRatio="xMidYMid meet"
+              style={{ filter: 'drop-shadow(0 0 30px rgba(94,224,255,0.18))' }}
+            />
+            {/* Eye-flash overlay synced to verdict */}
+            <EyeFlash verdict={verdictKey} phase={phase} />
+          </g>
+
+          {/* RING — front half (in front of avatar's lower body) */}
+          <RingArcFront tick={tick} reducedMotion={reducedMotion} />
+
+          {/* Front-half station nodes */}
+          {frontStations.map(({ s, i }) => (
+            <StationNode
+              key={s.key}
+              station={s}
+              index={i}
+              active={activeStation === i}
+              hovered={hovered === i}
+              onHover={() => setHovered(i)}
+              onLeave={() => setHovered(h => h === i ? null : h)}
+              tick={tick}
+              cycle={cycle}
+              counters={counters}
+              verdict={verdictKey}
+            />
+          ))}
+
+          {/* Pulse on front half */}
+          {!reducedMotion && pulseFront && <Pulse p={pulseP} cycle={cycle} t={t} />}
+
+          {/* Connector from each card to its ring node */}
+          {STATIONS.map((s, i) => {
+            const cp = cardPosition(s);
+            return (
+              <g key={`con-${s.key}`}>
+                <line x1={s.x} y1={s.y} x2={cp.cx} y2={cp.cy}
+                      stroke={activeStation === i ? '#9af0ff' : '#2fb8e0'}
+                      strokeWidth={activeStation === i ? 1.4 : 0.7}
+                      opacity={activeStation === i ? 0.9 : 0.45}
+                      strokeDasharray={activeStation === i ? '0' : '1 5'}
+                      style={{ transition: 'all 240ms cubic-bezier(0.16,1,0.3,1)' }} />
+              </g>
+            );
+          })}
         </svg>
 
+        {/* Loop close badge */}
         <LoopCloseBadge tick={tick} cycle={cycle} />
       </div>
 
-      <div className="sevenfold-tagline">
-        <p className="sevenfold-tagline-row">
+      {/* Tagline */}
+      <div className="sf-tagline">
+        <p className="sf-tagline-row">
           <em>Discovery.</em> <em>Registration.</em> <em>Capability.</em>{' '}
           <em>Evaluation.</em> <em>Enforcement.</em> <em>Evidence.</em>{' '}
           <em>Learning.</em>
         </p>
-        <p className="sevenfold-tagline-claim">
+        <p className="sf-tagline-claim">
           One being. One chain. <span className="seam">No seam.</span>
         </p>
       </div>
 
-      <div className="sevenfold-cta-row">
+      {/* CTAs */}
+      <div className="sf-cta-row">
         <a className="sf-cta sf-cta-primary" href="#evaluation">
           See a live verdict <span aria-hidden="true">↓</span>
         </a>
@@ -308,6 +347,8 @@ export default function Sevenfold({ verdict, phase, counters, chain, calibration
   );
 }
 
+/* ─── Sub-components ──────────────────────────────────────────────── */
+
 function CounterCell({ label, value, tone }) {
   return (
     <div className={`sf-counter sf-counter-${tone}`}>
@@ -318,102 +359,118 @@ function CounterCell({ label, value, tone }) {
   );
 }
 
-function BackgroundGrid() {
-  const lines = [];
-  const step = 80;
-  for (let x = 0; x <= VIEW_W; x += step) {
-    lines.push(<line key={`vx-${x}`} x1={x} y1={0} x2={x} y2={VIEW_H}
-                     stroke="var(--ink-ghost)" strokeWidth="0.5" opacity="0.28" />);
-  }
-  for (let y = 0; y <= VIEW_H; y += step) {
-    lines.push(<line key={`vy-${y}`} x1={0} y1={y} x2={VIEW_W} y2={y}
-                     stroke="var(--ink-ghost)" strokeWidth="0.5" opacity="0.28" />);
-  }
-  return <g aria-hidden="true">{lines}</g>;
+/* Ring is drawn in two halves so the avatar can be sandwiched between
+   them — back half draws first (behind), front half draws after (in
+   front of avatar's lower body). Each half is a path along the
+   appropriate arc of the ellipse. */
+
+function ringPathArc(startTheta, endTheta) {
+  // SVG ellipse arc from startTheta to endTheta on our ring.
+  // We need to be careful: large-arc-flag depends on angular sweep.
+  const start = ringPoint(startTheta);
+  const end = ringPoint(endTheta);
+  const sweep = ((endTheta - startTheta) + 2 * Math.PI) % (2 * Math.PI);
+  const largeArc = sweep > Math.PI ? 1 : 0;
+  // sweep-flag: 1 = clockwise. Our angles go clockwise (positive).
+  return `M${start.x.toFixed(1)},${start.y.toFixed(1)} A${RING_RX},${RING_RY} 0 ${largeArc} 1 ${end.x.toFixed(1)},${end.y.toFixed(1)}`;
 }
 
-function ChainHexMarks({ tick }) {
-  const COUNT = 56;
-  const offset = (tick / 18000) % 1;
-  const marks = [];
-  for (let i = 0; i < COUNT; i++) {
-    const t = (i / COUNT + offset) % 1;
-    const p = sampleLoop(t);
-    const ch = '0123456789abcdef'[(i * 7 + Math.floor(tick / 600)) & 15];
-    marks.push(
-      <text key={`hex-${i}`} x={p.x} y={p.y + 3.5}
-            className="sf-chain-glyph"
-            textAnchor="middle">{ch}</text>
-    );
-  }
-  return <g aria-hidden="true">{marks}</g>;
-}
+function RingArcBack({ tick }) {
+  // Back half: theta from π to 2π (i.e. top of ring across to bottom-back-left → top → bottom-back-right)
+  // Easier: in our ring, "back" is where sin(theta) < -0.15 (upper portion of ellipse).
+  // That corresponds to theta ∈ (π + asin(0.15), 2π - asin(0.15)) ish.
+  // Simpler: just split at theta = -0.15 and theta = π+0.15 with sin check.
+  // Let's draw two arcs: one for the back upper-right portion, one for back upper-left.
+  // Back portion is where y < CY - RING_RY*0.15  →  sin(theta) < -0.15
+  // sin(theta) = -0.15 at theta = π + asin(0.15) ≈ π + 0.1506 and at theta = 2π - 0.1506
+  // So back arc runs from theta = π + 0.1506 to theta = 2π - 0.1506 (the upper portion).
+  const a = Math.PI + 0.1506;
+  const b = 2 * Math.PI - 0.1506;
+  const path = ringPathArc(a, b);
 
-function TexSigil({ verdict, phase, tick }) {
-  const eyeFill =
-    verdict === 'permit'  ? 'url(#sf-eye-permit)'  :
-    verdict === 'abstain' ? 'url(#sf-eye-abstain)' :
-    verdict === 'forbid'  ? 'url(#sf-eye-forbid)'  :
-                            'url(#sf-eye-idle)';
-
-  const hex = (r) => {
-    const pts = [];
-    for (let i = 0; i < 6; i++) {
-      const a = (-Math.PI / 2) + (i * Math.PI) / 3;
-      pts.push(`${(CX + r * Math.cos(a)).toFixed(1)},${(CY + r * Math.sin(a)).toFixed(1)}`);
-    }
-    return pts.join(' ');
-  };
-
-  const breathe = 1 + Math.sin(tick / 1100) * 0.012;
+  const offset = (tick / 12000) * 200;
 
   return (
-    <g aria-hidden="true">
-      <circle cx={CX} cy={CY} r={R_SIGIL * 1.45} fill="url(#sf-sigil-aura)" />
+    <g>
+      {/* Glow underlay */}
+      <path d={path} fill="none" stroke="#5ee0ff" strokeWidth="6"
+            opacity="0.18" filter="url(#sf-glow)" />
+      {/* Main stroke */}
+      <path d={path} fill="none" stroke="url(#sf-ring-stroke)" strokeWidth="1.6"
+            opacity="0.7" strokeDasharray="3 4" strokeDashoffset={-offset} />
+      {/* Hairline highlight */}
+      <path d={path} fill="none" stroke="#cef5ff" strokeWidth="0.5" opacity="0.5" />
+    </g>
+  );
+}
 
-      <polygon points={hex(R_SIGIL)}
-               fill="none"
-               stroke="var(--cyan-deep)" strokeWidth="1"
-               opacity="0.65" />
+function RingArcFront({ tick }) {
+  // Front portion: from b → 2π (= 0) → a, i.e. the lower portion of the ellipse.
+  // In SVG arc terms, going clockwise from b around through 0 to a means we
+  // need a path from theta=b to theta=2π+a. We split into two arcs to keep things sane.
+  const a = Math.PI + 0.1506;
+  const b = 2 * Math.PI - 0.1506;
 
-      <g style={{ transformOrigin: `${CX}px ${CY}px`, transform: `scale(${breathe})` }}>
-        <polygon points={hex(R_SIGIL * 0.84)}
-                 fill="rgba(7,8,15,0.85)"
-                 stroke="var(--cyan)" strokeWidth="1.6" />
-        <polygon points={hex(R_SIGIL * 0.62)}
-                 fill="none"
-                 stroke="var(--cyan-deep)" strokeWidth="0.6"
-                 opacity="0.5" />
-        <polygon points={hex(R_SIGIL * 0.40)}
-                 fill="none"
-                 stroke="var(--cyan-deep)" strokeWidth="0.5"
-                 opacity="0.35" />
+  // Arc from b to 2π (= 0)
+  const arc1 = ringPathArc(b, 2 * Math.PI);
+  // Arc from 0 to a (which is just π+0.15)
+  const arc2 = ringPathArc(0, a);
 
-        <g>
-          <line x1={CX - 28} y1={CY - 22} x2={CX + 28} y2={CY - 22}
-                stroke="var(--cyan)" strokeWidth="2.2" strokeLinecap="round" />
-          <line x1={CX} y1={CY - 22} x2={CX} y2={CY + 28}
-                stroke="var(--cyan)" strokeWidth="2.2" strokeLinecap="round" />
+  const offset = (tick / 12000) * 200;
+
+  return (
+    <g>
+      {[arc1, arc2].map((d, idx) => (
+        <g key={idx}>
+          <path d={d} fill="none" stroke="#5ee0ff" strokeWidth="6"
+                opacity="0.18" filter="url(#sf-glow)" />
+          <path d={d} fill="none" stroke="url(#sf-ring-stroke)" strokeWidth="1.6"
+                opacity="0.85" strokeDasharray="3 4" strokeDashoffset={-offset} />
+          <path d={d} fill="none" stroke="#cef5ff" strokeWidth="0.5" opacity="0.6" />
         </g>
+      ))}
+    </g>
+  );
+}
 
-        <g className={`sf-sigil-eye sf-eye-${verdict} sf-phase-${phase || 'idle'}`} filter="url(#sf-soft-glow)">
-          <ellipse cx={CX} cy={CY - 60} rx="38" ry="6.5" fill={eyeFill} />
-          <ellipse cx={CX} cy={CY - 60} rx="18" ry="2.4" fill="var(--cyan-soft)" opacity="0.95" />
-        </g>
-      </g>
-
-      <text x={CX} y={CY + R_SIGIL * 0.84 + 22} textAnchor="middle" className="sf-sigil-status">
-        TEX · ON DUTY
-      </text>
-      <text x={CX} y={CY + R_SIGIL * 0.84 + 40} textAnchor="middle" className="sf-sigil-substatus">
-        seven layers · one chain · no seam
+function Pulse({ p, cycle, t }) {
+  return (
+    <g pointerEvents="none">
+      <circle cx={p.x} cy={p.y} r="58" fill="url(#sf-pulse)" opacity="0.95" />
+      <circle cx={p.x} cy={p.y} r="9" fill="#cef5ff"
+              style={{ filter: 'drop-shadow(0 0 12px #5ee0ff)' }} />
+      {/* Hash fragment riding the pulse */}
+      <text x={p.x} y={p.y - 26} textAnchor="middle" className="sf-pulse-hash">
+        {shortHash(cycle * 7 + Math.floor(t * 100))}
       </text>
     </g>
   );
 }
 
-function Station({ station, index, active, hovered, onHover, onLeave, tick, cycle, chain, calibration, counters, verdict }) {
-  const { bx, by } = stationBox(station);
+function EyeFlash({ verdict, phase }) {
+  // Locate the eyes on the avatar and overlay a colored bloom that
+  // syncs with the verdict. Coordinates are calibrated to where the
+  // eyes appear in the cropped avatar at our placed dimensions.
+  const eyeY = TEX_Y + TEX_H * 0.165; // ~16.5% from top of avatar
+  const eyeLeftX = TEX_X + TEX_W * 0.405;
+  const eyeRightX = TEX_X + TEX_W * 0.555;
+  const color =
+    verdict === 'permit'  ? '#6fdca5' :
+    verdict === 'abstain' ? '#ffb547' :
+    verdict === 'forbid'  ? '#ff5b5b' : '#5ee0ff';
+
+  return (
+    <g aria-hidden="true" className={`sf-eye-flash sf-phase-${phase || 'idle'}`} pointerEvents="none">
+      <ellipse cx={eyeLeftX}  cy={eyeY} rx="14" ry="3.2" fill={color} opacity="0.65" filter="url(#sf-glow-sm)" />
+      <ellipse cx={eyeRightX} cy={eyeY} rx="14" ry="3.2" fill={color} opacity="0.65" filter="url(#sf-glow-sm)" />
+    </g>
+  );
+}
+
+/* ─── Station node + card ─────────────────────────────────────────── */
+
+function StationNode({ station, index, active, hovered, onHover, onLeave, tick, cycle, counters, verdict }) {
+  const cp = cardPosition(station);
   const Body = STATION_BODIES[station.key];
 
   return (
@@ -427,119 +484,124 @@ function Station({ station, index, active, hovered, onHover, onLeave, tick, cycl
       role="button"
       aria-label={`Layer ${station.n} ${station.name}`}
     >
-      <circle cx={station.x} cy={station.y} r="3.5"
-              fill="var(--bg)" stroke="var(--cyan)" strokeWidth="1.4" />
+      {/* Ring node — pip at the station's position on the ring */}
+      <circle cx={station.x} cy={station.y} r="4.5"
+              fill="#04060c" stroke="#5ee0ff" strokeWidth="1.6" />
       {active && (
         <>
-          <circle cx={station.x} cy={station.y} r="9"
-                  fill="none" stroke="var(--cyan-soft)" strokeWidth="1.4" opacity="0.9">
-            <animate attributeName="r" from="6" to="20" dur="0.9s" repeatCount="1" />
-            <animate attributeName="opacity" from="0.9" to="0" dur="0.9s" repeatCount="1" />
+          <circle cx={station.x} cy={station.y} r="9" fill="#cef5ff" opacity="0.95" />
+          <circle cx={station.x} cy={station.y} r="14" fill="none"
+                  stroke="#9af0ff" strokeWidth="1.4" opacity="0.8">
+            <animate attributeName="r" from="8" to="28" dur="0.9s" repeatCount="1" />
+            <animate attributeName="opacity" from="0.8" to="0" dur="0.9s" repeatCount="1" />
           </circle>
-          <circle cx={station.x} cy={station.y} r="6"
-                  fill="var(--cyan-soft)" />
         </>
       )}
 
-      <line x1={station.x} y1={station.y}
-            x2={bx + STATION_W / 2 - ((station.x - CX) / R_HEPT) * (STATION_W / 2)}
-            y2={by + STATION_H / 2 - ((station.y - CY) / R_HEPT) * (STATION_H / 2)}
-            stroke="var(--cyan-deep)"
-            strokeWidth={active ? 1.4 : 0.9}
-            opacity={active ? 0.95 : 0.55}
-            style={{ transition: 'all 220ms var(--ease-out)' }} />
+      {/* Card */}
+      <g transform={`translate(${cp.bx}, ${cp.by})`}>
+        {/* Card backdrop with subtle glow on active */}
+        {active && (
+          <rect x="-2" y="-2" width={CARD_W + 4} height={CARD_H + 4} rx="3"
+                fill="none" stroke="#5ee0ff" strokeWidth="0.8" opacity="0.4"
+                filter="url(#sf-glow)" />
+        )}
+        <rect x="0" y="0" width={CARD_W} height={CARD_H} rx="2"
+              fill="url(#sf-card-fill)"
+              stroke={active ? '#5ee0ff' : hovered ? '#2fb8e0' : '#1a1f30'}
+              strokeWidth={active ? 1.4 : 0.9}
+              style={{ transition: 'all 220ms cubic-bezier(0.16,1,0.3,1)' }} />
 
-      <rect x={bx} y={by} width={STATION_W} height={STATION_H} rx="2" ry="2"
-            fill="rgba(6,7,14,0.86)"
-            stroke={active ? 'var(--cyan)' : 'var(--ink-ghost)'}
-            strokeWidth={active ? 1.6 : 0.9}
-            style={{ transition: 'stroke 240ms var(--ease-out), stroke-width 240ms var(--ease-out)' }} />
+        {/* Header */}
+        <text x="12" y="16" className="sf-card-eyebrow">
+          {station.n}
+          <tspan className="sf-card-name" dx="6">{station.name}</tspan>
+        </text>
+        <line x1="12" y1="22" x2={CARD_W - 12} y2="22"
+              stroke={active ? '#5ee0ff' : '#1a1f30'}
+              strokeWidth="0.6" opacity={active ? 0.85 : 0.4} />
 
-      <text x={bx + 12} y={by + 18} className="sf-station-eyebrow">
-        {station.n} <tspan className="sf-station-eyebrow-name" dx="6">{station.name}</tspan>
-      </text>
-      <line x1={bx + 12} y1={by + 26} x2={bx + STATION_W - 12} y2={by + 26}
-            stroke={active ? 'var(--cyan)' : 'var(--ink-ghost)'}
-            strokeWidth="0.8" opacity={active ? 0.9 : 0.45}
-            style={{ transition: 'all 240ms var(--ease-out)' }} />
-
-      <g transform={`translate(${bx + 12}, ${by + 32})`}
-         clipPath={`url(#sf-clip-${station.key})`}>
-        <Body w={STATION_W - 24} h={STATION_H - 44}
-              tick={tick} cycle={cycle}
-              chain={chain} calibration={calibration}
-              counters={counters} verdict={verdict} />
-      </g>
-
-      {active && (
-        <g>
-          <rect x={bx} y={by} width="10" height="2" fill="var(--cyan)" />
-          <rect x={bx} y={by} width="2" height="10" fill="var(--cyan)" />
-          <rect x={bx + STATION_W - 10} y={by + STATION_H - 2} width="10" height="2" fill="var(--cyan)" />
-          <rect x={bx + STATION_W - 2}  y={by + STATION_H - 10} width="2" height="10" fill="var(--cyan)" />
+        {/* Body */}
+        <g transform="translate(12, 28)">
+          <Body w={CARD_W - 24} h={CARD_H - 32}
+                tick={tick} cycle={cycle}
+                counters={counters} verdict={verdict} />
         </g>
-      )}
+
+        {/* Active corner brackets */}
+        {active && (
+          <>
+            <path d={`M0,8 L0,0 L8,0`}    stroke="#5ee0ff" strokeWidth="1.4" fill="none" />
+            <path d={`M${CARD_W - 8},0 L${CARD_W},0 L${CARD_W},8`}    stroke="#5ee0ff" strokeWidth="1.4" fill="none" />
+            <path d={`M0,${CARD_H - 8} L0,${CARD_H} L8,${CARD_H}`}    stroke="#5ee0ff" strokeWidth="1.4" fill="none" />
+            <path d={`M${CARD_W - 8},${CARD_H} L${CARD_W},${CARD_H} L${CARD_W},${CARD_H - 8}`} stroke="#5ee0ff" strokeWidth="1.4" fill="none" />
+          </>
+        )}
+      </g>
     </g>
   );
 }
 
+/* ─── Per-layer body micro-animations ─────────────────────────────── */
+
 const STATION_BODIES = {
   discovery: ({ w, h, tick }) => {
-    const ROWS = 4;
-    const cycle = Math.floor(tick / 800);
+    const c = Math.floor(tick / 900);
     const agents = [
       'copilot-studio-fa3', 'bedrock-a91x', 'mcp:cursor-12',
-      'agentforce-03', 'oai-asst-71', 'graph-sharepoint',
-      'github-app-rl3', 'einstein-bot-44', 'amelia-cs-bot',
+      'agentforce-03', 'oai-asst-71', 'graph-share',
+      'github-rl3', 'einstein-44', 'amelia-cs',
     ];
     const rows = [];
-    for (let i = 0; i < ROWS; i++) {
-      const a = agents[(cycle + i) % agents.length];
-      const isNew = i === ROWS - 1;
+    for (let i = 0; i < 3; i++) {
+      const a = agents[(c + i) % agents.length];
+      const isNew = i === 2;
       rows.push(
-        <g key={i} transform={`translate(0, ${i * 18})`}>
-          <circle cx="3" cy="6" r="2" fill={isNew ? 'var(--cyan-soft)' : 'var(--ink-faint)'} opacity={isNew ? 1 : 0.6} />
-          <text x="12" y="9" className={`sf-row ${isNew ? 'sf-row-new' : ''}`}>{a}</text>
-          {isNew && <text x={w - 4} y="9" textAnchor="end" className="sf-row-tag">NEW</text>}
+        <g key={i} transform={`translate(0, ${i * 16})`}>
+          <circle cx="3" cy="6" r="2" fill={isNew ? '#9af0ff' : '#4a5060'} />
+          <text x="11" y="9" className={`sf-row ${isNew ? 'sf-row-new' : ''}`}>{a}</text>
+          {isNew && <text x={w - 2} y="9" textAnchor="end" className="sf-row-tag">NEW</text>}
         </g>
       );
     }
-    return <g>{rows}<text x="0" y={h - 4} className="sf-station-foot">7 connectors · live</text></g>;
+    return (
+      <g>
+        {rows}
+        <text x="0" y={h - 2} className="sf-card-foot">7 connectors · 2,847 found</text>
+      </g>
+    );
   },
 
   registration: ({ w, h, tick }) => {
-    const cycle = Math.floor(tick / 1100);
+    const c = Math.floor(tick / 1100);
     const states = [
-      { id: 'agent-04',   tier: 'STANDARD',   life: 'ACTIVE'  },
-      { id: 'support-12', tier: 'TRUSTED',    life: 'ACTIVE'  },
-      { id: 'fa3-studio', tier: 'UNVERIFIED', life: 'PENDING' },
-      { id: 'oai-71',     tier: 'STANDARD',   life: 'ACTIVE'  },
+      { id: 'agent-04',   life: 'ACTIVE'  },
+      { id: 'support-12', life: 'ACTIVE'  },
+      { id: 'fa3-studio', life: 'PENDING' },
     ];
-    const flashIdx = cycle % states.length;
+    const flashIdx = c % states.length;
     return (
       <g>
         {states.map((s, i) => {
-          const lifeClr = s.life === 'PENDING' ? 'var(--amber)' :
-                          s.life === 'QUARANTINED' ? 'var(--red)' : 'var(--green)';
+          const lifeClr = s.life === 'PENDING' ? '#ffb547' : '#6fdca5';
           return (
-            <g key={i} transform={`translate(0, ${i * 18})`} opacity={i === flashIdx ? 1 : 0.78}>
+            <g key={i} transform={`translate(0, ${i * 16})`} opacity={i === flashIdx ? 1 : 0.7}>
               <text x="0" y="9" className="sf-row">{s.id}</text>
-              <text x={w - 60} y="9" textAnchor="end" className="sf-row-dim">{s.tier}</text>
-              <rect x={w - 50} y="2" width="50" height="11" rx="1"
+              <rect x={w - 56} y="1" width="56" height="11" rx="1"
                     fill="rgba(0,0,0,0.4)" stroke={lifeClr} strokeWidth="0.6" />
-              <text x={w - 25} y="10" textAnchor="middle" className="sf-row-life" fill={lifeClr}>{s.life}</text>
+              <text x={w - 28} y="10" textAnchor="middle" className="sf-row-life" fill={lifeClr}>{s.life}</text>
             </g>
           );
         })}
-        <text x="0" y={h - 4} className="sf-station-foot">2,535 active · 312 held</text>
+        <text x="0" y={h - 2} className="sf-card-foot">2,535 active · 312 held</text>
       </g>
     );
   },
 
   capability: ({ w, h, tick }) => {
     const cx = w / 2;
-    const cy = (h - 16) / 2;
-    const rOuter = Math.min(cx, cy) - 4;
+    const cy = (h - 14) / 2;
+    const rOuter = Math.min(cx, cy) - 2;
     const breath = (Math.sin(tick / 700) * 0.08) + 0.92;
     const rays = 12;
     const lines = [];
@@ -548,137 +610,120 @@ const STATION_BODIES = {
       const allowed = [0, 1, 2, 3, 5, 6, 8, 9].includes(i);
       const len = (allowed ? rOuter * (0.7 + (i % 3) * 0.1) : rOuter * 0.35) * breath;
       lines.push(
-        <line key={i}
-              x1={cx} y1={cy}
+        <line key={i} x1={cx} y1={cy}
               x2={cx + Math.cos(a) * len}
               y2={cy + Math.sin(a) * len}
-              stroke={allowed ? 'var(--cyan)' : 'var(--red)'}
+              stroke={allowed ? '#5ee0ff' : '#ff5b5b'}
               strokeWidth="1"
-              opacity={allowed ? 0.85 : 0.6} />
+              opacity={allowed ? 0.9 : 0.6} />
       );
     }
     return (
       <g>
-        <circle cx={cx} cy={cy} r={rOuter}        fill="none" stroke="var(--ink-ghost)" strokeWidth="0.5" />
-        <circle cx={cx} cy={cy} r={rOuter * 0.6}  fill="none" stroke="var(--ink-ghost)" strokeWidth="0.5" />
+        <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke="#1a1f30" strokeWidth="0.5" />
         {lines}
-        <circle cx={cx} cy={cy} r="2.5" fill="var(--cyan-soft)" />
-        <text x="0" y={h - 4} className="sf-station-foot">surface bound · 23 cells</text>
+        <circle cx={cx} cy={cy} r="2" fill="#cef5ff" />
+        <text x="0" y={h - 2} className="sf-card-foot">surface · 23 cells bound</text>
       </g>
     );
   },
 
   evaluation: ({ w, h, tick, verdict }) => {
-    const cx = w - 22;
-    const cy = (h - 16) / 2;
-    const streams = [
-      { y: 4,  label: 'IDENT' },
-      { y: 16, label: 'CAPAB' },
-      { y: 28, label: 'BEHAV' },
-      { y: 40, label: 'DETER' },
-      { y: 52, label: 'RETRV' },
-      { y: 64, label: 'SPCST' },
-      { y: 76, label: 'SEMNT' },
-    ];
-    const flashIdx = Math.floor(tick / 220) % 7;
-    const verdictColor = verdict === 'forbid'  ? 'var(--red)' :
-                         verdict === 'abstain' ? 'var(--amber)' :
-                         verdict === 'permit'  ? 'var(--green)' : 'var(--cyan)';
+    const cx = w - 18;
+    const cy = (h - 14) / 2;
+    const flashIdx = Math.floor(tick / 200) % 7;
+    const verdictColor = verdict === 'forbid'  ? '#ff5b5b' :
+                         verdict === 'abstain' ? '#ffb547' :
+                         verdict === 'permit'  ? '#6fdca5' : '#5ee0ff';
+    const streams = [];
+    for (let i = 0; i < 7; i++) {
+      const y = (i / 6) * (h - 18);
+      streams.push(
+        <line key={i} x1="0" y1={y} x2={cx - 8} y2={cy}
+              stroke={i === flashIdx ? '#9af0ff' : '#2fb8e0'}
+              strokeWidth={i === flashIdx ? 1.2 : 0.5}
+              opacity={i === flashIdx ? 1 : 0.5} />
+      );
+    }
     return (
       <g>
-        {streams.map((s, i) => (
-          <g key={i}>
-            <text x="0" y={s.y + 3} className="sf-row-dim">{s.label}</text>
-            <line x1="34" y1={s.y} x2={cx - 9} y2={cy}
-                  stroke={i === flashIdx ? 'var(--cyan-soft)' : 'var(--cyan-deep)'}
-                  strokeWidth={i === flashIdx ? 1.3 : 0.6}
-                  opacity={i === flashIdx ? 1 : 0.55} />
-          </g>
-        ))}
-        <circle cx={cx} cy={cy} r="9" fill="rgba(0,0,0,0.5)" stroke={verdictColor} strokeWidth="1.4" />
-        <circle cx={cx} cy={cy} r="3.5" fill={verdictColor} />
-        <text x="0" y={h - 4} className="sf-station-foot">7 streams · fused · 2.4ms</text>
+        {streams}
+        <circle cx={cx} cy={cy} r="7" fill="rgba(0,0,0,0.5)" stroke={verdictColor} strokeWidth="1.4" />
+        <circle cx={cx} cy={cy} r="2.8" fill={verdictColor} />
+        <text x="0" y={h - 2} className="sf-card-foot">7 streams · fused · 2.4ms</text>
       </g>
     );
   },
 
   enforcement: ({ w, h, tick }) => {
     const examples = [
-      { line: 'wire $12,400 → vendor-91',          v: 'forbid'  },
-      { line: 'email lead@acme.io',                 v: 'permit'  },
-      { line: 'sharepoint.share → public-link',     v: 'forbid'  },
-      { line: 'refund r_42 · $48',                  v: 'permit'  },
-      { line: 'dm @external.client',                v: 'abstain' },
-      { line: 'merge PR#4421 → main',               v: 'permit'  },
+      { line: 'wire $12,400 → vendor-91', v: 'forbid' },
+      { line: 'email lead@acme.io',       v: 'permit' },
+      { line: 'sharepoint.share public',  v: 'forbid' },
+      { line: 'refund r_42 · $48',        v: 'permit' },
+      { line: 'dm @external.client',      v: 'abstain'},
     ];
-    const cycle = Math.floor(tick / 1500);
-    const e = examples[cycle % examples.length];
-    const vColor = e.v === 'forbid'  ? 'var(--red)'   :
-                   e.v === 'abstain' ? 'var(--amber)' : 'var(--green)';
+    const c = Math.floor(tick / 1500);
+    const e = examples[c % examples.length];
+    const vColor = e.v === 'forbid' ? '#ff5b5b' : e.v === 'abstain' ? '#ffb547' : '#6fdca5';
     return (
       <g>
-        <text x="0" y="11" className="sf-row-dim">action_in</text>
-        <text x="0" y="28" className="sf-row" style={{ fontSize: 11 }}>{e.line}</text>
-        <rect x="0" y="40" width={w} height="22" fill="rgba(0,0,0,0.45)"
-              stroke="var(--ink-ghost)" strokeWidth="0.6" />
-        <line x1={w * 0.6} y1="40" x2={w * 0.6} y2="62" stroke={vColor} strokeWidth="1.5" />
-        <circle cx={w * 0.28} cy="51" r="4" fill={vColor} />
-        <text x={w * 0.78} y="54" textAnchor="middle" className="sf-row" fill={vColor} style={{ fontWeight: 600, letterSpacing: '0.18em' }}>
+        <text x="0" y="10" className="sf-row" style={{ fontSize: 10 }}>{e.line}</text>
+        <rect x="0" y="18" width={w} height="18" fill="rgba(0,0,0,0.4)" stroke="#1a1f30" strokeWidth="0.6" />
+        <line x1={w * 0.6} y1="18" x2={w * 0.6} y2="36" stroke={vColor} strokeWidth="1.5" />
+        <circle cx={w * 0.28} cy="27" r="3" fill={vColor} />
+        <text x={w * 0.78} y="30" textAnchor="middle" className="sf-row" fill={vColor} style={{ fontWeight: 600, letterSpacing: '0.18em', fontSize: 10 }}>
           {e.v.toUpperCase()}
         </text>
-        <text x="0" y={h - 4} className="sf-station-foot">gate · fail-closed · 1.4ms</text>
+        <text x="0" y={h - 2} className="sf-card-foot">gate · fail-closed · 1.4ms</text>
       </g>
     );
   },
 
   evidence: ({ w, h, tick }) => {
-    const ROWS = 5;
     const c = Math.floor(tick / 700);
     const offset = (tick / 700) % 1;
     const rows = [];
-    for (let i = 0; i < ROWS; i++) {
+    for (let i = 0; i < 3; i++) {
       const seed = c - i;
       const hash = hashFragment(seed);
-      const y = i * 17 + offset * 17;
-      const op = 1 - (i / ROWS) * 0.7;
+      const y = i * 15 + offset * 15;
+      const op = 1 - (i / 3) * 0.7;
       rows.push(
         <g key={i} transform={`translate(0, ${y})`} opacity={op}>
-          <text x="0" y="9" className="sf-row-mono" style={{ fontSize: 10.5 }}>
-            {hash.slice(0, 8)}..{hash.slice(-4)}
-          </text>
-          {i < ROWS - 1 && (
-            <text x={w - 2} y="9" textAnchor="end" className="sf-row-dim" style={{ fontSize: 9 }}>←</text>
-          )}
+          <text x="0" y="9" className="sf-row-mono">{hash.slice(0, 6)}..{hash.slice(-4)}</text>
+          {i < 2 && <text x={w - 2} y="9" textAnchor="end" className="sf-row-dim">←</text>}
         </g>
       );
     }
     return (
       <g>
-        {rows}
-        <text x="0" y={h - 4} className="sf-station-foot">chain · sealed · 0 gaps</text>
+        <clipPath id="sf-evid-clip-2">
+          <rect x="-2" y="-4" width={w + 4} height={h - 16} />
+        </clipPath>
+        <g clipPath="url(#sf-evid-clip-2)">{rows}</g>
+        <text x="0" y={h - 2} className="sf-card-foot">chain sealed · 0 gaps</text>
       </g>
     );
   },
 
   learning: ({ w, h, tick }) => {
-    const POINTS = 22;
+    const POINTS = 18;
     const data = [];
     for (let i = 0; i < POINTS; i++) {
       const x = (i / (POINTS - 1)) * w;
       const phase = (tick / 800) - i * 0.3;
-      const y = (h - 22) / 2 + Math.sin(phase) * 6 + Math.sin(phase * 0.5) * 4;
+      const y = (h - 18) / 2 + Math.sin(phase) * 5 + Math.sin(phase * 0.5) * 3;
       data.push(`${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`);
     }
     const recal = (tick % 4500) < 600;
     return (
       <g>
-        <line x1="0" y1={(h - 22) / 2} x2={w} y2={(h - 22) / 2}
-              stroke="var(--ink-ghost)" strokeWidth="0.5" strokeDasharray="2 4" />
-        <path d={data.join(' ')} fill="none" stroke="var(--cyan)" strokeWidth="1.2" opacity="0.9" />
-        {recal && (
-          <text x={w} y="11" textAnchor="end" className="sf-row-tag" fill="var(--amber)">↻ recalibrated</text>
-        )}
-        <text x="0" y={h - 4} className="sf-station-foot">drift · ▲0.005 permit_t</text>
+        <line x1="0" y1={(h - 18) / 2} x2={w} y2={(h - 18) / 2}
+              stroke="#1a1f30" strokeWidth="0.5" strokeDasharray="2 4" />
+        <path d={data.join(' ')} fill="none" stroke="#5ee0ff" strokeWidth="1.2" opacity="0.9" />
+        {recal && <text x={w} y="10" textAnchor="end" className="sf-row-tag" fill="#ffb547">↻ recalibrated</text>}
+        <text x="0" y={h - 2} className="sf-card-foot">drift · ▲0.005 permit_t</text>
       </g>
     );
   },
@@ -686,10 +731,10 @@ const STATION_BODIES = {
 
 function LoopCloseBadge({ tick, cycle }) {
   const phaseInCycle = (tick % CYCLE_MS) / CYCLE_MS;
-  const visible = phaseInCycle < 0.14;
-  const opacity = visible ? Math.max(0, 1 - (phaseInCycle / 0.14)) : 0;
+  const visible = phaseInCycle < 0.13;
+  const opacity = visible ? Math.max(0, 1 - (phaseInCycle / 0.13)) : 0;
   return (
-    <div className="sevenfold-loop-badge" style={{ opacity }}>
+    <div className="sf-loop-badge" style={{ opacity }}>
       <span className="lcb-bar" />
       <span className="lcb-text">
         LOOP CLOSED · cycle {String(cycle).padStart(4, '0')} · chain sealed{' '}

@@ -1,0 +1,409 @@
+/* =============================================================
+   THE SEVENFOLD — texaegis.com hero
+   ============================================================= */
+
+.sevenfold {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  padding: 96px 32px 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* ── Glass surface ── */
+.sevenfold-glass {
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 1100px 700px at 50% 50%, rgba(94,224,255,0.06), transparent 70%),
+    radial-gradient(circle at 20% 12%, rgba(94,224,255,0.05), transparent 50%),
+    radial-gradient(circle at 80% 88%, rgba(94,224,255,0.04), transparent 50%),
+    linear-gradient(180deg, #04050a 0%, #06080f 50%, #04050a 100%);
+}
+.sevenfold-glass::before {
+  /* The hairline — physical scratch in the glass */
+  content: '';
+  position: absolute;
+  right: 8%; bottom: 14%;
+  width: 180px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  transform: rotate(-12deg);
+  filter: blur(0.4px);
+  pointer-events: none;
+}
+.sevenfold-glass::after {
+  /* Subtle smudge — second imperfection */
+  content: '';
+  position: absolute;
+  left: 12%; top: 18%;
+  width: 140px; height: 80px;
+  background: radial-gradient(ellipse, rgba(255,255,255,0.025), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+.sevenfold-vignette {
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 50%, transparent 60%, rgba(0,0,0,0.7) 100%);
+}
+
+/* ── Eyebrow ── */
+.sevenfold-eyebrow {
+  position: relative;
+  z-index: 2;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  color: var(--cyan);
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  border: 1px solid rgba(94,224,255,0.22);
+  border-radius: 1px;
+  background: rgba(7,8,15,0.6);
+  backdrop-filter: blur(2px);
+  margin-bottom: 28px;
+}
+.sevenfold-pip {
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--cyan);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--cyan);
+  animation: sf-pip 1.6s ease-in-out infinite;
+}
+@keyframes sf-pip {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* ── Counters strip (top) ── */
+.sevenfold-counters {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.sf-counter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(7,8,15,0.55);
+}
+.sf-counter-pip {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  align-self: center;
+}
+.sf-counter-permit  { color: var(--green); }
+.sf-counter-abstain { color: var(--amber); }
+.sf-counter-forbid  { color: var(--red);   }
+.sf-counter-label {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 10.5px;
+  color: var(--ink-dim);
+}
+.sf-counter-value {
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The stage (SVG container) ── */
+.sevenfold-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1280px;
+  aspect-ratio: 1600 / 1000;
+}
+.sevenfold-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── SVG text classes ── */
+.sf-pulse-hash {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--cyan-soft);
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.sf-chain-glyph {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--cyan);
+  opacity: 0.32;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}
+.sf-sigil-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  fill: var(--cyan);
+  letter-spacing: 0.34em;
+  font-weight: 500;
+}
+.sf-sigil-substatus {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--ink-dim);
+  letter-spacing: 0.18em;
+}
+.sf-sigil-eye {
+  transform-origin: center;
+}
+.sf-phase-verdict {
+  animation: sf-eye-flash 0.6s var(--ease-out);
+}
+@keyframes sf-eye-flash {
+  0%   { transform: scale(1);   filter: brightness(1); }
+  35%  { transform: scale(1.2); filter: brightness(1.6); }
+  100% { transform: scale(1);   filter: brightness(1); }
+}
+
+/* ── Station typography ── */
+.sf-station-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--cyan);
+  letter-spacing: 0.28em;
+  font-weight: 500;
+}
+.sf-station-eyebrow-name {
+  fill: var(--ink-2);
+  letter-spacing: 0.32em;
+}
+.sf-station-foot {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--ink-faint);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.sf-row {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+.sf-row-mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--cyan-deep);
+}
+.sf-row-new {
+  fill: var(--cyan-soft);
+  animation: sf-row-fade-in 0.6s var(--ease-out);
+}
+@keyframes sf-row-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.sf-row-dim {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+.sf-row-life {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+}
+.sf-row-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--cyan-soft);
+  letter-spacing: 0.18em;
+  font-weight: 600;
+}
+
+/* ── Station hover state ── */
+.sf-station {
+  cursor: pointer;
+  outline: none;
+}
+.sf-station.is-hovered rect:first-of-type {
+  fill: rgba(7,12,20,0.92);
+}
+.sf-station:focus-visible rect:first-of-type {
+  stroke: var(--cyan-soft);
+  stroke-width: 1.6;
+}
+
+/* ── Loop-close badge (overlay) ── */
+.sevenfold-loop-badge {
+  position: absolute;
+  bottom: 4%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  color: var(--cyan-soft);
+  text-transform: uppercase;
+  pointer-events: none;
+  transition: opacity 240ms var(--ease-out);
+  z-index: 3;
+}
+.lcb-bar {
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.lcb-text { white-space: nowrap; }
+.lcb-hash {
+  color: var(--cyan);
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+/* ── Tagline (below stage) ── */
+.sevenfold-tagline {
+  position: relative;
+  z-index: 2;
+  margin-top: 20px;
+  text-align: center;
+  max-width: 980px;
+}
+.sevenfold-tagline-row {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+.sevenfold-tagline-row em {
+  font-style: normal;
+  color: var(--ink-2);
+  margin-right: 6px;
+}
+.sevenfold-tagline-claim {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(28px, 4vw, 46px);
+  line-height: 1.2;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  font-weight: 400;
+}
+.sevenfold-tagline-claim .seam {
+  color: var(--cyan);
+  font-style: italic;
+}
+
+/* ── CTAs ── */
+.sevenfold-cta-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 14px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.sf-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  border: 1px solid var(--ink-ghost);
+  background: rgba(7,8,15,0.7);
+  color: var(--ink-2);
+  transition: all 200ms var(--ease-out);
+  cursor: pointer;
+}
+.sf-cta:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(94,224,255,0.05);
+}
+.sf-cta-primary {
+  border-color: rgba(94,224,255,0.35);
+  color: var(--cyan-soft);
+}
+.sf-cta-primary:hover {
+  background: rgba(94,224,255,0.08);
+  box-shadow: 0 0 20px rgba(94,224,255,0.15);
+}
+.sf-cta-secondary {}
+.sf-cta span[aria-hidden="true"] {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+/* ── Verdict tinting on the whole stage ── */
+.sevenfold-verdict-permit  .sf-counter-permit  .sf-counter-pip { animation: sf-cell-flash 0.8s; }
+.sevenfold-verdict-abstain .sf-counter-abstain .sf-counter-pip { animation: sf-cell-flash 0.8s; }
+.sevenfold-verdict-forbid  .sf-counter-forbid  .sf-counter-pip { animation: sf-cell-flash 0.8s; }
+@keyframes sf-cell-flash {
+  0%   { transform: scale(1);   box-shadow: 0 0 6px currentColor; }
+  35%  { transform: scale(1.6); box-shadow: 0 0 18px currentColor; }
+  100% { transform: scale(1);   box-shadow: 0 0 6px currentColor; }
+}
+
+/* ── Mobile ── */
+@media (max-width: 900px) {
+  .sevenfold {
+    padding: 64px 12px 36px;
+  }
+  .sevenfold-counters { gap: 12px; }
+  .sf-counter { padding: 6px 10px; font-size: 11.5px; }
+  .sevenfold-stage { aspect-ratio: 1 / 1.05; max-width: 100%; }
+  .sevenfold-tagline-row { font-size: 10.5px; letter-spacing: 0.14em; }
+  .sevenfold-tagline-claim { font-size: 26px; }
+  .sevenfold-cta-row { flex-direction: column; gap: 10px; width: 100%; }
+  .sf-cta { width: 100%; justify-content: center; }
+  .sevenfold-loop-badge {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    bottom: 2%;
+  }
+  .lcb-bar { width: 14px; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .sevenfold-pip,
+  .sf-row-new,
+  .sevenfold-loop-badge,
+  .sf-phase-verdict,
+  .sf-counter-pip {
+    animation: none !important;
+  }
+}

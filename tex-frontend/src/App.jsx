@@ -1,6 +1,8 @@
 import React from 'react';
 import { useBridge } from './Bridge.js';
 import texAvatar from './tex-avatar.jpg';
+import Sevenfold from './Sevenfold.jsx';
+import './sevenfold.css';
 
 /* ────────────────────────────────────────────────────────────────────
  * Tex — texaegis.com
@@ -40,9 +42,13 @@ export default function App() {
           right gutter. Visible throughout. */}
       <TexPresence verdict={bridge.activeVerdict} phase={bridge.activePhase} />
 
-      <ColdOpen />
-
-      <HeroReveal verdict={bridge.activeVerdict} counters={bridge.counters} />
+      <Sevenfold
+        verdict={bridge.activeVerdict}
+        phase={bridge.activePhase}
+        counters={bridge.counters}
+        chain={bridge.chain}
+        calibration={bridge.calibration}
+      />
 
       <SceneDiscovery feed={bridge.feed} stats={bridge.discoveryStats} verdict={bridge.activeVerdict} />
 

@@ -1,1746 +1,1074 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { startVerdictEngine } from './TexLife.js';
+import React from 'react';
+import { useBridge } from './Bridge.js';
+import texAvatar from './tex-avatar.jpg';
 
 /* ────────────────────────────────────────────────────────────────────
- * Tex — Decision Theater
+ * Tex — texaegis.com
+ * The Command Bridge.
  *
- * What this page is:
- *   A cinematic, real-time depiction of the Tex evaluation event.
- *   Below the hero, the system anatomy unfolds: seven streams,
- *   discovery, the cryptographic chain, enforcement, and the
- *   manifesto.
+ * The homepage is one always-on operating environment. Tex is on duty
+ * before the buyer arrives and after they leave. Every scene is a
+ * different instrument on the same bridge:
  *
- * What this page is NOT:
- *   Particles. A diagram of "the loop" with seven boxes. A dashboard.
- *   A demo button you have to click. The page IS the demo.
- *
- * Layout:
- *   [Stage]   100vh — the verdict theater. Tex (alive) on the left,
- *                     the seven evidence bars filling in real time on
- *                     the right, the verdict reveal at center, the
- *                     hash chain growing across the bottom.
- *   [Anatomy]        — the seven streams as an editorial spread, each
- *                     with weight, what it actually evaluates, and a
- *                     real example.
- *   [Discovery]      — the upstream half. Seven connectors scanning,
- *                     candidates surfacing, reconciliation outcomes.
- *   [Chain]          — what cryptographically-linked actually means.
- *   [Enforcement]    — verdict → physical stop, four shapes.
- *   [Manifesto]      — single sentence, massive, serif.
+ *   00  Cold open      — three lines, the world before the bridge
+ *   01  Discovery      — live agent manifest
+ *   02  Registration   — roster with trust tiers and lifecycle
+ *   03  Capability     — declared surface as a constraint grid
+ *   04  Evaluation     — Tex front and center, seven streams firing
+ *   05  Enforcement    — two lanes, permit flows, forbid blocked
+ *   06  Evidence       — the cryptographic chain extending
+ *   07  Learning       — calibrator drifting from real outcomes
+ *   --  Wedge          — Tex vs every other vendor
+ *   --  Trial          — the audit CTA
+ *   --  Manifesto      — closing
+ *   --  Foot
  * ──────────────────────────────────────────────────────────────────── */
-
-// The seven evidence streams Tex fuses, with default weights that
-// match src/tex/policies/defaults.py exactly.
-const STREAMS = [
-  { id: 'identity',      name: 'Identity',      weight: 0.10, kind: 'agent',
-    short: 'who is this agent', long: 'Trust tier · lifecycle · attestation chain · age in tenant' },
-  { id: 'capability',    name: 'Capability',    weight: 0.12, kind: 'agent',
-    short: 'is it allowed to', long: 'Declared surface · action_type · channel · environment · recipient bounds' },
-  { id: 'behavioral',    name: 'Behavioral',    weight: 0.10, kind: 'agent',
-    short: 'is this normal',   long: 'Per-agent baseline · tenant-scope MinHash novelty · recipient drift' },
-  { id: 'deterministic', name: 'Deterministic', weight: 0.18, kind: 'content',
-    short: 'hard rules',       long: '7 recognizers · regex · structural rules · zero ambiguity' },
-  { id: 'retrieval',     name: 'Retrieval',     weight: 0.10, kind: 'content',
-    short: 'precedent',        long: 'Precedent + entity + policy clause grounding from prior decisions' },
-  { id: 'specialist',    name: 'Specialist',    weight: 0.20, kind: 'content',
-    short: '4 judges',         long: 'Heuristic specialists score by domain · finding extraction · severity' },
-  { id: 'semantic',      name: 'Semantic',      weight: 0.20, kind: 'content',
-    short: 'meaning',          long: 'Structured LLM judge · 5-dimension analysis · constrained schema' },
-];
-
-const CONNECTORS = [
-  { id: 'microsoft_graph', name: 'Microsoft Graph',  finds: 'Copilot Studio agents, OAuth-permissioned apps' },
-  { id: 'salesforce',      name: 'Salesforce',       finds: 'Agentforce agents, Einstein bots' },
-  { id: 'aws_bedrock',     name: 'AWS Bedrock',      finds: 'Bedrock agents, action groups, knowledge bases' },
-  { id: 'github',          name: 'GitHub',           finds: 'Copilot seats, GitHub App installations' },
-  { id: 'openai',          name: 'OpenAI',           finds: 'Assistants, tool-type risk scoring' },
-  { id: 'mcp_server',      name: 'MCP Servers',      finds: 'Cursor, Claude Desktop, Cline endpoints' },
-  { id: 'generic',         name: 'Custom (in-house)', finds: 'Extension surface for proprietary platforms' },
-];
-
-const ENFORCEMENT_SHAPES = [
-  {
-    name: 'Decorator',
-    where: 'Inside any Python codebase',
-    lang: 'python',
-    code: `from tex import gated
-
-@gated(action="email.send")
-def send_email(to, subject, body):
-    return mailer.send(to, subject, body)`,
-  },
-  {
-    name: 'HTTP proxy',
-    where: 'In front of any agent action endpoint',
-    lang: 'yaml',
-    code: `# tex.yaml
-proxy:
-  upstream: https://agent.internal
-  evaluate:
-    paths: ["/send", "/post", "/exec"]`,
-  },
-  {
-    name: 'MCP middleware',
-    where: 'In any MCP server tool function',
-    lang: 'python',
-    code: `from tex.mcp import wrap
-
-@server.tool()
-@wrap(action="slack.dm")
-async def post(channel, text):
-    return await slack.post(channel, text)`,
-  },
-  {
-    name: 'Framework adapter',
-    where: 'LangChain · CrewAI · drop-in',
-    lang: 'python',
-    code: `from tex.adapters.langchain import gate
-
-tools = [gate(t, action=t.name) for t in tools]
-agent = create_react_agent(llm, tools)`,
-  },
-];
-
-/* — The seven nodes of the Tex authority loop.
- *   This is the architecture diagram in data form: the buyer sees one
- *   continuous ring of control, each node a real subsystem with a
- *   plain-language headline and a technical credential underneath. */
-const LOOP_NODES = [
-  { id: 'discovery',    label: 'Discovery',    plain: 'Scan every connected platform for agents already running.',                   tech: '7 connectors · 8 reconciliation outcomes · same hash chain' },
-  { id: 'registration', label: 'Registration', plain: 'Bind every agent to an identity, a trust tier, a lifecycle.',                  tech: 'UNVERIFIED · STANDARD · TRUSTED · PRIVILEGED' },
-  { id: 'capability',   label: 'Capability',   plain: 'Define what each agent is allowed to do.',                                     tech: 'action_type · channel · environment · recipient bounds' },
-  { id: 'evaluation',   label: 'Evaluation',   plain: 'Score every action against seven streams of evidence.',                        tech: 'fused score · two thresholds · sub-3ms · structured judges' },
-  { id: 'enforcement',  label: 'Enforcement',  plain: 'Block what shouldn\'t happen, before it leaves the machine.',                  tech: 'decorator · proxy · MCP middleware · LangChain · CrewAI' },
-  { id: 'evidence',     label: 'Evidence',     plain: 'Hash every decision. Link every hash. Replay any one.',                        tech: 'sha256(payload || prev_hash) · auditor-replayable' },
-  { id: 'learning',     label: 'Learning',     plain: 'Calibrate thresholds and detect drift from observed outcomes.',                tech: 'calibrator · drift detection · outcome classification' },
-];
-
-/* — The four-layer market vs. Tex. Used in the Stack Collapse section
- *   that visually replaces "Tex is the fifth layer" with "Tex is the
- *   loop everyone else broke into pieces." */
-const STACK_LAYERS = [
-  { id: 'identity', label: 'Identity', vendors: 'Okta · Oasis · Auth0',         governs: 'who the agent is' },
-  { id: 'posture',  label: 'Posture',  vendors: 'Zenity · Noma · Pillar',       governs: 'what the agent could do' },
-  { id: 'behavior', label: 'Behavior', vendors: 'Rubrik SAGE · Virtue AI',      governs: 'what the agent has done' },
-  { id: 'policy',   label: 'Policy',   vendors: 'Microsoft AGT · OPA · Cedar',  governs: 'what the agent is allowed to do' },
-];
-
-/* — Production fusion weights. These are the actual numbers from
- *   src/tex/policies/defaults.py. Showing the math = credibility no
- *   marketing copy can match. */
-const FUSION_WEIGHTS = [
-  { id: 'semantic',       label: 'Semantic',       weight: 0.328, role: 'LLM judge · 5-dimension structured analysis' },
-  { id: 'deterministic',  label: 'Deterministic',  weight: 0.218, role: '7 recognizers · regex · structural rules' },
-  { id: 'specialists',    label: 'Specialists',    weight: 0.172, role: '4 domain judges · finding extraction · severity' },
-  { id: 'capability',     label: 'Capability',     weight: 0.090, role: 'declared surface · out-of-bounds = CRITICAL' },
-  { id: 'behavioral',     label: 'Behavioral',     weight: 0.070, role: 'tenant baseline · 64-band MinHash novelty' },
-  { id: 'criticality',    label: 'Criticality',    weight: 0.062, role: 'recipient sensitivity · environment risk' },
-  { id: 'identity',       label: 'Identity',       weight: 0.060, role: 'trust tier · lifecycle · attestation chain' },
-];
-
-/* — Compliance frameworks the evidence chain maps to. */
-const COMPLIANCE_MARKS = [
-  'OWASP ASI 2026', 'NIST AI RMF', 'ISO 42001', 'EU AI Act', 'SOC 2', 'FINRA', 'HIPAA',
-];
-
-/* — What you get in the 14-day free trial. The trial is the full
- *   system in production, not a paper exercise. */
-const TRIAL_DELIVERABLES = [
-  { n: '01', label: 'Full discovery scan',         body: 'Every agent across Microsoft Graph, Salesforce, Bedrock, GitHub, OpenAI, MCP, and custom platforms — registered, scored, and bound to the chain.' },
-  { n: '02', label: 'Live evaluation on every action', body: 'Seven-stream fusion, sub-3ms verdicts, deployed via decorator, HTTP proxy, MCP middleware, or framework adapter. Production traffic, not a sandbox.' },
-  { n: '03', label: 'Cryptographic evidence ledger',   body: 'Every decision hashed. Every hash linked. Auditor-replayable bundles your security team can verify independently.' },
-  { n: '04', label: 'Day-14 readout',                  body: 'What your agents tried to send. What Tex caught. The patterns nobody told you about. Delivered as a board-ready brief plus the raw chain.' },
-];
-
-// ────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const stageRef = useRef(null);
-  const engineRef = useRef(null);
-
-  // Live state pushed from the verdict engine
-  const [counts, setCounts] = useState(() => {
-    const seed = 18420 + Math.floor(Math.random() * 1200);
-    const forbid = Math.floor(seed * 0.078);
-    const abstain = Math.floor(seed * 0.114);
-    return { permit: seed - forbid - abstain, abstain, forbid, total: seed };
-  });
-  const [chainHead, setChainHead] = useState(seedChain());
-  const [active, setActive] = useState(null);    // currently-evaluating action
-  const [resolved, setResolved] = useState(null); // most recently resolved (for verdict afterglow)
-  const [streamScores, setStreamScores] = useState(() => emptyScores());
-  const [phase, setPhase] = useState('idle');     // 'idle' | 'evaluating' | 'fused' | 'verdict' | 'stamping'
-
-  // Discovery widget state
-  const [discoveryEvents, setDiscoveryEvents] = useState(() => seedDiscovery());
-
-  // Mouse parallax for Tex (subtle eye-line shift)
-  const [parallax, setParallax] = useState({ x: 0, y: 0 });
-
-  const handleCycle = useCallback((evt) => {
-    if (evt.type === 'begin') {
-      setActive(evt.action);
-      setStreamScores(emptyScores());
-      setPhase('evaluating');
-    } else if (evt.type === 'stream-tick') {
-      setStreamScores((prev) => ({ ...prev, [evt.streamId]: evt.value }));
-    } else if (evt.type === 'fused') {
-      setPhase('fused');
-    } else if (evt.type === 'verdict') {
-      setPhase('verdict');
-      setResolved({ ...evt.action, verdict: evt.verdict, fused: evt.fused, hash: evt.hash, ms: evt.ms });
-      setCounts((c) => ({
-        permit:  c.permit  + (evt.verdict === 'permit'  ? 1 : 0),
-        abstain: c.abstain + (evt.verdict === 'abstain' ? 1 : 0),
-        forbid:  c.forbid  + (evt.verdict === 'forbid'  ? 1 : 0),
-        total:   c.total + 1,
-      }));
-    } else if (evt.type === 'stamp') {
-      setPhase('stamping');
-      setChainHead((prev) => [
-        { hash: evt.hash, prev: prev[0]?.hash || GENESIS, verdict: evt.verdict, kind: evt.action.kind, ms: evt.ms },
-        ...prev,
-      ].slice(0, 24));
-    } else if (evt.type === 'end') {
-      setActive(null);
-      setPhase('idle');
-    }
-  }, []);
-
-  const handleDiscovery = useCallback((evt) => {
-    setDiscoveryEvents((prev) => [evt, ...prev].slice(0, 9));
-  }, []);
-
-  useEffect(() => {
-    const engine = startVerdictEngine({ onCycle: handleCycle, onDiscovery: handleDiscovery });
-    engineRef.current = engine;
-    return () => engine.stop();
-  }, [handleCycle, handleDiscovery]);
-
-  useEffect(() => {
-    function onMove(e) {
-      const cx = window.innerWidth / 2;
-      const cy = window.innerHeight / 2;
-      const dx = (e.clientX - cx) / cx;   // -1 .. 1
-      const dy = (e.clientY - cy) / cy;
-      setParallax({ x: dx, y: dy });
-    }
-    window.addEventListener('mousemove', onMove, { passive: true });
-    return () => window.removeEventListener('mousemove', onMove);
-  }, []);
-
-  const fusedScore = useMemo(() => {
-    return STREAMS.reduce((acc, s) => acc + (streamScores[s.id] || 0) * s.weight, 0);
-  }, [streamScores]);
+  const bridge = useBridge();
 
   return (
-    <div className="page">
-      <ScanLine />
-      <Grain />
+    <>
+      <div className="bridge-bg" aria-hidden="true" />
+      <div className="bridge-vignette" aria-hidden="true" />
+      <div className="grain" aria-hidden="true" />
 
-      {/* ─────────── STAGE — the verdict theater ─────────── */}
-      <section ref={stageRef} className="stage" data-phase={phase} data-verdict={resolved?.verdict || ''}>
-        <TopBar counts={counts} />
+      <Hud counters={bridge.counters} />
 
-        <div className="stage-inner">
-          {/* The Conduit — the 5-second story.
-              AGENT → ACTION BEAM → TEX (the gate) → DESTINATION.
-              This is the spatial metaphor: every action is something
-              an agent is trying to do to something else, and Tex is
-              the thing in the middle deciding. */}
-          <Conduit
-            parallax={parallax}
-            phase={phase}
-            active={active}
-            resolved={resolved}
-          />
+      {/* TexPresence — the persistent sigil. Tex is watching every
+          scene, eye-glow synced to the live verdict. Floats in the
+          right gutter. Visible throughout. */}
+      <TexPresence verdict={bridge.activeVerdict} phase={bridge.activePhase} />
 
-          {/* The Theater Strip — for buyers who lean in.
-              Action card on the left, evidence streams on the right.
-              Forensic detail of the decision the Conduit just dramatized. */}
-          <div className="theater-strip">
-            <ActionCard active={active} resolved={resolved} phase={phase} />
-            <StreamsPanel
-              streams={STREAMS}
-              scores={streamScores}
-              phase={phase}
-              fusedScore={fusedScore}
-              verdict={resolved?.verdict}
-            />
-          </div>
-        </div>
+      <ColdOpen />
 
-        {/* The verdict word — overlays the stage at the moment of resolution.
-            This is the cinematic peak of the page. */}
-        <VerdictOverlay
-          phase={phase}
-          verdict={resolved?.verdict}
-          fused={resolved?.fused}
-          ms={resolved?.ms}
-          kind={resolved?.kind}
-          agent={resolved?.agent}
-        />
+      <HeroReveal verdict={bridge.activeVerdict} counters={bridge.counters} />
 
-        <ChainTicker chain={chainHead} />
+      <SceneDiscovery feed={bridge.feed} stats={bridge.discoveryStats} verdict={bridge.activeVerdict} />
 
-        <ScrollCue />
-      </section>
+      <SceneRegistration roster={bridge.roster} verdict={bridge.activeVerdict} />
 
-      {/* ─────────── 01 · THESIS — single sentence, page mission ─────────── */}
-      <section className="thesis">
-        <div className="thesis-axis" aria-hidden="true" />
-        <div className="thesis-inner">
-          <p className="thesis-eyebrow mono">The whole system, in one sentence</p>
-          <h2 className="thesis-line">
-            <span>Identity.</span>
-            <span>Discovery.</span>
-            <span>Capability.</span>
-            <span>Evaluation.</span>
-            <span>Enforcement.</span>
-            <span>Evidence.</span>
-            <span>Learning.</span>
-          </h2>
-          <p className="thesis-coda mono">One loop. One fingerprint. One chain.</p>
-        </div>
-      </section>
+      <SceneCapability verdict={bridge.activeVerdict} />
 
-      {/* ─────────── 02 · THE LOOP — animated authority ring ─────────── */}
-      <section className="loop">
-        <SectionHead
-          eyebrow="The architecture"
-          title={<>One agent. One action.<br /><em>One ring.</em></>}
-          lede="Every other vendor's diagram has an arrow leaving their box and disappearing into 'your existing security stack.' Tex's diagram closes. A single decision travels every node — identity, capability, behavior, content, policy, evidence, learning — and comes back to the start."
-        />
-        <LoopRing nodes={LOOP_NODES} />
-      </section>
+      <SceneEvaluation bridge={bridge} />
 
-      {/* ─────────── 03 · STACK COLLAPSE — competitive demolition ─────────── */}
-      <section className="collapse">
-        <SectionHead
-          eyebrow="The category mistake"
-          title={<>The market broke this into four products.<br /><em>Tex is the loop.</em></>}
-          lede="Today's enterprise pays for identity, posture, behavior, and policy as four separate invoices, four dashboards, four teams reconciling alerts. Each product governs one face of the agent. None of them evaluate the action itself. Tex fuses all of it — and adds the layer nobody else builds — into one decision, on one chain."
-        />
-        <StackCollapse layers={STACK_LAYERS} />
-      </section>
+      <SceneEnforcement verdict={bridge.activeVerdict} />
 
-      {/* ─────────── 04 · ANATOMY — the math ─────────── */}
-      <section className="anatomy">
-        <SectionHead
-          eyebrow="Anatomy of a decision"
-          title={<>Seven streams. One fused score.<br /><em>Two thresholds.</em></>}
-          lede="The numbers below are the actual production weights from policies/defaults.py. Identity, capability, and behavior are peer evidence streams alongside content judges — not separate systems handing off through alerts. PERMIT below 0.18. FORBID above 0.72. Everything in between is held."
-        />
-        <FusionMath weights={FUSION_WEIGHTS} />
-      </section>
+      <SceneEvidence chain={bridge.chain} verdict={bridge.activeVerdict} />
 
-      {/* ─────────── 05 · DISCOVERY THEATER ─────────── */}
-      <section className="discovery">
-        <SectionHead
-          eyebrow="The upstream half"
-          title={<>Find the agents that are already running.<br /><em>Bind them to the same chain.</em></>}
-          lede="Every enterprise has hundreds of agents running that nobody officially registered. Zenity points at this and stops at a dashboard. Tex's discovery output is a registry action — the next thing the agent does flows through the same fused decision as everything else. No second system to reconcile."
-        />
-        <DiscoveryTheater connectors={CONNECTORS} events={discoveryEvents} />
-      </section>
+      <SceneLearning calibration={bridge.calibration} verdict={bridge.activeVerdict} />
 
-      {/* ─────────── 06 · CAPABILITY + BEHAVIOR ─────────── */}
-      <section className="surface">
-        <SectionHead
-          eyebrow="What the agent could do · what the tenant has seen"
-          title={<>Every agent has a surface.<br /><em>Every tenant has a baseline.</em></>}
-          lede="Capability is a polygon: action_type, channel, environment, recipient bounds. Anything outside the polygon is CRITICAL — the verdict math forces FORBID. Behavior is a barcode: 64-band MinHash signatures across the tenant. Far signatures fire tenant_novel_content as peer evidence. This is what your posture and behavior tools sell as separate products. In Tex, they're two streams in one decision."
-        />
-        <CapabilitySurface />
-        <BehaviorBarcode />
-      </section>
+      <Wedge />
 
-      {/* ─────────── 07 · ENFORCEMENT ─────────── */}
-      <section className="enforce">
-        <SectionHead
-          eyebrow="Where the verdict becomes a stop"
-          title={<>FORBID actions<br /><em>physically don't happen.</em></>}
-          lede="Decorator. HTTP proxy. MCP middleware. Framework adapter. Tex enforces inside any Python codebase, in front of any endpoint, in any MCP tool function, drop-in for LangChain and CrewAI. Platform-agnostic by construction — you do not need to be on Copilot Studio, AgentForce, or ServiceNow."
-        />
-        <EnforcementPanel shapes={ENFORCEMENT_SHAPES} />
-      </section>
+      <Monolith bridge={bridge} />
 
-      {/* ─────────── 08 · EVIDENCE CHAIN ─────────── */}
-      <section className="proof">
-        <SectionHead
-          eyebrow="Audit-grade by construction"
-          title={<>Every decision, hashed.<br /><em>Every hash, linked.</em></>}
-          lede="record_hash = sha256(payload || previous_hash). Replay any decision. Export auditor-verifiable bundles. Discovery uses the same shape as runtime — no second ledger, no reconciliation, no vendor portal lock-in. Your auditor verifies the chain independently."
-        />
-        <ChainVisual chain={chainHead.slice(0, 6)} />
-        <ComplianceMarks marks={COMPLIANCE_MARKS} />
-      </section>
+      <Trial />
 
-      {/* ─────────── 09 · TRIAL — full system, 14 days ─────────── */}
-      <section className="trial">
-        <div className="trial-inner">
-          <header className="trial-head">
-            <span className="trial-eyebrow mono">Free · 14 days · full system</span>
-            <h2 className="trial-title">
-              Run Tex against your live agent traffic for 14 days.<br />
-              <em>Discovery, evaluation, enforcement, evidence chain.</em>
-            </h2>
-            <p className="trial-lede">
-              Not an audit. Not a sandbox. The full system, deployed against your real workload — every connector scanning, every action evaluated, every decision hashed and linked. Cancel anytime. Keep the chain.
-            </p>
-          </header>
-          <ol className="trial-grid">
-            {TRIAL_DELIVERABLES.map((d) => (
-              <li className="trial-card" key={d.n}>
-                <span className="trial-num mono">{d.n}</span>
-                <h3 className="trial-card-title">{d.label}</h3>
-                <p className="trial-card-body">{d.body}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="trial-cta-row">
-            <a className="cta cta-primary" href="https://vortexblack.ai/trial" rel="noopener">
-              <span>Start the 14-day trial</span>
-              <Arrow />
-            </a>
-            <a className="cta cta-secondary" href="https://vortexblack.ai/contact" rel="noopener">
-              <span>See it run on a sample workload</span>
-              <Arrow />
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* ─────────── 10 · MANIFESTO — closing thesis ─────────── */}
-      <section className="manifesto">
-        <p className="manifesto-eyebrow mono">VortexBlack — Tex</p>
-        <h2 className="manifesto-text">
-          AI agents are taking real-world actions across your business right now.
-        </h2>
-        <p className="manifesto-body">
-          Writing emails. Updating your database. Posting in Slack.<br />
-          Making promises to customers.
-        </p>
-        <h2 className="manifesto-text manifesto-text-emph">
-          Most platforms control a moment, or a single layer.<br />
-          <em>Tex controls the entire system.</em>
-        </h2>
-        <ul className="manifesto-list">
-          <li>It finds every agent.</li>
-          <li>Defines what it can do.</li>
-          <li>Evaluates every action before it executes.</li>
-          <li>Blocks what shouldn't happen.</li>
-          <li>And records it in a way your auditor can independently verify.</li>
-        </ul>
-        <p className="manifesto-body manifesto-body-tight">
-          Not fragments. Not handoffs. Not gaps.<br />
-          One continuous loop of control, enforcement, and proof.
-        </p>
-        <p className="manifesto-signoff">
-          <em>I am Tex.</em>
-        </p>
-        <p className="manifesto-line">
-          The authority layer between AI and the real world.
-        </p>
-        <div className="manifesto-cta-row">
-          <a className="cta cta-primary" href="https://vortexblack.ai/trial" rel="noopener">
-            <span>Start the 14-day trial</span>
-            <Arrow />
-          </a>
-          <a className="cta cta-secondary" href="https://vortexblack.ai/contact" rel="noopener">
-            <span>See it run on your stack</span>
-            <Arrow />
-          </a>
-        </div>
-      </section>
+      <Manifesto />
 
       <Foot />
+    </>
+  );
+}
+
+/* ─────────────────────── Tex Presence — the persistent watcher ─────────────────────── */
+
+function TexPresence({ verdict, phase }) {
+  // A small Tex sigil fixed to the viewport edge. Eye-glow color
+  // tracks the live verdict. This is what makes Tex "visible
+  // throughout" — every scene, the buyer feels watched.
+  return (
+    <div className={`tex-presence verdict-${verdict || 'idle'} phase-${phase || 'idle'}`} aria-hidden="true">
+      <div className="tex-presence-frame">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          {/* outer hexagon */}
+          <polygon points="50,6 88,28 88,72 50,94 12,72 12,28" fill="none" stroke="currentColor" strokeWidth="1.4" opacity="0.45" />
+          {/* inner hexagon — the sigil */}
+          <polygon points="50,22 76,36 76,64 50,78 24,64 24,36" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          {/* T mark */}
+          <line x1="36" y1="40" x2="64" y2="40" stroke="currentColor" strokeWidth="2" />
+          <line x1="50" y1="40" x2="50" y2="62" stroke="currentColor" strokeWidth="2" />
+          {/* the eye — pulses */}
+          <circle cx="50" cy="50" r="3.4" fill="currentColor" className="tex-presence-eye" />
+        </svg>
+      </div>
+      <div className="tex-presence-meta">
+        <span className="tex-presence-status">
+          <span className="dot" /> tex
+        </span>
+        <span className="tex-presence-verdict">{verdict ? verdict : 'watching'}</span>
+      </div>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  THE STAGE — primary scene
- * ──────────────────────────────────────────────────────────────────── */
+/* ─────────────────────── Hero Reveal — Tex emerges from darkness ─────────────────────── */
 
-function TopBar({ counts }) {
+function HeroReveal({ verdict, counters }) {
   return (
-    <header className="topbar">
-      <div className="topbar-l">
-        <Glyph />
-        <span className="brand">TEX</span>
-        <span className="brand-by">VortexBlack</span>
+    <section className="hero-reveal" aria-label="tex">
+      <div className="hero-reveal-aura" aria-hidden="true" />
+      <div className="hero-reveal-grid" aria-hidden="true" />
+
+      <div className="hero-reveal-figure">
+        <img src={texAvatar} alt="Tex" />
+        <div className={`hero-reveal-eye verdict-${verdict || 'idle'}`} aria-hidden="true" />
       </div>
-      <div className="topbar-r">
-        <Counter label="Permit"    value={counts.permit}  klass="permit" />
-        <Counter label="Abstain"   value={counts.abstain} klass="abstain" />
-        <Counter label="Forbid"    value={counts.forbid}  klass="forbid" />
-        <Counter label="Evaluated" value={counts.total}   klass="" />
-      </div>
-    </header>
-  );
-}
 
-function Counter({ label, value, klass }) {
-  return (
-    <div className="ctr">
-      <span className="ctr-label">{label}</span>
-      <span className={`ctr-value ${klass}`}>{value.toLocaleString()}</span>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  CONDUIT — the 5-second story
- *
- *  Spatial metaphor: every AI agent action is a packet of intent
- *  traveling from the agent toward some real-world destination.  Tex
- *  stands in the middle.  The beam emerges from the agent, travels to
- *  Tex's chest, gets evaluated, and either:
- *
- *    PERMIT  — the beam continues through Tex to the destination,
- *              which lights up in confirmation
- *    ABSTAIN — the beam halts at Tex's chest with an amber hold,
- *              destination stays dim, "PENDING REVIEW" indicator
- *    FORBID  — the beam shatters at Tex's chest in red,
- *              destination stays dark, "DENIED" indicator
- *
- *  This is the visualization that makes Tex's purpose legible in 5
- *  seconds without reading a label.  Every other element on the page
- *  is supporting evidence for what the Conduit shows.
- * ──────────────────────────────────────────────────────────────────── */
-
-function Conduit({ parallax, phase, active, resolved }) {
-  // Pick the action being shown — active during evaluation, resolved
-  // during verdict afterglow.
-  const action = active || resolved;
-  const verdict = phase === 'verdict' || phase === 'stamping' ? resolved?.verdict : null;
-  const agentId = action?.agent || '—';
-  const dest = action ? destinationFor(action) : null;
-
-  // Phase mapping for beam states:
-  //   idle       — track dim, no beam
-  //   evaluating — beam traveling agent → Tex
-  //   fused      — beam pulse-held at Tex
-  //   verdict    — beam continues / holds / shatters per verdict
-  //   stamping   — verdict afterglow, beam settling
-  const beamState =
-    phase === 'evaluating' ? 'travel-in' :
-    phase === 'fused'      ? 'held' :
-    (phase === 'verdict' || phase === 'stamping') && verdict === 'permit'  ? 'permit' :
-    (phase === 'verdict' || phase === 'stamping') && verdict === 'abstain' ? 'abstain' :
-    (phase === 'verdict' || phase === 'stamping') && verdict === 'forbid'  ? 'forbid' :
-    'idle';
-
-  return (
-    <div className={`conduit conduit-${beamState}`}>
-      {/* AGENT pillar — the source of intent */}
-      <div className="cd-agent">
-        <div className="cd-agent-glyph" aria-hidden="true">
-          <AgentMark active={!!active} />
+      <div className="hero-reveal-flank hero-reveal-flank-l">
+        <div className="hero-reveal-tag">// adjudicator</div>
+        <div className="hero-reveal-stat">
+          <span className="num">{(counters.permit + counters.abstain + counters.forbid).toLocaleString()}</span>
+          <span className="lbl">actions evaluated · this tenant</span>
         </div>
-        <div className="cd-agent-label">
-          <span className="cd-eyebrow">AI agent</span>
-          <span className="cd-id mono">{agentId}</span>
-          <span className="cd-sub mono">{action ? actionVerbFor(action) : '—'}</span>
+        <div className="hero-reveal-stat">
+          <span className="num">2,847</span>
+          <span className="lbl">agents under watch</span>
+        </div>
+        <div className="hero-reveal-stat">
+          <span className="num">7 / 7</span>
+          <span className="lbl">layers active</span>
         </div>
       </div>
 
-      {/* TRACK left — agent → Tex */}
-      <div className="cd-track cd-track-left" aria-hidden="true">
-        <div className="cd-rail" />
-        <div className={`cd-beam cd-beam-left cd-beam-${beamState}`} />
-        <div className={`cd-shatter cd-shatter-${beamState}`}>
-          {/* Forbid debris — small particles bouncing back toward agent */}
-          <span className="cd-spark sp-1" />
-          <span className="cd-spark sp-2" />
-          <span className="cd-spark sp-3" />
-          <span className="cd-spark sp-4" />
-          <span className="cd-spark sp-5" />
+      <div className="hero-reveal-flank hero-reveal-flank-r">
+        <div className="hero-reveal-tag" style={{ textAlign: 'right' }}>// chain</div>
+        <div className="hero-reveal-stat right">
+          <span className="num">9,423</span>
+          <span className="lbl">blocks · sealed</span>
+        </div>
+        <div className="hero-reveal-stat right">
+          <span className="num">0</span>
+          <span className="lbl">gaps · last 30d</span>
+        </div>
+        <div className="hero-reveal-stat right">
+          <span className="num">1.4ms</span>
+          <span className="lbl">gate latency · p50</span>
         </div>
       </div>
 
-      {/* TEX pillar — the gate */}
-      <div className="cd-tex">
-        <TexAvatar
-          parallax={parallax}
-          phase={phase}
-          verdict={resolved?.verdict}
-          active={!!active}
-        />
-      </div>
-
-      {/* TRACK right — Tex → destination */}
-      <div className="cd-track cd-track-right" aria-hidden="true">
-        <div className="cd-rail" />
-        <div className={`cd-beam cd-beam-right cd-beam-${beamState}`} />
-      </div>
-
-      {/* DESTINATION pillar — where the action would land */}
-      <div className="cd-dest">
-        <div className={`cd-dest-glyph cd-dest-${beamState}`} aria-hidden="true">
-          {dest ? <DestinationMark kind={action.kind} /> : <DestinationMark kind="email.send" muted />}
-        </div>
-        <div className="cd-dest-label">
-          <span className="cd-eyebrow">{dest ? dest.eyebrow : 'destination'}</span>
-          <span className="cd-id mono">{dest ? dest.surface : '—'}</span>
-          <span className="cd-sub mono">{dest ? dest.target : '—'}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* — Agent mark — abstract glyph for "an autonomous agent."
- *   A hexagon containing a smaller process-mark (square + dot).
- *   Pulses when active. */
-function AgentMark({ active }) {
-  return (
-    <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="1.4">
-      <path d="M32 4 L56 18 L56 46 L32 60 L8 46 L8 18 Z" opacity="0.55" />
-      <path d="M32 14 L48 22.5 L48 41.5 L32 50 L16 41.5 L16 22.5 Z" />
-      <rect x="24" y="26" width="16" height="12" rx="1" />
-      <circle cx="32" cy="32" r="1.6" fill="currentColor" stroke="none">
-        {active && <animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />}
-      </circle>
-    </svg>
-  );
-}
-
-/* — Destination glyph — varies per action_kind.
- *   Each is a monoline icon evoking its real-world endpoint:
- *   envelope (email), database (postgres), credit card (stripe), etc.
- *   The wrapper element handles verdict-color glow / dim states. */
-function DestinationMark({ kind }) {
-  const props = { width: 64, height: 64, viewBox: '0 0 64 64', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' };
-  switch (kind) {
-    case 'email.send':
-      return (
-        <svg {...props}>
-          <rect x="8" y="16" width="48" height="32" rx="2" />
-          <path d="M8 18 L32 36 L56 18" />
-        </svg>
-      );
-    case 'postgres.delete':
-      return (
-        <svg {...props}>
-          <ellipse cx="32" cy="14" rx="20" ry="6" />
-          <path d="M12 14 V42 C12 46 20 49 32 49 C44 49 52 46 52 42 V14" />
-          <ellipse cx="32" cy="28" rx="20" ry="6" opacity="0.55" />
-        </svg>
-      );
-    case 'stripe.refund':
-      return (
-        <svg {...props}>
-          <rect x="6" y="16" width="52" height="32" rx="3" />
-          <path d="M6 26 H58" strokeWidth="2.2" />
-          <rect x="12" y="36" width="10" height="6" rx="1" />
-        </svg>
-      );
-    case 'slack.dm':
-      return (
-        <svg {...props}>
-          <path d="M22 8 V44 M42 20 V56" />
-          <path d="M8 22 H44 M20 42 H56" />
-        </svg>
-      );
-    case 'github.push':
-      return (
-        <svg {...props}>
-          <circle cx="32" cy="32" r="22" />
-          <path d="M32 14 V32 L42 38" />
-          <path d="M22 24 L32 14 L42 24" />
-        </svg>
-      );
-    case 'shell.exec':
-      return (
-        <svg {...props}>
-          <rect x="6" y="12" width="52" height="40" rx="3" />
-          <path d="M14 24 L22 30 L14 36" />
-          <path d="M28 38 H44" />
-        </svg>
-      );
-    case 'salesforce.update':
-      return (
-        <svg {...props}>
-          <path d="M14 36 C8 36 4 32 4 26 C4 20 9 16 14 16 C16 12 20 8 26 8 C32 8 37 12 39 18 C42 16 46 16 49 18 C54 14 60 18 60 24 C60 28 56 32 52 32 C52 38 47 42 42 42 C40 46 36 48 32 48 C28 48 24 46 22 42 C18 44 14 42 14 36 Z" />
-        </svg>
-      );
-    case 'iam.grant':
-      return (
-        <svg {...props}>
-          <circle cx="22" cy="32" r="8" />
-          <path d="M30 32 H56 M50 32 V40 M44 32 V38" />
-        </svg>
-      );
-    case 'docs.share':
-      return (
-        <svg {...props}>
-          <path d="M14 6 H38 L50 18 V58 H14 Z" />
-          <path d="M38 6 V18 H50" />
-          <path d="M22 30 H42 M22 38 H42 M22 46 H34" />
-        </svg>
-      );
-    case 'twilio.sms':
-      return (
-        <svg {...props}>
-          <rect x="18" y="6" width="28" height="52" rx="4" />
-          <circle cx="32" cy="51" r="1.5" fill="currentColor" stroke="none" />
-          <path d="M22 14 H42" />
-        </svg>
-      );
-    case 'mcp.tool_call':
-      return (
-        <svg {...props}>
-          <path d="M20 8 L8 20 L20 32" />
-          <path d="M44 32 L56 44 L44 56" />
-          <path d="M40 12 L24 52" />
-        </svg>
-      );
-    case 'calendar.invite':
-      return (
-        <svg {...props}>
-          <rect x="8" y="14" width="48" height="42" rx="2" />
-          <path d="M8 24 H56" />
-          <path d="M20 8 V18 M44 8 V18" />
-          <rect x="20" y="32" width="8" height="6" />
-        </svg>
-      );
-    default:
-      return <svg {...props}><rect x="12" y="12" width="40" height="40" rx="2" /></svg>;
-  }
-}
-
-/* — Map an action kind to a human destination label */
-function destinationFor(action) {
-  const map = {
-    'email.send':       { eyebrow: 'mail',       surface: action.surface, target: action.recipient },
-    'postgres.delete':  { eyebrow: 'database',   surface: action.surface, target: action.recipient },
-    'stripe.refund':    { eyebrow: 'payments',   surface: action.surface, target: action.recipient },
-    'slack.dm':         { eyebrow: 'messaging',  surface: action.surface, target: action.recipient },
-    'github.push':      { eyebrow: 'code',       surface: action.surface, target: action.recipient },
-    'shell.exec':       { eyebrow: 'shell',      surface: action.surface, target: action.recipient },
-    'salesforce.update':{ eyebrow: 'crm',        surface: action.surface, target: action.recipient },
-    'iam.grant':        { eyebrow: 'identity',   surface: action.surface, target: action.recipient },
-    'docs.share':       { eyebrow: 'documents',  surface: action.surface, target: action.recipient },
-    'twilio.sms':       { eyebrow: 'sms',        surface: action.surface, target: action.recipient },
-    'mcp.tool_call':    { eyebrow: 'tool',       surface: action.surface, target: action.recipient },
-    'calendar.invite':  { eyebrow: 'calendar',   surface: action.surface, target: action.recipient },
-  };
-  return map[action.kind] || { eyebrow: 'destination', surface: action.surface, target: action.recipient };
-}
-
-/* — Map an action to its verb phrase — what is the agent trying to DO? */
-function actionVerbFor(action) {
-  const verbs = {
-    'email.send':        'wants to send email',
-    'postgres.delete':   'wants to delete rows',
-    'stripe.refund':     'wants to refund',
-    'slack.dm':          'wants to send DM',
-    'github.push':       'wants to push code',
-    'shell.exec':        'wants to run shell',
-    'salesforce.update': 'wants to update record',
-    'iam.grant':         'wants to grant access',
-    'docs.share':        'wants to share doc',
-    'twilio.sms':        'wants to send SMS',
-    'mcp.tool_call':     'wants to invoke tool',
-    'calendar.invite':   'wants to send invite',
-  };
-  return verbs[action.kind] || 'wants to act';
-}
-
-/* — Tex avatar.  Alive: subtle breath, parallax eye-line, sympathetic
- *   reaction to verdicts (FORBID = tighten + red rim, PERMIT = exhale +
- *   green warmth, ABSTAIN = hold + amber).  Pure CSS — no Three.js.
- *   The chest emblem ("T") flares on verdict resolution. */
-function TexAvatar({ parallax, phase, verdict, active }) {
-  const tx = parallax.x * 6;   // px translate
-  const ty = parallax.y * 4;
-  const tilt = parallax.x * 1.6; // deg
-  const cls = [
-    'tex',
-    active ? 'tex-watching' : 'tex-resting',
-    phase === 'fused' ? 'tex-anticipating' : '',
-    phase === 'verdict' && verdict ? `tex-verdict tex-${verdict}` : '',
-    phase === 'stamping' && verdict ? `tex-settling tex-${verdict}-settle` : '',
-  ].filter(Boolean).join(' ');
-
-  // Random micro-twitch trigger — re-keys the twitch layer every ~6–11s so
-  // the keyframe replays from start, producing a non-mechanical feeling of
-  // attention.  Tex looks alive because he occasionally just… moves.
-  const [twitchKey, setTwitchKey] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    function scheduleNext() {
-      const delay = 6200 + Math.random() * 5400;
-      setTimeout(() => {
-        if (!alive) return;
-        setTwitchKey((k) => k + 1);
-        scheduleNext();
-      }, delay);
-    }
-    scheduleNext();
-    return () => { alive = false; };
-  }, []);
-
-  return (
-    <div className="tex-frame">
-      <div className="tex-rim" aria-hidden="true" />
-      <div
-        className="tex-parallax"
-        style={{
-          transform: `translate3d(${tx}px, ${ty}px, 0) rotateY(${tilt}deg)`,
-        }}
-      >
-        <div className="tex-sway-x">
-          <div className="tex-sway-y">
-            <div className="tex-sway-r">
-              <div className="tex-twitch" key={twitchKey}>
-                <div className={cls}>
-                  <img src="/tex.webp" alt="Tex" />
-                  <div className="tex-chest" />
-                  <div className="tex-aura" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="tex-plinth" aria-hidden="true">
-        <div className="plinth-line" />
-        <span className="plinth-label">TEX · ADJUDICATOR</span>
-        <span className="plinth-id">v13.2 · evidence-chain online</span>
-      </div>
-    </div>
-  );
-}
-
-/* — The action being evaluated, rendered as an editorial card with
- *   monospace forensic detail. Persists through verdict so the buyer
- *   can read it. */
-function ActionCard({ active, resolved, phase }) {
-  const a = active || resolved;
-  if (!a) return <div className="action-card action-empty">Awaiting next action…</div>;
-
-  const ago = phase === 'idle' ? 'last' : 'inbound';
-
-  return (
-    <div className={`action-card phase-${phase}`}>
-      <div className="action-row action-head">
-        <span className="action-stage">{ago.toUpperCase()} ACTION</span>
-        <span className="action-time">{nowStamp()}</span>
-      </div>
-      <div className="action-row action-kind">
-        <span className="kind">{a.kind}</span>
-        <span className="dot">·</span>
-        <span className="agent">{a.agent}</span>
-      </div>
-      <div className="action-row action-meta">
-        <span className="meta-l">surface</span>
-        <span className="meta-r mono">{a.surface}</span>
-      </div>
-      <div className="action-row action-meta">
-        <span className="meta-l">target</span>
-        <span className="meta-r mono">{a.recipient}</span>
-      </div>
-      <div className="action-excerpt">
-        <span className="excerpt-mark">"</span>
-        {a.excerpt}
-        <span className="excerpt-mark">"</span>
-      </div>
-    </div>
-  );
-}
-
-/* — Seven-stream evidence panel.  Each stream's bar fills as its score
- *   resolves.  At fusion, a vertical bar renders the final fused score
- *   against the two thresholds. */
-function StreamsPanel({ streams, scores, phase, fusedScore, verdict }) {
-  return (
-    <div className="streams">
-      <div className="streams-head">
-        <span className="streams-title">Evidence streams</span>
-        <span className="streams-sub">7 peers · fused</span>
-      </div>
-      <div className="streams-list">
-        {streams.map((s) => {
-          const v = scores[s.id] || 0;
-          const fillKlass = v >= 0.62 ? 'high' : v >= 0.34 ? 'mid' : 'low';
-          return (
-            <div className={`stream stream-${s.kind}`} key={s.id}>
-              <div className="stream-l">
-                <span className="stream-name">{s.name}</span>
-              </div>
-              <div className="stream-bar">
-                <div className="stream-bar-bg" />
-                <div className={`stream-bar-fill ${fillKlass}`} style={{ width: `${Math.round(v * 100)}%` }} />
-                <div className="stream-bar-thresh stream-bar-thresh-abs" />
-                <div className="stream-bar-thresh stream-bar-thresh-fbd" />
-              </div>
-              <div className="stream-r">
-                <span className="stream-val mono">{v ? v.toFixed(2) : '—'}</span>
-                <span className="stream-w mono">w {s.weight.toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="streams-fuse">
-        <span className="fuse-label">Σ FUSED</span>
-        <div className="fuse-bar">
-          <div
-            className={`fuse-bar-fill ${fusedScore >= 0.62 ? 'forbid' : fusedScore >= 0.34 ? 'abstain' : 'permit'}`}
-            style={{ width: `${Math.round(fusedScore * 100)}%` }}
-          />
-          <div className="fuse-thresh fuse-thresh-abs" title="abstain ≥ 0.34" />
-          <div className="fuse-thresh fuse-thresh-fbd" title="forbid ≥ 0.62" />
-        </div>
-        <span className="fuse-val mono">{fusedScore.toFixed(3)}</span>
-      </div>
-    </div>
-  );
-}
-
-/* — Verdict overlay.  The cinematic peak.  At the moment of resolution
- *   this slides over the streams panel as a huge serif word, lingers
- *   1.6s, then fades to reveal the next action.  This is the moment the
- *   buyer should remember. */
-function VerdictOverlay({ phase, verdict, fused, ms, kind, agent }) {
-  if (phase !== 'verdict' && phase !== 'stamping') return null;
-  return (
-    <div className={`v-overlay v-overlay-${verdict}`} aria-live="polite">
-      <div className="v-overlay-frame">
-        <span className="v-overlay-eyebrow">Verdict · 0{phase === 'stamping' ? '6' : '5'} {phase === 'stamping' ? 'EVIDENCE' : 'ENFORCEMENT'}</span>
-        <span className="v-overlay-word">{verdict.toUpperCase()}</span>
-        <div className="v-overlay-meta mono">
-          <span className="vom-cell">
-            <span className="vom-l">fused</span>
-            <span className="vom-r">{fused?.toFixed(3)}</span>
-          </span>
-          <span className="vom-cell">
-            <span className="vom-l">latency</span>
-            <span className="vom-r">{ms?.toFixed(1)}ms</span>
-          </span>
-          <span className="vom-cell">
-            <span className="vom-l">action</span>
-            <span className="vom-r">{kind}</span>
-          </span>
-          <span className="vom-cell">
-            <span className="vom-l">agent</span>
-            <span className="vom-r">{agent}</span>
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* — The cryptographic chain, ticking left-to-right at the bottom of
- *   the stage.  Each block shows hash, prev-hash, verdict glyph. */
-function ChainTicker({ chain }) {
-  const items = chain.concat(chain).slice(0, 32);
-  return (
-    <div className="chain" aria-label="Evidence chain">
-      <div className="chain-head">
-        <span className="chain-title">Hash-chained evidence</span>
-        <span className="chain-sub">SHA-256 · append-only · auditor-verifiable</span>
-      </div>
-      <div className="chain-track">
-        <div className="chain-flow">
-          {items.map((b, i) => (
-            <ChainBlock key={i + b.hash} block={b} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ChainBlock({ block }) {
-  const glyph = block.verdict === 'permit' ? '◉' : block.verdict === 'forbid' ? '◎' : '◇';
-  return (
-    <div className={`chain-block v-${block.verdict}`}>
-      <span className="cb-glyph">{glyph}</span>
-      <span className="cb-hash mono">{block.hash.slice(0, 10)}</span>
-      <span className="cb-link">←</span>
-      <span className="cb-prev mono">{block.prev.slice(0, 10)}</span>
-      <span className="cb-kind mono">{block.kind}</span>
-      <span className="cb-ms mono">{block.ms?.toFixed(1)}ms</span>
-    </div>
-  );
-}
-
-function ScrollCue() {
-  return (
-    <div className="scroll-cue" aria-hidden="true">
-      <span className="sc-line" />
-      <span className="sc-text">Scroll · system anatomy</span>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  ANATOMY — the seven streams as an editorial spread
- * ──────────────────────────────────────────────────────────────────── */
-
-function StreamsAnatomy({ streams }) {
-  return (
-    <div className="anatomy-grid">
-      {streams.map((s, i) => (
-        <article className={`an-card an-${s.kind}`} key={s.id}>
-          <header className="an-head">
-            <span className="an-num mono">0{i + 1}</span>
-            <span className={`an-tag tag-${s.kind}`}>{s.kind}</span>
-          </header>
-          <h3 className="an-name">{s.name}</h3>
-          <p className="an-short">{s.short}</p>
-          <p className="an-long">{s.long}</p>
-          <footer className="an-foot mono">
-            <span>weight</span>
-            <span className="an-w">{s.weight.toFixed(2)}</span>
-          </footer>
-        </article>
-      ))}
-      <article className="an-card an-fuse">
-        <header className="an-head">
-          <span className="an-num mono">Σ</span>
-          <span className="an-tag tag-fuse">fusion</span>
-        </header>
-        <h3 className="an-name">Verdict</h3>
-        <p className="an-short">one composite question</p>
-        <p className="an-long">All seven streams collapse into one fused score against two thresholds. Capability violation forces FORBID. Quarantine, cold-start-on-borderline, PENDING-lifecycle, and forbid-streak rules force ABSTAIN.</p>
-        <footer className="an-foot mono">
-          <span>thresholds</span>
-          <span className="an-w">0.34 / 0.62</span>
-        </footer>
-      </article>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  DISCOVERY — connectors + reconciliation events
- * ──────────────────────────────────────────────────────────────────── */
-
-function DiscoveryPanel({ connectors, events }) {
-  return (
-    <div className="discovery-grid">
-      <div className="discovery-conns">
-        <header className="dc-head">
-          <span className="dc-title">Connectors · scanning</span>
-          <span className="dc-pulse" />
-        </header>
-        {connectors.map((c) => (
-          <div className="dc-row" key={c.id}>
-            <span className="dc-pip" />
-            <div className="dc-text">
-              <span className="dc-name">{c.name}</span>
-              <span className="dc-finds">{c.finds}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="discovery-events">
-        <header className="de-head">
-          <span className="de-title">Reconciliation ledger</span>
-          <span className="de-sub">hash-chained · verifiable</span>
-        </header>
-        <div className="de-list">
-          {events.map((e, i) => (
-            <div className={`de-row de-${e.outcome}`} key={i}>
-              <span className="de-hash mono">{e.hash.slice(0, 10)}</span>
-              <span className="de-source">{e.source}</span>
-              <span className="de-cand mono">{e.candidate}</span>
-              <span className={`de-out de-out-${e.outcome}`}>{labelOutcome(e.outcome)}</span>
-              <span className="de-conf mono">{e.confidence.toFixed(2)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function labelOutcome(o) {
-  switch (o) {
-    case 'registered':       return 'REGISTERED';
-    case 'updated_drift':    return 'UPDATED · DRIFT';
-    case 'quarantined':      return 'QUARANTINED';
-    case 'no_op_unchanged':  return 'NO-OP · KNOWN';
-    case 'held_below_thresh':return 'HELD · BELOW THRESH';
-    case 'held_ambiguous':   return 'HELD · AMBIGUOUS';
-    default: return o.toUpperCase();
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  CHAIN VISUAL — eight blocks linked
- * ──────────────────────────────────────────────────────────────────── */
-
-function ChainVisual({ chain }) {
-  return (
-    <div className="chainviz">
-      {chain.map((b, i) => (
-        <React.Fragment key={i + b.hash}>
-          <div className={`cv-block v-${b.verdict}`}>
-            <div className="cv-row cv-row-head mono">
-              <span className="cv-idx">#{chain.length - i}</span>
-              <span className={`cv-vd vd-${b.verdict}`}>{b.verdict.toUpperCase()}</span>
-            </div>
-            <div className="cv-row mono">
-              <span className="cv-l">hash</span>
-              <span className="cv-r">{b.hash.slice(0, 18)}…</span>
-            </div>
-            <div className="cv-row mono">
-              <span className="cv-l">prev</span>
-              <span className="cv-r">{b.prev.slice(0, 18)}…</span>
-            </div>
-            <div className="cv-row mono cv-kind-row">
-              <span className="cv-l">kind</span>
-              <span className="cv-r">{b.kind}</span>
-            </div>
-          </div>
-          {i < chain.length - 1 && <div className="cv-link" aria-hidden="true">←</div>}
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  ENFORCEMENT — four shapes, real code, copy-pasteable
- * ──────────────────────────────────────────────────────────────────── */
-
-function EnforcementPanel({ shapes }) {
-  return (
-    <div className="enforce-grid">
-      {shapes.map((s, i) => (
-        <article className="ef-card" key={s.name}>
-          <header className="ef-head">
-            <span className="ef-num mono">0{i + 1}</span>
-            <span className="ef-lang mono">{s.lang}</span>
-          </header>
-          <h3 className="ef-name">{s.name}</h3>
-          <p className="ef-where">{s.where}</p>
-          <pre className="ef-code mono"><code>{s.code}</code></pre>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  LOOP RING — the architecture in one screen
- *  Seven nodes arranged around a circle, a single violet pulse traveling
- *  the whole ring as one continuous decision.
- * ──────────────────────────────────────────────────────────────────── */
-
-function LoopRing({ nodes }) {
-  const [active, setActive] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setActive((a) => (a + 1) % nodes.length), 1800);
-    return () => clearInterval(id);
-  }, [nodes.length]);
-
-  // Compute node positions on a circle
-  const cx = 360, cy = 360, r = 260;
-  const positions = nodes.map((_, i) => {
-    const angle = (i / nodes.length) * Math.PI * 2 - Math.PI / 2;
-    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), angle };
-  });
-
-  return (
-    <div className="loop-wrap">
-      <div className="loop-stage">
-        <svg className="loop-svg" viewBox="0 0 720 720" aria-hidden="true">
-          <defs>
-            <radialGradient id="loop-core" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(107, 91, 255, 0.42)" />
-              <stop offset="60%" stopColor="rgba(107, 91, 255, 0.08)" />
-              <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
-            </radialGradient>
-            <linearGradient id="loop-pulse" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(107, 91, 255, 0)" />
-              <stop offset="50%" stopColor="rgba(107, 91, 255, 1)" />
-              <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
-            </linearGradient>
-          </defs>
-
-          {/* Inner glow */}
-          <circle cx={cx} cy={cy} r={r - 60} fill="url(#loop-core)" />
-
-          {/* Main ring */}
-          <circle
-            cx={cx} cy={cy} r={r}
-            fill="none"
-            stroke="rgba(107, 91, 255, 0.22)"
-            strokeWidth="1"
-          />
-          <circle
-            cx={cx} cy={cy} r={r}
-            fill="none"
-            stroke="rgba(235, 232, 224, 0.04)"
-            strokeWidth="1"
-            strokeDasharray="2 6"
-          />
-
-          {/* Animated pulse traveling the ring */}
-          <circle
-            cx={cx} cy={cy} r={r}
-            fill="none"
-            stroke="url(#loop-pulse)"
-            strokeWidth="2.5"
-            strokeDasharray={`${2 * Math.PI * r * 0.12} ${2 * Math.PI * r * 0.88}`}
-            className="loop-pulse-stroke"
-          />
-
-          {/* Connectors between nodes (subtle) */}
-          {positions.map((p, i) => {
-            const next = positions[(i + 1) % positions.length];
-            return (
-              <line
-                key={`conn-${i}`}
-                x1={p.x} y1={p.y} x2={next.x} y2={next.y}
-                stroke="rgba(235, 232, 224, 0.06)"
-                strokeWidth="1"
-              />
-            );
-          })}
-
-          {/* Node markers */}
-          {positions.map((p, i) => (
-            <g key={`node-${i}`} className={`loop-node ${i === active ? 'is-active' : ''}`}>
-              <circle cx={p.x} cy={p.y} r="22" fill="var(--ink-bg)" stroke="rgba(107, 91, 255, 0.32)" strokeWidth="1" />
-              <circle cx={p.x} cy={p.y} r="6" fill={i === active ? '#6b5bff' : 'rgba(107, 91, 255, 0.42)'} />
-              {i === active && (
-                <circle cx={p.x} cy={p.y} r="22" fill="none" stroke="rgba(107, 91, 255, 0.6)" strokeWidth="1.5" className="loop-node-ring" />
-              )}
-            </g>
-          ))}
-
-          {/* Node labels */}
-          {positions.map((p, i) => {
-            const labelR = r + 64;
-            const lx = cx + labelR * Math.cos(p.angle);
-            const ly = cy + labelR * Math.sin(p.angle);
-            return (
-              <text
-                key={`lab-${i}`}
-                x={lx} y={ly}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                className={`loop-label ${i === active ? 'is-active' : ''}`}
-              >
-                {nodes[i].label}
-              </text>
-            );
-          })}
-
-          {/* Center mark */}
-          <text x={cx} y={cy - 14} textAnchor="middle" className="loop-center-eyebrow">tex</text>
-          <text x={cx} y={cy + 18} textAnchor="middle" className="loop-center-num">{String(active + 1).padStart(2, '0')} / {String(nodes.length).padStart(2, '0')}</text>
-        </svg>
-      </div>
-
-      <aside className="loop-detail">
-        <div className="loop-detail-num mono">{String(active + 1).padStart(2, '0')}</div>
-        <h3 className="loop-detail-label">{nodes[active].label}</h3>
-        <p className="loop-detail-plain">{nodes[active].plain}</p>
-        <p className="loop-detail-tech mono">{nodes[active].tech}</p>
-        <div className="loop-detail-pips">
-          {nodes.map((_, i) => (
-            <button
-              key={i}
-              className={`loop-pip ${i === active ? 'is-active' : ''}`}
-              onClick={() => setActive(i)}
-              aria-label={`Show ${nodes[i].label}`}
-            />
-          ))}
-        </div>
-      </aside>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  STACK COLLAPSE — competitive demolition.
- *  Left: four dim boxes, gappy connectors, "today's stack."
- *  Right: one bright violet ring, "Tex."
- *  Animation on scroll: left collapses into right.
- * ──────────────────────────────────────────────────────────────────── */
-
-function StackCollapse({ layers }) {
-  return (
-    <div className="collapse-stage">
-      <div className="collapse-side collapse-before">
-        <header className="collapse-side-head mono">
-          <span className="collapse-tag">today's stack</span>
-          <span className="collapse-tag-sub">4 invoices · 4 dashboards · gaps</span>
-        </header>
-        <ul className="collapse-list">
-          {layers.map((l, i) => (
-            <li className="collapse-row" key={l.id} style={{ '--i': i }}>
-              <span className="collapse-row-num mono">0{i + 1}</span>
-              <div className="collapse-row-text">
-                <span className="collapse-row-label">{l.label}</span>
-                <span className="collapse-row-vendors mono">{l.vendors}</span>
-              </div>
-              <span className="collapse-row-governs">{l.governs}</span>
-              <span className="collapse-row-gap" aria-hidden="true" />
-            </li>
-          ))}
-        </ul>
-        <p className="collapse-side-foot">
-          Each row is a separate product, a separate procurement cycle, a separate dashboard, a separate alert queue. The handoffs are where agents do damage.
+      <div className="hero-reveal-name">
+        <div className="hero-reveal-eyebrow">// the system</div>
+        <h1 className="hero-reveal-title">
+          <span>Tex</span>
+        </h1>
+        <p className="hero-reveal-sub">
+          Identity. Posture. Behavior. Policy. Detection. Enforcement. Audit.<br/>
+          <em>Seven layers. One adjudicator. One sealed cryptographic chain.</em>
         </p>
       </div>
 
-      <div className="collapse-bridge" aria-hidden="true">
-        <span className="collapse-bridge-arrow">→</span>
-        <span className="collapse-bridge-label mono">collapse</span>
+      <div className="hero-reveal-floor" aria-hidden="true" />
+    </section>
+  );
+}
+
+/* ─────────────────────── Monolith — closing presence before manifesto ─────────────────────── */
+
+function Monolith({ bridge }) {
+  return (
+    <section className="monolith" aria-label="monolith">
+      <div className="monolith-aura" aria-hidden="true" />
+
+      <div className="monolith-grid">
+        <div className="monolith-col monolith-col-l">
+          <div className="monolith-pair">
+            <span className="k">// discovery</span>
+            <span className="v">2,847 agents</span>
+            <span className="n">found across 7 connectors</span>
+          </div>
+          <div className="monolith-pair">
+            <span className="k">// registration</span>
+            <span className="v">2,535 active</span>
+            <span className="n">312 held · 14 quarantined · 1 revoked</span>
+          </div>
+          <div className="monolith-pair">
+            <span className="k">// capability</span>
+            <span className="v">surface bound</span>
+            <span className="n">23 cells · agent · sales-agent-04</span>
+          </div>
+          <div className="monolith-pair">
+            <span className="k">// evaluation</span>
+            <span className="v">{bridge.counters.total.toLocaleString()} judgments</span>
+            <span className="n">7 streams · fused · 2.4ms p50</span>
+          </div>
+        </div>
+
+        <div className="monolith-figure">
+          <img src={texAvatar} alt="" />
+          <div className="monolith-rings" aria-hidden="true">
+            <div className="monolith-ring r1" />
+            <div className="monolith-ring r2" />
+            <div className="monolith-ring r3" />
+          </div>
+          <div className="monolith-name">
+            <span className="eyebrow">// the system</span>
+            <span className="title">Tex</span>
+          </div>
+        </div>
+
+        <div className="monolith-col monolith-col-r">
+          <div className="monolith-pair right">
+            <span className="k">// enforcement</span>
+            <span className="v">{bridge.counters.forbid.toLocaleString()} blocks</span>
+            <span className="n">action did not execute</span>
+          </div>
+          <div className="monolith-pair right">
+            <span className="k">// evidence</span>
+            <span className="v">9,423 blocks</span>
+            <span className="n">SHA-256 · sealed · 0 gaps</span>
+          </div>
+          <div className="monolith-pair right">
+            <span className="k">// learning</span>
+            <span className="v">drift · live</span>
+            <span className="n">permit {bridge.calibration.permitT.toFixed(3)} · forbid {bridge.calibration.forbidT.toFixed(3)}</span>
+          </div>
+          <div className="monolith-pair right">
+            <span className="k">// status</span>
+            <span className="v" style={{ color: 'var(--green)' }}>on duty</span>
+            <span className="n">heartbeat · 1.0s · uptime 99.998%</span>
+          </div>
+        </div>
       </div>
 
-      <div className="collapse-side collapse-after">
-        <header className="collapse-side-head mono">
-          <span className="collapse-tag collapse-tag-tex">tex</span>
-          <span className="collapse-tag-sub">1 system · 1 chain · no gaps</span>
-        </header>
-        <div className="collapse-ring">
-          <svg viewBox="0 0 320 320" aria-hidden="true">
-            <defs>
-              <radialGradient id="cring-glow" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="rgba(107, 91, 255, 0.32)" />
-                <stop offset="100%" stopColor="rgba(107, 91, 255, 0)" />
-              </radialGradient>
-            </defs>
-            <circle cx="160" cy="160" r="140" fill="url(#cring-glow)" />
-            <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(107, 91, 255, 0.6)" strokeWidth="1.5" />
-            <circle cx="160" cy="160" r="120" fill="none" stroke="rgba(107, 91, 255, 0.9)" strokeWidth="2" strokeDasharray="20 880" className="collapse-ring-pulse" />
-            {[
-              { l: 'Identity',  a: -90 },
-              { l: 'Posture',   a: -18 },
-              { l: 'Behavior',  a: 54 },
-              { l: 'Policy',    a: 126 },
-              { l: 'Content',   a: 198 },
-            ].map((n, i) => {
-              const rad = (n.a * Math.PI) / 180;
-              const x = 160 + 120 * Math.cos(rad);
-              const y = 160 + 120 * Math.sin(rad);
-              const lx = 160 + 152 * Math.cos(rad);
-              const ly = 160 + 152 * Math.sin(rad);
-              const isContent = n.l === 'Content';
-              return (
-                <g key={i}>
-                  <circle cx={x} cy={y} r="6" fill={isContent ? '#6b5bff' : 'rgba(107, 91, 255, 0.7)'} />
-                  {isContent && <circle cx={x} cy={y} r="11" fill="none" stroke="#6b5bff" strokeWidth="1" className="collapse-ring-content-halo" />}
-                  <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" className={`collapse-ring-label ${isContent ? 'is-content' : ''}`}>{n.l}</text>
-                </g>
-              );
-            })}
-            <text x="160" y="156" textAnchor="middle" className="collapse-ring-center-eyebrow">tex</text>
-            <text x="160" y="178" textAnchor="middle" className="collapse-ring-center-line">one decision</text>
-          </svg>
+      <div className="monolith-payoff">
+        Nine vendors couldn't do this. <em>One Tex does.</em>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────── Persistent HUD ─────────────────────── */
+
+function Hud({ counters }) {
+  return (
+    <div className="hud" role="banner">
+      <div className="hud-left">
+        <div className="hud-brand">
+          <span className="hud-mark" aria-hidden="true" />
+          Tex
         </div>
-        <p className="collapse-side-foot">
-          The four layers above plus the one nobody else builds — the actual content of the action — fused at the moment of release. One decision. One chain.
+        <span className="hud-status">on duty</span>
+      </div>
+      <nav className="hud-center" aria-label="primary">
+        <a href="#discovery">Discovery</a>
+        <a href="#registration">Registration</a>
+        <a href="#capability">Capability</a>
+        <a href="#evaluation">Evaluation</a>
+        <a href="#enforcement">Enforcement</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#learning">Learning</a>
+      </nav>
+      <div className="hud-right">
+        <span className="hud-counter permit">PERMIT <strong>{counters.permit.toLocaleString()}</strong></span>
+        <span className="hud-counter abstain">ABSTAIN <strong>{counters.abstain.toLocaleString()}</strong></span>
+        <span className="hud-counter forbid">FORBID <strong>{counters.forbid.toLocaleString()}</strong></span>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── Cold open ─────────────────────── */
+
+function ColdOpen() {
+  return (
+    <section className="coldopen" aria-label="cold open">
+      <div className="coldopen-eyebrow">tex bridge · live</div>
+      <div className="coldopen-stack">
+        <p>
+          <em>2,847</em> AI agents are running in your company right now.
+        </p>
+        <p>
+          You've never seen <em className="amber">2,694</em> of them.
+        </p>
+        <p>
+          Tex sees all of them. Governs all of them. <em>Proves all of them.</em>
         </p>
       </div>
-    </div>
+      <div className="coldopen-cue">
+        <div className="coldopen-cue-text">enter the bridge</div>
+        <div className="coldopen-cue-line" />
+      </div>
+    </section>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  FUSION MATH — the actual production weights from defaults.py,
- *  rendered as a horizontal bar chart you can scan in 3 seconds.
- * ──────────────────────────────────────────────────────────────────── */
+/* ─────────────────────── Scene 01 — Discovery ─────────────────────── */
 
-function FusionMath({ weights }) {
-  const max = Math.max(...weights.map((w) => w.weight));
-  const total = weights.reduce((a, w) => a + w.weight, 0);
+function SceneDiscovery({ feed, stats }) {
   return (
-    <div className="fusion">
-      <header className="fusion-head mono">
-        <span>stream</span>
-        <span>role</span>
-        <span>weight</span>
-      </header>
-      <ul className="fusion-list">
-        {weights.map((w, i) => (
-          <li className="fusion-row" key={w.id} style={{ '--i': i, '--bar': `${(w.weight / max) * 100}%` }}>
-            <span className="fusion-num mono">0{i + 1}</span>
-            <span className="fusion-label">{w.label}</span>
-            <span className="fusion-role mono">{w.role}</span>
-            <span className="fusion-weight mono">{w.weight.toFixed(3)}</span>
-            <span className="fusion-bar" aria-hidden="true"><span className="fusion-bar-fill" /></span>
-          </li>
-        ))}
-      </ul>
-      <footer className="fusion-foot">
-        <div className="fusion-foot-cell">
-          <span className="fusion-foot-num mono">Σ {total.toFixed(3)}</span>
-          <span className="fusion-foot-label">sum of weights · normalized fusion</span>
-        </div>
-        <div className="fusion-foot-cell">
-          <span className="fusion-foot-num mono">≤ 0.18</span>
-          <span className="fusion-foot-label">PERMIT threshold · action passes through</span>
-        </div>
-        <div className="fusion-foot-cell">
-          <span className="fusion-foot-num mono">≥ 0.72</span>
-          <span className="fusion-foot-label">FORBID threshold · action physically blocked</span>
-        </div>
-        <div className="fusion-foot-cell">
-          <span className="fusion-foot-num mono">2.2 ms</span>
-          <span className="fusion-foot-label">median fusion latency · seven streams</span>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  DISCOVERY THEATER — connectors as a scanning strip + live ledger
- * ──────────────────────────────────────────────────────────────────── */
-
-function DiscoveryTheater({ connectors, events }) {
-  return (
-    <div className="dt">
-      <div className="dt-scanner">
-        <div className="dt-scan-line" aria-hidden="true" />
-        {connectors.map((c, i) => (
-          <article className="dt-conn" key={c.id} style={{ '--i': i }}>
-            <span className="dt-conn-pip" aria-hidden="true" />
-            <span className="dt-conn-name">{c.name}</span>
-            <span className="dt-conn-finds">{c.finds}</span>
-          </article>
-        ))}
+    <section className="scene scene-discovery" id="discovery" aria-label="discovery layer">
+      <div>
+        <div className="scene-eyebrow">Layer 01 <span className="nm">/ DISCOVERY</span></div>
+        <h2 className="scene-title">Tex finds the agents <em>nobody told IT about</em>.</h2>
+        <p className="scene-lede">
+          Microsoft tenants accumulate Copilot Studio agents the way they accumulate SharePoint sites.
+          Salesforce orgs sprout Agentforce bots. Engineering installs Cursor, Cline, and a dozen MCP
+          servers. <strong>Tex scans every connector and surfaces every agent</strong> — even
+          the ones running on credentials nobody remembers issuing.
+        </p>
+        <p className="scene-lede" style={{ marginTop: 18 }}>
+          Each candidate gets a risk band, a reconciliation key, and a held-for-review state.
+          <em> Nothing escapes inventory.</em>
+        </p>
       </div>
-      <div className="dt-ledger">
-        <header className="dt-ledger-head mono">
-          <span>hash</span>
-          <span>source</span>
-          <span>candidate</span>
-          <span>outcome</span>
-          <span>conf</span>
-        </header>
-        <div className="dt-ledger-list">
-          {events.map((e, i) => (
-            <div className={`dt-ledger-row dt-${e.outcome}`} key={i} style={{ '--i': i }}>
-              <span className="dt-l-hash mono">{e.hash.slice(0, 10)}</span>
-              <span className="dt-l-source">{e.source}</span>
-              <span className="dt-l-cand mono">{e.candidate}</span>
-              <span className={`dt-l-out dt-l-out-${e.outcome}`}>{labelOutcome(e.outcome)}</span>
-              <span className="dt-l-conf mono">{e.confidence.toFixed(2)}</span>
-            </div>
-          ))}
+
+      <div className="discovery-instrument panel">
+        <div className="panel-bar">
+          <div className="panel-bar-l">
+            <strong>discovery.feed</strong>
+            <span>tex-bridge / live</span>
+          </div>
+          <span className="panel-bar-status">scanning</span>
         </div>
-      </div>
-    </div>
-  );
-}
 
-/* ────────────────────────────────────────────────────────────────────
- *  CAPABILITY SURFACE — declared polygon + attempted action point
- * ──────────────────────────────────────────────────────────────────── */
-
-function CapabilitySurface() {
-  const [phase, setPhase] = useState(0); // 0 = inside, 1 = outside, 2 = critical
-  useEffect(() => {
-    const id = setInterval(() => setPhase((p) => (p + 1) % 3), 2400);
-    return () => clearInterval(id);
-  }, []);
-
-  // Polygon vertices for capability surface
-  const verts = [
-    { x: 200, y: 60,  l: 'action_type' },
-    { x: 340, y: 160, l: 'channel' },
-    { x: 320, y: 300, l: 'environment' },
-    { x: 200, y: 340, l: 'recipient' },
-    { x: 80,  y: 300, l: 'rate' },
-    { x: 60,  y: 160, l: 'tenant' },
-  ];
-  const path = verts.map((v, i) => `${i === 0 ? 'M' : 'L'} ${v.x} ${v.y}`).join(' ') + ' Z';
-
-  // Action points
-  const points = [
-    { x: 200, y: 200, label: 'email.send · finance@tenant', verdict: 'permit' },
-    { x: 380, y: 220, label: 'email.send · external@unknown', verdict: 'forbid' },
-    { x: 410, y: 320, label: 'database.delete · production', verdict: 'forbid' },
-  ];
-  const point = points[phase];
-
-  return (
-    <div className="surface-block surface-cap">
-      <div className="surface-block-head">
-        <span className="surface-block-eyebrow mono">capability</span>
-        <h3 className="surface-block-title">A polygon. An action plotted as a point.</h3>
-        <p className="surface-block-body">If the action lands inside the polygon, evaluation continues. Outside the polygon is CRITICAL — capability_violation forces FORBID before the rest of the streams matter.</p>
-      </div>
-      <div className="surface-block-viz">
-        <svg viewBox="0 0 440 400" aria-hidden="true">
-          <defs>
-            <linearGradient id="cap-fill" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="rgba(107, 91, 255, 0.16)" />
-              <stop offset="100%" stopColor="rgba(107, 91, 255, 0.04)" />
-            </linearGradient>
-          </defs>
-          {/* grid */}
-          {[0, 1, 2, 3, 4].map((i) => (
-            <line key={`gx${i}`} x1={88 * i} y1="0" x2={88 * i} y2="400" stroke="rgba(235, 232, 224, 0.04)" />
-          ))}
-          {[0, 1, 2, 3, 4].map((i) => (
-            <line key={`gy${i}`} x1="0" y1={80 * i} x2="440" y2={80 * i} stroke="rgba(235, 232, 224, 0.04)" />
-          ))}
-          {/* polygon */}
-          <path d={path} fill="url(#cap-fill)" stroke="rgba(107, 91, 255, 0.62)" strokeWidth="1.5" />
-          {verts.map((v, i) => (
-            <g key={i}>
-              <circle cx={v.x} cy={v.y} r="3" fill="rgba(107, 91, 255, 0.8)" />
-              <text x={v.x} y={v.y - 12} textAnchor="middle" className="surface-vert-label">{v.l}</text>
-            </g>
-          ))}
-          {/* action point */}
-          <g className={`surface-point surface-point-${point.verdict}`} key={phase}>
-            <circle cx={point.x} cy={point.y} r="22" fill="none" className="surface-point-halo" />
-            <circle cx={point.x} cy={point.y} r="6" />
-            <text x={point.x} y={point.y - 24} textAnchor="middle" className="surface-point-label mono">{point.label}</text>
-            <text x={point.x} y={point.y + 32} textAnchor="middle" className={`surface-point-verdict surface-point-verdict-${point.verdict}`}>{point.verdict.toUpperCase()}</text>
-          </g>
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  BEHAVIOR BARCODE — 64-band MinHash signature + novelty match
- * ──────────────────────────────────────────────────────────────────── */
-
-function BehaviorBarcode() {
-  const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setPhase((p) => p + 1), 2200);
-    return () => clearInterval(id);
-  }, []);
-
-  // Generate three "baseline" signatures and one "candidate"
-  const baselines = useMemo(() => {
-    const seeds = [0.28, 0.62, 0.91];
-    return seeds.map((s) => Array.from({ length: 64 }, (_, i) => ((i * 37 + s * 1000) % 11) / 11));
-  }, []);
-  const candidates = useMemo(() => [
-    { sig: Array.from({ length: 64 }, (_, i) => ((i * 37 + 280) % 11) / 11), novelty: 0.12, label: 'in baseline · matched' },
-    { sig: Array.from({ length: 64 }, (_, i) => ((i * 91 + 444) % 17) / 17), novelty: 0.78, label: 'novel · tenant_novel_content fired' },
-    { sig: Array.from({ length: 64 }, (_, i) => ((i * 53 + 117) % 13) / 13), novelty: 0.34, label: 'partial match · borderline' },
-  ], []);
-  const cand = candidates[phase % candidates.length];
-  const isNovel = cand.novelty > 0.5;
-
-  return (
-    <div className="surface-block surface-bar">
-      <div className="surface-block-head">
-        <span className="surface-block-eyebrow mono">behavior</span>
-        <h3 className="surface-block-title">A 64-band MinHash signature. A tenant baseline.</h3>
-        <p className="surface-block-body">Every piece of content gets reduced to a signature. The tenant's last N decisions form a baseline. Far signatures fire tenant_novel_content as peer evidence — not a separate behavioral product, just one stream in the same fusion.</p>
-      </div>
-      <div className="surface-block-viz surface-block-viz-bar">
-        <div className="bar-col">
-          <span className="bar-col-label mono">tenant baseline · last N</span>
-          {baselines.map((b, bi) => (
-            <div className="bar-row" key={bi}>
-              {b.map((v, i) => (
-                <span key={i} className="bar-cell" style={{ opacity: 0.18 + v * 0.5 }} />
-              ))}
-            </div>
-          ))}
+        <div className="disc-connectors" role="list">
+          <div className="disc-conn scanning"><span className="disc-conn-name">MS Graph</span><span className="disc-conn-state">scan…</span></div>
+          <div className="disc-conn done">    <span className="disc-conn-name">Salesforce</span><span className="disc-conn-state">412</span></div>
+          <div className="disc-conn scanning"><span className="disc-conn-name">Bedrock</span> <span className="disc-conn-state">scan…</span></div>
+          <div className="disc-conn done">    <span className="disc-conn-name">GitHub</span>   <span className="disc-conn-state">208</span></div>
+          <div className="disc-conn done">    <span className="disc-conn-name">OpenAI</span>   <span className="disc-conn-state">147</span></div>
+          <div className="disc-conn scanning"><span className="disc-conn-name">MCP</span>      <span className="disc-conn-state">scan…</span></div>
         </div>
-        <div className="bar-col bar-col-cand">
-          <span className="bar-col-label mono">candidate signature</span>
-          <div className={`bar-row bar-row-cand ${isNovel ? 'is-novel' : ''}`} key={phase}>
-            {cand.sig.map((v, i) => (
-              <span key={i} className="bar-cell bar-cell-cand" style={{ opacity: 0.32 + v * 0.6 }} />
+
+        <div className="disc-feed" role="log" aria-live="polite">
+          <div className="disc-feed-list">
+            {feed.map((row, i) => (
+              <div key={`${row.ts}-${row.name}-${i}`} className={`disc-row${row.isNew ? ' new' : ''}`}>
+                <span className="platform">{row.platform.replace(' ', '\u00A0')}</span>
+                <span className="name">{row.name}</span>
+                <span className="lastseen">{row.lastseen}</span>
+                <span className={`risk ${row.risk}`}>{row.risk}</span>
+              </div>
             ))}
           </div>
-          <div className={`bar-readout mono ${isNovel ? 'is-novel' : ''}`}>
-            <span>novelty</span>
-            <span className="bar-readout-num">{cand.novelty.toFixed(2)}</span>
-            <span className="bar-readout-label">{cand.label}</span>
+        </div>
+
+        <div className="disc-summary">
+          <div className="disc-sum-cell">
+            <div className="disc-sum-num"><em>{stats.total.toLocaleString()}</em></div>
+            <div className="disc-sum-lbl">Discovered</div>
+          </div>
+          <div className="disc-sum-cell">
+            <div className="disc-sum-num">{stats.pending}</div>
+            <div className="disc-sum-lbl">Held for review</div>
+          </div>
+          <div className="disc-sum-cell">
+            <div className="disc-sum-num">{stats.quarantined}</div>
+            <div className="disc-sum-lbl">Quarantined</div>
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  COMPLIANCE MARKS — frameworks the chain maps to
- * ──────────────────────────────────────────────────────────────────── */
+/* ─────────────────────── Scene 02 — Registration ─────────────────────── */
 
-function ComplianceMarks({ marks }) {
+function SceneRegistration({ roster }) {
   return (
-    <div className="compliance">
-      <header className="compliance-head mono">maps to · auditor-recognized frameworks</header>
-      <ul className="compliance-list">
-        {marks.map((m) => (
-          <li className="compliance-mark mono" key={m}>{m}</li>
+    <section className="scene scene-registration" id="registration" aria-label="registration layer">
+      <div className="reg-roster panel">
+        <div className="panel-bar">
+          <div className="panel-bar-l">
+            <strong>roster.active</strong>
+            <span>{roster.length} of 2,847 shown</span>
+          </div>
+          <span className="panel-bar-status">live</span>
+        </div>
+
+        {roster.map((agent, i) => (
+          <div className={`reg-row${agent.changed ? ' changed' : ''}`} key={`${agent.name}-${i}`}>
+            <div className="reg-glyph">
+              <Glyph kind={agent.glyph} />
+            </div>
+            <div>
+              <div className="reg-name">{agent.name}</div>
+              <div className="reg-owner">{agent.owner}{agent.platform.toLowerCase().split(' ')[0]} · {agent.platform}</div>
+            </div>
+            <span className={`reg-tier ${agent.tier}`}>{agent.tier}</span>
+            <div className="reg-lifecycle">
+              <span className={`reg-life-state ${agent.life}`}>{agent.life}</span>
+            </div>
+          </div>
         ))}
-      </ul>
-    </div>
+      </div>
+
+      <div className="reg-detail">
+        <div className="scene-eyebrow">Layer 02 <span className="nm">/ REGISTRATION</span></div>
+        <h2 className="scene-title">Every agent has <em>a name, an owner, and a clock</em>.</h2>
+        <p className="scene-lede">
+          Tex doesn't trust a discovered agent. It registers it — assigning a UUID, a trust tier
+          (UNVERIFIED → STANDARD → TRUSTED → PRIVILEGED), an owner email, and a lifecycle state.
+          <strong> When an agent drifts, Tex moves it to QUARANTINED automatically.</strong>
+          When it's terminal, it goes REVOKED — and revoke is permanent.
+        </p>
+        <div className="reg-detail-card" style={{ marginTop: 28 }}>
+          <div className="reg-detail-eyebrow">attestation chain</div>
+          <div className="reg-detail-title">Issued by Tex.<br/>Signed by you.</div>
+          <p className="reg-detail-body">
+            Each registration is bound to an attestation chain — a series of signed claims from the
+            registering operator, the originating platform, and Tex itself. Auditors verify every
+            claim. Agents without a complete chain are blocked from sensitive actions.
+          </p>
+          <div className="reg-detail-attest">
+            <div><span className="key">issued_by</span> tex / vortexblack</div>
+            <div><span className="key">signed_by</span> matthew.s / eng-prod@</div>
+            <div><span className="key">trust_tier</span> STANDARD</div>
+            <div><span className="key">attests</span> 3 / 3 active</div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  COMPETITOR MAP — the layer table that ends the "what is Tex" question
- * ──────────────────────────────────────────────────────────────────── */
-
-function CompetitorMap({ rows }) {
+function Glyph({ kind = 0 }) {
+  // 7 small SVG glyphs that visually distinguish agent platforms.
+  // Hexagon, diamond, triangle, square, octagon, circle, asterisk.
+  const variants = [
+    // 0 — hexagon (Salesforce-ish)
+    <polygon points="18,3 31,11 31,25 18,33 5,25 5,11" fill="none" stroke="#5ee0ff" strokeWidth="1.2" />,
+    // 1 — diamond (Microsoft Graph)
+    <polygon points="18,3 33,18 18,33 3,18" fill="none" stroke="#5ee0ff" strokeWidth="1.2" />,
+    // 2 — triangle (Bedrock)
+    <polygon points="18,5 33,30 3,30" fill="none" stroke="#5ee0ff" strokeWidth="1.2" />,
+    // 3 — square rotated (MCP)
+    <rect x="6" y="6" width="24" height="24" fill="none" stroke="#5ee0ff" strokeWidth="1.2" transform="rotate(45 18 18)" />,
+    // 4 — octagon (Copilot Studio)
+    <polygon points="11,3 25,3 33,11 33,25 25,33 11,33 3,25 3,11" fill="none" stroke="#5ee0ff" strokeWidth="1.2" />,
+    // 5 — circle with bar (OpenAI)
+    <g><circle cx="18" cy="18" r="13" fill="none" stroke="#5ee0ff" strokeWidth="1.2" /><line x1="6" y1="18" x2="30" y2="18" stroke="#5ee0ff" strokeWidth="1.2" /></g>,
+    // 6 — asterisk (custom)
+    <g stroke="#5ee0ff" strokeWidth="1.2"><line x1="18" y1="4" x2="18" y2="32" /><line x1="6" y1="11" x2="30" y2="25" /><line x1="6" y1="25" x2="30" y2="11" /></g>,
+  ];
   return (
-    <div className="cmap">
-      <header className="cmap-head mono">
-        <span>Layer</span>
-        <span>Representative vendors</span>
-        <span>Governs</span>
-      </header>
-      {rows.map((r) => (
-        <div className={`cmap-row ${r.tex ? 'cmap-row-tex' : ''}`} key={r.layer}>
-          <span className="cmap-layer">{r.layer}</span>
-          <span className="cmap-vendors mono">{r.vendors}</span>
-          <span className="cmap-governs">
-            {r.tex ? <em>{r.governs}</em> : r.governs}
-          </span>
+    <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {variants[kind % variants.length]}
+      <circle cx="18" cy="18" r="2" fill="#5ee0ff" />
+    </svg>
+  );
+}
+
+/* ─────────────────────── Scene 03 — Capability ─────────────────────── */
+
+function SceneCapability() {
+  // Static-ish for layout; the constraint matrix shows ALLOWED cells.
+  // Rows = action types. Columns = channels.
+  const ROWS = ['email.send', 'crm.update', 'wire.initiate', 'sharepoint.share', 'tool.call', 'code.commit', 'refund.process'];
+  const COLS = ['mailto', 'salesforce', 'banking', 'graph', 'mcp', 'github'];
+
+  // Allowed cells for the example agent. We mark the wire/banking
+  // attempt as a violation to dramatize an out-of-surface action.
+  const allow = (row, col) => {
+    if (row === 'email.send' && col === 'mailto') return 'bright';
+    if (row === 'crm.update' && col === 'salesforce') return 'allowed';
+    if (row === 'sharepoint.share' && col === 'graph') return 'allowed';
+    if (row === 'tool.call' && col === 'mcp') return 'allowed';
+    if (row === 'code.commit' && col === 'github') return 'allowed';
+    if (row === 'refund.process' && col === 'banking') return 'allowed';
+    if (row === 'wire.initiate' && col === 'banking') return 'violation';
+    return null;
+  };
+
+  return (
+    <section className="scene scene-capability" id="capability" aria-label="capability layer">
+      <div>
+        <div className="scene-eyebrow">Layer 03 <span className="nm">/ CAPABILITY</span></div>
+        <h2 className="scene-title">You set what each agent <em>is allowed to touch</em>.</h2>
+        <p className="scene-lede">
+          Capability isn't a content policy — it's a structural one.
+          Action types × channels × environments × recipient bounds.
+          The matrix is the agent's entire surface.
+          <strong> Anything outside is a CRITICAL finding</strong>, regardless of how innocent the content sounds.
+        </p>
+        <p className="scene-lede" style={{ marginTop: 18 }}>
+          Below: agent <code style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)', fontSize: '13px' }}>sales-agent-04</code> tries to call <code style={{ color: 'var(--red)', fontFamily: 'var(--mono)', fontSize: '13px' }}>wire.initiate</code> on a banking channel. The cell is dark red. <em>Out of surface.</em>
+        </p>
+      </div>
+
+      <div className="cap-grid-wrap panel">
+        <div className="panel-bar">
+          <div className="panel-bar-l">
+            <strong>surface.matrix</strong>
+            <span>agent / sales-agent-04</span>
+          </div>
+          <span className="panel-bar-status">active</span>
+        </div>
+
+        <div style={{ padding: '24px' }}>
+          <div className="cap-grid-meta">
+            <span>action × channel</span>
+            <span>declared surface · <strong>23 cells</strong> · 1 violation</span>
+          </div>
+
+          <div className="cap-axis-x">
+            <span className="blank" />
+            {COLS.map((c) => <span key={c}>{c}</span>)}
+          </div>
+
+          <div className="cap-grid-rows">
+            {ROWS.map((row) => (
+              <div className="cap-grid-row" key={row}>
+                <span className="cap-row-label">{row}</span>
+                {COLS.map((col) => {
+                  const state = allow(row, col);
+                  return <span key={col} className={`cap-cell${state ? ` ${state}` : ''}`} />;
+                })}
+              </div>
+            ))}
+          </div>
+
+          <div className="cap-incident">
+            <span><strong>OUT OF SURFACE</strong> · sales-agent-04 attempted <code>wire.initiate</code> on banking channel · CRITICAL finding · agent moved to QUARANTINED</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─────────────────────── Scene 04 — Evaluation (the theater) ─────────────────────── */
+
+function SceneEvaluation({ bridge }) {
+  const { activeAction, activeStreams, activeFused, activeVerdict, activePhase, activeLayers, calibration } = bridge;
+
+  const scoreClass = (v) => v >= 0.65 ? 'high' : v >= 0.4 ? 'med' : '';
+  const fusedClass = scoreClass(activeFused);
+
+  return (
+    <section className="scene scene-eval" id="evaluation" aria-label="evaluation layer">
+      <div className="scene-head" style={{ maxWidth: 1480, margin: '0 auto', padding: '0 40px 40px' }}>
+        <div className="scene-head-l">
+          <div className="scene-eyebrow">Layer 04 <span className="nm">/ EVALUATION</span></div>
+          <h2 className="scene-title">Seven streams of evidence. <em>One verdict.</em></h2>
+          <p className="scene-lede">
+            Every action is judged on identity, capability, behavior, deterministic rules, retrieval
+            precedent, specialist judges, and a structured semantic model.
+            <strong> Tex fuses all seven into one bounded score</strong>, weighed by policy, in under three milliseconds.
+            The verdict is <em>PERMIT, ABSTAIN, or FORBID</em>. There are no other answers.
+          </p>
+        </div>
+        <div className="scene-head-r">
+          <div>tex.pdp / v0.1.0</div>
+          <div style={{ marginTop: 8 }}>permit ≤ {calibration.permitT.toFixed(3)} · forbid ≥ {calibration.forbidT.toFixed(3)}</div>
+        </div>
+      </div>
+
+      <div className="eval-stage">
+        <EvalActionCard action={activeAction} phase={activePhase} />
+        <div className={`eval-tex verdict-${activeVerdict || 'idle'}`}>
+          <img src={texAvatar} alt="" />
+          <EvalLayers active={activeLayers} />
+          {activeVerdict && (
+            <div className={`eval-verdict show`}>
+              <div className={`eval-verdict-word ${activeVerdict}`}>{activeVerdict}</div>
+            </div>
+          )}
+          <div className="eval-tex-base">
+            <strong>tex</strong> · adjudicator
+            <div style={{ fontSize: 9, marginTop: 4, letterSpacing: '0.24em' }}>v0.1.0 · evidence-chain online</div>
+          </div>
+        </div>
+        <EvalStreamsCard streams={activeStreams} fused={activeFused} fusedClass={fusedClass} />
+      </div>
+    </section>
+  );
+}
+
+function EvalLayers({ active }) {
+  const layers = ['Discov', 'Reg', 'Cap', 'Eval', 'Enf', 'Evid', 'Learn'];
+  return (
+    <div className="eval-layers" aria-hidden="true">
+      {layers.map((l, i) => (
+        <div key={l} className={`eval-layer${i < active ? ' lit' : ''}`}>
+          <span className="eval-layer-dot" />
+          <span className="eval-layer-name">{l}</span>
         </div>
       ))}
-      <footer className="cmap-foot">
-        Four layers, four product categories, four budget lines. Tex is the fifth — and the one nobody else is building.
-      </footer>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  PROOF STATS — three numbers below the chain visual
- * ──────────────────────────────────────────────────────────────────── */
-
-function ProofStats() {
+function EvalActionCard({ action, phase }) {
+  if (!action) {
+    return (
+      <div className="eval-action-card">
+        <div className="eval-action-eyebrow">
+          <span>inbound action</span>
+          <span className="ts">awaiting</span>
+        </div>
+        <div className="eval-action-line" style={{ color: 'var(--ink-faint)' }}>—</div>
+      </div>
+    );
+  }
+  const dangerContent = action.danger || (action.verdict === 'forbid' && action.content);
   return (
-    <div className="proof-stats">
-      <div className="ps-cell">
-        <span className="ps-num mono">SHA-256</span>
-        <span className="ps-label">hash function · NIST FIPS 180-4</span>
+    <div className="eval-action-card">
+      <div className="eval-action-eyebrow">
+        <span>inbound action</span>
+        <span className="ts">{action.ts}</span>
       </div>
-      <div className="ps-cell">
-        <span className="ps-num mono">2.2 ms</span>
-        <span className="ps-label">median fusion latency · seven streams · one verdict</span>
+      <div className="eval-action-line">
+        <span className="verb">{action.verb}</span>
+        <span className="agent">· {action.agent}</span>
       </div>
-      <div className="ps-cell">
-        <span className="ps-num mono">replay</span>
-        <span className="ps-label">any decision, on demand · tamper-evident by construction</span>
+      <div className="eval-action-rows">
+        <div className="row"><span className="key">surface</span><span className="val">{action.surface}</span></div>
+        <div className="row"><span className="key">target</span><span className="val">{action.target}</span></div>
+        <div className="row"><span className="key">phase</span><span className="val" style={{ textTransform: 'uppercase', letterSpacing: '0.18em', fontSize: 10, color: 'var(--cyan)' }}>{phase}</span></div>
+      </div>
+      {action.content && (
+        <div className={`eval-action-content${action.verdict === 'forbid' ? ' danger' : ''}`}>
+          "{action.content}"
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EvalStreamsCard({ streams, fused, fusedClass }) {
+  const STREAMS = [
+    { id: 'identity',      name: 'Identity',      w: 0.06 },
+    { id: 'capability',    name: 'Capability',    w: 0.09 },
+    { id: 'behavioral',    name: 'Behavioral',    w: 0.07 },
+    { id: 'deterministic', name: 'Deterministic', w: 0.23 },
+    { id: 'retrieval',     name: 'Retrieval',     w: 0.10 },
+    { id: 'specialist',    name: 'Specialist',    w: 0.20 },
+    { id: 'semantic',      name: 'Semantic',      w: 0.27 },
+  ];
+  const cls = (v) => v >= 0.65 ? 'high' : v >= 0.4 ? 'med' : '';
+  return (
+    <div className="eval-streams-card">
+      <div className="eval-streams-head">
+        <span>evidence streams</span>
+        <span className="meta">7 peers · fused</span>
+      </div>
+      {STREAMS.map((s) => {
+        const v = streams[s.id] || 0;
+        return (
+          <div className="eval-stream" key={s.id}>
+            <span className="eval-stream-name">{s.name}</span>
+            <span className="eval-stream-bar">
+              <span className={`eval-stream-bar-fill ${cls(v)}`} style={{ right: `${(1 - v) * 100}%` }} />
+            </span>
+            <span className="eval-stream-score">{v.toFixed(2)}</span>
+            <span className="eval-stream-w">w {s.w.toFixed(2)}</span>
+          </div>
+        );
+      })}
+      <div className="eval-streams-fused">
+        <span className="label">Σ fused</span>
+        <span className="bar">
+          <span className={`bar-fill ${fusedClass}`} style={{ right: `${(1 - fused) * 100}%` }} />
+        </span>
+        <span className="score">{fused.toFixed(3)}</span>
+        <span className="eval-stream-w" />
       </div>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────
- *  Shared atoms
- * ──────────────────────────────────────────────────────────────────── */
+/* ─────────────────────── Scene 05 — Enforcement ─────────────────────── */
 
-function SectionHead({ eyebrow, title, lede }) {
+function SceneEnforcement() {
   return (
-    <header className="sh">
-      <span className="sh-eyebrow">{eyebrow}</span>
-      <h2 className="sh-title">{title}</h2>
-      <p className="sh-lede">{lede}</p>
-    </header>
+    <section className="scene-enforcement" id="enforcement" aria-label="enforcement layer">
+      <div className="scene-head">
+        <div className="scene-head-l">
+          <div className="scene-eyebrow">Layer 05 <span className="nm">/ ENFORCEMENT</span></div>
+          <h2 className="scene-title">A verdict is <em>not a recommendation</em>.</h2>
+          <p className="scene-lede">
+            Most vendors stop at "decision." Their dashboards show what should have been blocked,
+            in the past tense. <strong>Tex physically stops the action</strong> before it leaves
+            the machine — at the gate, decorator, proxy, or middleware.
+            Fail-closed by default. The action <em>did not run</em>.
+          </p>
+        </div>
+        <div className="scene-head-r">
+          <div>fail_closed = true</div>
+          <div style={{ marginTop: 8 }}>4 deployment shapes</div>
+        </div>
+      </div>
+
+      <div className="enf-lanes">
+        <div className="enf-lane enf-lane-permit">
+          <div className="enf-source">
+            <div className="lbl">Inbound</div>
+            <div className="val">refund.process</div>
+            <div className="note">support-bot-12 · $48.00</div>
+          </div>
+          <div className="enf-track">
+            <div className="enf-particle" />
+            <div className="enf-gate" />
+            <div className="enf-tag">PERMIT · executed</div>
+          </div>
+          <div className="enf-dest">
+            <div className="lbl">Destination</div>
+            <div className="val">stripe / refund r_42</div>
+            <div className="note">delivered · 1.4ms gate latency</div>
+          </div>
+        </div>
+
+        <div className="enf-lane enf-lane-forbid">
+          <div className="enf-source">
+            <div className="lbl">Inbound</div>
+            <div className="val">wire.initiate</div>
+            <div className="note">finance-bot-02 · $12,400</div>
+          </div>
+          <div className="enf-track">
+            <div className="enf-particle" />
+            <div className="enf-gate" />
+            <div className="enf-tag">FORBID · blocked</div>
+          </div>
+          <div className="enf-dest">
+            <div className="lbl">Destination</div>
+            <div className="val">— never reached</div>
+            <div className="note">action did not execute</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="enf-shapes">
+        <div className="enf-shape">
+          <div className="enf-shape-name">Decorator</div>
+          <div className="enf-shape-title">Three lines, anywhere Python runs.</div>
+          <div className="enf-shape-body">Wrap any function. LangChain, CrewAI, custom agent loops. The decorator owns the call.</div>
+        </div>
+        <div className="enf-shape">
+          <div className="enf-shape-name">HTTP proxy</div>
+          <div className="enf-shape-title">Drop in front of any endpoint.</div>
+          <div className="enf-shape-body">No SDK required. Sit Tex between any agent and any action surface. Same engine, same chain.</div>
+        </div>
+        <div className="enf-shape">
+          <div className="enf-shape-name">MCP middleware</div>
+          <div className="enf-shape-title">Every tool call routes through Tex.</div>
+          <div className="enf-shape-body">Cursor, Claude Desktop, Cline. One server URL covers every connected client.</div>
+        </div>
+        <div className="enf-shape">
+          <div className="enf-shape-name">Gateway</div>
+          <div className="enf-shape-title">Native guardrail in your stack.</div>
+          <div className="enf-shape-body">Portkey, LiteLLM, Cloudflare AI Gateway, Solo, TrueFoundry, Bedrock — drop-in adapter.</div>
+        </div>
+      </div>
+    </section>
   );
 }
 
-function Glyph() {
+/* ─────────────────────── Scene 06 — Evidence ─────────────────────── */
+
+function SceneEvidence({ chain }) {
+  const display = chain.length > 0 ? chain.slice(-4).reverse() : seedChainBlocks();
   return (
-    <svg className="glyph" width="22" height="26" viewBox="0 0 22 26" fill="none" aria-hidden="true">
-      <path d="M11 1L20.526 6.5V17.5L11 23L1.474 17.5V6.5L11 1Z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M11 8V18M7 9H15" stroke="currentColor" strokeWidth="1.1" strokeLinecap="square" />
+    <section className="scene scene-evidence" id="evidence" aria-label="evidence layer">
+      <div>
+        <div className="scene-eyebrow">Layer 06 <span className="nm">/ EVIDENCE</span></div>
+        <h2 className="scene-title">Every decision <em>linked</em> to the one before it.</h2>
+        <p className="scene-lede">
+          Every verdict is hashed with the SHA-256 of the previous one.
+          The result is an append-only chain your auditors verify <em>without trusting Tex</em>,
+          without trusting your security team, and without re-running the model.
+          The math is the audit.
+        </p>
+        <p className="scene-lede" style={{ marginTop: 18 }}>
+          <strong>Tamper with one block, every block after it stops verifying.</strong>
+          The chain ships as a downloadable bundle for SOC 2, FINRA, ISO 42001, EU AI Act, NIST AI RMF.
+        </p>
+      </div>
+
+      <div className="chain-list">
+        <div className="panel-bar" style={{ marginBottom: 4 }}>
+          <div className="panel-bar-l">
+            <strong>evidence.chain</strong>
+            <span>tail · last 4 blocks</span>
+          </div>
+          <span className="panel-bar-status">verified</span>
+        </div>
+        {display.map((b) => (
+          <div className={`chain-block ${b.verdict || 'permit'}`} key={b.idx}>
+            <div className="chain-block-head">
+              <span className="num">block {String(b.idx).padStart(5, '0')}</span>
+              <span>{b.ts ? new Date(b.ts).toISOString().slice(11, 19) : '04:34:12'}Z</span>
+            </div>
+            <div className="chain-block-row"><span className="key">layer</span><span className="val">{b.layer}</span></div>
+            <div className="chain-block-row"><span className="key">agent</span><span className="val">{b.agent}</span></div>
+            <div className="chain-block-row"><span className="key">action</span><span className="val">{b.action} → {b.target}</span></div>
+            <div className="chain-block-row"><span className="key">verdict</span><span className={`val ${b.verdict || 'permit'}`}>{(b.verdict || 'permit').toUpperCase()}</span></div>
+            <div className="chain-block-row"><span className="key">hash</span><span className="val hash">{b.hash}</span></div>
+            <div className="chain-block-link">
+              <span className="arrow">↳</span>
+              <span>prev: {short(b.prevHash)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function seedChainBlocks() {
+  const blocks = [
+    { idx: 9423, layer: 'Enforcement', agent: 'finance-bot-02', action: 'wire.initiate',  target: '$12,400 to vendor-91',  verdict: 'forbid',  hash: fakeHash(), prevHash: fakeHash(), ts: Date.now() - 1700 },
+    { idx: 9422, layer: 'Evaluation',  agent: 'support-bot-12', action: 'refund.process', target: '$48.00',                 verdict: 'permit',  hash: fakeHash(), prevHash: fakeHash(), ts: Date.now() - 3300 },
+    { idx: 9421, layer: 'Evaluation',  agent: 'sdr-agent-09',   action: 'email.send',     target: 'cfo@target.co',          verdict: 'abstain', hash: fakeHash(), prevHash: fakeHash(), ts: Date.now() - 5100 },
+    { idx: 9420, layer: 'Evaluation',  agent: 'sales-agent-04', action: 'email.send',     target: 'lead@acme.io',           verdict: 'permit',  hash: fakeHash(), prevHash: fakeHash(), ts: Date.now() - 7000 },
+  ];
+  return blocks;
+}
+
+function fakeHash() {
+  const c = '0123456789abcdef';
+  let s = '';
+  for (let i = 0; i < 64; i++) s += c[Math.floor(Math.random() * 16)];
+  return s;
+}
+
+function short(h) {
+  if (!h) return '';
+  return `${h.slice(0, 4)}…${h.slice(-4)}`;
+}
+
+/* ─────────────────────── Scene 07 — Learning ─────────────────────── */
+
+function SceneLearning({ calibration }) {
+  return (
+    <section className="scene scene-learning" id="learning" aria-label="learning layer">
+      <div>
+        <div className="scene-eyebrow">Layer 07 <span className="nm">/ LEARNING</span></div>
+        <h2 className="scene-title">Tex sharpens itself <em>from your reality</em>.</h2>
+        <p className="scene-lede">
+          Every reviewer decision, every approved ABSTAIN, every confirmed FORBID feeds back into
+          calibration. Permit threshold drifts. Forbid threshold tightens.
+          Per-tenant baselines update.
+          <strong> Tex is the only system in the category that closes the feedback loop without retraining a model.</strong>
+        </p>
+        <p className="scene-lede" style={{ marginTop: 18 }}>
+          Your reviewers approved <strong>47 ABSTAIN cases</strong> this week. Tex moved permit threshold from <em>0.42 to 0.44</em>. <em>The system got slightly more lenient — because you told it to.</em>
+        </p>
+      </div>
+
+      <div>
+        <div className="learn-chart panel">
+          <div className="panel-bar">
+            <div className="panel-bar-l">
+              <strong>calibrator</strong>
+              <span>thresholds · 24h</span>
+            </div>
+            <span className="panel-bar-status">drifting</span>
+          </div>
+          <div style={{ padding: 24 }}>
+            <CalibratorChart history={calibration.history} permitT={calibration.permitT} forbidT={calibration.forbidT} />
+          </div>
+        </div>
+
+        <div className="learn-events">
+          {calibration.events.map((evt, i) => (
+            <div className="learn-event" key={`${evt.ts}-${i}`}>
+              <span className="ts">{evt.ts}</span>
+              <span className="msg" dangerouslySetInnerHTML={{ __html: evt.msg }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CalibratorChart({ history, permitT, forbidT }) {
+  // Plot two lines (permit threshold + forbid threshold) over the last 24
+  // ticks. Y axis: 0.25 → 0.95.
+  const W = 600, H = 220, PAD_L = 36, PAD_R = 16, PAD_T = 14, PAD_B = 24;
+  const yMin = 0.30, yMax = 0.92;
+  const yScale = (v) => PAD_T + ((yMax - v) / (yMax - yMin)) * (H - PAD_T - PAD_B);
+  const xScale = (i) => PAD_L + (i / (history.length - 1)) * (W - PAD_L - PAD_R);
+
+  const permitPath = history.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.permitT)}`).join(' ');
+  const forbidPath = history.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i)} ${yScale(p.forbidT)}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} xmlns="http://www.w3.org/2000/svg" aria-label="calibrator chart">
+      {/* gridlines */}
+      {[0.4, 0.5, 0.6, 0.7, 0.8].map((g) => (
+        <g key={g}>
+          <line x1={PAD_L} x2={W - PAD_R} y1={yScale(g)} y2={yScale(g)} stroke="#5ee0ff" strokeOpacity="0.08" />
+          <text x={PAD_L - 8} y={yScale(g) + 3} textAnchor="end" fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#7e8699">{g.toFixed(1)}</text>
+        </g>
+      ))}
+      {/* x axis */}
+      <line x1={PAD_L} x2={W - PAD_R} y1={H - PAD_B} y2={H - PAD_B} stroke="#5ee0ff" strokeOpacity="0.18" />
+      <text x={PAD_L} y={H - 8} fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#7e8699">−24h</text>
+      <text x={W - PAD_R} y={H - 8} textAnchor="end" fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#7e8699">now</text>
+
+      {/* forbid line */}
+      <path d={forbidPath} fill="none" stroke="#ff5b5b" strokeWidth="1.5" />
+      {/* permit line */}
+      <path d={permitPath} fill="none" stroke="#5ee0ff" strokeWidth="1.5" />
+
+      {/* current value markers */}
+      <circle cx={xScale(history.length - 1)} cy={yScale(forbidT)} r="3.5" fill="#ff5b5b" />
+      <circle cx={xScale(history.length - 1)} cy={yScale(permitT)} r="3.5" fill="#5ee0ff" />
+
+      {/* labels */}
+      <text x={xScale(history.length - 1) + 8} y={yScale(forbidT) + 3} fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#ff5b5b">forbid {forbidT.toFixed(3)}</text>
+      <text x={xScale(history.length - 1) + 8} y={yScale(permitT) + 3} fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#5ee0ff">permit {permitT.toFixed(3)}</text>
     </svg>
   );
 }
 
-function Arrow() {
+/* ─────────────────────── Wedge — competitive ─────────────────────── */
+
+function Wedge() {
+  // Each row = a vendor. For each layer (D, R, C, E_eval, E_enf, Ev, L)
+  // mark whether the vendor genuinely covers it.
+  const LAYERS = [
+    { k: 'D',  short: 'Discov',  full: 'Discovery' },
+    { k: 'R',  short: 'Reg',     full: 'Registration' },
+    { k: 'C',  short: 'Cap',     full: 'Capability' },
+    { k: 'E1', short: 'Eval',    full: 'Evaluation' },
+    { k: 'E2', short: 'Enforce', full: 'Enforcement' },
+    { k: 'Ev', short: 'Evid',    full: 'Evidence' },
+    { k: 'L',  short: 'Learn',   full: 'Learning' },
+  ];
+
+  const VENDORS = [
+    { name: 'Okta',           sub: 'identity provider',           lit: ['R'] },
+    { name: 'Auth0 / Oasis',  sub: 'auth + agent identity',       lit: ['R'] },
+    { name: 'Microsoft AGT',  sub: 'agent governance toolkit',    lit: ['D', 'R'] },
+    { name: 'Zenity',         sub: 'AI agent security',           lit: ['D', 'E1'] },
+    { name: 'Noma',           sub: 'AI runtime detection',        lit: ['D', 'E1'] },
+    { name: 'Pillar',         sub: 'agent posture',               lit: ['D', 'C'] },
+    { name: 'Rubrik SAGE',    sub: 'AI activity monitoring',      lit: ['E1', 'Ev'] },
+    { name: 'Virtue AI',      sub: 'agent observability',         lit: ['E1'] },
+    { name: 'OPA / Cedar',    sub: 'policy engine',               lit: ['C'] },
+  ];
+
   return (
-    <svg className="arrow" width="20" height="14" viewBox="0 0 20 14" fill="none" aria-hidden="true">
-      <path d="M1 7H18M12 1L18 7L12 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="square" strokeLinejoin="miter" />
-    </svg>
+    <section className="wedge" id="wedge" aria-label="wedge">
+      <div className="wedge-head">
+        <div className="scene-eyebrow" style={{ display: 'inline-flex' }}>The category mistake</div>
+        <h2 className="scene-title">Everyone else governs <em>a piece</em>. Tex closes <em>the loop</em>.</h2>
+        <p className="scene-lede">
+          The market broke this problem into nine products. Identity. Posture. Behavior. Policy.
+          Detection. Observability. Each vendor lights one or two layers.
+          <strong> None of them physically stop the action. None of them seal the chain.</strong>
+        </p>
+      </div>
+
+      <div className="competitor-table">
+        <div className="competitor-row head">
+          <div className="competitor-vendor" style={{ paddingLeft: 18 }}>vendor</div>
+          {LAYERS.map((l) => (
+            <div key={l.k} className={`competitor-cell head-cell${l.k === 'E2' ? ' amber' : ''}`}>
+              <span>{l.short}</span>
+            </div>
+          ))}
+          <div className="competitor-tally" style={{ paddingRight: 18 }}>covered</div>
+        </div>
+
+        {VENDORS.map((v) => (
+          <div className="competitor-row" key={v.name}>
+            <div className="competitor-vendor">
+              {v.name}
+              <span className="competitor-vendor-sub">{v.sub}</span>
+            </div>
+            {LAYERS.map((l) => (
+              <div key={l.k} className={`competitor-cell${v.lit.includes(l.k) ? ' lit' : ''}`}>
+                <span className="dot" />
+              </div>
+            ))}
+            <div className="competitor-tally">
+              <span>{v.lit.length}</span><span className="of"> / 7</span>
+            </div>
+          </div>
+        ))}
+
+        <div className="competitor-row tex">
+          <div className="competitor-vendor">
+            Tex
+            <span className="competitor-vendor-sub">all seven, sealed in one chain</span>
+          </div>
+          {LAYERS.map((l) => (
+            <div key={l.k} className={`competitor-cell lit${l.k === 'E2' ? ' amber' : ''}`}>
+              <span className="dot" />
+            </div>
+          ))}
+          <div className="competitor-tally">
+            <span>7</span><span className="of"> / 7</span>
+          </div>
+        </div>
+      </div>
+
+      <p className="wedge-payoff">
+        Nine products. Nine dashboards. Nine teams reconciling alerts.<br/>
+        Or <em>one Tex</em>.
+      </p>
+    </section>
   );
 }
 
-function ScanLine() {
-  return <div className="scanline" aria-hidden="true" />;
+/* ─────────────────────── Trial · Manifesto · Foot ─────────────────────── */
+
+function Trial() {
+  return (
+    <section className="trial" id="trial" aria-label="trial">
+      <div className="trial-eyebrow">14-day free audit</div>
+      <h1 className="trial-title">
+        Find every agent. Stop the bad ones.<br/>
+        <em>Prove what happened.</em>
+      </h1>
+      <p className="trial-sub">
+        Connect Tex to one platform you already use — Microsoft Graph, Salesforce, GitHub, OpenAI,
+        Bedrock, or MCP. We run discovery, evaluate live agent actions, enforce verdicts, and
+        deliver a board-ready readout with the cryptographic chain in fourteen days.
+        The chain is yours to keep.
+      </p>
+      <div className="trial-cta">
+        <a className="btn" href="mailto:matthew@texaegis.com?subject=Tex%20audit">
+          Book the audit <span aria-hidden="true">→</span>
+        </a>
+        <a className="btn btn-ghost" href="#wedge">See the comparison</a>
+      </div>
+      <div className="trial-foot">
+        <span>OWASP ASI 2026</span>
+        <span>NIST AI RMF</span>
+        <span>ISO 42001</span>
+        <span>EU AI Act</span>
+        <span>SOC 2</span>
+        <span>FINRA</span>
+      </div>
+    </section>
+  );
 }
 
-function Grain() {
-  return <div className="grain" aria-hidden="true" />;
+function Manifesto() {
+  return (
+    <section className="manifesto" aria-label="manifesto">
+      <p className="manifesto-line">
+        Find every agent. Identify every agent.<br/>
+        Authorize what they can do. Decide every action.
+      </p>
+      <p className="manifesto-line amber">
+        <em>Stop the ones that shouldn't happen.</em>
+      </p>
+      <p className="manifesto-line">
+        Prove the rest. Learn from <em>all of it</em>.
+      </p>
+    </section>
+  );
 }
 
 function Foot() {
   return (
     <footer className="foot">
-      <div className="foot-l">
-        <Glyph />
-        <span>Tex by VortexBlack</span>
+      <div className="foot-brand">
+        <span className="hud-mark" aria-hidden="true" />
+        <span>Tex · texaegis.com</span>
       </div>
-      <div className="foot-r">
-        <a href="https://vortexblack.ai">vortexblack.ai</a>
-        <span className="foot-dot">·</span>
-        <span>{new Date().getFullYear()}</span>
+      <div className="foot-meta">
+        <span>VortexBlack, 2026</span>
+        <span>Boston · USA</span>
+        <span>matthew@texaegis.com</span>
       </div>
     </footer>
   );
-}
-
-/* ────────────────────────────────────────────────────────────────────
- *  Helpers
- * ──────────────────────────────────────────────────────────────────── */
-
-const GENESIS = '0x0000000000000000000000000000000000000000000000000000000000000000';
-
-function emptyScores() {
-  return STREAMS.reduce((acc, s) => ({ ...acc, [s.id]: 0 }), {});
-}
-
-function nowStamp() {
-  const d = new Date();
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  const ss = String(d.getUTCSeconds()).padStart(2, '0');
-  return `${hh}:${mm}:${ss}.${String(d.getUTCMilliseconds()).padStart(3, '0')}Z`;
-}
-
-function seedChain() {
-  const verdicts = ['permit','permit','permit','permit','abstain','permit','forbid','permit','abstain','permit','permit','forbid','permit','abstain','permit','permit'];
-  const kinds = ['email.send','slack.dm','salesforce.update','github.push','stripe.refund','calendar.invite','postgres.delete','mcp.tool_call','docs.share','twilio.sms','s3.put','shell.exec','email.send','stripe.refund','slack.post','mongo.write'];
-  let prev = GENESIS;
-  return verdicts.map((v, i) => {
-    const hash = randHash();
-    const block = { hash, prev, verdict: v, kind: kinds[i % kinds.length], ms: 0.6 + Math.random() * 2.8 };
-    prev = hash;
-    return block;
-  }).reverse();
-}
-
-function seedDiscovery() {
-  return [
-    { hash: randHash(), source: 'microsoft_graph',  candidate: 'app:copilot-finance-q4',     outcome: 'registered',      confidence: 0.93 },
-    { hash: randHash(), source: 'github',           candidate: 'app:claude-code-bot',        outcome: 'updated_drift',   confidence: 0.81 },
-    { hash: randHash(), source: 'salesforce',       candidate: 'agentforce:lead-triage-03',  outcome: 'registered',      confidence: 0.88 },
-    { hash: randHash(), source: 'aws_bedrock',      candidate: 'agent:bedrock-ops-eu-west',  outcome: 'quarantined',     confidence: 0.74 },
-    { hash: randHash(), source: 'mcp_server',       candidate: 'mcp:cursor-eng-dev-04',      outcome: 'registered',      confidence: 0.91 },
-    { hash: randHash(), source: 'openai',           candidate: 'asst:bizops-research-12',    outcome: 'no_op_unchanged', confidence: 0.96 },
-    { hash: randHash(), source: 'microsoft_graph',  candidate: 'app:teams-summarizer-beta',  outcome: 'held_ambiguous',  confidence: 0.62 },
-    { hash: randHash(), source: 'github',           candidate: 'app:internal-cli-helper',    outcome: 'held_below_thresh', confidence: 0.55 },
-    { hash: randHash(), source: 'salesforce',       candidate: 'einstein:cs-classifier-v2',  outcome: 'registered',      confidence: 0.89 },
-  ];
-}
-
-function randHash() {
-  const hex = '0123456789abcdef';
-  let s = '0x';
-  for (let i = 0; i < 16; i++) s += hex[Math.floor(Math.random() * 16)];
-  return s;
 }

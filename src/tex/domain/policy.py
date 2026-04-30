@@ -14,14 +14,30 @@ _ALLOWED_FUSION_KEYS: frozenset[str] = frozenset(
         "specialists",
         "semantic",
         "criticality",
+        "agent_identity",
+        "agent_capability",
+        "agent_behavioral",
     }
 )
 
+# Default weights when agent context is fully active. These preserve the
+# original four-layer weights' relative proportions: the original four
+# layers receive 0.78 of total weight (down from 1.00) and the three new
+# agent streams receive 0.22, split as 0.06/0.09/0.07 — capability gets
+# the most because a capability mismatch is a structural finding.
+#
+# When no agent context is supplied, the router renormalizes by zeroing
+# the agent weights and redistributing their mass back to the original
+# four layers, so a content-only request reproduces the pre-agent fused
+# score exactly.
 _DEFAULT_FUSION_WEIGHTS: dict[str, float] = {
-    "deterministic": 0.30,
-    "specialists": 0.25,
-    "semantic": 0.35,
-    "criticality": 0.10,
+    "deterministic": 0.234,
+    "specialists": 0.195,
+    "semantic": 0.273,
+    "criticality": 0.078,
+    "agent_identity": 0.060,
+    "agent_capability": 0.090,
+    "agent_behavioral": 0.070,
 }
 
 

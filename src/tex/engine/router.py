@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tex.deterministic.gate import DeterministicGateResult
+from tex.domain.agent_signal import AgentEvaluationBundle
 from tex.domain.asi_builder import build_asi_findings
 from tex.domain.asi_finding import ASIFinding
 from tex.domain.finding import Finding
@@ -10,6 +11,21 @@ from tex.domain.policy import PolicySnapshot
 from tex.domain.verdict import Verdict
 from tex.semantic.schema import SemanticAnalysis
 from tex.specialists.base import SpecialistBundle
+
+
+# Keys that belong to the agent fusion group. The router renormalizes
+# these out of the weight vector when no agent is present.
+_AGENT_WEIGHT_KEYS: tuple[str, ...] = (
+    "agent_identity",
+    "agent_capability",
+    "agent_behavioral",
+)
+_CONTENT_WEIGHT_KEYS: tuple[str, ...] = (
+    "deterministic",
+    "specialists",
+    "semantic",
+    "criticality",
+)
 
 
 class RoutingResult(BaseModel):
@@ -106,6 +122,7 @@ class DecisionRouter:
         action_type: str,
         channel: str,
         environment: str,
+        agent_bundle: AgentEvaluationBundle | None = None,
     ) -> RoutingResult:
         criticality_score = policy.criticality_for(
             action_type=action_type,
@@ -117,11 +134,30 @@ class DecisionRouter:
         specialist_score = specialist_bundle.max_risk_score
         semantic_score = semantic_analysis.max_dimension_score
 
+        # Agent stream scores. When agent_bundle is None or marks
+        # agent_present=False, these are 0.0 — the renormalization
+        # path then redistributes the agent weight back to the
+        # original four content layers.
+        agent_present = agent_bundle is not None and agent_bundle.agent_present
+        if agent_present:
+            assert agent_bundle is not None
+            agent_identity_score = agent_bundle.identity.risk_score
+            agent_capability_score = agent_bundle.capability.risk_score
+            agent_behavioral_score = agent_bundle.behavioral.risk_score
+        else:
+            agent_identity_score = 0.0
+            agent_capability_score = 0.0
+            agent_behavioral_score = 0.0
+
         final_score = self._fuse_scores(
             deterministic_score=deterministic_score,
             specialist_score=specialist_score,
             semantic_score=semantic_score,
             criticality_score=criticality_score,
+            agent_identity_score=agent_identity_score,
+            agent_capability_score=agent_capability_score,
+            agent_behavioral_score=agent_behavioral_score,
+            agent_present=agent_present,
             policy=policy,
         )
 
@@ -129,6 +165,7 @@ class DecisionRouter:
             deterministic_result=deterministic_result,
             specialist_bundle=specialist_bundle,
             semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
         )
 
         semantic_dominance_override_fired = self._semantic_dominance_override_fired(
@@ -143,6 +180,7 @@ class DecisionRouter:
             final_score=final_score,
             policy=policy,
             semantic_dominance_override_fired=semantic_dominance_override_fired,
+            agent_bundle=agent_bundle,
         )
 
         uncertainty_flags = self._build_uncertainty_flags(
@@ -153,6 +191,7 @@ class DecisionRouter:
             policy=policy,
             final_score=final_score,
             semantic_dominance_override_fired=semantic_dominance_override_fired,
+            agent_bundle=agent_bundle,
         )
 
         verdict = self._determine_verdict(
@@ -163,6 +202,7 @@ class DecisionRouter:
             confidence=confidence,
             policy=policy,
             uncertainty_flags=uncertainty_flags,
+            agent_bundle=agent_bundle,
         )
 
         asi_findings = build_asi_findings(
@@ -172,19 +212,33 @@ class DecisionRouter:
             semantic_dominance_override_fired=semantic_dominance_override_fired,
         )
 
+        # Findings that bubble up to the durable decision = deterministic
+        # findings + structural agent findings (capability + identity +
+        # behavioral). Specialist and semantic evidence stays inside
+        # their own bundles already attached to the PDPResult.
+        all_findings: list[Finding] = list(deterministic_result.findings)
+        if agent_present and agent_bundle is not None:
+            all_findings.extend(agent_bundle.all_findings)
+
+        scores: dict[str, float] = {
+            "deterministic": round(deterministic_score, 4),
+            "specialists": round(specialist_score, 4),
+            "semantic": round(semantic_score, 4),
+            "criticality": round(criticality_score, 4),
+        }
+        if agent_present:
+            scores["agent_identity"] = round(agent_identity_score, 4)
+            scores["agent_capability"] = round(agent_capability_score, 4)
+            scores["agent_behavioral"] = round(agent_behavioral_score, 4)
+
         return RoutingResult(
             verdict=verdict,
             confidence=round(confidence, 4),
             final_score=round(final_score, 4),
             reasons=reasons,
             uncertainty_flags=uncertainty_flags,
-            findings=deterministic_result.findings,
-            scores={
-                "deterministic": round(deterministic_score, 4),
-                "specialists": round(specialist_score, 4),
-                "semantic": round(semantic_score, 4),
-                "criticality": round(criticality_score, 4),
-            },
+            findings=tuple(all_findings),
+            scores=scores,
             asi_findings=asi_findings,
             semantic_dominance_override_fired=semantic_dominance_override_fired,
         )
@@ -243,9 +297,22 @@ class DecisionRouter:
         specialist_score: float,
         semantic_score: float,
         criticality_score: float,
+        agent_identity_score: float,
+        agent_capability_score: float,
+        agent_behavioral_score: float,
+        agent_present: bool,
         policy: PolicySnapshot,
     ) -> float:
-        weights = policy.fusion_weights
+        """
+        Fuse the seven evidence streams into a single bounded risk score.
+
+        When `agent_present` is False, the three agent stream weights
+        are renormalized into the four content-layer weights so the
+        fused score on a content-only request reproduces the original
+        Tex behavior exactly. This is the backwards-compatibility
+        contract.
+        """
+        weights = self._effective_weights(policy=policy, agent_present=agent_present)
 
         fused = (
             deterministic_score * weights["deterministic"]
@@ -253,8 +320,55 @@ class DecisionRouter:
             + semantic_score * weights["semantic"]
             + criticality_score * weights["criticality"]
         )
+        if agent_present:
+            fused += agent_identity_score * weights["agent_identity"]
+            fused += agent_capability_score * weights["agent_capability"]
+            fused += agent_behavioral_score * weights["agent_behavioral"]
 
         return min(1.0, max(0.0, fused))
+
+    @staticmethod
+    def _effective_weights(
+        *,
+        policy: PolicySnapshot,
+        agent_present: bool,
+    ) -> dict[str, float]:
+        """
+        Compute the weight vector to actually use for this evaluation.
+
+        - Agent present: return policy weights as-is.
+        - Agent absent: zero the agent weights and redistribute their
+          mass proportionally across the four content weights so the
+          vector still sums to 1.0 and the original ratios are
+          preserved.
+        """
+        weights = dict(policy.fusion_weights)
+        if agent_present:
+            return weights
+
+        agent_mass = sum(weights.get(k, 0.0) for k in _AGENT_WEIGHT_KEYS)
+        if agent_mass <= 0.0:
+            # Policy has no agent weights at all; nothing to redistribute.
+            for k in _AGENT_WEIGHT_KEYS:
+                weights[k] = 0.0
+            return weights
+
+        content_mass = sum(weights.get(k, 0.0) for k in _CONTENT_WEIGHT_KEYS)
+        if content_mass <= 0.0:
+            # Pathological policy: no content weight at all. Distribute
+            # agent mass uniformly across the four content keys.
+            even = agent_mass / len(_CONTENT_WEIGHT_KEYS)
+            for k in _CONTENT_WEIGHT_KEYS:
+                weights[k] = weights.get(k, 0.0) + even
+        else:
+            scale = (content_mass + agent_mass) / content_mass
+            for k in _CONTENT_WEIGHT_KEYS:
+                weights[k] = weights.get(k, 0.0) * scale
+
+        for k in _AGENT_WEIGHT_KEYS:
+            weights[k] = 0.0
+
+        return weights
 
     def _compute_confidence(
         self,
@@ -262,6 +376,7 @@ class DecisionRouter:
         deterministic_result: DeterministicGateResult,
         specialist_bundle: SpecialistBundle,
         semantic_analysis: SemanticAnalysis,
+        agent_bundle: AgentEvaluationBundle | None,
     ) -> float:
         deterministic_confidence = 0.95 if deterministic_result.blocked else (
             0.75 if deterministic_result.findings else 0.85
@@ -276,6 +391,7 @@ class DecisionRouter:
 
         semantic_confidence = semantic_analysis.overall_confidence
 
+        # Content-layer base. Identical to pre-fusion behavior.
         base = (
             deterministic_confidence * 0.25
             + specialist_confidence * 0.20
@@ -287,6 +403,19 @@ class DecisionRouter:
 
         if semantic_analysis.evidence_sufficiency < 0.30:
             base -= 0.05
+
+        # Agent-side confidence contribution. When present, blend in
+        # the conservative aggregate confidence of the three agent
+        # streams. Capability mismatch flips this to a confidence
+        # *boost* because we are highly certain a structural mismatch
+        # is real.
+        if agent_bundle is not None and agent_bundle.agent_present:
+            agent_conf = agent_bundle.aggregate_confidence
+            # 80% content / 20% agent contribution.
+            base = base * 0.80 + agent_conf * 0.20
+
+            if agent_bundle.has_capability_violations:
+                base = min(1.0, base + 0.10)
 
         return min(1.0, max(0.0, base))
 
@@ -300,9 +429,25 @@ class DecisionRouter:
         confidence: float,
         policy: PolicySnapshot,
         uncertainty_flags: tuple[str, ...],
+        agent_bundle: AgentEvaluationBundle | None,
     ) -> Verdict:
         if deterministic_result.blocked:
             return Verdict.FORBID
+
+        # Agent quarantine forces ABSTAIN regardless of content. This is
+        # a security primitive: when an operator quarantines an agent,
+        # everything it produces routes to human review until the
+        # quarantine is cleared.
+        if agent_bundle is not None and agent_bundle.agent_present:
+            if agent_bundle.identity.lifecycle_status == "QUARANTINED":
+                return Verdict.ABSTAIN
+
+            # Capability violations — structural FORBID. This is the
+            # equivalent of deterministic_result.blocked but for agent
+            # surface. We still respect the semantic-dominance override
+            # below for content side.
+            if agent_bundle.has_capability_violations:
+                return Verdict.FORBID
 
         # High-confidence semantic override.
         #
@@ -340,6 +485,7 @@ class DecisionRouter:
             confidence=confidence,
             policy=policy,
             uncertainty_flags=uncertainty_flags,
+            agent_bundle=agent_bundle,
         ):
             return Verdict.ABSTAIN
 
@@ -361,6 +507,7 @@ class DecisionRouter:
         confidence: float,
         policy: PolicySnapshot,
         uncertainty_flags: tuple[str, ...],
+        agent_bundle: AgentEvaluationBundle | None,
     ) -> bool:
         if semantic_analysis.recommended_verdict.verdict == Verdict.ABSTAIN:
             return True
@@ -384,6 +531,27 @@ class DecisionRouter:
         if policy.permit_threshold < final_score < policy.forbid_threshold:
             return True
 
+        # Agent-side abstain triggers.
+        if agent_bundle is not None and agent_bundle.agent_present:
+            # On a forbid streak, abstain even if content is clean —
+            # something upstream is wrong with the agent.
+            if agent_bundle.behavioral.forbid_streak >= 3:
+                return True
+
+            # Cold-start agents on borderline content abstain.
+            if (
+                agent_bundle.behavioral.cold_start
+                and final_score >= policy.permit_threshold * 0.8
+            ):
+                return True
+
+            # PENDING lifecycle abstains on anything not clearly clean.
+            if (
+                agent_bundle.identity.lifecycle_status == "PENDING"
+                and final_score >= policy.permit_threshold * 0.5
+            ):
+                return True
+
         return False
 
     def _build_reasons(
@@ -395,6 +563,7 @@ class DecisionRouter:
         final_score: float,
         policy: PolicySnapshot,
         semantic_dominance_override_fired: bool,
+        agent_bundle: AgentEvaluationBundle | None,
     ) -> tuple[str, ...]:
         reasons: list[str] = []
 
@@ -438,6 +607,31 @@ class DecisionRouter:
                 f"recommendation_confidence={semantic_recommendation.confidence:.2f}."
             )
 
+        # Agent reasons. Surface a compact summary of why each agent
+        # stream contributed what it did, so the durable decision is
+        # self-explanatory in audit.
+        if agent_bundle is not None and agent_bundle.agent_present:
+            if agent_bundle.identity.reasons:
+                reasons.append(
+                    "Agent identity: "
+                    + " | ".join(agent_bundle.identity.reasons[:3])
+                )
+            if agent_bundle.capability.reasons:
+                reasons.append(
+                    "Agent capability: "
+                    + " | ".join(agent_bundle.capability.reasons[:3])
+                )
+            if agent_bundle.behavioral.reasons:
+                reasons.append(
+                    "Agent behavioral: "
+                    + " | ".join(agent_bundle.behavioral.reasons[:3])
+                )
+            reasons.append(
+                f"Agent stream scores: identity={agent_bundle.identity.risk_score:.2f}, "
+                f"capability={agent_bundle.capability.risk_score:.2f}, "
+                f"behavioral={agent_bundle.behavioral.risk_score:.2f}."
+            )
+
         return tuple(reasons)
 
     def _build_uncertainty_flags(
@@ -450,6 +644,7 @@ class DecisionRouter:
         policy: PolicySnapshot,
         final_score: float,
         semantic_dominance_override_fired: bool,
+        agent_bundle: AgentEvaluationBundle | None,
     ) -> tuple[str, ...]:
         ordered: list[str] = []
         seen: set[str] = set()
@@ -487,6 +682,11 @@ class DecisionRouter:
 
         if semantic_dominance_override_fired:
             add("semantic_dominance_override")
+
+        # Agent uncertainty flags.
+        if agent_bundle is not None and agent_bundle.agent_present:
+            for flag in agent_bundle.all_uncertainty_flags:
+                add(flag)
 
         # ASI tags are no longer emitted here. They are surfaced as
         # first-class structured ``asi_findings`` on the RoutingResult

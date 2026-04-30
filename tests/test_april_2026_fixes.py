@@ -48,20 +48,38 @@ from tests.factories import (
 
 def test_default_fusion_weights_prioritize_semantic_layer() -> None:
     """
-    Semantic must carry the largest single weight.
+    Semantic must carry the largest single weight in the fused router.
 
-    With the old weights (semantic=0.35, deterministic=0.30), a novel
-    attack that deterministic and specialists missed could not reach the
-    permit threshold through semantic alone. After the fix, semantic is
-    the dominant contributor so clearly-wrong content can cross the
-    permit bar without requiring upstream coverage.
+    Architectural invariant: when fusing the seven evidence streams
+    (deterministic, specialists, semantic, criticality, agent_identity,
+    agent_capability, agent_behavioral), semantic must remain the
+    dominant single contributor so clearly-wrong content can cross the
+    permit bar through semantic alone, even if upstream layers miss.
+
+    Within the original four content layers, semantic must also remain
+    dominant — when no agent context is supplied, the router
+    renormalizes the four content weights, which must still produce
+    semantic ≥ 0.40 (i.e. the original ratios are preserved on the
+    content-only path).
     """
     policy = build_default_policy()
     weights = policy.fusion_weights
+
+    # Semantic is the dominant single weight overall.
     assert weights["semantic"] == max(weights.values())
-    assert weights["semantic"] >= 0.40
+
     # Total weight is still sum-to-one so fused score stays normalized.
     assert abs(sum(weights.values()) - 1.0) < 1e-9
+
+    # When the agent streams are inactive (no agent context), the
+    # original four content layers renormalize to the original
+    # "semantic-dominant" ratios. Semantic must still ≥ 0.40 in that
+    # mode, exactly as it did pre-agent-fusion.
+    content_keys = ("deterministic", "specialists", "semantic", "criticality")
+    content_sum = sum(weights[k] for k in content_keys)
+    assert abs(content_sum - 0.78) < 1e-6
+    semantic_renormalized = weights["semantic"] / content_sum
+    assert semantic_renormalized >= 0.40
 
 
 # ── fix 2: semantic dominance override -----------------------------------

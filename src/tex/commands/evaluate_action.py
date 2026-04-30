@@ -3,14 +3,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from tex.domain.agent import ActionLedgerEntry
 from tex.domain.decision import Decision
 from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
 from tex.domain.evidence import EvidenceRecord
 from tex.domain.policy import PolicySnapshot
+from tex.domain.tenant_baseline import (
+    ContentSignatureRecord,
+    compute_content_signature,
+    extract_recipient_domain,
+)
+from tex.domain.verdict import Verdict
 from tex.engine.pdp import PDPResult, PolicyDecisionPoint
+from tex.stores.action_ledger import InMemoryActionLedger
+from tex.stores.agent_registry import InMemoryAgentRegistry
 from tex.stores.decision_store import InMemoryDecisionStore
 from tex.stores.policy_store import InMemoryPolicyStore
 from tex.stores.precedent_store import InMemoryPrecedentStore
+from tex.stores.tenant_content_baseline import InMemoryTenantContentBaseline
 
 
 @runtime_checkable
@@ -85,6 +95,9 @@ class EvaluateActionCommand:
         "_decision_store",
         "_precedent_store",
         "_evidence_recorder",
+        "_action_ledger",
+        "_agent_registry",
+        "_tenant_baseline",
     )
 
     def __init__(
@@ -95,17 +108,24 @@ class EvaluateActionCommand:
         decision_store: InMemoryDecisionStore,
         precedent_store: DecisionPrecedentStore | None = None,
         evidence_recorder: DecisionEvidenceRecorder | None = None,
+        action_ledger: InMemoryActionLedger | None = None,
+        agent_registry: InMemoryAgentRegistry | None = None,
+        tenant_baseline: InMemoryTenantContentBaseline | None = None,
     ) -> None:
         self._pdp = pdp
         self._policy_store = policy_store
         self._decision_store = decision_store
         self._precedent_store = precedent_store
         self._evidence_recorder = evidence_recorder
+        self._action_ledger = action_ledger
+        self._agent_registry = agent_registry
+        self._tenant_baseline = tenant_baseline
 
     def execute(self, request: EvaluationRequest) -> EvaluateActionResult:
         """
         Evaluate a request, persist the decision, update precedent memory,
-        and optionally record evidence.
+        write to the agent action ledger when applicable, and optionally
+        record evidence.
         """
         policy = self._resolve_policy(request)
         pdp_result = self._pdp.evaluate(
@@ -122,6 +142,15 @@ class EvaluateActionCommand:
         decision = pdp_result.decision
         self._decision_store.save(decision)
         self._save_precedent(decision)
+        self._record_action_ledger_entry(
+            request=request,
+            decision=decision,
+            pdp_result=pdp_result,
+        )
+        self._update_tenant_baseline(
+            request=request,
+            decision=decision,
+        )
 
         evidence_record = None
         response = pdp_result.response
@@ -264,3 +293,102 @@ class EvaluateActionCommand:
             decision,
             metadata=metadata,
         )
+
+    def _record_action_ledger_entry(
+        self,
+        *,
+        request: EvaluationRequest,
+        decision: Decision,
+        pdp_result: PDPResult,
+    ) -> None:
+        """
+        Append an action ledger entry when the request was tied to an agent.
+
+        This is the feedback loop that lets the behavioral evaluation
+        stream improve over time: every Tex decision is durable evidence
+        of how the agent has been behaving.
+        """
+        ledger = self._action_ledger
+        if ledger is None:
+            return
+        if request.agent_id is None:
+            return
+
+        bundle = pdp_result.agent_bundle
+        capability_violations = (
+            bundle.capability.violated_dimensions if bundle.agent_present else tuple()
+        )
+        asi_short_codes = tuple(
+            finding.short_code for finding in pdp_result.routing_result.asi_findings
+        )
+
+        entry = ActionLedgerEntry(
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+            decision_id=decision.decision_id,
+            request_id=decision.request_id,
+            verdict=decision.verdict.value,
+            action_type=decision.action_type,
+            channel=decision.channel,
+            environment=decision.environment,
+            recipient=decision.recipient,
+            final_score=decision.final_score,
+            confidence=decision.confidence,
+            content_sha256=decision.content_sha256,
+            capability_violations=capability_violations,
+            asi_short_codes=asi_short_codes,
+        )
+        ledger.append(entry)
+
+    def _update_tenant_baseline(
+        self,
+        *,
+        request: EvaluationRequest,
+        decision: Decision,
+    ) -> None:
+        """
+        Append a tenant content signature record on PERMITted, agent-
+        attached decisions.
+
+        Three guards:
+        - the tenant baseline must be wired (V11 is opt-in)
+        - the request must carry an agent_id (we need the agent's
+          tenant scope; agentless requests do not contribute)
+        - the verdict must be PERMIT (the baseline represents *normal
+          authorized output*; recording ABSTAIN/FORBID would poison
+          the very signal we use to detect anomalies)
+
+        We also need to look up the agent's tenant_id from the registry.
+        We do that here rather than on the request because tenant scope
+        is owned by the agent identity, not the caller — no caller can
+        spoof their way into a different tenant baseline.
+        """
+        baseline = self._tenant_baseline
+        if baseline is None:
+            return
+        if request.agent_id is None:
+            return
+        if decision.verdict is not Verdict.PERMIT:
+            return
+
+        registry = self._agent_registry
+        if registry is None:
+            # Without a registry we cannot resolve the tenant_id safely.
+            # Defensive: this should not happen in production wiring.
+            return
+
+        agent = registry.get(request.agent_id)
+        if agent is None:
+            return
+
+        signature = compute_content_signature(request.content)
+        record = ContentSignatureRecord(
+            tenant_id=agent.tenant_id,
+            agent_id=agent.agent_id,
+            action_type=decision.action_type,
+            channel=decision.channel,
+            recipient_domain=extract_recipient_domain(decision.recipient),
+            content_sha256=decision.content_sha256,
+            signature=signature,
+        )
+        baseline.append(record)

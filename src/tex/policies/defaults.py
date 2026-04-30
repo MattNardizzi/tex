@@ -185,17 +185,23 @@ _STRICT_SPECIALIST_THRESHOLDS: dict[str, float] = {
 }
 
 _DEFAULT_FUSION_WEIGHTS: dict[str, float] = {
-    "deterministic": 0.28,
-    "specialists": 0.22,
-    "semantic": 0.42,
-    "criticality": 0.08,
+    "deterministic": 0.2184,
+    "specialists": 0.1716,
+    "semantic": 0.3276,
+    "criticality": 0.0624,
+    "agent_identity": 0.060,
+    "agent_capability": 0.090,
+    "agent_behavioral": 0.070,
 }
 
 _STRICT_FUSION_WEIGHTS: dict[str, float] = {
-    "deterministic": 0.28,
-    "specialists": 0.22,
-    "semantic": 0.42,
-    "criticality": 0.08,
+    "deterministic": 0.2184,
+    "specialists": 0.1716,
+    "semantic": 0.3276,
+    "criticality": 0.0624,
+    "agent_identity": 0.060,
+    "agent_capability": 0.090,
+    "agent_behavioral": 0.070,
 }
 
 _DEFAULT_METADATA: dict[str, Any] = {

@@ -1,6 +1,6 @@
 # Tex Integration Guide
 
-> Tex is the gate between AI and the real world. This guide shows you the five ways you can integrate Tex into your stack.
+> Tex is the gate between AI and the real world. This guide shows you the six ways you can integrate Tex into your stack.
 
 Tex doesn't replace your AI infrastructure — it plugs into it. Pick whichever path matches where your AI agents already run.
 
@@ -12,9 +12,12 @@ Tex doesn't replace your AI infrastructure — it plugs into it. Pick whichever 
 | Microsoft Copilot Studio or OpenAI AgentKit | Register Tex as an external runtime guardrail | 5 minutes |
 | Cursor, Claude Desktop, Cline, MCP-aware LangChain | Add Tex's MCP server URL to your MCP config | 1 minute |
 | Custom Python or Node.js agent | `pip install tex-guardrail` and wrap your calls | 5 lines of code |
+| **Any Python agent codebase, LangChain, CrewAI** | **`tex.enforcement` gate decorator wraps your action functions** | **3 lines of code** |
+| **Any HTTP-based agent action** | **Drop the `tex.enforcement.proxy` in front of your endpoint** | **One config block** |
+| **Microsoft 365, Salesforce, AWS Bedrock, GitHub, OpenAI, MCP** | **Discovery layer auto-finds existing AI agents and feeds them into the registry — see V13_DISCOVERY.md** | **One scan call** |
 | Anything else | Direct REST API to `/v1/guardrail` | Custom |
 
-All five paths share the same backend, the same evaluation engine, the same evidence chain. A decision created via Portkey can be replayed via the same audit endpoint as a decision created via the SDK.
+All paths share the same backend, the same evaluation engine, the same evidence chain. A decision created via Portkey can be replayed via the same audit endpoint as a decision created via the gate decorator.
 
 ---
 
@@ -343,6 +346,133 @@ Three possible verdicts:
 ## What about latency?
 
 Tex's median evaluation latency is ~178ms when the semantic LLM provider is configured. Without an LLM (deterministic + heuristic fallback only), it's sub-10ms. The gateway adapters all run synchronously by default; if your gateway supports async guardrails, configure it that way for non-blocking workflows.
+
+---
+
+## Path 6: In-process enforcement (V12)
+
+For Python agent codebases, the smallest possible integration is the `tex.enforcement` gate. It wraps any callable so the callable cannot execute unless Tex returns PERMIT.
+
+### Decorator form (recommended)
+
+```python
+from tex.enforcement import TexGate, GateConfig, DirectCommandTransport, tex_gated
+from tex.main import build_runtime
+
+runtime = build_runtime()
+gate = TexGate(GateConfig(transport=DirectCommandTransport(runtime.evaluate_action_command)))
+
+@tex_gated(gate, content_arg="body", recipient_arg="to", action_type="send_email")
+def send_email(*, to: str, body: str) -> None:
+    smtp_client.send(to=to, body=body)
+
+# On FORBID: send_email never runs, TexForbiddenError is raised.
+# On PERMIT: send_email runs normally, return value is preserved.
+```
+
+### Imperative form (most flexible)
+
+```python
+from tex.enforcement import TexGate, GateConfig, AbstainPolicy
+from tex.enforcement import HttpClientTransport
+import httpx
+
+gate = TexGate(GateConfig(
+    transport=HttpClientTransport(client=httpx.Client(), url="https://tex.yourorg.com/evaluate"),
+    abstain_policy=AbstainPolicy.REVIEW,  # raise on ABSTAIN so a human can intervene
+))
+
+response = gate.check(
+    content=email_body,
+    action_type="send_email",
+    recipient=to_address,
+    agent_id=agent_uuid,
+)
+# Reaches this line only on PERMIT.
+smtp_client.send(to=to_address, body=email_body)
+```
+
+### LangChain
+
+```python
+from tex.enforcement.adapters import make_langchain_tex_tool
+
+gated_tool = make_langchain_tex_tool(
+    gate=gate,
+    base_tool=my_send_email_tool,
+    content_arg="body",
+    recipient_arg="to",
+)
+agent = AgentExecutor(tools=[gated_tool, ...])
+# When the LLM calls the tool with content that Tex FORBIDs, the
+# AgentExecutor receives the refusal as a tool observation and the
+# agent can recover gracefully.
+```
+
+### CrewAI
+
+```python
+from tex.enforcement.adapters import make_crewai_tex_tool
+
+tool = make_crewai_tex_tool(
+    gate=gate,
+    fn=send_message,
+    name="send_message",
+    description="Send a message via internal API",
+    content_arg="body",
+)
+agent = Agent(role="...", tools=[tool])
+```
+
+### MCP server middleware
+
+```python
+from tex.enforcement.adapters import make_mcp_tool_middleware
+
+@make_mcp_tool_middleware(gate=gate, content_arg="message")
+def post_message(arguments: dict) -> dict:
+    return slack_client.post(channel=arguments["channel"], text=arguments["message"])
+
+# Mount post_message as your MCP tool. FORBID actions never reach
+# the underlying handler.
+```
+
+---
+
+## Path 7: HTTP enforcement proxy (V12)
+
+For HTTP-based agent actions, drop the proxy in front of the action endpoint:
+
+```python
+from tex.enforcement import TexGate, GateConfig, DirectCommandTransport
+from tex.enforcement.proxy import build_enforcement_proxy, UpstreamForwarder
+import httpx, uvicorn
+
+gate = TexGate(GateConfig(transport=DirectCommandTransport(runtime.evaluate_action_command)))
+forwarder = UpstreamForwarder(client=httpx.Client(), upstream_url="https://internal.example/send-email")
+app = build_enforcement_proxy(gate=gate, forwarder=forwarder)
+
+uvicorn.run(app, host="0.0.0.0", port=8443)
+```
+
+Now point your agent at `http://your-proxy:8443/...` instead of the original endpoint.
+
+- `200/...` upstream response on PERMIT
+- `403` with Tex evidence on FORBID
+- `409` with Tex evidence on ABSTAIN
+- `502` with Tex evidence on UNAVAILABLE (fail-closed by default)
+
+The proxy is stateless and platform-agnostic. It works in front of any HTTP endpoint regardless of what's running it.
+
+---
+
+## Five guarantees the V12 enforcement layer makes
+
+1. **FORBID always blocks the wrapped action.** No flag overrides this.
+2. **PERMIT always passes through transparently.**
+3. **ABSTAIN behavior is configurable** — `BLOCK` (default), `ALLOW` (with audit flag), `REVIEW` (raises typed error for human routing).
+4. **Failure modes are fail-closed by default.** If Tex is unreachable or errors, the wrapped action does NOT execute. Operators can opt into fail-open with `fail_closed=False`, but the library never does.
+5. **Every gated execution emits exactly one `GateEvent`** for audit. Plug in a `GateEventObserver` to route to logs, metrics, or your audit backend.
 
 ---
 

@@ -11,6 +11,10 @@ from tex.deterministic.gate import (
     DeterministicGateResult,
     build_default_deterministic_gate,
 )
+from tex.agent.behavioral_evaluator import neutral_behavioral_signal
+from tex.agent.capability_evaluator import neutral_capability_signal
+from tex.agent.identity_evaluator import neutral_identity_signal
+from tex.domain.agent_signal import AgentEvaluationBundle
 from tex.domain.decision import Decision
 from tex.domain.determinism import compute_determinism_fingerprint
 from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
@@ -45,8 +49,23 @@ class Router(Protocol):
         action_type: str,
         channel: str,
         environment: str,
+        agent_bundle: AgentEvaluationBundle | None = None,
     ) -> RoutingResult:
         """Returns the fused routing result for one evaluation."""
+
+
+@runtime_checkable
+class AgentEvaluator(Protocol):
+    """
+    Contract for the agent governance evaluation suite.
+
+    Tex's PDP calls this once per evaluation. When the request carries
+    no agent_id, the suite returns a neutral bundle and fusion behaves
+    as if the agent layer were absent.
+    """
+
+    def evaluate(self, request: EvaluationRequest) -> AgentEvaluationBundle:
+        """Run the three agent evaluation streams for one request."""
 
 
 class PDPResult(BaseModel):
@@ -67,6 +86,7 @@ class PDPResult(BaseModel):
     deterministic_result: DeterministicGateResult
     specialist_bundle: SpecialistBundle
     semantic_analysis: SemanticAnalysis
+    agent_bundle: AgentEvaluationBundle
     routing_result: RoutingResult
 
     latency: LatencyBreakdown
@@ -83,6 +103,7 @@ class PolicyDecisionPoint:
     Fixed evaluation order:
     deterministic recognizers
     -> retrieval grounding
+    -> agent identity / capability / behavioral streams (when agent context present)
     -> specialist judges
     -> semantic judge
     -> routing / abstention
@@ -95,6 +116,7 @@ class PolicyDecisionPoint:
     __slots__ = (
         "_deterministic_gate",
         "_retrieval_orchestrator",
+        "_agent_evaluator",
         "_specialist_suite",
         "_semantic_analyzer",
         "_router",
@@ -105,6 +127,7 @@ class PolicyDecisionPoint:
         *,
         deterministic_gate: DeterministicGate | None = None,
         retrieval_orchestrator: RetrievalOrchestrator | None = None,
+        agent_evaluator: AgentEvaluator | None = None,
         specialist_suite: SpecialistSuite | None = None,
         semantic_analyzer: SemanticAnalyzer | None = None,
         router: Router | None = None,
@@ -115,6 +138,7 @@ class PolicyDecisionPoint:
         self._retrieval_orchestrator = (
             retrieval_orchestrator or build_noop_retrieval_orchestrator()
         )
+        self._agent_evaluator = agent_evaluator
         self._specialist_suite = specialist_suite or build_default_specialist_suite()
         self._semantic_analyzer = semantic_analyzer or build_default_semantic_analyzer()
         self._router = router or build_default_router()
@@ -148,6 +172,17 @@ class PolicyDecisionPoint:
         )
         retrieval_ms = _elapsed_ms(retrieval_start)
 
+        # Agent governance evaluation. When no agent_evaluator is wired
+        # in, we synthesize a neutral bundle so downstream code always
+        # has a value. This keeps unit tests that bypass the runtime
+        # composition root working without the agent stack.
+        agent_start = time.perf_counter()
+        if self._agent_evaluator is not None:
+            agent_bundle = self._agent_evaluator.evaluate(request)
+        else:
+            agent_bundle = _neutral_agent_bundle()
+        agent_ms = _elapsed_ms(agent_start)
+
         specialists_start = time.perf_counter()
         specialist_bundle = self._specialist_suite.evaluate(
             request=request,
@@ -171,6 +206,7 @@ class PolicyDecisionPoint:
             action_type=request.action_type,
             channel=request.channel,
             environment=request.environment,
+            agent_bundle=agent_bundle,
         )
         router_ms = _elapsed_ms(router_start)
 
@@ -179,6 +215,7 @@ class PolicyDecisionPoint:
         latency = LatencyBreakdown(
             deterministic_ms=round(deterministic_ms, 2),
             retrieval_ms=round(retrieval_ms, 2),
+            agent_ms=round(agent_ms, 2),
             specialists_ms=round(specialists_ms, 2),
             semantic_ms=round(semantic_ms, 2),
             router_ms=round(router_ms, 2),
@@ -192,6 +229,7 @@ class PolicyDecisionPoint:
             deterministic_result=deterministic_result,
             specialist_bundle=specialist_bundle,
             semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
         )
 
         decision = self._build_decision(
@@ -201,6 +239,7 @@ class PolicyDecisionPoint:
             deterministic_result=deterministic_result,
             specialist_bundle=specialist_bundle,
             semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
             routing_result=routing_result,
             latency=latency,
             determinism_fingerprint=determinism_fingerprint,
@@ -221,6 +260,7 @@ class PolicyDecisionPoint:
             deterministic_result=deterministic_result,
             specialist_bundle=specialist_bundle,
             semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
             routing_result=routing_result,
             latency=latency,
             determinism_fingerprint=determinism_fingerprint,
@@ -237,6 +277,7 @@ class PolicyDecisionPoint:
         deterministic_result: DeterministicGateResult,
         specialist_bundle: SpecialistBundle,
         semantic_analysis: SemanticAnalysis,
+        agent_bundle: AgentEvaluationBundle,
         routing_result: RoutingResult,
         latency: LatencyBreakdown,
         determinism_fingerprint: str,
@@ -249,6 +290,7 @@ class PolicyDecisionPoint:
             deterministic_result=deterministic_result,
             specialist_bundle=specialist_bundle,
             semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
             routing_result=routing_result,
             content_sha256=content_sha256,
             latency=latency,
@@ -313,6 +355,7 @@ class PolicyDecisionPoint:
         deterministic_result: DeterministicGateResult,
         specialist_bundle: SpecialistBundle,
         semantic_analysis: SemanticAnalysis,
+        agent_bundle: AgentEvaluationBundle,
         routing_result: RoutingResult,
         content_sha256: str,
         latency: LatencyBreakdown,
@@ -327,7 +370,7 @@ class PolicyDecisionPoint:
         """
         metadata = dict(request.metadata)
         metadata["pdp"] = {
-            "pdp_version": "v2",
+            "pdp_version": "v3",
             "request_id": str(request.request_id),
             "request_fingerprint": self._request_fingerprint(
                 request=request,
@@ -338,6 +381,7 @@ class PolicyDecisionPoint:
             "latency_ms": {
                 "deterministic": latency.deterministic_ms,
                 "retrieval": latency.retrieval_ms,
+                "agent": latency.agent_ms,
                 "specialists": latency.specialists_ms,
                 "semantic": latency.semantic_ms,
                 "router": latency.router_ms,
@@ -346,6 +390,7 @@ class PolicyDecisionPoint:
             "evaluation_order": [
                 "deterministic_recognizers",
                 "policy_retrieval",
+                "agent_governance_streams",
                 "specialist_judges",
                 "semantic_judge",
                 "routing",
@@ -369,9 +414,14 @@ class PolicyDecisionPoint:
                 "content_sha256": content_sha256,
                 "requested_at": request.requested_at.isoformat(),
                 "policy_id_hint": request.policy_id,
+                "agent_id": (
+                    str(request.agent_id) if request.agent_id is not None else None
+                ),
+                "session_id": request.session_id,
             },
             "deterministic": self._summarize_deterministic(deterministic_result),
             "retrieval": self._summarize_retrieval(retrieval_context),
+            "agent": self._summarize_agent(agent_bundle),
             "specialists": self._summarize_specialists(specialist_bundle),
             "semantic": self._summarize_semantic(semantic_analysis),
             "routing": self._summarize_routing(routing_result),
@@ -408,6 +458,72 @@ class PolicyDecisionPoint:
             ),
             "matched_entity_names": list(retrieval_context.matched_entity_names),
             "retrieved_at": retrieval_context.retrieved_at.isoformat(),
+        }
+
+    @staticmethod
+    def _summarize_agent(agent_bundle: AgentEvaluationBundle) -> dict[str, Any]:
+        """
+        Produce the agent-side summary saved on the durable Decision.
+
+        Captures the seven-stream contract: identity, capability, and
+        behavioral risk and confidence; capability violation dimensions;
+        forbid-streak; cold-start flag; agent_id and lifecycle. This is
+        what audit and replay need to reconstruct the agent posture at
+        the moment of decision.
+        """
+        if not agent_bundle.agent_present:
+            return {
+                "agent_present": False,
+                "agent_id": None,
+            }
+
+        return {
+            "agent_present": True,
+            "agent_id": agent_bundle.agent_id,
+            "aggregate_risk_score": round(agent_bundle.aggregate_risk_score, 4),
+            "aggregate_confidence": round(agent_bundle.aggregate_confidence, 4),
+            "identity": {
+                "risk_score": agent_bundle.identity.risk_score,
+                "confidence": agent_bundle.identity.confidence,
+                "trust_tier": agent_bundle.identity.trust_tier,
+                "lifecycle_status": agent_bundle.identity.lifecycle_status,
+                "environment_match": agent_bundle.identity.environment_match,
+                "attestation_count": agent_bundle.identity.attestation_count,
+                "active_attestation_count": agent_bundle.identity.active_attestation_count,
+                "age_seconds": agent_bundle.identity.age_seconds,
+                "sub_scores": dict(agent_bundle.identity.sub_scores),
+                "uncertainty_flags": list(agent_bundle.identity.uncertainty_flags),
+                "finding_count": len(agent_bundle.identity.findings),
+            },
+            "capability": {
+                "risk_score": agent_bundle.capability.risk_score,
+                "confidence": agent_bundle.capability.confidence,
+                "surface_unrestricted": agent_bundle.capability.surface_unrestricted,
+                "action_permitted": agent_bundle.capability.action_permitted,
+                "channel_permitted": agent_bundle.capability.channel_permitted,
+                "environment_permitted": agent_bundle.capability.environment_permitted,
+                "recipient_permitted": agent_bundle.capability.recipient_permitted,
+                "violated_dimensions": list(agent_bundle.capability.violated_dimensions),
+                "uncertainty_flags": list(agent_bundle.capability.uncertainty_flags),
+                "finding_count": len(agent_bundle.capability.findings),
+            },
+            "behavioral": {
+                "risk_score": agent_bundle.behavioral.risk_score,
+                "confidence": agent_bundle.behavioral.confidence,
+                "sample_size": agent_bundle.behavioral.sample_size,
+                "cold_start": agent_bundle.behavioral.cold_start,
+                "novel_action_type": agent_bundle.behavioral.novel_action_type,
+                "novel_channel": agent_bundle.behavioral.novel_channel,
+                "novel_recipient_domain": agent_bundle.behavioral.novel_recipient_domain,
+                "forbid_streak": agent_bundle.behavioral.forbid_streak,
+                "capability_violation_rate": agent_bundle.behavioral.capability_violation_rate,
+                "recent_abstain_rate": agent_bundle.behavioral.recent_abstain_rate,
+                "deviation_components": dict(
+                    agent_bundle.behavioral.deviation_components
+                ),
+                "uncertainty_flags": list(agent_bundle.behavioral.uncertainty_flags),
+                "finding_count": len(agent_bundle.behavioral.findings),
+            },
         }
 
     @staticmethod
@@ -560,6 +676,25 @@ def build_default_pdp() -> PolicyDecisionPoint:
 def _elapsed_ms(start: float) -> float:
     """Return elapsed wall-clock time in milliseconds since ``start``."""
     return (time.perf_counter() - start) * 1000.0
+
+
+def _neutral_agent_bundle() -> AgentEvaluationBundle:
+    """
+    Build a neutral agent bundle for evaluations that have no agent
+    context wired in (no agent_id on the request, or no agent
+    evaluator registered with the PDP).
+
+    The router treats a neutral bundle as "agent absent" and renormalizes
+    fusion weights back to the original four content layers so behavior
+    on the no-agent path reproduces pre-fusion Tex bit-for-bit.
+    """
+    return AgentEvaluationBundle(
+        agent_present=False,
+        agent_id=None,
+        identity=neutral_identity_signal(),
+        capability=neutral_capability_signal(),
+        behavioral=neutral_behavioral_signal(),
+    )
 
 
 PDPResult.model_rebuild()

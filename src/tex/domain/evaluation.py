@@ -42,6 +42,30 @@ class EvaluationRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     policy_id: str | None = Field(default=None, max_length=100)
 
+    # Optional agent governance context. When supplied, Tex resolves the
+    # agent identity, runs the capability check, and runs the behavioral
+    # baseline check — all as peer evidence streams in the same fusion
+    # event that produces the verdict on the content.
+    #
+    # When omitted, Tex behaves exactly as it did pre-agent-fusion. This
+    # is the backwards-compatibility contract.
+    agent_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Stable identifier of the agent emitting this action. Resolved "
+            "against the agent registry and used by the identity, "
+            "capability, and behavioral evaluation streams."
+        ),
+    )
+    session_id: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Caller-supplied stable identifier for a logical agent session. "
+            "Lets Tex compute behavioral signals scoped to a single run."
+        ),
+    )
+
     requested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("action_type", "channel", "environment")
@@ -71,6 +95,14 @@ class EvaluationRequest(BaseModel):
     @field_validator("policy_id")
     @classmethod
     def normalize_policy_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("session_id")
+    @classmethod
+    def normalize_session_id(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()

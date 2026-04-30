@@ -1,100 +1,102 @@
-# Tex Field — texaegis.com
+# Tex Frontend — Decision Theater
 
-The live, narrated landing experience for **Tex** by VortexBlack. Replaces the previous arcade-style demo with a real-time visualization of Tex catching AI agent actions.
+The redesigned texaegis.com landing page. Drop-in replacement for the existing
+`tex-frontend/` directory.
 
-## What the buyer sees
+## What's in here
 
-Within 5 seconds of arriving:
+```
+index.html              — meta + Google Fonts (Instrument Serif, Inter Tight, JetBrains Mono)
+package.json            — deps: react, react-dom, vite. Three.js dropped.
+vite.config.js          — unchanged from your existing setup
+vercel.json             — unchanged
+public/
+  tex.webp              — preserved from your existing assets
+  tex.png               — preserved
+src/
+  main.jsx              — unchanged entrypoint
+  App.jsx               — full page (Conduit, Anatomy, Discovery, Chain, Enforcement, Manifesto)
+  TexLife.js            — simulation engine driving live verdicts
+  styles.css            — every visual rule in one file (~1700 lines)
+```
 
-1. Tex stands center, full color, authoritative.
-2. Anonymous cyan streaks (ambient agent actions) flow constantly toward Tex — texture only, no labels. Establishes scale: "things happen all the time."
-3. Every ~3.5 seconds, **one labeled hero action** is promoted. The buyer sees:
-   - **Action card**: `slack.post · agent: artisan-sdr-22` attached to the moving particle
-   - **04 EVALUATION** stage tag pulses near Tex's chest
-   - **05 ENFORCEMENT** stage tag with verdict label: **PERMIT** / **ABSTAIN** / **FORBID** in verdict color
-   - **06 EVIDENCE** chip with hash flies down to the chain band, where a new ledger node lights up
-4. The metrics counter ticks up. The receipts ticker at the bottom adds the new entry.
+## Architecture overview
 
-This is the dual-stream architecture:
-- **Ambient** = atmosphere, never the focal event
-- **Hero** = the narrated story, always exactly one at a time
+The hero is **The Conduit** — a horizontal stage that tells Tex's story spatially:
 
-## Stack
+```
+AGENT  ────beam────►  TEX  ────beam────►  DESTINATION
+artisan-sdr-04                           gmail.googleapis.com
+"wants to send email"                    cto@northwind.io
+```
 
-- React 18 + Vite 5
-- Three.js 0.160 (custom GLSL shaders for membrane fresnel, agent particles, Tex emblem heartbeat)
-- DOM overlay layer for crisp readable labels (HTML, not WebGL text)
-- No backend dependency — pure visual
+Every ~3.4s a new action enters the stage. The seven evidence streams resolve in
+sequence (identity → capability → behavioral → deterministic → retrieval →
+specialist → semantic). They fuse into one verdict:
 
-## Run locally
+- **PERMIT** — beam continues through Tex to destination, dest glyph glows green
+- **ABSTAIN** — beam halts at Tex, dest dims amber, "PENDING" implication
+- **FORBID** — beam shatters at Tex with red sparks, dest stays dark
+
+Below the Conduit, a **theater strip** shows the action card and stream bars as
+forensic detail for buyers who lean in.
+
+## Tex avatar — alive
+
+Tex moves on five independent timescales, each on its own DOM layer so they
+compose by multiplication:
+
+1. **Parallax** (React inline transform) — eye-line tracks cursor
+2. **Sway** — three coprime sine periods (11s / 17s / 23s) on nested layers,
+   so the composite never visibly loops within a session
+3. **Breath** — 4.4s respiratory rhythm, ~1.8% scale + 2.2px lift
+4. **Twitch** — re-keyed every 6–11s, one-shot micro-attention gesture
+5. **Verdict reactions** — exhale (PERMIT), hold (ABSTAIN), head-shake (FORBID),
+   plus an anticipation breath right before the verdict lands and a damped
+   overshoot settle in the stamping phase
+
+All animations honor `prefers-reduced-motion: reduce`.
+
+## Build & deploy
 
 ```bash
 npm install
-npm run dev    # http://localhost:5173
+npm run dev      # http://localhost:5173
+npm run build    # → dist/
 ```
 
-Run for at least 30 seconds to see hero actions cycle through different verdicts.
+Drop `dist/` on Vercel as before. Bundle size: ~178 KB JS / 56 KB gzipped,
+~38 KB CSS / 8 KB gzipped. No Three.js dependency.
 
-## Deploy to Vercel
+## Backend wiring
 
-The repo is Vercel-ready with `vercel.json` configured for SPA rewrites and security headers.
+The page is currently driven by `TexLife.js` — a deterministic simulation that
+mirrors the real PDP's stream-by-stream resolution and fusion math (weights
+match `src/tex/policies/defaults.py`: identity 0.10, capability 0.12, behavioral
+0.10, deterministic 0.18, retrieval 0.10, specialist 0.20, semantic 0.20.
+Thresholds: forbid 0.62, abstain 0.34).
 
-```bash
-npm run build  # → dist/
-```
+To wire the real backend in: replace `startVerdictEngine()` in `TexLife.js`
+with WebSocket subscriptions to your evaluation stream; the event shape is
+already what `App.jsx` expects (`begin`, `stream-tick`, `fused`, `verdict`,
+`stamp`, `end`).
 
-If pushing to a fresh repo:
-```bash
-git init
-git add .
-git commit -m "Initial commit: Tex field landing experience"
-git remote add origin <repo-url>
-git push -u origin main
-```
+## Sections below the fold
 
-Vercel auto-detects Vite. After connecting, set the production domain to `texaegis.com`.
+1. **Anatomy of a decision** — the seven evidence streams as an editorial
+   spread, with their fusion weights
+2. **The upstream half** — discovery connectors scanning + reconciliation ledger
+3. **Cryptographically-linked** — eight hash-chained blocks with prev/curr links
+4. **From verdict to stop** — four enforcement shapes (decorator, HTTP proxy,
+   MCP middleware, framework adapters)
+5. **Manifesto + CTA** — "Tex is the entire authority loop"
 
-**Before pushing:** swap the placeholder CTA URL in `src/App.jsx` from `https://vortexblack.ai/contact` to whatever your live demo-request URL is.
+## Type / color tokens
 
-## Tunable parameters
-
-All in `src/TexField.js` near the top of the constructor:
-
-| Param | Default | Effect |
-|---|---|---|
-| `heroCooldown` | 0.4 (initial), then 3.4-4.2s | How often a hero action appears |
-| `ambientSpawnRate` | 5.0/sec | Density of background streaks |
-| `agentCount` | 220 | Number of agent dots in the cloud |
-| `membraneRadius` | 21 | Sphere size around Tex |
-
-Action types and verdict tendencies live in `ACTION_TEMPLATES`. Agent ID prefixes live in `AGENT_PREFIXES`. Verdict mix balance in `HERO_VERDICT_MIX`.
-
-## File map
-
-```
-src/
-  App.jsx        — React shell + HeroOverlay (DOM labels)
-  TexField.js    — Three.js scene + hero/ambient simulation (~870 lines)
-  styles.css     — All styling (Fraunces serif, JetBrains Mono, Inter Tight)
-  main.jsx       — Entry point
-public/
-  tex.png        — Background-removed Tex avatar (1MB PNG fallback)
-  tex.webp       — Optimized 156KB variant (used by app)
-index.html       — Font preloads + OG meta
-vercel.json      — Security headers + SPA routing
-```
-
-## Design constraints (do not break)
-
-- **Tex always renders last with `depthTest: false`.** He is the authority — never tinted by the membrane, never washed out, never partially behind agents. This is the single most important rule.
-- **Membrane is subtle.** Ripples cap at 0.6s lifetime and small radius. Auroras are forbidden — they obscure the narrative.
-- **One hero at a time.** Multiple labeled actions on screen confuses the buyer. The whole point of the hero stream is that it's the focal event.
-- **Verdict colors are non-negotiable**: PERMIT = `#5fffc4` (cyan-green), ABSTAIN = `#ffb547` (amber), FORBID = `#ff4757` (coral red). They appear on the action particle, the membrane flash, the verdict label, and the chain node — consistent everywhere.
-
-## Browser support
-
-Chromium-based browsers (Chrome, Edge, Brave, Arc), Safari 16+, Firefox 110+. Requires WebGL 2. Mobile renders but the hero overlay labels can clip on narrow viewports — current focus is desktop.
-
-## What this replaces
-
-The previous `texaegis.com` rendered a small arcade-style game. It was clever but didn't deliver on the "Authority Layer between AI and the real world" promise from the marketing video. This experience does — by literally showing Tex acting as that authority layer, on every action, with cryptographic proof.
+- **Display serif**: Instrument Serif (italic for verdicts and the manifesto line)
+- **UI**: Inter Tight
+- **Mono / forensics**: JetBrains Mono
+- **Ground**: `#08080a` (warm-shifted black)
+- **Ink**: `#ebe8e0` (bone)
+- **Semantic**: `#5fffc4` permit / `#ffb547` abstain / `#ff5560` forbid
+- **Tex accent**: deep electric violet `#6b5bff`

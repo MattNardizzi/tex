@@ -341,6 +341,20 @@ class EvaluateRequestDTO(BaseModel):
     policy_id: str | None = Field(default=None, max_length=100)
     requested_at: datetime | None = None
 
+    agent_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Optional agent identifier. When supplied, Tex resolves the "
+            "agent and runs the identity / capability / behavioral "
+            "governance streams as part of fusion."
+        ),
+    )
+    session_id: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Optional caller-supplied logical session identifier.",
+    )
+
     @field_validator("requested_at", mode="after")
     @classmethod
     def normalize_requested_at(cls, value: datetime | None) -> datetime | None:
@@ -361,6 +375,8 @@ class EvaluateRequestDTO(BaseModel):
             "environment": self.environment,
             "metadata": dict(self.metadata),
             "policy_id": self.policy_id,
+            "agent_id": self.agent_id,
+            "session_id": self.session_id,
         }
         if self.requested_at is not None:
             payload["requested_at"] = self.requested_at

@@ -8,7 +8,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from tex.agent.suite import AgentEvaluationSuite
 from tex.api.arcade_leaderboard import router as arcade_leaderboard_router  # ARCADE
+from tex.api.agent_routes import build_agent_router
+from tex.api.discovery_routes import build_discovery_router
+from tex.api.tenant_routes import build_tenant_router
 from tex.api.guardrail import router as guardrail_router  # GUARDRAIL: canonical webhook
 from tex.api.guardrail_adapters import router as guardrail_adapters_router  # GUARDRAIL: gateway adapters
 from tex.api.guardrail_streaming import router as guardrail_streaming_router  # GUARDRAIL: SSE + async
@@ -22,6 +26,15 @@ from tex.commands.export_bundle import ExportBundleCommand
 from tex.commands.report_outcome import ReportOutcomeCommand
 from tex.db import arcade_leaderboard_repo  # ARCADE
 from tex.db import leaderboard_repo  # LEADERBOARD
+from tex.discovery.connectors import (
+    AwsBedrockConnector,
+    GitHubConnector,
+    MCPServerConnector,
+    MicrosoftGraphConnector,
+    OpenAIConnector,
+    SalesforceConnector,
+)
+from tex.discovery.service import DiscoveryService
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.policy import PolicySnapshot
 from tex.domain.retrieval import RetrievedEntity, RetrievedPolicyClause, RetrievedPrecedent
@@ -31,11 +44,15 @@ from tex.evidence.recorder import EvidenceRecorder
 from tex.learning.calibrator import ThresholdCalibrator, build_default_calibrator
 from tex.policies.defaults import build_default_policy, build_strict_policy
 from tex.retrieval.orchestrator import RetrievalOrchestrator
+from tex.stores.action_ledger import InMemoryActionLedger
+from tex.stores.agent_registry import InMemoryAgentRegistry
 from tex.stores.decision_store import InMemoryDecisionStore
+from tex.stores.discovery_ledger import InMemoryDiscoveryLedger
 from tex.stores.entity_store import InMemoryEntityStore
 from tex.stores.outcome_store import InMemoryOutcomeStore
 from tex.stores.policy_store import InMemoryPolicyStore
 from tex.stores.precedent_store import InMemoryPrecedentStore
+from tex.stores.tenant_content_baseline import InMemoryTenantContentBaseline
 
 
 DEFAULT_EVIDENCE_PATH = Path("var/tex/evidence/evidence.jsonl")
@@ -62,6 +79,14 @@ class TexRuntime:
     outcome_store: InMemoryOutcomeStore
     precedent_store: InMemoryPrecedentStore
     entity_store: InMemoryEntityStore
+
+    agent_registry: InMemoryAgentRegistry
+    action_ledger: InMemoryActionLedger
+    tenant_baseline: InMemoryTenantContentBaseline
+    agent_suite: AgentEvaluationSuite
+
+    discovery_ledger: InMemoryDiscoveryLedger
+    discovery_service: DiscoveryService
 
     evidence_recorder: EvidenceRecorder
     evidence_exporter: EvidenceExporter
@@ -267,6 +292,9 @@ def build_runtime(
     outcome_store = InMemoryOutcomeStore()
     precedent_store = InMemoryPrecedentStore()
     entity_store = InMemoryEntityStore()
+    agent_registry = InMemoryAgentRegistry()
+    action_ledger = InMemoryActionLedger()
+    tenant_baseline = InMemoryTenantContentBaseline()
 
     _seed_default_policies(policy_store)
     _seed_default_entities(policy_store=policy_store, entity_store=entity_store)
@@ -280,8 +308,40 @@ def build_runtime(
         entity_store=InMemoryEntityStoreAdapter(entity_store),
     )
 
+    agent_suite = AgentEvaluationSuite(
+        registry=agent_registry,
+        ledger=action_ledger,
+        tenant_baseline=tenant_baseline,
+    )
+
+    # ----- Discovery layer composition ------------------------------------
+    #
+    # Discovery is wired with mock connectors by default. Real production
+    # deployments replace these by registering live-API connectors against
+    # the same DiscoveryConnector Protocol via
+    # `runtime.discovery_service.register_connector(...)`.
+    #
+    # The mock connectors start with empty record lists, so a default
+    # boot of Tex runs cleanly with zero discovery output. Operators
+    # populate them by calling `connector.replace_records([...])` from
+    # an admin script, or fixtures populate them in tests.
+    discovery_ledger = InMemoryDiscoveryLedger()
+    discovery_service = DiscoveryService(
+        registry=agent_registry,
+        ledger=discovery_ledger,
+        connectors=[
+            MicrosoftGraphConnector(),
+            SalesforceConnector(),
+            AwsBedrockConnector(),
+            GitHubConnector(),
+            OpenAIConnector(),
+            MCPServerConnector(),
+        ],
+    )
+
     pdp = PolicyDecisionPoint(
         retrieval_orchestrator=retrieval_orchestrator,
+        agent_evaluator=agent_suite,
     )
     calibrator = build_default_calibrator()
 
@@ -291,6 +351,9 @@ def build_runtime(
         decision_store=decision_store,
         precedent_store=precedent_store,
         evidence_recorder=recorder,
+        action_ledger=action_ledger,
+        agent_registry=agent_registry,
+        tenant_baseline=tenant_baseline,
     )
 
     report_outcome_command = ReportOutcomeCommand(
@@ -321,6 +384,12 @@ def build_runtime(
         outcome_store=outcome_store,
         precedent_store=precedent_store,
         entity_store=entity_store,
+        agent_registry=agent_registry,
+        action_ledger=action_ledger,
+        tenant_baseline=tenant_baseline,
+        agent_suite=agent_suite,
+        discovery_ledger=discovery_ledger,
+        discovery_service=discovery_service,
         evidence_recorder=recorder,
         evidence_exporter=exporter,
         evaluate_action_command=evaluate_action_command,
@@ -380,6 +449,9 @@ def create_app(
     )
 
     app.include_router(build_api_router())
+    app.include_router(build_agent_router())  # AGENT GOVERNANCE
+    app.include_router(build_tenant_router())  # V11: TENANT BASELINE
+    app.include_router(build_discovery_router())  # V13: DISCOVERY
     app.include_router(leaderboard_router)  # LEADERBOARD
     app.include_router(arcade_leaderboard_router)  # ARCADE
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
@@ -444,6 +516,14 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.outcome_store = runtime.outcome_store
     app.state.precedent_store = runtime.precedent_store
     app.state.entity_store = runtime.entity_store
+
+    app.state.agent_registry = runtime.agent_registry
+    app.state.action_ledger = runtime.action_ledger
+    app.state.tenant_baseline = runtime.tenant_baseline
+    app.state.agent_suite = runtime.agent_suite
+
+    app.state.discovery_ledger = runtime.discovery_ledger
+    app.state.discovery_service = runtime.discovery_service
 
     app.state.evidence_recorder = runtime.evidence_recorder
     app.state.evidence_exporter = runtime.evidence_exporter

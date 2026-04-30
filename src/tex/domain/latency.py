@@ -27,6 +27,11 @@ class LatencyBreakdown(BaseModel):
 
     deterministic_ms: float = Field(ge=0.0, description="Deterministic gate wall-clock.")
     retrieval_ms: float = Field(ge=0.0, description="Retrieval orchestrator wall-clock.")
+    agent_ms: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Agent evaluation suite wall-clock (identity + capability + behavioral).",
+    )
     specialists_ms: float = Field(ge=0.0, description="Specialist suite wall-clock.")
     semantic_ms: float = Field(ge=0.0, description="Semantic analyzer wall-clock.")
     router_ms: float = Field(ge=0.0, description="Fusion router wall-clock.")
@@ -38,6 +43,7 @@ class LatencyBreakdown(BaseModel):
         candidates = (
             ("deterministic", self.deterministic_ms),
             ("retrieval", self.retrieval_ms),
+            ("agent", self.agent_ms),
             ("specialists", self.specialists_ms),
             ("semantic", self.semantic_ms),
             ("router", self.router_ms),

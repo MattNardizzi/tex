@@ -13,9 +13,9 @@ const useTrial = () => useContext(TrialContext);
 
 /* =============================================================
    THE SEVEN LAYERS
-   Positioning: Tex is the unified control plane that does what
-   Okta, Zenity, Noma, Pillar, Rubrik SAGE, Microsoft AGT, OPA,
-   and Cedar each do separately — combined into one cryptographic loop.
+   Positioning: Tex is one custom-deployed control plane for every
+   AI agent in your company — discovery, identity, policy, runtime,
+   evidence, learning. Configured to your stack. Wired to your tools.
    ============================================================= */
 const LAYERS = [
   {
@@ -23,11 +23,11 @@ const LAYERS = [
     key: 'discovery',
     name: 'Discovery',
     verb: 'See every agent.',
-    absorbs: 'AI Posture Management',
-    rivals: 'Zenity · Noma · Prompt Security',
-    one: 'Continuous, agent-aware inventory across every tenant, vendor, and shadow workflow.',
+    absorbs: 'Agent inventory',
+    rivals: 'Continuous · agentless · cross-stack',
+    one: 'We scan your specific stack — your Slack, your Drive, your AgentForce, whatever you\'re using — and build a live inventory of every AI agent in your company.',
     detail:
-      'Tex maps the full population of acting AI in your environment — first-party agents, vendor copilots, MCP-bound tools, and the autonomous workflows nobody wrote down. Every agent is a row, every row has a hash.',
+      'First-party agents, vendor copilots, MCP-bound tools, browser automations, the autonomous workflows nobody wrote down. We map them all, bind them to a hash, and keep the inventory live as your stack evolves.',
     proof: ['agents.indexed', 'first-party + vendor + shadow', 'continuous re-scan'],
     metric: { label: 'agents observed', value: '4,217' },
     instrument: 'radar',
@@ -37,11 +37,11 @@ const LAYERS = [
     key: 'registration',
     name: 'Registration',
     verb: 'Bind actor and owner.',
-    absorbs: 'Identity for Non-Humans',
-    rivals: 'Okta · Astrix · Aembit',
-    one: 'Every agent gets a cryptographic identity, a human owner, an environment, and a trust tier.',
+    absorbs: 'Agent identity',
+    rivals: 'Owner · scope · environment · trust tier',
+    one: 'Every agent we discover gets a cryptographic identity, a human owner, an environment, and a trust tier — wired into how your team already works.',
     detail:
-      'What Okta does for humans, Tex does for agents — but bound to the action chain. Each registration ties an agent to its owner, scope, environment, and accountability path. No orphans. No anonymous actors.',
+      'No orphans. No anonymous actors. We bind each agent to its owner, its scope, and the accountability path back to a real person. When a partner, auditor, or regulator asks "who authorized this agent," the answer is one query away.',
     proof: ['actor.signed', 'owner.bound', 'env.scoped'],
     metric: { label: 'actors registered', value: '4,217 / 4,217' },
     instrument: 'binding',
@@ -51,11 +51,11 @@ const LAYERS = [
     key: 'capability',
     name: 'Capability',
     verb: 'Define allowed power.',
-    absorbs: 'Policy as Code',
-    rivals: 'OPA · Cedar · Microsoft AGT',
-    one: 'Convert written policy into live, machine-enforceable execution boundaries.',
+    absorbs: 'Policy as code',
+    rivals: 'Compiled · scoped · budgeted',
+    one: 'We configure policy rules to your specific compliance obligations and compile them into runtime constraints your agents cannot exceed.',
     detail:
-      'Capability is the contract: what this agent may do, to what data, in which environments, with what budget, under whose authority. Tex compiles policy into runtime constraints — the same job OPA and Cedar do, fused with the rest of the loop.',
+      'Capability is the contract: what this agent may do, to what data, in which environments, with what budget, under whose authority. Your written rules become live, machine-enforceable boundaries — yours to author, yours to amend, never auto-rewritten.',
     proof: ['policy.compiled', 'scope.bound', 'budget.set'],
     metric: { label: 'capabilities defined', value: '186' },
     instrument: 'compiler',
@@ -65,11 +65,11 @@ const LAYERS = [
     key: 'evaluation',
     name: 'Evaluation',
     verb: 'Read the real action.',
-    absorbs: 'Runtime Adjudication',
-    rivals: 'Pillar · Lasso · Robust Intelligence',
-    one: 'Six judgment layers fire in parallel against the actual action — not the prompt.',
+    absorbs: 'Runtime adjudication',
+    rivals: 'Six judges · parallel · deterministic',
+    one: 'Six judgment layers fire in parallel against the actual action — not the prompt — and reach a verdict in 142ms p95.',
     detail:
-      'Deterministic patterns, retrieval, specialist models, semantic intent, router, and evidence run simultaneously against the real outbound message, tool call, file write, or API request. Verdict reached in 142ms p95.',
+      'Deterministic patterns, retrieval, specialist models, semantic intent, router, and evidence run simultaneously against the real outbound message, tool call, file write, or API request. Each layer\'s output is hashed into the next so the verdict is reproducible from inputs alone.',
     proof: ['deterministic', 'retrieval', 'specialists', 'semantic', 'router', 'evidence'],
     metric: { label: 'p95 latency', value: '142 ms' },
     instrument: 'judges',
@@ -79,11 +79,11 @@ const LAYERS = [
     key: 'enforcement',
     name: 'Enforcement',
     verb: 'Permit. Abstain. Forbid.',
-    absorbs: 'Action Gateway',
-    rivals: 'CalypsoAI · Pangea · Protect AI',
-    one: 'Stop, hold, or release the action before it reaches the real world.',
+    absorbs: 'Action gateway',
+    rivals: 'Three states · machine-binding',
+    one: 'We wire enforcement into your existing tools so the verdict actually stops, holds, or releases the action before it reaches the real world.',
     detail:
-      'A single verdict, three states, machine-binding. Permit releases the action under recorded authority. Abstain holds for human review. Forbid blocks and seals the attempt as evidence.',
+      'A single verdict, three states, machine-binding. Permit releases the action under recorded authority. Abstain holds for human review — your reviewer, your queue, your call. Forbid blocks the action and seals the attempt as evidence. No "after-the-fact alerts" — actual runtime control.',
     proof: ['PERMIT', 'ABSTAIN', 'FORBID'],
     metric: { label: 'verdicts / day', value: '2.41 M' },
     instrument: 'gates',
@@ -93,11 +93,11 @@ const LAYERS = [
     key: 'evidence',
     name: 'Evidence',
     verb: 'Seal the proof.',
-    absorbs: 'Audit Chain',
-    rivals: 'Rubrik SAGE · Datadog · Splunk',
-    one: 'Hash-chain the request, policy, verdict, permit, verification, and outcome.',
+    absorbs: 'Audit chain',
+    rivals: 'SHA-256 · HMAC-signed · replayable',
+    one: 'Every decision becomes a SHA-256 hash-chained, HMAC-signed evidence bundle — replayable on demand, six months or six years later.',
     detail:
-      'Every decision becomes a SHA-256 hash-chained, HMAC-signed evidence bundle. Tamper-evident. Auditor-ready. Regulator-ready. Everyone logs it. Tex proves it.',
+      'One dashboard showing every AI agent in your company, what they\'re allowed to do, what they actually did, and an audit-grade evidence record for every decision. Tamper-evident. Auditor-ready. When the question comes — examiner, partner, lawsuit, internal investigation — the answer is one query and a deterministic replay.',
     proof: ['sha-256', 'hmac-signed', 'append-only'],
     metric: { label: 'bundles sealed', value: '14,392,118' },
     instrument: 'chain',
@@ -107,11 +107,11 @@ const LAYERS = [
     key: 'learning',
     name: 'Learning',
     verb: 'Tune without drift.',
-    absorbs: 'Closed-Loop Calibration',
-    rivals: 'Arize · WhyLabs · Fiddler',
-    one: 'Refine thresholds from sealed outcomes — without letting the system rewrite the rules.',
+    absorbs: 'Closed-loop calibration',
+    rivals: 'Human-authored · audit-preserved',
+    one: 'Refine thresholds from sealed outcomes — without letting the system rewrite the rules you wrote.',
     detail:
-      'Calibration uses the evidence chain to retune thresholds and routing. Policy stays human-authored. The loop closes without surrendering authorship. The system improves; the rules stay yours.',
+      'Calibration uses your own evidence chain to retune thresholds and routing as your business changes. Policy stays human-authored. Every proposed change is logged, reviewed, and approval-gated. The system improves; the rules stay yours.',
     proof: ['signal.bound', 'human.authored', 'audit.preserved'],
     metric: { label: 'thresholds tuned', value: '23 this week' },
     instrument: 'dial',
@@ -302,7 +302,7 @@ function LayerBar({ active, setActive }) {
         ))}
       </ol>
       <button type="button" className="bar-cta" onClick={onActivate}>
-        <span>Activate</span>
+        <span>Book a call</span>
         <span className="cta-arrow">→</span>
       </button>
     </nav>
@@ -517,7 +517,7 @@ function AegisRing({ active, setActive }) {
    VERDICT TICKER
    ============================================================= */
 const SAMPLE_VERDICTS = [
-  { v: 'PERMIT', actor: 'agent_revops_07', action: 'send_email::client_quarterly', risk: '0.12' },
+  { v: 'PERMIT', actor: 'agent_revops_07', action: 'send_email::client.quarterly', risk: '0.12' },
   { v: 'ABSTAIN', actor: 'copilot_legal_03', action: 'file.write::contracts/draft.docx', risk: '0.61' },
   { v: 'FORBID', actor: 'agent_support_22', action: 'api.call::stripe.refund.full', risk: '0.94' },
   { v: 'PERMIT', actor: 'workflow_ops_11', action: 'tool.invoke::salesforce.update', risk: '0.18' },
@@ -560,7 +560,7 @@ function Hero({ active, setActive }) {
             <span className="kicker-dot" />
             <span>Tex by VortexBlack</span>
             <span className="kicker-sep">/</span>
-            <span>OWASP ASI 2026 reference adjudicator</span>
+            <span>Custom-deployed in 4–6 weeks</span>
           </div>
 
           <h1 className="hero-h1">
@@ -569,9 +569,10 @@ function Hero({ active, setActive }) {
           </h1>
 
           <p className="hero-lede">
-            Identity. Posture. Runtime. Policy. Evidence. Calibration. What
-            Okta, Zenity, Noma, Pillar, Microsoft AGT, OPA, and Cedar each do
-            separately — Tex does as <span className="lede-strong">one cryptographic loop</span>.
+            We deploy a unified AI control plane in your environment in 4–6 weeks.
+            Discovery scans your stack — your Slack, your Drive, your AgentForce,
+            whatever you're using. We configure policy rules to your specific
+            compliance obligations. We wire enforcement into your existing tools.
           </p>
 
           <div className="five-second">
@@ -580,17 +581,17 @@ function Hero({ active, setActive }) {
               <span className="five-rule" />
             </div>
             <p className="five-body">
-              Seven layers, one chain. Tex inventories every agent in your
-              company, binds it to a human owner, defines what it can do,
-              judges what it actually does, blocks what it shouldn't, seals the
-              proof, and learns from outcomes — without surrendering authorship
-              of the rules.
+              You end up with one dashboard showing every AI agent in your company,
+              what they're allowed to do, what they actually did, and an audit-grade
+              evidence record for every decision. One implementation, one platform,
+              one ongoing relationship — instead of buying eight tools and stitching
+              them together yourself.
             </p>
           </div>
 
           <div className="hero-actions">
             <button type="button" onClick={openTrial} className="btn-primary">
-              <span>Activate 2-week trial</span>
+              <span>Book a 20-min founder call</span>
               <span className="btn-arrow">→</span>
             </button>
             <a href="#layer-01" className="btn-ghost">
@@ -600,16 +601,16 @@ function Hero({ active, setActive }) {
 
           <div className="hero-stats">
             <div className="stat">
-              <span className="stat-num">8<span className="stat-unit"> tools</span></span>
-              <span className="stat-lbl">replaced by one</span>
+              <span className="stat-num">4–6<span className="stat-unit"> weeks</span></span>
+              <span className="stat-lbl">to deployed control plane</span>
             </div>
             <div className="stat">
               <span className="stat-num">142<span className="stat-unit">ms</span></span>
               <span className="stat-lbl">p95 verdict</span>
             </div>
             <div className="stat">
-              <span className="stat-num">EU AI Act</span>
-              <span className="stat-lbl">aug 2026 ready</span>
+              <span className="stat-num">1<span className="stat-unit"> dashboard</span></span>
+              <span className="stat-lbl">every AI agent, every decision</span>
             </div>
           </div>
         </div>
@@ -1224,7 +1225,7 @@ function ChainBand() {
           <span>The Chain</span>
         </span>
         <h2 className="cb-h2">
-          Eight tools.<br />
+          Seven layers.<br />
           <span className="ital">One sealed loop.</span>
         </h2>
         <p className="cb-lede">
@@ -1268,13 +1269,15 @@ function ClosingPanel() {
             <span className="ital">your agents?</span>
           </h2>
           <p className="cl-lede">
-            Two weeks. We inventory the agents you have, map their authority, run
-            real actions through the seven layers, and hand you a sealed evidence
-            bundle. One control plane in. Eight tools out.
+            Four to six weeks. We deploy a unified AI control plane in your
+            environment, configured to your specific stack and your specific
+            compliance obligations. One implementation, one platform, one
+            ongoing relationship — instead of buying eight tools and stitching
+            them together yourself.
           </p>
           <div className="hero-actions">
             <button type="button" onClick={openTrial} className="btn-primary">
-              <span>Activate 2-week trial</span>
+              <span>Book a 20-min founder call</span>
               <span className="btn-arrow">→</span>
             </button>
             <a href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`} className="btn-ghost">
@@ -1318,7 +1321,7 @@ function Footer() {
         </div>
         <span className="foot-name">Tex by VortexBlack</span>
       </div>
-      <div className="foot-mid">Cryptographic control plane for AI agents. Boston · 2026.</div>
+      <div className="foot-mid">One control plane for every AI agent. Boston · 2026.</div>
       <div className="foot-right"><a href="#top">↑ top</a></div>
     </footer>
   );
@@ -1418,15 +1421,15 @@ function TrialModal({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="trial-modal" role="dialog" aria-modal="true" aria-label="Activate 2-week trial">
+    <div className="trial-modal" role="dialog" aria-modal="true" aria-label="Book a founder call">
       <div className="trial-backdrop" onClick={onClose} />
       <div className="trial-panel">
         <header className="trial-head">
           <div className="trial-head-left">
-            <span className="trial-tag">TRIAL · INTAKE</span>
-            <h3 className="trial-title">Activate 2-week trial</h3>
+            <span className="trial-tag">FOUNDER · INTAKE</span>
+            <h3 className="trial-title">Book a 20-min founder call</h3>
             <p className="trial-sub">
-              Founder-led 30-min qualification call. Book a slot below.
+              Direct call with Matt — see if Tex fits your stack. Pick a slot below.
             </p>
           </div>
           <button type="button" className="trial-close" onClick={onClose} aria-label="Close">

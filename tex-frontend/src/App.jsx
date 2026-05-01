@@ -302,7 +302,7 @@ function LayerBar({ active, setActive }) {
         ))}
       </ol>
       <button type="button" className="bar-cta" onClick={onActivate}>
-        <span>Book a call</span>
+        <span>Book a demo</span>
         <span className="cta-arrow">→</span>
       </button>
     </nav>
@@ -591,7 +591,7 @@ function Hero({ active, setActive }) {
 
           <div className="hero-actions">
             <button type="button" onClick={openTrial} className="btn-primary">
-              <span>Book a 20-min founder call</span>
+              <span>Book a demo</span>
               <span className="btn-arrow">→</span>
             </button>
             <a href="#layer-01" className="btn-ghost">
@@ -1277,7 +1277,7 @@ function ClosingPanel() {
           </p>
           <div className="hero-actions">
             <button type="button" onClick={openTrial} className="btn-primary">
-              <span>Book a 20-min founder call</span>
+              <span>Book a demo</span>
               <span className="btn-arrow">→</span>
             </button>
             <a href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`} className="btn-ghost">
@@ -1421,15 +1421,15 @@ function TrialModal({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="trial-modal" role="dialog" aria-modal="true" aria-label="Book a founder call">
+    <div className="trial-modal" role="dialog" aria-modal="true" aria-label="Book a demo">
       <div className="trial-backdrop" onClick={onClose} />
       <div className="trial-panel">
         <header className="trial-head">
           <div className="trial-head-left">
-            <span className="trial-tag">FOUNDER · INTAKE</span>
-            <h3 className="trial-title">Book a 20-min founder call</h3>
+            <span className="trial-tag">DEMO · INTAKE</span>
+            <h3 className="trial-title">Book a demo</h3>
             <p className="trial-sub">
-              Direct call with Matt — see if Tex fits your stack. Pick a slot below.
+              See Tex run on your stack. Pick a slot below.
             </p>
           </div>
           <button type="button" className="trial-close" onClick={onClose} aria-label="Close">

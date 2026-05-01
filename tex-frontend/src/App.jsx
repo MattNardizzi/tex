@@ -310,14 +310,19 @@ function LayerBar({ active, setActive }) {
 }
 
 /* =============================================================
-   AEGIS RING — animated heptagon + avatar
-   - Pulsing energy traveling around vertices
-   - Spoke-to-active-vertex beam
-   - Counter-rotating coordinate ring
+   AEGIS RING — Holo-chamber containment system
+   - Heptagonal constellation orbiting a focused subject (Tex)
+   - Auto-cycling layer focus with energy-packet pulses
+   - Mouse parallax · 3D head attention tracking · scanline sweep
+   - Hex-frame nodes with snap-on lock brackets
+   - Drifting particle field that follows the active node
+   - Boot-up reveal animation on first paint
    ============================================================= */
 function AegisRing({ active, setActive }) {
   const cx = 500, cy = 500;
-  const radius = 320;
+  const radius = 300;
+
+  // Heptagon vertices (top-up). Each maps to a layer.
   const vertices = LAYERS.map((_, i) => {
     const angle = (-Math.PI / 2) + (i * 2 * Math.PI) / 7;
     return {
@@ -326,20 +331,100 @@ function AegisRing({ active, setActive }) {
       angle,
     };
   });
-  const heptPath = vertices.map((v, i) => `${i === 0 ? 'M' : 'L'} ${v.x} ${v.y}`).join(' ') + ' Z';
 
-  // Coordinate ticks rendered around outer ring
-  const ticks = Array.from({ length: 60 }, (_, i) => i);
+  // Tex's chest emblem position (in viewBox coords) — pulse target.
+  // The avatar sits in the center; the chest emblem is roughly 18% below center.
+  const chestX = cx;
+  const chestY = cy + 100;
 
-  // Pulse animation: which vertex is currently "lit" by the energy traveler
-  const [pulseIdx, setPulseIdx] = useState(0);
+  /* ---- Auto-cycle (pauses on user interaction, resumes after idle) ---- */
+  const [paused, setPaused] = useState(false);
+  const idleTimerRef = useRef(null);
   useEffect(() => {
-    const id = setInterval(() => setPulseIdx((v) => (v + 1) % 7), 600);
+    if (paused) return;
+    const id = setInterval(() => {
+      setActive((prev) => (prev + 1) % 7);
+    }, 3200);
     return () => clearInterval(id);
+  }, [paused, setActive]);
+
+  const pauseAutocycle = () => {
+    setPaused(true);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = setTimeout(() => setPaused(false), 4000);
+  };
+
+  /* ---- Pulse trigger: every time `active` changes, fire energy packet ---- */
+  const [pulseToken, setPulseToken] = useState(0);
+  const prevActiveRef = useRef(active);
+  useEffect(() => {
+    if (prevActiveRef.current !== active) {
+      setPulseToken((t) => t + 1);
+      prevActiveRef.current = active;
+    }
+  }, [active]);
+
+  /* ---- Mouse parallax for the whole stage ---- */
+  const stageRef = useRef(null);
+  const [parallax, setParallax] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    const handle = (e) => {
+      const el = stageRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const dx = (e.clientX - (r.left + r.width / 2)) / r.width;  // -0.5..0.5
+      const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
+      setParallax({ x: dx * 12, y: dy * 12 });
+    };
+    window.addEventListener('mousemove', handle);
+    return () => window.removeEventListener('mousemove', handle);
   }, []);
 
+  /* ---- Drifting particles ---- */
+  const particles = React.useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 36; i++) {
+      const a = (i * 137.5) * Math.PI / 180;
+      const r = 70 + (i * 23) % 200;
+      arr.push({
+        baseX: cx + Math.cos(a) * r,
+        baseY: cy + Math.sin(a) * r,
+        size: 0.8 + (i % 3) * 0.5,
+        delay: (i * 0.13) % 4,
+        speed: 8 + (i % 5),
+      });
+    }
+    return arr;
+  }, []);
+
+  /* ---- Boot-up reveal flag ---- */
+  const [booted, setBooted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setBooted(true), 50);
+    return () => clearTimeout(t);
+  }, []);
+
+  /* ---- Active layer info ---- */
+  const activeLayer = LAYERS[active];
+  const activeVertex = vertices[active];
+
+  /* ---- Tex head-attention tilt: subtle 3D rotation toward active node ---- */
+  // active angle is -PI/2 (top) for index 0. Convert to head tilt:
+  const tiltX = Math.sin(activeVertex.angle) * -3;  // ±3° pitch
+  const tiltY = Math.cos(activeVertex.angle) * 4;   // ±4° yaw
+
+  /* ---- Constellation lines: each node connects to its two neighbors ---- */
+  const constellationLines = vertices.map((v, i) => {
+    const next = vertices[(i + 1) % 7];
+    return { x1: v.x, y1: v.y, x2: next.x, y2: next.y, i };
+  });
+
   return (
-    <div className="aegis-stage">
+    <div
+      className={`aegis-stage ${booted ? 'is-booted' : ''}`}
+      ref={stageRef}
+      style={{ '--px': `${parallax.x}px`, '--py': `${parallax.y}px` }}
+    >
       <svg
         className="aegis-svg"
         viewBox="0 0 1000 1000"
@@ -347,149 +432,297 @@ function AegisRing({ active, setActive }) {
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
-          <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.22)" />
-            <stop offset="50%" stopColor="rgba(86, 230, 220, 0.06)" />
+          {/* Radial bloom centered on Tex's chest */}
+          <radialGradient id="chestBloom" cx="50%" cy="60%" r="35%">
+            <stop offset="0%" stopColor="rgba(127, 241, 233, 0.55)" />
+            <stop offset="40%" stopColor="rgba(86, 230, 220, 0.18)" />
             <stop offset="100%" stopColor="rgba(0,0,0,0)" />
           </radialGradient>
-          <linearGradient id="ringStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.7)" />
-            <stop offset="50%" stopColor="rgba(180, 220, 230, 0.35)" />
-            <stop offset="100%" stopColor="rgba(86, 230, 220, 0.7)" />
+          <radialGradient id="ambientGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.14)" />
+            <stop offset="55%" stopColor="rgba(86, 230, 220, 0.04)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+          <linearGradient id="scanLine" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(86, 230, 220, 0)" />
+            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.65)" />
+            <stop offset="100%" stopColor="rgba(86, 230, 220, 0)" />
           </linearGradient>
-          <filter id="vertexGlow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="6" result="blur" />
+          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-          <filter id="strongGlow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="14" result="blur" />
+          <filter id="hardGlow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="8" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <filter id="bloomGlow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="18" />
+          </filter>
+          {/* Path along the outer telemetry ring for type-on-circle */}
+          <path
+            id="telemetryPath"
+            d={`M ${cx - (radius + 110)} ${cy} A ${radius + 110} ${radius + 110} 0 1 1 ${cx + (radius + 110)} ${cy} A ${radius + 110} ${radius + 110} 0 1 1 ${cx - (radius + 110)} ${cy}`}
+            fill="none"
+          />
         </defs>
 
-        {/* Center aura */}
-        <circle cx={cx} cy={cy} r={radius + 100} fill="url(#centerGlow)" />
+        {/* Layer 0: ambient bloom */}
+        <circle cx={cx} cy={cy} r={radius + 180} fill="url(#ambientGlow)" className="ambient-bloom" />
 
-        {/* Outer rotating coordinate ring */}
-        <g className="rotating-ring">
-          <circle cx={cx} cy={cy} r={radius + 80} className="ring-guide-thin" />
-          {ticks.map((i) => {
-            const a = (i / 60) * Math.PI * 2;
-            const r1 = radius + 70;
-            const r2 = i % 5 === 0 ? radius + 92 : radius + 80;
+        {/* Layer 1: rotating outer telemetry ring with tick marks */}
+        <g className="telemetry-ring">
+          <circle cx={cx} cy={cy} r={radius + 100} className="ring-thin" />
+          <circle cx={cx} cy={cy} r={radius + 120} className="ring-thin faint" />
+          {Array.from({ length: 72 }, (_, i) => {
+            const a = (i / 72) * Math.PI * 2;
+            const major = i % 6 === 0;
+            const r1 = radius + 100;
+            const r2 = major ? radius + 118 : radius + 108;
             return (
               <line
-                key={`tk-${i}`}
+                key={`t-${i}`}
                 x1={cx + Math.cos(a) * r1}
                 y1={cy + Math.sin(a) * r1}
                 x2={cx + Math.cos(a) * r2}
                 y2={cy + Math.sin(a) * r2}
-                className={`tick ${i % 5 === 0 ? 'tick-major' : ''}`}
+                className={`tele-tick ${major ? 'is-major' : ''}`}
               />
             );
           })}
-          {/* Coordinate labels at quadrants */}
-          {[0, 15, 30, 45].map((i) => {
-            const a = (i / 60) * Math.PI * 2;
-            const r = radius + 110;
+        </g>
+
+        {/* Layer 2: counter-rotating coordinate readouts */}
+        <g className="coord-ring">
+          {[0, 18, 36, 54].map((deg) => {
+            const a = (deg / 72) * Math.PI * 2;
+            const r = radius + 142;
             return (
               <text
-                key={`lbl-${i}`}
+                key={`c-${deg}`}
                 x={cx + Math.cos(a) * r}
                 y={cy + Math.sin(a) * r}
-                className="ring-coord"
+                className="coord-label"
                 textAnchor="middle"
                 dominantBaseline="middle"
               >
-                {String(i * 6).padStart(3, '0')}°
+                {String(deg * 5).padStart(3, '0')}°
               </text>
             );
           })}
         </g>
 
-        {/* Concentric guide rings */}
-        <circle cx={cx} cy={cy} r={radius + 30} className="ring-guide" />
-        <circle cx={cx} cy={cy} r={radius - 60} className="ring-guide faint" />
-        <circle cx={cx} cy={cy} r={radius - 140} className="ring-guide faint" />
-
-        {/* Cardinal cross */}
-        <line x1={cx - radius - 30} y1={cy} x2={cx + radius + 30} y2={cy} className="cardinal" />
-        <line x1={cx} y1={cy - radius - 30} x2={cx} y2={cy + radius + 30} className="cardinal" />
-
-        {/* Heptagonal frame */}
-        <path d={heptPath} className="hept-frame" />
-
-        {/* Spokes */}
-        {vertices.map((v, i) => (
-          <line
-            key={`spoke-${i}`}
-            x1={cx} y1={cy} x2={v.x} y2={v.y}
-            className={`spoke ${i === active ? 'spoke-active' : ''}`}
-          />
-        ))}
-
-        {/* Beam from center to active vertex (animated, layered) */}
-        <line
-          x1={cx} y1={cy}
-          x2={vertices[active].x} y2={vertices[active].y}
-          className="active-beam-glow"
-          filter="url(#strongGlow)"
-        />
-        <line
-          x1={cx} y1={cy}
-          x2={vertices[active].x} y2={vertices[active].y}
-          className="active-beam"
-        />
-
-        {/* Active arc sweep */}
-        <circle
-          cx={cx} cy={cy} r={radius + 30}
-          fill="none"
-          stroke="url(#ringStroke)"
-          strokeWidth="1.5"
-          strokeDasharray="60 1440"
-          className="ring-sweep"
+        {/* Layer 3: containment ring (the main visible perimeter) */}
+        <circle cx={cx} cy={cy} r={radius + 60} className="containment-ring" />
+        <circle cx={cx} cy={cy} r={radius + 60} className="containment-ring-active"
           style={{
             transformOrigin: `${cx}px ${cy}px`,
             transform: `rotate(${(active * 360) / 7 - 90}deg)`,
           }}
         />
 
-        {/* Vertex nodes */}
-        {vertices.map((v, i) => (
-          <g key={`vtx-${i}`}>
-            <circle cx={v.x} cy={v.y} r={i === active ? 24 : 14} className="vertex-ring-outer" />
-            <circle
-              cx={v.x} cy={v.y} r={i === active ? 14 : 7}
-              className={`vertex-dot ${i === active ? 'is-active' : ''} ${i === pulseIdx ? 'is-pulse' : ''}`}
-              filter={i === active ? 'url(#vertexGlow)' : undefined}
+        {/* Layer 4: inner aperture circle (around Tex) */}
+        <circle cx={cx} cy={cy} r="180" className="aperture-ring" />
+        <circle cx={cx} cy={cy} r="220" className="aperture-ring faint" />
+
+        {/* Layer 5: constellation lines between neighbor nodes */}
+        <g className="constellation">
+          {constellationLines.map((l, i) => (
+            <line
+              key={`cl-${i}`}
+              x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+              className={`const-line ${i === active || (i + 1) % 7 === active ? 'is-lit' : ''}`}
+              style={{ animationDelay: `${i * 0.08}s` }}
             />
-            {/* Pulse traveler */}
-            {i === pulseIdx && i !== active && (
-              <circle cx={v.x} cy={v.y} r="20" className="pulse-wave" />
-            )}
-          </g>
-        ))}
+          ))}
+          {/* Spokes from each node to center */}
+          {vertices.map((v, i) => (
+            <line
+              key={`sp-${i}`}
+              x1={v.x} y1={v.y} x2={chestX} y2={chestY}
+              className={`spoke-line ${i === active ? 'is-lit' : ''}`}
+              style={{ animationDelay: `${0.4 + i * 0.06}s` }}
+            />
+          ))}
+        </g>
+
+        {/* Layer 6: drifting particles — group shifts gently toward active node */}
+        <g
+          className="particle-field"
+          style={{
+            transform: `translate(${(activeVertex.x - cx) * 0.06}px, ${(activeVertex.y - cy) * 0.06}px)`,
+          }}
+        >
+          {particles.map((p, i) => (
+            <circle
+              key={`pt-${i}`}
+              cx={p.baseX}
+              cy={p.baseY}
+              r={p.size}
+              className="particle"
+              style={{
+                animationDelay: `${p.delay}s`,
+                animationDuration: `${p.speed}s`,
+              }}
+            />
+          ))}
+        </g>
+
+        {/* Layer 7: chest bloom (intensifies on pulse arrival) */}
+        <g key={`bloom-${pulseToken}`} className="chest-bloom-wrap">
+          <circle cx={chestX} cy={chestY} r="160" fill="url(#chestBloom)" className="chest-bloom" />
+        </g>
+
+        {/* Layer 8: energy packet — SMIL-animated bead from active node to chest on each pulse */}
+        <g key={`pkt-${pulseToken}`} className="energy-packet-wrap">
+          <line
+            x1={activeVertex.x} y1={activeVertex.y}
+            x2={chestX} y2={chestY}
+            className="packet-trail"
+            filter="url(#hardGlow)"
+          />
+          <circle r="7" fill="var(--tex-bright)" filter="url(#hardGlow)" className="packet-bead">
+            <animate
+              attributeName="cx"
+              from={activeVertex.x}
+              to={chestX}
+              dur="0.95s"
+              fill="freeze"
+              calcMode="spline"
+              keySplines="0.5 0 0.5 1"
+            />
+            <animate
+              attributeName="cy"
+              from={activeVertex.y}
+              to={chestY}
+              dur="0.95s"
+              fill="freeze"
+              calcMode="spline"
+              keySplines="0.5 0 0.5 1"
+            />
+            <animate
+              attributeName="r"
+              values="3;9;14;0"
+              keyTimes="0;0.15;0.85;1"
+              dur="0.95s"
+              fill="freeze"
+            />
+            <animate
+              attributeName="opacity"
+              values="0;1;1;0"
+              keyTimes="0;0.1;0.85;1"
+              dur="0.95s"
+              fill="freeze"
+            />
+          </circle>
+        </g>
+
+        {/* Layer 9: hex-frame nodes */}
+        {vertices.map((v, i) => {
+          const isActive = i === active;
+          const r = isActive ? 26 : 18;
+          // Hexagon points (flat-top)
+          const hexPts = Array.from({ length: 6 }, (_, k) => {
+            const a = (k * Math.PI) / 3;
+            return `${v.x + Math.cos(a) * r},${v.y + Math.sin(a) * r}`;
+          }).join(' ');
+          return (
+            <g key={`node-${i}`} className={`node ${isActive ? 'is-active' : ''}`}>
+              {/* Outer halo when active */}
+              {isActive && (
+                <circle cx={v.x} cy={v.y} r="44" className="node-halo" filter="url(#bloomGlow)" />
+              )}
+              {/* Hex frame */}
+              <polygon points={hexPts} className="node-hex" filter={isActive ? 'url(#softGlow)' : undefined} />
+              {/* Inner dot */}
+              <circle cx={v.x} cy={v.y} r={isActive ? 5 : 3} className="node-core" />
+              {/* Lock brackets when active */}
+              {isActive && (
+                <g className="lock-brackets">
+                  {[
+                    [-1, -1], [1, -1], [-1, 1], [1, 1],
+                  ].map(([sx, sy], k) => {
+                    const bx = v.x + sx * 44;
+                    const by = v.y + sy * 44;
+                    return (
+                      <path
+                        key={`b-${k}`}
+                        d={`M ${bx} ${by + sy * 11} L ${bx} ${by} L ${bx - sx * 11} ${by}`}
+                        className="bracket"
+                        style={{ animationDelay: `${k * 0.06}s` }}
+                      />
+                    );
+                  })}
+                </g>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Layer 10: vertical scan line that sweeps over Tex */}
+        <g className="scan-sweep">
+          <rect x={cx - 220} y="0" width="440" height="6" fill="url(#scanLine)" className="scanline-bar" />
+        </g>
+
+        {/* Layer 11: corner reticle around Tex */}
+        <g className="reticle">
+          {[
+            [-1, -1, 200, 220],
+            [1, -1, 200, 220],
+            [-1, 1, 200, 220],
+            [1, 1, 200, 220],
+          ].map(([sx, sy, dx, dy], k) => {
+            const bx = cx + sx * dx;
+            const by = cy + sy * dy;
+            return (
+              <g key={`ret-${k}`} className="reticle-corner">
+                <path
+                  d={`M ${bx} ${by + sy * 24} L ${bx} ${by} L ${bx - sx * 24} ${by}`}
+                />
+              </g>
+            );
+          })}
+        </g>
       </svg>
 
-      {/* Avatar with reactive aura */}
-      <div className="avatar-mount">
+      {/* Avatar mount with 3D head-attention tilt */}
+      <div
+        className="avatar-mount"
+        style={{
+          transform: `translate3d(calc(-50% + var(--px) * 0.4), calc(-50% + var(--py) * 0.4), 0) perspective(1200px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
+        }}
+      >
+        <div className="avatar-floor" aria-hidden="true" />
         <div className="avatar-aura" aria-hidden="true" />
-        <div className="avatar-ring-1" aria-hidden="true" />
-        <div className="avatar-ring-2" aria-hidden="true" />
-        <img className="avatar-img" src={texAvatar} alt="Tex — AI control system" />
+        <img
+          className="avatar-img"
+          src={texAvatar}
+          alt="Tex — AI control system"
+          key={`av-${pulseToken}`}
+        />
+        <div className="avatar-flash" aria-hidden="true" key={`fl-${pulseToken}`} />
       </div>
 
-      {/* Vertex chips */}
+      {/* HUD readout at bottom — active layer info */}
+      <div className="hud-readout" key={`hud-${active}`}>
+        <span className="hud-blink" aria-hidden="true" />
+        <span className="hud-id">L{activeLayer.id}</span>
+        <span className="hud-divider">·</span>
+        <span className="hud-name">{activeLayer.name.toUpperCase()}</span>
+        <span className="hud-divider">·</span>
+        <span className="hud-status">LOCKED</span>
+      </div>
+
+      {/* Vertex chips (clickable buttons) */}
       {vertices.map((v, i) => {
         const layer = LAYERS[i];
-        const outRadius = radius + 130;
+        const outRadius = radius + 165;
         const chipX = cx + Math.cos(v.angle) * outRadius;
         const chipY = cy + Math.sin(v.angle) * outRadius;
         const xPct = (chipX / 1000) * 100;
@@ -500,8 +733,8 @@ function AegisRing({ active, setActive }) {
             type="button"
             className={`vertex-chip ${i === active ? 'is-active' : ''}`}
             style={{ left: `${xPct}%`, top: `${yPct}%` }}
-            onClick={() => setActive(i)}
-            onMouseEnter={() => setActive(i)}
+            onClick={() => { setActive(i); pauseAutocycle(); }}
+            onMouseEnter={() => { setActive(i); pauseAutocycle(); }}
             aria-label={`${layer.name} — ${layer.verb}`}
           >
             <span className="chip-num">{layer.id}</span>

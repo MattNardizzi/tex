@@ -2,13 +2,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, Protocol
 
 from tex.domain.decision import Decision
 from tex.domain.evidence import EvidenceRecord
 from tex.domain.outcome import OutcomeRecord
+
+
+_logger = logging.getLogger(__name__)
+
+
+class EvidenceMirror(Protocol):
+    """
+    Optional sink that mirrors every appended evidence record.
+
+    Implementations include the Postgres mirror (durable, tenant-
+    partitioned, retention-aware). Mirrors must be best-effort: a
+    failed mirror write must NEVER block or corrupt the JSONL
+    chain. The recorder logs and continues.
+    """
+
+    def record(self, record: EvidenceRecord) -> None:
+        ...
 
 
 class EvidenceRecorder:
@@ -20,19 +38,26 @@ class EvidenceRecorder:
     - wraps each payload in an EvidenceRecord envelope
     - maintains record-to-record linkage via previous_hash
     - does not own chain verification logic
+    - optionally mirrors every appended record into a durable sink
 
     The domain contract for EvidenceRecord is the source of truth. This class
     must serialize into that contract exactly and must not invent parallel field
     names such as `payload` or `payload_hash`.
     """
 
-    __slots__ = ("_path", "_lock", "_last_record_hash")
+    __slots__ = ("_path", "_lock", "_last_record_hash", "_mirror")
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        mirror: EvidenceMirror | None = None,
+    ) -> None:
         self._path = Path(path)
         self._lock = RLock()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._last_record_hash = self._load_last_record_hash()
+        self._mirror = mirror
 
     @property
     def path(self) -> Path:
@@ -223,6 +248,19 @@ class EvidenceRecorder:
                 handle.write("\n")
 
             self._last_record_hash = record.record_hash
+
+            # Best-effort mirror. A mirror failure must never block or
+            # corrupt the JSONL chain, which is the source of truth.
+            if self._mirror is not None:
+                try:
+                    self._mirror.record(record)
+                except Exception as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "EvidenceRecorder: mirror write failed for evidence_id=%s: %s",
+                        record.evidence_id,
+                        exc,
+                    )
+
             return record
 
     def _load_last_record_hash(self) -> str | None:

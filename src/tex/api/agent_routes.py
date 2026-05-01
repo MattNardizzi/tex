@@ -26,9 +26,10 @@ import os
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.domain.agent import (
     AgentAttestation,
     AgentEnvironment,
@@ -871,14 +872,23 @@ def _build_governance(
 def build_agent_router() -> APIRouter:
     """
     Build the FastAPI router for agent governance endpoints.
+
+    Every route is gated by ``authenticate_request``. When TEX_API_KEYS
+    is configured, callers must present a valid key. Mutating routes
+    additionally enforce ``agent:write``.
     """
-    router = APIRouter(prefix="/v1/agents", tags=["agent-governance"])
+    router = APIRouter(
+        prefix="/v1/agents",
+        tags=["agent-governance"],
+        dependencies=[Depends(authenticate_request)],
+    )
 
     @router.post(
         "",
         response_model=AgentDTO,
         status_code=status.HTTP_201_CREATED,
         summary="Register a new agent",
+        dependencies=[Depends(RequireScope("agent:write"))],
     )
     def register_agent(payload: RegisterAgentRequest, request: Request) -> AgentDTO:
         registry = _resolve_registry(request)
@@ -1026,6 +1036,7 @@ def build_agent_router() -> APIRouter:
         "/{agent_id}",
         response_model=AgentDTO,
         summary="Update an agent (creates a new revision)",
+        dependencies=[Depends(RequireScope("agent:write"))],
     )
     def patch_agent(
         request: Request,
@@ -1072,6 +1083,7 @@ def build_agent_router() -> APIRouter:
         "/{agent_id}/lifecycle",
         response_model=AgentDTO,
         summary="Transition agent lifecycle status",
+        dependencies=[Depends(RequireScope("agent:write"))],
     )
     def transition_lifecycle(
         request: Request,

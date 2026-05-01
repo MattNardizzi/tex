@@ -17,9 +17,15 @@ should rotate the underlying store.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.api.auth import (
+    RequireScope,
+    TexPrincipal,
+    authenticate_request,
+    enforce_tenant_match,
+)
 from tex.stores.tenant_content_baseline import InMemoryTenantContentBaseline
 
 
@@ -56,8 +62,17 @@ def _resolve_tenant_baseline(request: Request) -> InMemoryTenantContentBaseline:
 def build_tenant_router() -> APIRouter:
     """
     Build the FastAPI router for tenant baseline introspection.
+
+    All routes require authentication. Tenant ID in the path is
+    cross-checked against the principal's tenant via
+    ``enforce_tenant_match`` so a tenant_acme key cannot read
+    tenant_globex's baseline.
     """
-    router = APIRouter(prefix="/v1/tenants", tags=["tenant-baseline"])
+    router = APIRouter(
+        prefix="/v1/tenants",
+        tags=["tenant-baseline"],
+        dependencies=[Depends(authenticate_request)],
+    )
 
     @router.get(
         "/{tenant_id}/baseline",
@@ -67,7 +82,12 @@ def build_tenant_router() -> APIRouter:
     def get_tenant_baseline(
         request: Request,
         tenant_id: str = Path(..., min_length=1, max_length=200),
+        principal: TexPrincipal = Depends(RequireScope("tenant:read")),
     ) -> TenantBaselineSummaryDTO:
+        # Enforce that the requested tenant_id matches the principal's
+        # scope unless they have admin:cross_tenant.
+        enforce_tenant_match(principal, tenant_id)
+
         store = _resolve_tenant_baseline(request)
         normalized = tenant_id.strip().casefold()
         if not normalized:

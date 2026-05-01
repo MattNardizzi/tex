@@ -293,7 +293,11 @@ def _enforce_tenant_scope(
 
 
 def build_discovery_router() -> APIRouter:
-    router = APIRouter(prefix="/v1/discovery", tags=["discovery"])
+    router = APIRouter(
+        prefix="/v1/discovery",
+        tags=["discovery"],
+        dependencies=[Depends(authenticate_request)],
+    )
 
     @router.post(
         "/scan",

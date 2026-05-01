@@ -6,6 +6,7 @@ from typing import Literal
 
 from tex.domain.decision import Decision
 from tex.domain.outcome import OutcomeLabel, OutcomeRecord
+from tex.domain.outcome_trust import OutcomeTrustLevel
 from tex.domain.verdict import Verdict
 
 OutcomeClassName = Literal[
@@ -283,3 +284,130 @@ def _build_classification(
         is_abstain_review=is_abstain_review,
         is_unknown=is_unknown,
     )
+
+
+# ── trust-weighted summarization ─────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class WeightedOutcomeSummary:
+    """
+    Trust + reputation-weighted summary used by the calibrator.
+
+    All counts are *effective* counts: each outcome contributes its
+    trust-tier weight × reporter-reputation weight × confidence score.
+    The calibrator divides by ``total`` (also weighted) so rates remain
+    in [0.0, 1.0].
+
+    ``raw`` carries the unweighted summary for dashboards.
+    """
+
+    total: float
+    correct_permits: float
+    false_permits: float
+    correct_forbids: float
+    false_forbids: float
+    abstain_reviews: float
+    unknown: float
+    raw: OutcomeSummary
+
+    def as_outcome_summary(self) -> OutcomeSummary:
+        """
+        Round to integer counts so the existing ThresholdCalibrator can
+        consume the weighted view via its current API.
+
+        Rounding is half-to-even (banker's). For very small effective
+        weights, this can collapse a label to zero — that's intentional;
+        we don't want one-tenth-of-a-vote labels to drive calibration.
+        """
+        return OutcomeSummary(
+            total=round(self.total),
+            correct_permits=round(self.correct_permits),
+            false_permits=round(self.false_permits),
+            correct_forbids=round(self.correct_forbids),
+            false_forbids=round(self.false_forbids),
+            abstain_reviews=round(self.abstain_reviews),
+            unknown=round(self.unknown),
+        )
+
+
+def summarize_outcomes_weighted(
+    *,
+    classifications: Iterable[OutcomeClassification],
+    outcomes_by_id: dict[str, OutcomeRecord],
+    reporter_weight: callable,
+) -> WeightedOutcomeSummary:
+    """
+    Trust-weighted summary.
+
+    ``outcomes_by_id`` maps str(decision_id) -> OutcomeRecord so we can
+    look up the per-outcome trust tier and reporter when only the
+    classification is in hand.
+
+    ``reporter_weight`` is a callable returning a float multiplier for a
+    reporter id (or None). The default ``ReporterReputationStore.weight_for``
+    returns 1.0 for unknown reporters, so passing None is safe.
+    """
+    raw = summarize_outcomes(classifications)
+
+    weighted_total = 0.0
+    weighted_correct_permits = 0.0
+    weighted_false_permits = 0.0
+    weighted_correct_forbids = 0.0
+    weighted_false_forbids = 0.0
+    weighted_abstain_reviews = 0.0
+    weighted_unknown = 0.0
+
+    for cls in classifications:
+        outcome = outcomes_by_id.get(cls.decision_id)
+        if outcome is None:
+            continue
+        if outcome.trust_level is OutcomeTrustLevel.QUARANTINED:
+            continue
+
+        tier = outcome.trust_level.calibration_weight
+        if tier <= 0.0:
+            continue
+
+        rep_weight = float(reporter_weight(outcome.reporter)) if outcome.reporter else 1.0
+        confidence = float(outcome.confidence_score)
+        weight = tier * rep_weight * (0.5 + 0.5 * confidence)
+        if weight <= 0.0:
+            continue
+
+        weighted_total += weight
+        if cls.classification == "correct_permit":
+            weighted_correct_permits += weight
+        elif cls.classification == "false_permit":
+            weighted_false_permits += weight
+        elif cls.classification == "correct_forbid":
+            weighted_correct_forbids += weight
+        elif cls.classification == "false_forbid":
+            weighted_false_forbids += weight
+        elif cls.classification == "abstain_review":
+            weighted_abstain_reviews += weight
+        else:
+            weighted_unknown += weight
+
+    return WeightedOutcomeSummary(
+        total=round(weighted_total, 4),
+        correct_permits=round(weighted_correct_permits, 4),
+        false_permits=round(weighted_false_permits, 4),
+        correct_forbids=round(weighted_correct_forbids, 4),
+        false_forbids=round(weighted_false_forbids, 4),
+        abstain_reviews=round(weighted_abstain_reviews, 4),
+        unknown=round(weighted_unknown, 4),
+        raw=raw,
+    )
+
+
+__all__ = [
+    "OutcomeClassName",
+    "OutcomeClassification",
+    "OutcomeSummary",
+    "WeightedOutcomeSummary",
+    "classify_batch",
+    "classify_outcome",
+    "summarize_outcomes",
+    "summarize_outcomes_weighted",
+]

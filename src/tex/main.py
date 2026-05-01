@@ -47,10 +47,25 @@ from tex.engine.pdp import PolicyDecisionPoint
 from tex.evidence.exporter import EvidenceExporter
 from tex.evidence.recorder import EvidenceRecorder
 from tex.learning.calibrator import ThresholdCalibrator, build_default_calibrator
+from tex.learning.calibration_safety import CalibrationSafetyGuard
+from tex.learning.drift import PolicyDriftMonitor
+from tex.learning.drift_classifier import DriftClassifier
+from tex.learning.feedback_loop import FeedbackLoopOrchestrator
+from tex.learning.observability import (
+    CompositeLearningObserver,
+    LearningAlertEngine,
+    LoggingLearningObserver,
+    MetricsLearningObserver,
+)
+from tex.learning.outcome_validator import OutcomeValidator
+from tex.learning.poisoning_detector import PoisoningDetector
+from tex.learning.replay import ReplayValidator
+from tex.learning.reporter_reputation import ReporterReputationStore
 from tex.policies.defaults import build_default_policy, build_strict_policy
 from tex.retrieval.orchestrator import RetrievalOrchestrator
 from tex.stores.action_ledger import InMemoryActionLedger
 from tex.stores.agent_registry import InMemoryAgentRegistry
+from tex.stores.calibration_proposal_store import CalibrationProposalStore
 from tex.stores.decision_store import InMemoryDecisionStore
 from tex.stores.discovery_ledger import InMemoryDiscoveryLedger
 from tex.stores.entity_store import InMemoryEntityStore
@@ -79,6 +94,12 @@ class TexRuntime:
     pdp: PolicyDecisionPoint
     calibrator: ThresholdCalibrator
 
+    # Stores below may be backed by either in-memory or Postgres-backed
+    # implementations depending on DATABASE_URL. The Postgres variants
+    # are duck-typed against the InMemory ones; type hints below are
+    # InMemory-typed for documentation only — the runtime treats both
+    # identically. mypy is not run on this file with strict store
+    # checking precisely because of this dual implementation.
     policy_store: InMemoryPolicyStore
     decision_store: InMemoryDecisionStore
     outcome_store: InMemoryOutcomeStore
@@ -115,6 +136,33 @@ class TexRuntime:
     connector_health_store: Any = None
     presence_tracker: Any = None
     discovery_metrics: Any = None
+
+    # V17: Learning/Drift layer — production-grade calibration governance
+    # with trust tiers, reporter reputation, poisoning detection, replay
+    # validation, safety bounds, drift classification, and approval workflow.
+    learning_orchestrator: Any = None
+    proposal_store: Any = None
+    reporter_reputation: Any = None
+    outcome_validator: Any = None
+    calibration_safety: Any = None
+    replay_validator: Any = None
+    drift_classifier: Any = None
+    poisoning_detector: Any = None
+    learning_metrics: Any = None
+    learning_alert_engine: Any = None
+
+    # V18: Unified memory orchestrator. Single source of truth for all
+    # durable artefacts (decisions, inputs, policy snapshots, permits,
+    # verifications, evidence chain mirror). The eval command writes
+    # through this instead of poking individual stores.
+    #
+    # ``runtime.memory.decisions``  — same instance as ``runtime.decision_store``
+    # ``runtime.memory.policies``   — same instance as ``runtime.policy_store``
+    # ``runtime.memory.recorder``   — same instance as ``runtime.evidence_recorder``
+    #
+    # so existing callers keep working AND new callers (replay engine,
+    # health endpoints, audit exporters) can use the unified API.
+    memory: Any = None
 
 
 class InMemoryPolicyClauseStoreAdapter:
@@ -306,34 +354,82 @@ def build_runtime(
     """
     normalized_evidence_path = Path(evidence_path)
 
-    policy_store = InMemoryPolicyStore()
-    decision_store = InMemoryDecisionStore()
-    outcome_store = InMemoryOutcomeStore()
-    precedent_store = InMemoryPrecedentStore()
-    entity_store = InMemoryEntityStore()
+    # ── Memory-system wiring (locked spec § "single source of truth") ──
+    #
+    # MemorySystem is the canonical entry point for every durable
+    # artefact: decisions, full inputs, policy snapshots, permits,
+    # verifications, and the Postgres mirror of the evidence chain.
+    # Building it first means the rest of the runtime can route every
+    # write through one orchestrator instead of poking individual
+    # stores.
+    #
+    # When DATABASE_URL is set, MemorySystem's stores write through to
+    # Postgres atomically. When unset, they fall back to in-memory mode
+    # with a loud warning. Either way, the calling code is identical.
+    database_configured = bool(os.environ.get("DATABASE_URL", "").strip())
 
-    # V15: agent registry + discovery ledger now have durable
-    # write-through-cache implementations. When DATABASE_URL is set
-    # they persist every write to Postgres and bootstrap from there
-    # on startup. When it's not set they degrade to pure in-memory
-    # (V14 behavior). The runtime never raises on missing DB; it
-    # logs a warning and continues.
-    if os.environ.get("DATABASE_URL", "").strip():
+    from tex.memory import MemorySystem
+
+    memory = MemorySystem(evidence_path=normalized_evidence_path)
+
+    # Decision and policy stores ARE the memory-system's stores. Two
+    # parallel implementations (e.g. PostgresDecisionStore + DurableDecisionStore)
+    # would write the same rows twice; we use one. Downstream consumers
+    # (OutcomeValidator, PolicyDriftMonitor, FeedbackLoopOrchestrator,
+    # ReportOutcomeCommand) duck-type against InMemoryDecisionStore /
+    # InMemoryPolicyStore, and the durable variants are full drop-ins
+    # for those APIs.
+    decision_store = memory.decisions
+    policy_store = memory.policies
+
+    if database_configured:
+        from tex.stores.action_ledger_postgres import PostgresActionLedger
         from tex.stores.agent_registry_postgres import PostgresAgentRegistry
         from tex.stores.discovery_ledger_postgres import PostgresDiscoveryLedger
+        from tex.stores.precedent_store_postgres import PostgresPrecedentStore
+
+        precedent_store = PostgresPrecedentStore()
         agent_registry = PostgresAgentRegistry()
         discovery_ledger = PostgresDiscoveryLedger()
+        action_ledger = PostgresActionLedger()
     else:
+        precedent_store = InMemoryPrecedentStore()
         agent_registry = InMemoryAgentRegistry()
         discovery_ledger = InMemoryDiscoveryLedger()
+        action_ledger = InMemoryActionLedger()
 
-    action_ledger = InMemoryActionLedger()
+    # OutcomeStore already has its own Postgres path (see outcome_store.py).
+    outcome_store = InMemoryOutcomeStore()
+    # EntityStore is a tiny lookup of seeded entities; durability is
+    # not required because entities are re-seeded on every boot.
+    entity_store = InMemoryEntityStore()
+    # TenantBaseline is rebuilt from PERMITted decisions; in pure
+    # in-memory mode it warms back up after the first few requests.
     tenant_baseline = InMemoryTenantContentBaseline()
 
     _seed_default_policies(policy_store)
     _seed_default_entities(policy_store=policy_store, entity_store=entity_store)
 
-    recorder = EvidenceRecorder(normalized_evidence_path)
+    # The runtime's evidence recorder IS the memory-system's recorder
+    # (single writer for the JSONL chain). Its Postgres mirror is also
+    # the memory-system's: tex_evidence_records, written via
+    # MemorySystem.record_decision_with_policy. The legacy `tex_evidence`
+    # mirror (PostgresEvidenceMirror) is kept attached for backward
+    # compat with any operator dashboards that still query that table —
+    # both mirrors are idempotent and cost-bounded.
+    if database_configured:
+        from tex.evidence.postgres_mirror import PostgresEvidenceMirror
+
+        legacy_evidence_mirror = PostgresEvidenceMirror()
+        recorder = EvidenceRecorder(
+            normalized_evidence_path, mirror=legacy_evidence_mirror
+        )
+        # Re-point the memory system's recorder at the same instance so
+        # the JSONL chain (and legacy mirror) is shared.
+        memory.recorder = recorder
+    else:
+        recorder = memory.recorder
+
     exporter = EvidenceExporter(recorder)
 
     retrieval_orchestrator = RetrievalOrchestrator(
@@ -479,12 +575,52 @@ def build_runtime(
         action_ledger=action_ledger,
         agent_registry=agent_registry,
         tenant_baseline=tenant_baseline,
+        memory_system=memory,
+    )
+
+    # ── V17: Learning/Drift layer ─────────────────────────────────────────
+    # Built before report_outcome_command so the command can route through
+    # the orchestrator (validator + reputation update on every ingest).
+    proposal_store = CalibrationProposalStore()
+    reporter_reputation = ReporterReputationStore()
+    outcome_validator = OutcomeValidator(
+        decisions=decision_store,
+        priors=outcome_store,
+    )
+    calibration_safety = CalibrationSafetyGuard()
+    replay_validator = ReplayValidator()
+    drift_classifier = DriftClassifier()
+    poisoning_detector = PoisoningDetector()
+    drift_monitor_for_orchestrator = PolicyDriftMonitor(decision_store=decision_store)
+
+    # Observability sinks: structured logs + in-memory metrics + alert engine.
+    learning_metrics = MetricsLearningObserver()
+    learning_observer = CompositeLearningObserver(
+        [LoggingLearningObserver(), learning_metrics]
+    )
+    learning_alert_engine = LearningAlertEngine(metrics=learning_metrics)
+
+    learning_orchestrator = FeedbackLoopOrchestrator(
+        decisions=decision_store,
+        outcomes=outcome_store,
+        policies=policy_store,
+        proposals=proposal_store,
+        validator=outcome_validator,
+        reputation=reporter_reputation,
+        calibrator=calibrator,
+        safety=calibration_safety,
+        replay=replay_validator,
+        drift_monitor=drift_monitor_for_orchestrator,
+        drift_classifier=drift_classifier,
+        poisoning_detector=poisoning_detector,
+        observer=learning_observer,
     )
 
     report_outcome_command = ReportOutcomeCommand(
         decision_store=decision_store,
         outcome_store=outcome_store,
         evidence_recorder=recorder,
+        orchestrator=learning_orchestrator,
     )
 
     activate_policy_command = ActivatePolicyCommand(
@@ -530,6 +666,17 @@ def build_runtime(
         connector_health_store=connector_health_store,
         presence_tracker=presence_tracker,
         discovery_metrics=discovery_metrics,
+        learning_orchestrator=learning_orchestrator,
+        proposal_store=proposal_store,
+        reporter_reputation=reporter_reputation,
+        outcome_validator=outcome_validator,
+        calibration_safety=calibration_safety,
+        replay_validator=replay_validator,
+        drift_classifier=drift_classifier,
+        poisoning_detector=poisoning_detector,
+        learning_metrics=learning_metrics,
+        learning_alert_engine=learning_alert_engine,
+        memory=memory,
     )
 
 
@@ -616,6 +763,10 @@ def create_app(
     from tex.api.system_state_routes import build_system_state_router
     app.include_router(build_system_state_router())
     app.include_router(leaderboard_router)  # LEADERBOARD
+
+    # V17: Learning/Drift layer
+    from tex.api.learning_routes import build_learning_router
+    app.include_router(build_learning_router())
     app.include_router(arcade_leaderboard_router)  # ARCADE
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
     app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
@@ -708,6 +859,18 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.activate_policy_command = runtime.activate_policy_command
     app.state.calibrate_policy_command = runtime.calibrate_policy_command
     app.state.export_bundle_command = runtime.export_bundle_command
+
+    # V17: Learning/Drift layer
+    app.state.learning_orchestrator = runtime.learning_orchestrator
+    app.state.proposal_store = runtime.proposal_store
+    app.state.reporter_reputation = runtime.reporter_reputation
+    app.state.outcome_validator = runtime.outcome_validator
+    app.state.calibration_safety = runtime.calibration_safety
+    app.state.replay_validator = runtime.replay_validator
+    app.state.drift_classifier = runtime.drift_classifier
+    app.state.poisoning_detector = runtime.poisoning_detector
+    app.state.learning_metrics = runtime.learning_metrics
+    app.state.learning_alert_engine = runtime.learning_alert_engine
 
 
 def _seed_default_policies(policy_store: InMemoryPolicyStore) -> None:

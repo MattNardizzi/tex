@@ -3,5 +3,15 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
 openai>=1.40.0
+
+# Postgres drivers.
+# - psycopg[binary] is the primary driver: every Postgres-backed store
+#   in tex.stores.*_postgres uses it. It is REQUIRED whenever
+#   DATABASE_URL is set; the runtime falls back to in-memory mode if
+#   it is missing or DATABASE_URL is unset.
+# - asyncpg is used by the leaderboard repos (tex.db.leaderboard_repo,
+#   tex.db.arcade_leaderboard_repo) which run on the FastAPI lifespan.
+psycopg[binary]>=3.1.0
 asyncpg>=0.29.0
+
 -e .

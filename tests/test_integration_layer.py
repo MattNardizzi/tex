@@ -472,7 +472,12 @@ class TestAuthentication:
             headers={"Authorization": "Bearer key_acme"},
         )
         decision_id = resp.json()["decision_id"]
-        replay = authed_client.get(f"/decisions/{decision_id}/replay")
+        # Replay also requires auth now (decision:read scope, which the
+        # default scope set grants). Sending the same key.
+        replay = authed_client.get(
+            f"/decisions/{decision_id}/replay",
+            headers={"Authorization": "Bearer key_acme"},
+        )
         assert replay.status_code == 200
         # The replayed decision should carry the tenant in metadata.
         body = replay.json()

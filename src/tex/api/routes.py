@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Any, Protocol, cast, runtime_checkable
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+
+from tex.api.auth import RequireScope, authenticate_request
 
 from tex.api.schemas import (
     ActivatePolicyRequestDTO,
@@ -108,6 +110,7 @@ def health_check() -> dict[str, str]:
     response_model=EvaluateResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Evaluate one action through Tex",
+    dependencies=[Depends(RequireScope("decision:write"))],
 )
 def evaluate_action(
     payload: EvaluateRequestDTO,
@@ -147,6 +150,7 @@ def evaluate_action(
     "/decisions/{decision_id}/replay",
     status_code=status.HTTP_200_OK,
     summary="Replay a stored Tex decision for audit",
+    dependencies=[Depends(RequireScope("decision:read"))],
 )
 def replay_decision(
     decision_id: UUID,
@@ -175,6 +179,7 @@ def replay_decision(
     "/decisions/{decision_id}/evidence-bundle",
     status_code=status.HTTP_200_OK,
     summary="Export the signed evidence bundle for a decision",
+    dependencies=[Depends(RequireScope("evidence:read"))],
 )
 def evidence_bundle_for_decision(
     decision_id: UUID,
@@ -216,6 +221,7 @@ def evidence_bundle_for_decision(
     status_code=status.HTTP_200_OK,
     summary="Policy-drift report for a policy version",
     response_model=PolicyDriftReport,
+    dependencies=[Depends(RequireScope("policy:read"))],
 )
 def policy_drift(
     policy_version: str,
@@ -249,6 +255,7 @@ def policy_drift(
     response_model=ReportOutcomeResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Report an observed outcome for a prior Tex decision",
+    dependencies=[Depends(RequireScope("outcome:write"))],
 )
 def report_outcome(
     payload: ReportOutcomeRequestDTO,
@@ -287,6 +294,7 @@ def report_outcome(
     response_model=ActivatePolicyResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Activate a stored policy version",
+    dependencies=[Depends(RequireScope("policy:write"))],
 )
 def activate_policy(
     payload: ActivatePolicyRequestDTO,
@@ -323,6 +331,7 @@ def activate_policy(
     response_model=CalibratePolicyResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Run a calibration pass against classified outcomes",
+    dependencies=[Depends(RequireScope("policy:write"))],
 )
 def calibrate_policy(
     payload: CalibratePolicyRequestDTO,
@@ -369,6 +378,7 @@ def calibrate_policy(
     response_model=ExportBundleResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Export Tex evidence artifacts",
+    dependencies=[Depends(RequireScope("evidence:read"))],
 )
 def export_bundle(
     payload: ExportBundleRequestDTO,

@@ -102,6 +102,7 @@ class EvaluateActionCommand:
         "_action_ledger",
         "_agent_registry",
         "_tenant_baseline",
+        "_memory_system",
     )
 
     def __init__(
@@ -115,7 +116,27 @@ class EvaluateActionCommand:
         action_ledger: InMemoryActionLedger | None = None,
         agent_registry: InMemoryAgentRegistry | None = None,
         tenant_baseline: InMemoryTenantContentBaseline | None = None,
+        memory_system: Any | None = None,
     ) -> None:
+        """
+        Constructor.
+
+        ``memory_system`` (optional): when provided, decision + input +
+        policy_snapshot + evidence are all persisted through the unified
+        ``MemorySystem`` orchestrator in a single atomic transaction.
+        This is the canonical wiring for the production runtime.
+
+        When ``memory_system`` is ``None`` (the legacy path used by many
+        unit tests), the command falls back to writing decisions through
+        ``decision_store.save()`` and evidence through
+        ``evidence_recorder.record_decision()`` exactly as before — so
+        every existing test keeps working unchanged.
+
+        Either way, the spec invariants are preserved: the decision,
+        the policy that produced it, and the evidence record always
+        share matching ids and policy_version. The memory_system path
+        adds durable input persistence + atomicity on top.
+        """
         self._pdp = pdp
         self._policy_store = policy_store
         self._decision_store = decision_store
@@ -124,6 +145,7 @@ class EvaluateActionCommand:
         self._action_ledger = action_ledger
         self._agent_registry = agent_registry
         self._tenant_baseline = tenant_baseline
+        self._memory_system = memory_system
 
     def execute(self, request: EvaluationRequest) -> EvaluateActionResult:
         """
@@ -164,25 +186,55 @@ class EvaluateActionCommand:
             )
 
             decision = pdp_result.decision
-            self._decision_store.save(decision)
-            self._save_precedent(decision)
 
+            # ── Durable persistence ─────────────────────────────────────
+            # When a MemorySystem is wired, we go through the unified,
+            # transactional path: decision + input + policy_snapshot are
+            # all written in ONE Postgres transaction, then the JSONL
+            # evidence chain is appended, then the Postgres mirror.
+            # This is the spec-compliant write path.
+            #
+            # When MemorySystem is not wired (legacy test paths), we fall
+            # back to the historical sequence: decision_store.save() +
+            # evidence_recorder.record_decision(). All existing tests
+            # still drive this branch and continue to pass.
             evidence_record = None
             response = pdp_result.response
 
-            if self._evidence_recorder is not None:
-                evidence_record = self._record_decision_evidence(
-                    decision=decision,
-                    request=request,
+            if self._memory_system is not None:
+                full_input = self._build_full_input_payload(request)
+                evidence_metadata = self._build_evidence_metadata(
+                    request=request, decision=decision
                 )
-                # Back-propagate the recorded hash onto the response so API
-                # callers see a real evidence_hash instead of "". The domain
-                # Decision and EvaluationResponse are both frozen, so we build
-                # a new response with the hash attached. This is the only
-                # mutation we allow at the application layer.
+                evidence_record = self._memory_system.record_decision_with_policy(
+                    decision=decision,
+                    full_input=full_input,
+                    policy=policy,
+                    evidence_metadata=evidence_metadata,
+                )
+                # Precedent feeds retrieval; it's a derived index, not
+                # part of the durable spec, so we still save it.
+                self._save_precedent(decision)
                 response = response.model_copy(
                     update={"evidence_hash": evidence_record.record_hash}
                 )
+            else:
+                self._decision_store.save(decision)
+                self._save_precedent(decision)
+
+                if self._evidence_recorder is not None:
+                    evidence_record = self._record_decision_evidence(
+                        decision=decision,
+                        request=request,
+                    )
+                    # Back-propagate the recorded hash onto the response so API
+                    # callers see a real evidence_hash instead of "". The domain
+                    # Decision and EvaluationResponse are both frozen, so we build
+                    # a new response with the hash attached. This is the only
+                    # mutation we allow at the application layer.
+                    response = response.model_copy(
+                        update={"evidence_hash": evidence_record.record_hash}
+                    )
 
             self._record_action_ledger_entry(
                 request=request,
@@ -485,6 +537,53 @@ class EvaluateActionCommand:
 
         store.save(decision)
 
+    @staticmethod
+    def _build_evidence_metadata(
+        *,
+        request: EvaluationRequest,
+        decision: Decision,
+    ) -> dict[str, object]:
+        """
+        Builds the metadata dict that decorates a recorded evidence
+        envelope. Centralised so the legacy and MemorySystem write paths
+        produce identical evidence payloads — the only difference between
+        the two paths is durability, not audit content.
+        """
+        metadata: dict[str, object] = {
+            "request_id": str(request.request_id),
+            "request_channel": request.channel,
+            "request_environment": request.environment,
+            "request_action_type": request.action_type,
+        }
+
+        if request.recipient is not None:
+            metadata["request_recipient"] = request.recipient
+        if request.policy_id is not None:
+            metadata["requested_policy_id"] = request.policy_id
+        if request.metadata:
+            metadata["request_metadata"] = dict(request.metadata)
+        if request.agent_id is not None:
+            metadata["agent_id"] = str(request.agent_id)
+        if request.agent_identity is not None:
+            metadata["agent_identity"] = request.agent_identity.model_dump(mode="json")
+            metadata["agent_fingerprint_hash"] = (
+                request.agent_identity.fingerprint_hash
+            )
+
+        return metadata
+
+    @staticmethod
+    def _build_full_input_payload(
+        request: EvaluationRequest,
+    ) -> dict[str, Any]:
+        """
+        Serialises the evaluation request to the canonical replay-input
+        payload. ``mode='json'`` ensures every UUID/datetime/enum is
+        coerced to a primitive; the result hashes stably across processes
+        which is exactly what ``DecisionInputStore.input_sha256`` needs.
+        """
+        return request.model_dump(mode="json")
+
     def _record_decision_evidence(
         self,
         *,
@@ -504,24 +603,9 @@ class EvaluateActionCommand:
                 "decision, *, metadata=None)"
             )
 
-        metadata: dict[str, object] = {
-            "request_id": str(request.request_id),
-            "request_channel": request.channel,
-            "request_environment": request.environment,
-            "request_action_type": request.action_type,
-        }
-
-        if request.recipient is not None:
-            metadata["request_recipient"] = request.recipient
-        if request.policy_id is not None:
-            metadata["requested_policy_id"] = request.policy_id
-        if request.metadata:
-            metadata["request_metadata"] = dict(request.metadata)
-        if request.agent_id is not None:
-            metadata["agent_id"] = str(request.agent_id)
-        if request.agent_identity is not None:
-            metadata["agent_identity"] = request.agent_identity.model_dump(mode="json")
-            metadata["agent_fingerprint_hash"] = request.agent_identity.fingerprint_hash
+        metadata = self._build_evidence_metadata(
+            request=request, decision=decision
+        )
 
         return recorder.record_decision(
             decision,

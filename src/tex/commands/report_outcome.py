@@ -61,6 +61,7 @@ class ReportOutcomeCommand:
         "_decision_store",
         "_outcome_store",
         "_evidence_recorder",
+        "_orchestrator",
     )
 
     def __init__(
@@ -69,35 +70,46 @@ class ReportOutcomeCommand:
         decision_store: InMemoryDecisionStore,
         outcome_store: InMemoryOutcomeStore,
         evidence_recorder: OutcomeEvidenceRecorder | None = None,
+        orchestrator: object | None = None,
     ) -> None:
         self._decision_store = decision_store
         self._outcome_store = outcome_store
         self._evidence_recorder = evidence_recorder
+        self._orchestrator = orchestrator
 
     def execute(self, outcome: OutcomeRecord) -> ReportOutcomeResult:
         """
         Records an outcome for an existing decision and returns the classification.
+
+        When a learning orchestrator is configured, the outcome is routed through
+        it (which runs trust-tier validation and reputation updates). Otherwise
+        the legacy direct-write path is used unchanged.
         """
         decision = self._resolve_decision(outcome)
         self._validate_decision_alignment(outcome=outcome, decision=decision)
 
-        self._outcome_store.save(outcome)
+        if self._orchestrator is not None:
+            ingest_result = self._orchestrator.ingest_outcome(outcome)
+            stored_outcome = ingest_result.validation.outcome
+        else:
+            self._outcome_store.save(outcome)
+            stored_outcome = outcome
 
         classification = classify_outcome(
             decision=decision,
-            outcome=outcome,
+            outcome=stored_outcome,
         )
 
         evidence_record = None
         if self._evidence_recorder is not None:
             evidence_record = self._record_outcome_evidence(
-                outcome=outcome,
+                outcome=stored_outcome,
                 decision=decision,
                 classification=classification,
             )
 
         return ReportOutcomeResult(
-            outcome=outcome,
+            outcome=stored_outcome,
             decision=decision,
             classification=classification,
             evidence_record=evidence_record,

@@ -4942,8 +4942,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
     min-height: 560px !important;
   }
   .tex-figure-wrap {
-    height: 60% !important;       /* was 72% — leave room for headline */
-    margin-top: 8% !important;    /* push down a hair so headline clears */
+    height: 52% !important;       /* was 60% — give headline more breathing room */
+    margin-top: 22% !important;   /* was 8% — push Tex below the headline entirely */
   }
 
   /* ------- KICKER ------- */
@@ -4961,26 +4961,31 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv11-kicker-sep { display: none !important; }
 
   /* ------- HEADLINE ------- */
-  /* Lift it above Tex's head (was crashing through the face).
-     Use a slightly smaller clamp so "for every AI agent." fits. */
+  /* Lift it above Tex's head completely so the italic line doesn't crash
+     through the helmet. With figure at 52% height and 22% top margin,
+     headline at top 5% has clear space above the figure. */
   .hv11-headline-wrap {
-    top: 8% !important;
-    gap: 10px !important;
+    top: 5% !important;
+    gap: 8px !important;
     padding: 0 12px !important;
   }
   .hv11-headline {
-    font-size: clamp(34px, 9.5vw, 56px) !important;
-    line-height: 0.92 !important;
+    font-size: clamp(32px, 9vw, 52px) !important;
+    line-height: 0.94 !important;
     letter-spacing: -0.030em !important;
   }
-  /* Stronger scrim — italic line still crosses the figure's silhouette
-     near the shoulders even at 60% figure height */
+  /* Strong full-width scrim — the italic line sits right above the helmet
+     glow and needs solid contrast so the gradient text doesn't fade out */
   .hv11-headline-wrap::before {
-    background: radial-gradient(ellipse 78% 64% at center,
-      rgba(0, 0, 0, 0.92) 0%,
-      rgba(0, 0, 0, 0.70) 36%,
-      rgba(0, 0, 0, 0.32) 62%,
-      transparent 88%) !important;
+    left: -8% !important;
+    right: -8% !important;
+    top: -30% !important;
+    bottom: -10% !important;
+    background: radial-gradient(ellipse 90% 75% at center,
+      rgba(0, 0, 0, 0.95) 0%,
+      rgba(0, 0, 0, 0.78) 38%,
+      rgba(0, 0, 0, 0.42) 64%,
+      transparent 92%) !important;
   }
 
   /* ------- FLOATING ANCHORS + HAIRLINES ------- */
@@ -5009,22 +5014,33 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   }
   .hv11-bottom-left {
     flex-direction: row !important;
+    align-items: stretch !important;
     gap: 10px !important;
     width: 100% !important;
   }
   .hv11-cta {
     flex: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
     justify-content: center !important;
-    padding: 12px 14px !important;
+    padding: 14px 12px !important;
+    min-height: 46px !important;
     font-size: 10px !important;
-    letter-spacing: 0.18em !important;
+    letter-spacing: 0.16em !important;
+    text-align: center !important;
+    line-height: 1.2 !important;
   }
   .hv11-trace {
     flex: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
     justify-content: center !important;
-    padding: 12px 12px !important;
-    font-size: 10px !important;
-    letter-spacing: 0.18em !important;
+    padding: 14px 10px !important;
+    min-height: 46px !important;
+    font-size: 9.5px !important;
+    letter-spacing: 0.14em !important;
+    text-align: center !important;
+    line-height: 1.2 !important;
   }
   .hv11-readout {
     flex-wrap: wrap !important;

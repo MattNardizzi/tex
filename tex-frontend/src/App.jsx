@@ -739,7 +739,7 @@ function ControlPlaneIntro() {
 
           <div className="cpi-actions">
             <button type="button" onClick={openTrial} className="cpi-cta">
-              <span>Book a 20-min founder call</span>
+              <span>Book a demo</span>
               <span className="btn-arrow">→</span>
             </button>
             <a href="#layer-01" className="cpi-trace">

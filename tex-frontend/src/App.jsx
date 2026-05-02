@@ -165,20 +165,6 @@ function PerspectiveGrid() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw();
-    };
-
-    /* Render once. The previous implementation ran rAF at 60fps just to
-       drift 8 sub-pixel particles — invisible on the page, brutal on the
-       main thread during scroll. Static render eliminates the bottleneck
-       while preserving the visual. */
     const draw = () => {
       const w = window.innerWidth, h = window.innerHeight;
       ctx.clearRect(0, 0, w, h);
@@ -224,7 +210,7 @@ function PerspectiveGrid() {
       ctx.fillStyle = mist;
       ctx.fillRect(0, horizonY, w, h - horizonY);
 
-      // A few static specks for texture (not animated — was a perf hog)
+      // A few static specks for texture (was animated — major scroll hog)
       for (let i = 0; i < 14; i++) {
         const seed = i * 1.31;
         const x = ((Math.sin(seed) * 0.5 + 0.5) * w);
@@ -234,8 +220,19 @@ function PerspectiveGrid() {
       }
     };
 
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    };
+
     resize();
-    // Debounced resize so we don't redraw on every pixel
+
+    // Debounced resize — no per-frame rAF anymore
     let resizeT;
     const onResize = () => {
       clearTimeout(resizeT);
@@ -412,6 +409,7 @@ function FullBleedTex({ active, setActive }) {
       id = setInterval(() => {
         if (!visible) return;
         setActive((prev) => (prev + 1) % 7);
+        // Subtle chest pulse occasionally for residual life on the figure
         if (Math.random() < 0.34) setChestPulse((n) => n + 1);
       }, 3600);
     };
@@ -421,13 +419,9 @@ function FullBleedTex({ active, setActive }) {
 
     start();
 
-    // Pause when tab is hidden
-    const onVis = () => {
-      visible = !document.hidden;
-    };
+    const onVis = () => { visible = !document.hidden; };
     document.addEventListener('visibilitychange', onVis);
 
-    // Pause when hero is scrolled out of view
     const stage = stageRef.current;
     let obs = null;
     if (stage && 'IntersectionObserver' in window) {
@@ -680,17 +674,15 @@ function Hero({ active, setActive }) {
 
 /* =============================================================
    CONTROL PLANE INTRO — the section that follows the hero.
-   Image-1 composition: kicker + headline + body + "In five
-   seconds" + CTAs + 3 stats on the left; orbital ring of seven
-   layers around a smaller Tex avatar on the right.
+   Image-1 composition: kicker + headline + body + framed
+   "In five seconds" callout + CTAs + 3 stats on the left;
+   orbital ring of seven layers around a smaller Tex avatar
+   on the right.
    ============================================================= */
 function ControlPlaneIntro() {
   const { openTrial } = useTrial();
 
-  // Layer order around the orbit, starting at top and going clockwise:
-  //   01 Discovery (top), 02 Registration (top-right), 03 Capability (right),
-  //   04 Evaluation (bottom-right), 05 Enforcement (bottom-left),
-  //   06 Evidence (left), 07 Learning (top-left)
+  // Layer order around the orbit, starting at top and going clockwise.
   // Angle in degrees, 0 = top, going clockwise.
   const ORBIT = [
     { id: '01', name: 'Discovery',    angle: 0   },
@@ -727,16 +719,23 @@ function ControlPlaneIntro() {
             compliance obligations. We wire enforcement into your existing tools.
           </p>
 
-          <div className="cpi-callout">
-            <span className="cpi-callout-label">In five seconds</span>
-            <p className="cpi-callout-body">
-              You end up with one dashboard showing every AI agent in your company,
-              what they're allowed to do, what they actually did, and an audit-grade
-              evidence record for every decision. One implementation, one platform,
-              one ongoing relationship — instead of buying eight tools and stitching
-              them together yourself.
-            </p>
-          </div>
+          {/* Framed callout — corner brackets, hairline rule, FS-001 tag */}
+          <figure className="cpi-callout">
+            <span className="cpi-callout-corner cpi-corner-tl" aria-hidden="true" />
+            <span className="cpi-callout-corner cpi-corner-tr" aria-hidden="true" />
+            <span className="cpi-callout-corner cpi-corner-bl" aria-hidden="true" />
+            <span className="cpi-callout-corner cpi-corner-br" aria-hidden="true" />
+            <header className="cpi-callout-head">
+              <span className="cpi-callout-label">In five seconds</span>
+              <span className="cpi-callout-rule" aria-hidden="true" />
+              <span className="cpi-callout-tag">FS-001</span>
+            </header>
+            <blockquote className="cpi-callout-body">
+              One platform, one dashboard, one relationship. Every AI agent in
+              your company, what they're allowed to do, what they actually did,
+              and audit-grade evidence for every decision they made.
+            </blockquote>
+          </figure>
 
           <div className="cpi-actions">
             <button type="button" onClick={openTrial} className="cpi-cta">
@@ -820,9 +819,43 @@ function ControlPlaneIntro() {
               );
             })}
 
-            {/* Active node dot — pulses around the orbit */}
+            {/* Active node — orbits the outer ring */}
             <div className="cpi-node-active" aria-hidden="true" />
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+/* =============================================================
+   HOME HOW-IT-WORKS INTRO — small banner that introduces the
+   inlined HIW carousel on the homepage. Mirrors the route page's
+   hero copy but condensed so the home flow stays focused.
+   ============================================================= */
+function HomeHowItWorksIntro() {
+  return (
+    <section className="hh-hiw-intro" id="how-it-works">
+      <div className="hh-hiw-inner">
+        <span className="hh-hiw-kicker">
+          <span className="cpi-kicker-dot" />
+          <span>How it works</span>
+          <span className="cpi-kicker-sep">/</span>
+          <span>Concierge deployment · 4–6 weeks</span>
+        </span>
+        <h2 className="hh-hiw-h2">
+          <span className="hh-hiw-h-line">Six weeks from signed</span>
+          <span className="hh-hiw-h-line hh-hiw-h-italic">to a sealed control plane.</span>
+        </h2>
+        <p className="hh-hiw-lede">
+          Tex is configured to your stack, your rules, your compliance reality —
+          by the people who built the engine. No off-the-shelf dashboard. No
+          junior consultants. No rip-and-replace. Six phases. One outcome.
+        </p>
+        <div className="hh-hiw-scroll" aria-hidden="true">
+          <span>Scroll to begin deployment</span>
+          <span className="hh-hiw-arrow">↓</span>
         </div>
       </div>
     </section>
@@ -2149,16 +2182,25 @@ function FirstSixWeeksStrip() {
    /how-it-works — Cinematic horizontal-scroll deployment journey
    Vertical scroll drives a horizontal track of phase panels.
    ============================================================= */
-function HowItWorksPage() {
-  const { openTrial } = useTrial();
+/* =============================================================
+   HIW JOURNEY — the sticky horizontal-scroll carousel.
+   Extracted as a standalone so it can render both inside the
+   /how-it-works route page AND inlined into the homepage between
+   the control plane intro and the seven-layer stack.
+   ============================================================= */
+function HiwJourney({ variant = 'standalone' }) {
   const trackRef = useRef(null);
   const stickyRef = useRef(null);
   const [progress, setProgress] = useState(0); // 0..1 across phases
   const [activePhase, setActivePhase] = useState(0);
+  const [inView, setInView] = useState(true);
 
-  // Drive horizontal scroll from vertical scroll position
+  // Drive horizontal scroll from vertical scroll position.
+  // Throttled with rAF so we don't fire setState on every scroll event.
   useEffect(() => {
-    const onScroll = () => {
+    let raf = null;
+    const tick = () => {
+      raf = null;
       const sticky = stickyRef.current;
       if (!sticky) return;
       const rect = sticky.getBoundingClientRect();
@@ -2166,8 +2208,6 @@ function HowItWorksPage() {
       const scrolled = -rect.top;
       const p = Math.max(0, Math.min(1, scrolled / total));
       setProgress(p);
-      // Active phase = the one we're currently holding on. Switch at the midpoint
-      // of the transition (50% through the snap), so labels feel decisive.
       const phasePosLive = p * (PHASES.length - 1);
       const wholeLive = Math.floor(phasePosLive);
       const fracLive = phasePosLive - wholeLive;
@@ -2176,14 +2216,29 @@ function HowItWorksPage() {
         : wholeLive;
       setActivePhase(Math.min(PHASES.length - 1, Math.max(0, idx)));
     };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(tick);
+    };
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
-  // Apply horizontal translate with hold-then-snap easing.
-  // Each phase holds for ~70% of its slice; transition is ~30%.
-  // Translation in viewport widths since each phase is 100vw wide.
+  // Pause expensive instrument animations when carousel is fully out of view
+  useEffect(() => {
+    const el = stickyRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => setInView(e.isIntersecting));
+    }, { threshold: [0, 0.05] });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   const phasePos = progress * (PHASES.length - 1);
   const wholeIdx = Math.floor(phasePos);
   const fracIdx = phasePos - wholeIdx;
@@ -2192,6 +2247,104 @@ function HowItWorksPage() {
     ? 0
     : Math.min(1, (fracIdx - transitionStart) / (1 - transitionStart));
   const translateVw = -((wholeIdx + eased) * 100);
+
+  return (
+    <section
+      className={`hiw-journey hiw-journey-${variant}`}
+      ref={stickyRef}
+      style={{ height: `${PHASES.length * 100}vh` }}
+    >
+      <div className="hiw-sticky">
+        {/* Progress rail at top */}
+        <div className="hiw-rail">
+          <div className="hiw-rail-track">
+            <div
+              className="hiw-rail-fill"
+              style={{ width: `${progress * 100}%` }}
+            />
+            {PHASES.map((p, i) => (
+              <div
+                key={p.id}
+                className={`hiw-rail-stop ${i <= activePhase ? 'is-passed' : ''} ${i === activePhase ? 'is-active' : ''}`}
+                style={{ left: `${(i / (PHASES.length - 1)) * 100}%` }}
+              >
+                <span className="hiw-rail-dot" />
+                <span className="hiw-rail-label">
+                  <span className="hiw-rail-id">{p.id}</span>
+                  <span className="hiw-rail-name">{p.name}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="hiw-rail-readout">
+            <span className="hiw-rail-readout-blink" />
+            <span>PHASE {PHASES[activePhase].id} · {PHASES[activePhase].name.toUpperCase()}</span>
+            <span className="hiw-rail-readout-pct">{Math.round(progress * 100)}%</span>
+          </div>
+        </div>
+
+        {/* Phase track */}
+        <div
+          className="hiw-track"
+          ref={trackRef}
+          style={{ transform: `translateX(${translateVw}vw)` }}
+        >
+          {PHASES.map((p, i) => (
+            <article
+              key={p.id}
+              className={`hiw-phase ${i === activePhase ? 'is-active' : ''}`}
+            >
+              <div className="hiw-phase-grid">
+                <div className="hiw-phase-left">
+                  <div className="hiw-phase-num-wrap">
+                    <span className="hiw-phase-num">{p.id}</span>
+                    <span className="hiw-phase-num-rule" />
+                  </div>
+                  <div className="hiw-phase-duration">
+                    <span className="hiw-dur-main">{p.duration}</span>
+                    <span className="hiw-dur-sub">{p.durationSub}</span>
+                  </div>
+                  <h2 className="hiw-phase-name">{p.name}</h2>
+                  <p className="hiw-phase-one">{p.one}</p>
+
+                  <div className="hiw-deliverables">
+                    <span className="hiw-deliv-label">Deliverables</span>
+                    <ul className="hiw-deliv-list">
+                      {p.deliverables.map((d, k) => (
+                        <li key={k} className="hiw-deliv-item">
+                          <span className="hiw-deliv-marker" aria-hidden="true" />
+                          <span>{d}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="hiw-outcome">
+                    <span className="hiw-outcome-label">What you see at the end</span>
+                    <p className="hiw-outcome-text">{p.outcome}</p>
+                  </div>
+                </div>
+
+                <div className="hiw-phase-right">
+                  <div className="hiw-instrument">
+                    <PhaseInstrument phase={p} active={i === activePhase && inView} />
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =============================================================
+   /how-it-works — Cinematic horizontal-scroll deployment journey
+   Vertical scroll drives a horizontal track of phase panels.
+   ============================================================= */
+function HowItWorksPage() {
+  const { openTrial } = useTrial();
 
   return (
     <main className="hiw-page">
@@ -2234,94 +2387,8 @@ function HowItWorksPage() {
         </div>
       </section>
 
-      {/* Sticky horizontal-scroll journey */}
-      <section
-        className="hiw-journey"
-        ref={stickyRef}
-        style={{ height: `${PHASES.length * 100}vh` }}
-      >
-        <div className="hiw-sticky">
-          {/* Progress rail at top */}
-          <div className="hiw-rail">
-            <div className="hiw-rail-track">
-              <div
-                className="hiw-rail-fill"
-                style={{ width: `${progress * 100}%` }}
-              />
-              {PHASES.map((p, i) => (
-                <div
-                  key={p.id}
-                  className={`hiw-rail-stop ${i <= activePhase ? 'is-passed' : ''} ${i === activePhase ? 'is-active' : ''}`}
-                  style={{ left: `${(i / (PHASES.length - 1)) * 100}%` }}
-                >
-                  <span className="hiw-rail-dot" />
-                  <span className="hiw-rail-label">
-                    <span className="hiw-rail-id">{p.id}</span>
-                    <span className="hiw-rail-name">{p.name}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="hiw-rail-readout">
-              <span className="hiw-rail-readout-blink" />
-              <span>PHASE {PHASES[activePhase].id} · {PHASES[activePhase].name.toUpperCase()}</span>
-              <span className="hiw-rail-readout-pct">{Math.round(progress * 100)}%</span>
-            </div>
-          </div>
-
-          {/* Phase track */}
-          <div
-            className="hiw-track"
-            ref={trackRef}
-            style={{ transform: `translateX(${translateVw}vw)` }}
-          >
-            {PHASES.map((p, i) => (
-              <article
-                key={p.id}
-                className={`hiw-phase ${i === activePhase ? 'is-active' : ''}`}
-              >
-                <div className="hiw-phase-grid">
-                  <div className="hiw-phase-left">
-                    <div className="hiw-phase-num-wrap">
-                      <span className="hiw-phase-num">{p.id}</span>
-                      <span className="hiw-phase-num-rule" />
-                    </div>
-                    <div className="hiw-phase-duration">
-                      <span className="hiw-dur-main">{p.duration}</span>
-                      <span className="hiw-dur-sub">{p.durationSub}</span>
-                    </div>
-                    <h2 className="hiw-phase-name">{p.name}</h2>
-                    <p className="hiw-phase-one">{p.one}</p>
-
-                    <div className="hiw-deliverables">
-                      <span className="hiw-deliv-label">Deliverables</span>
-                      <ul className="hiw-deliv-list">
-                        {p.deliverables.map((d, k) => (
-                          <li key={k} className="hiw-deliv-item">
-                            <span className="hiw-deliv-marker" aria-hidden="true" />
-                            <span>{d}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="hiw-outcome">
-                      <span className="hiw-outcome-label">What you see at the end</span>
-                      <p className="hiw-outcome-text">{p.outcome}</p>
-                    </div>
-                  </div>
-
-                  <div className="hiw-phase-right">
-                    <div className="hiw-instrument">
-                      <PhaseInstrument phase={p} active={i === activePhase} />
-                    </div>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Sticky horizontal-scroll journey — the same carousel rendered on home */}
+      <HiwJourney variant="standalone" />
 
       {/* What makes this different */}
       <section className="hiw-difference">
@@ -2396,6 +2463,8 @@ function HomePage({ active, setActive }) {
     <main className="page">
       <Hero active={active} setActive={setActive} />
       <ControlPlaneIntro />
+      <HomeHowItWorksIntro />
+      <HiwJourney variant="inline" />
       <div className="layers-stack">
         {LAYERS.map((layer, i) => (
           <LayerSection

@@ -3618,15 +3618,13 @@ html, body { background: var(--void-0); color: var(--bone-100); }
    no floor to reflect against. */
 .tex-reflection { display: none !important; }
 
-/* Tex figure wrap — sized so head sits clearly below the headline and shoulders
-   anchor the bottom without overflowing aggressively. Smaller than v11.0 for
-   a calmer composition. */
+/* Tex figure wrap — sized to overshoot the stage so he extends edge-to-edge */
 .tex-figure-wrap {
   position: relative;
-  height: 96%;                 /* was 118% — calmer, less full-bleed busy */
+  height: 118%;                /* deliberately overflows so Tex's torso runs off-page */
   max-height: none;
   aspect-ratio: 900 / 1024;
-  margin-top: 4%;              /* was -2% — push slightly down so headline breathes */
+  margin-top: -2%;             /* pull head closer to top */
   z-index: 5;
 }
 
@@ -4001,7 +3999,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
 }
 /* Soft dark halo behind the type — gives contrast against the figure
-   without obscuring it. Tightened in v11.1 for cleaner italic readability. */
+   without obscuring it */
 .hv11-headline-wrap::before {
   content: '';
   position: absolute;
@@ -4009,11 +4007,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   right: -10%;
   top: -20%;
   bottom: -22%;
-  background: radial-gradient(ellipse 68% 58% at center,
-    rgba(0, 0, 0, 0.86) 0%,
-    rgba(0, 0, 0, 0.62) 32%,
-    rgba(0, 0, 0, 0.28) 58%,
-    transparent 82%);
+  background: radial-gradient(ellipse 70% 55% at center,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.50) 32%,
+    rgba(0, 0, 0, 0.22) 58%,
+    transparent 80%);
   z-index: -1;
   pointer-events: none;
 }
@@ -4192,14 +4190,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-size: 13px;
   letter-spacing: 0.04em;
 }
-.hv11-readout-strong {
-  color: var(--tex-bright);
-  font-size: 14.5px;
-  font-weight: 500;
-}
-.hv11-readout-strong .hv11-readout-unit {
-  color: var(--bone-300);
-}
 .hv11-readout-unit {
   color: var(--bone-500);
   font-size: 10px;
@@ -4268,13 +4258,13 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 @media (max-width: 1280px) {
   .hv11-edge { width: 22px; }
   .hv11-edge-text { font-size: 8.5px; letter-spacing: 0.36em; }
-  .tex-figure-wrap { height: 88%; }
+  .tex-figure-wrap { height: 84%; }
   .hv11-bottom { padding: 20px 36px 22px; }
 }
 
 @media (max-width: 980px) {
   .hv11-headline { font-size: clamp(56px, 12vw, 100px); }
-  .tex-figure-wrap { height: 80%; }
+  .tex-figure-wrap { height: 78%; }
   .hv11-bottom { flex-direction: column; align-items: flex-start; gap: 16px; padding: 18px 24px 22px; }
   .hv11-readout { flex-wrap: wrap; gap: 12px; }
   .hv11-scroll { display: none; }
@@ -4286,15 +4276,53 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv11-edge { display: none; }
   .hv11-headline-wrap { top: 14%; gap: 12px; }
   .hv11-headline { font-size: clamp(44px, 11vw, 72px); }
-  .tex-figure-wrap { height: 72%; }
+  .tex-figure-wrap { height: 70%; }
   .tex-anchors { display: none; }
   .chest-stream { display: none; }
 }
 
 /* =============================================================
+   HERO V11.1 — calmer composition
+   Smaller Tex, dropped chest stream, stronger headline scrim.
+   ============================================================= */
+.tex-figure-wrap {
+  height: 96% !important;       /* was 118% — calmer, less full-bleed busy */
+  margin-top: 4% !important;    /* was -2% — push slightly down so headline breathes */
+}
+
+/* Stronger dark halo behind the type for italic readability */
+.hv11-headline-wrap::before {
+  background: radial-gradient(ellipse 68% 58% at center,
+    rgba(0, 0, 0, 0.86) 0%,
+    rgba(0, 0, 0, 0.62) 32%,
+    rgba(0, 0, 0, 0.28) 58%,
+    transparent 82%) !important;
+}
+
+/* Volume metrics get more weight than latency in the readout */
+.hv11-readout-strong {
+  color: var(--tex-bright) !important;
+  font-size: 14.5px !important;
+  font-weight: 500 !important;
+}
+.hv11-readout-strong .hv11-readout-unit {
+  color: var(--bone-300) !important;
+}
+
+/* Update responsive figure heights to match smaller default */
+@media (max-width: 1280px) {
+  .tex-figure-wrap { height: 88% !important; }
+}
+@media (max-width: 980px) {
+  .tex-figure-wrap { height: 80% !important; }
+}
+@media (max-width: 720px) {
+  .tex-figure-wrap { height: 72% !important; }
+}
+
+/* =============================================================
    CONTROL PLANE INTRO (CPI) — section after the hero.
-   Image-1 composition: copy block on the left, orbital ring of
-   the seven layers around a smaller Tex figure on the right.
+   Image-1 composition: copy on the left, orbital ring on the right.
    ============================================================= */
 .cpi {
   position: relative;
@@ -4304,7 +4332,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   z-index: 2;
 }
 .cpi::before {
-  /* Faint top hairline as a transition from the hero */
   content: '';
   position: absolute;
   left: 8%; right: 8%;
@@ -4381,12 +4408,48 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   max-width: 56ch;
 }
 
+/* ----- Framed "In five seconds" callout (corner-bracket panel) ----- */
 .cpi-callout {
-  border-left: 1px solid var(--edge-tex);
-  padding: 6px 0 6px 22px;
+  position: relative;
+  margin: 4px 0 0;
+  padding: 26px 32px 28px;
+  background:
+    linear-gradient(180deg,
+      rgba(8, 11, 18, 0.55) 0%,
+      rgba(6, 9, 14, 0.35) 100%);
+  border: 1px solid rgba(127, 241, 233, 0.10);
+  border-radius: 1px;
+  /* Faint perspective grid texture echoing the hero floor */
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 32px,
+      rgba(127, 241, 233, 0.04) 32px,
+      rgba(127, 241, 233, 0.04) 33px
+    ),
+    linear-gradient(180deg,
+      rgba(8, 11, 18, 0.55) 0%,
+      rgba(6, 9, 14, 0.35) 100%);
+}
+/* Corner brackets */
+.cpi-callout-corner {
+  position: absolute;
+  width: 18px; height: 18px;
+  border-color: var(--tex-bright);
+  border-style: solid;
+  border-width: 0;
+}
+.cpi-corner-tl { top: -1px;    left: -1px;    border-top-width: 1.5px; border-left-width: 1.5px; }
+.cpi-corner-tr { top: -1px;    right: -1px;   border-top-width: 1.5px; border-right-width: 1.5px; }
+.cpi-corner-bl { bottom: -1px; left: -1px;    border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.cpi-corner-br { bottom: -1px; right: -1px;   border-bottom-width: 1.5px; border-right-width: 1.5px; }
+
+.cpi-callout-head {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
 }
 .cpi-callout-label {
   font-family: var(--mono);
@@ -4394,16 +4457,30 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--tex-bright);
+  white-space: nowrap;
+}
+.cpi-callout-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(127, 241, 233, 0.55) 0%,
+    rgba(127, 241, 233, 0.10) 100%);
+}
+.cpi-callout-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.28em;
+  color: var(--bone-400);
+  text-transform: uppercase;
 }
 .cpi-callout-body {
   margin: 0;
   font-family: var(--serif);
   font-style: italic;
   font-weight: 300;
-  font-size: 16.5px;
+  font-size: 17px;
   line-height: 1.55;
-  color: var(--bone-200);
-  max-width: 56ch;
+  color: var(--bone-100);
 }
 
 .cpi-actions {
@@ -4471,11 +4548,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   margin-top: 24px;
   flex-wrap: wrap;
 }
-.cpi-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.cpi-stat { display: flex; flex-direction: column; gap: 6px; }
 .cpi-stat-value {
   font-family: var(--serif);
   font-weight: 400;
@@ -4518,12 +4591,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .cpi-ring {
   position: absolute;
-  inset: 0;
-  border: 1px solid var(--edge-tex);
   border-radius: 50%;
+  border: 1px solid var(--edge-tex);
   opacity: 0.6;
 }
-.cpi-ring-outer { inset: 0;  border-color: rgba(86, 230, 220, 0.22); }
+.cpi-ring-outer { inset: 0;   border-color: rgba(86, 230, 220, 0.22); }
 .cpi-ring-mid   { inset: 12%; border-color: rgba(86, 230, 220, 0.30); }
 .cpi-ring-inner { inset: 26%; border-color: rgba(86, 230, 220, 0.42); }
 
@@ -4627,7 +4699,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   top: 50%;
   width: 0;
   height: 0;
-  /* Rotate the empty container; the dot is its ::before child. */
   animation: cpi-node-spin 18s linear infinite;
   pointer-events: none;
 }
@@ -4635,7 +4706,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   content: '';
   position: absolute;
   left: 50%;
-  top: -50%;             /* place dot on the outer ring */
+  top: -50%;
   transform: translate(-50%, -50%);
   width: 9px; height: 9px;
   border-radius: 50%;
@@ -4647,7 +4718,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   to   { transform: rotate(360deg); }
 }
 
-/* Responsive — collapse to single column on narrower viewports */
 @media (max-width: 1100px) {
   .cpi { padding: 100px 36px 120px; }
   .cpi-grid { grid-template-columns: 1fr; gap: 60px; }
@@ -4661,20 +4731,121 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .cpi-stat-value { font-size: 30px; }
   .cpi-chip { font-size: 9px; padding: 5px 9px; }
   .cpi-chip-name { font-size: 11px; }
+  .cpi-callout { padding: 22px 24px 22px; }
+  .cpi-callout-body { font-size: 15.5px; }
+}
+
+/* =============================================================
+   HOME — How-it-works intro band that precedes the inlined carousel
+   ============================================================= */
+.hh-hiw-intro {
+  position: relative;
+  padding: 110px 64px 80px;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  z-index: 2;
+}
+.hh-hiw-intro::before {
+  content: '';
+  position: absolute;
+  left: 8%; right: 8%;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(127, 241, 233, 0.22), transparent);
+}
+.hh-hiw-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  align-items: flex-start;
+}
+.hh-hiw-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--bone-300);
+}
+.hh-hiw-h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: clamp(40px, 4.6vw, 72px);
+  line-height: 0.98;
+  letter-spacing: -0.030em;
+  color: var(--bone-100);
+}
+.hh-hiw-h-line { display: block; }
+.hh-hiw-h-italic {
+  font-style: italic;
+  font-weight: 300;
+  background: linear-gradient(110deg,
+    var(--bone-100) 0%,
+    var(--tex-bright) 28%,
+    var(--bone-100) 52%,
+    var(--bone-100) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+}
+.hh-hiw-lede {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 16.5px;
+  line-height: 1.62;
+  color: var(--bone-200);
+  max-width: 60ch;
+}
+.hh-hiw-scroll {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--bone-400);
+}
+.hh-hiw-arrow {
+  color: var(--tex-bright);
+  text-shadow: 0 0 8px var(--tex-bright);
+  animation: hh-hiw-bounce 2s ease-in-out infinite;
+}
+@keyframes hh-hiw-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.7; }
+  50%      { transform: translateY(4px); opacity: 1; }
+}
+@media (max-width: 720px) {
+  .hh-hiw-intro { padding: 64px 22px 48px; }
+  .hh-hiw-h2 { font-size: clamp(32px, 8vw, 52px); }
+}
+
+/* =============================================================
+   HIW JOURNEY — inlined variant on the homepage.
+   The carousel itself is shared CSS (already defined above for the
+   route page); this block just resets the surrounding context so it
+   doesn't inherit padding from the route .hiw-page wrapper.
+   ============================================================= */
+.hiw-journey-inline {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* =============================================================
    PERFORMANCE PASS
    - layer-section gets content-visibility so off-screen sections
      don't paint or run their viz layout.
-   - Reduce paint cost on smooth scroll for users on lower-power
-     hardware.
-   - Honor prefers-reduced-motion: kill the canvas + all heavy
-     keyframes for users that opted out.
+   - Honor prefers-reduced-motion: kill canvas + heavy keyframes.
    ============================================================= */
 .layer-section {
-  /* Skips paint and layout entirely until the section is near the
-     viewport. Massive scroll perf win on long pages. */
   content-visibility: auto;
   contain-intrinsic-size: 1px 800px;
 }
@@ -4682,6 +4853,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   content-visibility: auto;
   contain-intrinsic-size: 1px 720px;
 }
+/* Note: NOT setting content-visibility on .hiw-journey because it uses
+   sticky positioning + scroll-driven transforms; CV breaks layout there. */
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

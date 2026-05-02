@@ -4865,3 +4865,297 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   }
   .ambient { display: none !important; }
 }
+
+/* =============================================================
+   MOBILE PASS — phone-specific layout fixes (≤720px)
+   The desktop composition assumes a wide stage. On phones the top
+   nav, headline, and figure all fight for the same vertical space.
+   These rules collapse the nav, push the headline above Tex's head,
+   shrink the figure, and ensure the bottom CTAs sit above the fold.
+   All rules use !important to win over earlier v10/v11 overrides
+   which themselves used !important.
+   ============================================================= */
+@media (max-width: 720px) {
+  :root {
+    --bar-h: 56px;
+  }
+
+  /* ------- TOP NAV ------- */
+  /* Collapse to: brand on left, "Book a demo" pill on right.
+     Hide layer cells and "How it works" link entirely on phones.
+     The cells were unusable at 7-across on a 375px screen anyway. */
+  .layer-bar {
+    grid-template-columns: 1fr auto !important;
+    height: var(--bar-h) !important;
+    padding: 0 !important;
+  }
+  .bar-cells,
+  .bar-howitworks,
+  .bar-runtime {
+    display: none !important;
+  }
+  .bar-brand {
+    padding: 0 14px !important;
+    gap: 10px !important;
+    border-right: 0 !important;
+  }
+  .bar-brand .brand-mark {
+    width: 26px !important;
+    height: 26px !important;
+  }
+  .bar-brand .brand-name {
+    font-size: 15px !important;
+    letter-spacing: 0.18em !important;
+  }
+  .bar-brand .brand-sub {
+    font-size: 8.5px !important;
+    letter-spacing: 0.20em !important;
+  }
+  .bar-cta {
+    padding: 0 16px !important;
+    font-size: 9.5px !important;
+    letter-spacing: 0.18em !important;
+    gap: 6px !important;
+    border-left: 1px solid var(--edge) !important;
+    white-space: nowrap !important;
+  }
+  .bar-cta .cta-arrow {
+    font-size: 12px !important;
+  }
+
+  /* Reset any earlier mobile rule that put cells on a second row */
+  .bar-cells {
+    grid-column: auto !important;
+    order: initial !important;
+    border-top: 0 !important;
+  }
+
+  /* ------- PAGE OFFSET ------- */
+  /* Original mobile rule set padding-top: 132px assuming a two-row
+     nav. With the collapsed single-row nav, page sits flush below it. */
+  .page { padding-top: var(--bar-h) !important; }
+
+  /* ------- HERO STAGE ------- */
+  /* Hero fills viewport minus nav; figure shrinks, headline pushes up */
+  .hero.hero-v11 {
+    height: calc(100vh - var(--bar-h)) !important;
+    min-height: 560px !important;
+  }
+  .tex-figure-wrap {
+    height: 60% !important;       /* was 72% — leave room for headline */
+    margin-top: 8% !important;    /* push down a hair so headline clears */
+  }
+
+  /* ------- KICKER ------- */
+  /* The four-span flex with letter-spacing was wrapping into two columns.
+     Stack it vertically on phones with smaller letter-spacing. */
+  .hv11-kicker {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 6px 10px !important;
+    font-size: 8.5px !important;
+    letter-spacing: 0.22em !important;
+    padding: 0 18px !important;
+    line-height: 1.4 !important;
+  }
+  .hv11-kicker-sep { display: none !important; }
+
+  /* ------- HEADLINE ------- */
+  /* Lift it above Tex's head (was crashing through the face).
+     Use a slightly smaller clamp so "for every AI agent." fits. */
+  .hv11-headline-wrap {
+    top: 8% !important;
+    gap: 10px !important;
+    padding: 0 12px !important;
+  }
+  .hv11-headline {
+    font-size: clamp(34px, 9.5vw, 56px) !important;
+    line-height: 0.92 !important;
+    letter-spacing: -0.030em !important;
+  }
+  /* Stronger scrim — italic line still crosses the figure's silhouette
+     near the shoulders even at 60% figure height */
+  .hv11-headline-wrap::before {
+    background: radial-gradient(ellipse 78% 64% at center,
+      rgba(0, 0, 0, 0.92) 0%,
+      rgba(0, 0, 0, 0.70) 36%,
+      rgba(0, 0, 0, 0.32) 62%,
+      transparent 88%) !important;
+  }
+
+  /* ------- FLOATING ANCHORS + HAIRLINES ------- */
+  /* Hide all of them on phones — they're only legible on a wide stage.
+     The hairlines SVG was still drawing in the original mobile rule. */
+  .tex-anchors,
+  .tex-hairlines,
+  .tex-hairlines-lines,
+  .tex-hairlines-dots,
+  .chest-stream {
+    display: none !important;
+  }
+
+  /* ------- BOTTOM TELEMETRY ------- */
+  /* CTAs must be visible above the fold. Tighten padding, scale down
+     the readout, drop letter-spacing so it fits one line on 375px. */
+  .hv11-bottom {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 14px 18px 16px !important;
+    background: linear-gradient(180deg,
+      transparent 0%,
+      rgba(0, 0, 0, 0.78) 40%,
+      rgba(0, 0, 0, 0.96) 100%) !important;
+  }
+  .hv11-bottom-left {
+    flex-direction: row !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+  .hv11-cta {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 12px 14px !important;
+    font-size: 10px !important;
+    letter-spacing: 0.18em !important;
+  }
+  .hv11-trace {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 12px 12px !important;
+    font-size: 10px !important;
+    letter-spacing: 0.18em !important;
+  }
+  .hv11-readout {
+    flex-wrap: wrap !important;
+    gap: 8px 12px !important;
+    justify-content: center !important;
+    font-size: 9px !important;
+    letter-spacing: 0.10em !important;
+  }
+  .hv11-readout-value {
+    font-size: 11px !important;
+  }
+  .hv11-readout-strong {
+    font-size: 12px !important;
+  }
+  .hv11-readout-unit {
+    font-size: 8.5px !important;
+    letter-spacing: 0.14em !important;
+    margin-left: 3px !important;
+  }
+  .hv11-readout-sep {
+    height: 10px !important;
+  }
+
+  /* ------- CONTROL PLANE INTRO (the second section) ------- */
+  /* Already responsive but tighten the orbit chips so they don't
+     overflow the orbit at narrow widths. */
+  .cpi {
+    padding: 64px 18px 80px !important;
+  }
+  .cpi-h2 {
+    font-size: clamp(34px, 9vw, 52px) !important;
+  }
+  .cpi-lede,
+  .cpi-callout-body {
+    font-size: 15px !important;
+  }
+  .cpi-callout {
+    padding: 20px 18px 22px !important;
+  }
+  .cpi-callout-head {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .cpi-callout-rule { display: none !important; }
+  .cpi-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .cpi-cta,
+  .cpi-trace {
+    justify-content: center !important;
+    padding: 14px 18px !important;
+    font-size: 10.5px !important;
+  }
+  .cpi-stats {
+    gap: 24px !important;
+  }
+  .cpi-stat-value {
+    font-size: 28px !important;
+  }
+  .cpi-orbit {
+    width: min(320px, 100%) !important;
+  }
+  .cpi-chip {
+    font-size: 8.5px !important;
+    padding: 4px 7px !important;
+    gap: 6px !important;
+  }
+  .cpi-chip-name {
+    font-size: 10px !important;
+  }
+  .cpi-chip-num {
+    font-size: 8.5px !important;
+  }
+
+  /* ------- HOW-IT-WORKS INTRO + INLINED CAROUSEL ------- */
+  .hh-hiw-intro {
+    padding: 56px 18px 36px !important;
+  }
+  .hh-hiw-h2 {
+    font-size: clamp(28px, 8vw, 44px) !important;
+  }
+  .hh-hiw-lede {
+    font-size: 15px !important;
+  }
+  .hh-hiw-kicker {
+    flex-wrap: wrap !important;
+    gap: 6px 10px !important;
+    font-size: 8.5px !important;
+    letter-spacing: 0.22em !important;
+    line-height: 1.4 !important;
+  }
+  .hh-hiw-kicker .cpi-kicker-sep { display: none !important; }
+}
+
+/* ------- EXTRA-NARROW (≤380px) ------- */
+@media (max-width: 380px) {
+  .hv11-headline {
+    font-size: clamp(30px, 9vw, 44px) !important;
+  }
+  .hv11-bottom-left {
+    flex-direction: column !important;
+  }
+  .hv11-cta,
+  .hv11-trace {
+    width: 100% !important;
+  }
+  .bar-brand .brand-sub {
+    display: none !important;
+  }
+  .bar-cta {
+    padding: 0 12px !important;
+    font-size: 9px !important;
+  }
+}
+
+/* ------- LANDSCAPE PHONE ------- */
+/* Short viewports: stop the figure from dominating, keep CTAs visible */
+@media (max-height: 600px) and (max-width: 900px) {
+  .tex-figure-wrap {
+    height: 70% !important;
+    margin-top: 0 !important;
+  }
+  .hv11-headline-wrap {
+    top: 4% !important;
+  }
+  .hv11-headline {
+    font-size: clamp(28px, 6vw, 44px) !important;
+  }
+  .hv11-bottom {
+    padding: 8px 14px 10px !important;
+  }
+}

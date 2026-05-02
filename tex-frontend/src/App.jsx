@@ -268,11 +268,12 @@ function PerspectiveGrid() {
 /* =============================================================
    LAYER BAR — top-of-page navigation
    ============================================================= */
-function LayerBar({ active, setActive }) {
+function LayerBar({ active, setActive, currentPath }) {
   const { openTrial: onActivate } = useTrial();
+  const isHIW = currentPath === '/how-it-works';
   return (
     <nav className="layer-bar" aria-label="Seven layer navigation">
-      <div className="bar-brand">
+      <div className="bar-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
         <div className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22">
             <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
@@ -291,7 +292,7 @@ function LayerBar({ active, setActive }) {
               type="button"
               role="tab"
               aria-selected={i === active}
-              className={`bar-cell ${i === active ? 'is-active' : ''}`}
+              className={`bar-cell ${i === active && !isHIW ? 'is-active' : ''}`}
               onClick={() => setActive(i)}
             >
               <span className="cell-num">{layer.id}</span>
@@ -301,6 +302,15 @@ function LayerBar({ active, setActive }) {
           </li>
         ))}
       </ol>
+      <button
+        type="button"
+        className={`bar-howitworks ${isHIW ? 'is-active' : ''}`}
+        onClick={() => navigate('/how-it-works')}
+        aria-label="How it works"
+      >
+        <span className="bar-howitworks-dot" aria-hidden="true" />
+        <span>How it works</span>
+      </button>
       <button type="button" className="bar-cta" onClick={onActivate}>
         <span>Book a demo</span>
         <span className="cta-arrow">→</span>
@@ -1516,6 +1526,14 @@ function ClosingPanel() {
             <a href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`} className="btn-ghost">
               <span>Talk to the founder</span>
             </a>
+            <a
+              href="/how-it-works"
+              className="btn-ghost"
+              onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
+            >
+              <span>Not ready to talk? See the deployment timeline</span>
+              <span className="btn-arrow">→</span>
+            </a>
           </div>
         </div>
         <div className="cl-right">
@@ -1698,10 +1716,746 @@ function TrialModal({ open, onClose }) {
 }
 
 
+/* =============================================================
+   ROUTING — minimal client-side router (no deps)
+   - useRoute() returns the current pathname
+   - navigate(path) pushes history + emits popstate-equivalent event
+   - vercel.json already rewrites /* -> / so refreshes work
+   ============================================================= */
+function useRoute() {
+  const [path, setPath] = useState(typeof window !== 'undefined' ? window.location.pathname : '/');
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('tex:navigate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      window.removeEventListener('tex:navigate', onPop);
+    };
+  }, []);
+  return path;
+}
+
+function navigate(path) {
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === path) return;
+  window.history.pushState({}, '', path);
+  window.dispatchEvent(new Event('tex:navigate'));
+  window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+/* =============================================================
+   PHASES — Six-week deployment journey
+   Phase 0 (Discovery Call) -> Phase 5 (Ongoing Calibration)
+   ============================================================= */
+const PHASES = [
+  {
+    id: '00',
+    name: 'Discovery Call',
+    duration: 'Week 0',
+    durationSub: 'Before contract',
+    one: '30-minute call with the founder. We map your AI agent surface area, your compliance obligations, and your existing security stack.',
+    deliverables: [
+      'Surface area assessment',
+      'Compliance obligation mapping',
+      'Existing security stack review',
+      'Written scope-of-work and pricing',
+    ],
+    outcome: 'You leave with a written scope-of-work and pricing. No commitment.',
+    instrument: 'discovery',
+  },
+  {
+    id: '01',
+    name: 'Inventory',
+    duration: 'Week 1',
+    durationSub: 'Read-only scan',
+    one: 'We connect Tex to your environment via read-only credentials. Discovery scans your Slack, Drive, GitHub, AgentForce, vendor copilots, and MCP-bound tools.',
+    deliverables: [
+      'Read-only credential connection',
+      'Cross-stack agent discovery',
+      'First-party + vendor + shadow workflow detection',
+      'Owner and trust tier proposal',
+    ],
+    outcome: 'Signed inventory dashboard with every agent, owner, and trust tier proposed.',
+    instrument: 'inventory',
+  },
+  {
+    id: '02',
+    name: 'Policy Configuration',
+    duration: 'Week 2–3',
+    durationSub: 'Workshop + compile',
+    one: 'We sit with your compliance and security teams in a structured policy workshop. Your written rules become live, machine-enforceable policy as code. You author. We compile.',
+    deliverables: [
+      'Structured policy workshop',
+      'Regulatory + AUP + data handling translation',
+      'Policy-as-code compilation per agent class',
+      'Capability layer scoped to your obligations',
+    ],
+    outcome: 'Your specific policy rules running in the capability layer, scoped per agent class.',
+    instrument: 'policy',
+  },
+  {
+    id: '03',
+    name: 'Enforcement Wiring',
+    duration: 'Week 3–5',
+    durationSub: 'Runtime integration',
+    one: "We integrate Tex's adjudication engine into your existing agent stack. Your agents call Tex before executing. PERMIT releases. ABSTAIN routes to human review. FORBID blocks and seals as evidence.",
+    deliverables: [
+      'Adjudication engine integration',
+      'PERMIT / ABSTAIN / FORBID wiring',
+      'Human-review routing for ABSTAIN',
+      'No rip-and-replace of existing tools',
+    ],
+    outcome: 'Live runtime enforcement with verdict latency under 200ms.',
+    instrument: 'enforcement',
+  },
+  {
+    id: '04',
+    name: 'Evidence + Handoff',
+    duration: 'Week 5–6',
+    durationSub: 'Production handoff',
+    one: 'Every decision is sealed in a hash-chained, HMAC-signed evidence bundle, replayable on demand. Security gets a dashboard. Compliance gets audit-ready reports. We hand you the keys.',
+    deliverables: [
+      'SHA-256 hash-chained evidence bundles',
+      'HMAC-signed, replayable on demand',
+      'Security dashboard + compliance reports',
+      '90-day runbook + named point of contact',
+    ],
+    outcome: 'Production-grade adjudication, full audit trail, named ongoing point of contact.',
+    instrument: 'evidence',
+  },
+  {
+    id: '05',
+    name: 'Ongoing Calibration',
+    duration: 'Month 2+',
+    durationSub: 'Closed-loop tuning',
+    one: 'Tex tunes thresholds against your actual outcomes. Policy stays human-authored — you author the rules, we measure their performance. Your stack evolves; the inventory keeps up.',
+    deliverables: [
+      'Threshold tuning against sealed outcomes',
+      'Quarterly business reviews',
+      'On-demand integration support',
+      'Continuous discovery as your stack evolves',
+    ],
+    outcome: 'A living control plane that improves with use — without rewriting your rules.',
+    instrument: 'calibration',
+  },
+];
+
+/* =============================================================
+   PHASE INSTRUMENT VISUALS
+   One unique schematic per phase, matching the AegisRing language.
+   ============================================================= */
+function PhaseInstrument({ phase, active }) {
+  const t = phase.instrument;
+  if (t === 'discovery') return <InstDiscovery active={active} />;
+  if (t === 'inventory') return <InstInventory active={active} />;
+  if (t === 'policy') return <InstPolicy active={active} />;
+  if (t === 'enforcement') return <InstEnforcement active={active} />;
+  if (t === 'evidence') return <InstEvidence active={active} />;
+  if (t === 'calibration') return <InstCalibration active={active} />;
+  return null;
+}
+
+/* Phase 0 — Discovery: orbiting handshake */
+function InstDiscovery({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 50);
+    return () => clearInterval(id);
+  }, [active]);
+  const angle = (t * 0.04) % (Math.PI * 2);
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      <defs>
+        <radialGradient id="discGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="rgba(86, 230, 220, 0.35)" />
+          <stop offset="100%" stopColor="rgba(86, 230, 220, 0)" />
+        </radialGradient>
+      </defs>
+      <circle cx="200" cy="200" r="160" fill="url(#discGlow)" />
+      <circle cx="200" cy="200" r="120" className="phase-ring" />
+      <circle cx="200" cy="200" r="80" className="phase-ring faint" />
+      {/* Two nodes facing each other (you + founder) */}
+      <g>
+        <circle cx={200 + Math.cos(angle) * 120} cy={200 + Math.sin(angle) * 120} r="10" className="phase-node-bright" />
+        <circle cx={200 - Math.cos(angle) * 120} cy={200 - Math.sin(angle) * 120} r="10" className="phase-node" />
+      </g>
+      {/* Connecting line */}
+      <line
+        x1={200 + Math.cos(angle) * 120} y1={200 + Math.sin(angle) * 120}
+        x2={200 - Math.cos(angle) * 120} y2={200 - Math.sin(angle) * 120}
+        className="phase-link"
+      />
+      <circle cx="200" cy="200" r="4" className="phase-center" />
+      <text x="200" y="350" className="phase-readout" textAnchor="middle">DISCOVERY · 30 MIN</text>
+    </svg>
+  );
+}
+
+/* Phase 1 — Inventory: agents found, building list */
+function InstInventory({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 80);
+    return () => clearInterval(id);
+  }, [active]);
+  const found = Math.min(7, Math.floor(t / 4));
+  const agents = [
+    { x: 60, y: 80, name: 'agent_revops_07' },
+    { x: 320, y: 110, name: 'copilot_legal_03' },
+    { x: 90, y: 200, name: 'agent_marketing_04' },
+    { x: 280, y: 240, name: 'workflow_ops_11' },
+    { x: 140, y: 320, name: 'agent_hr_05' },
+    { x: 250, y: 60, name: 'agent_support_22' },
+    { x: 350, y: 320, name: 'agent_research_19' },
+  ];
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      <defs>
+        <linearGradient id="invSweep" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="rgba(86, 230, 220, 0)" />
+          <stop offset="50%" stopColor="rgba(86, 230, 220, 0.5)" />
+          <stop offset="100%" stopColor="rgba(86, 230, 220, 0)" />
+        </linearGradient>
+      </defs>
+      {/* Sweep band */}
+      <rect x="0" y={(t * 4) % 400 - 60} width="400" height="60" fill="url(#invSweep)" className="phase-sweep-band" />
+      {/* Agents */}
+      {agents.map((a, i) => (
+        <g key={i} className={i < found ? 'phase-agent-found' : 'phase-agent'}>
+          <rect x={a.x - 16} y={a.y - 8} width="100" height="16" className="phase-agent-bg" />
+          <circle cx={a.x} cy={a.y} r="3" className={i < found ? 'phase-dot-bright' : 'phase-dot'} />
+          <text x={a.x + 10} y={a.y + 3} className="phase-readout-sm">{a.name}</text>
+        </g>
+      ))}
+      <text x="20" y="380" className="phase-readout">AGENTS · {found}/7 INDEXED</text>
+    </svg>
+  );
+}
+
+/* Phase 2 — Policy: source rules compile to gates */
+function InstPolicy({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 60);
+    return () => clearInterval(id);
+  }, [active]);
+  const phase = Math.floor((t / 12) % 3);
+  const rules = ['data_class != PII', 'env == prod', 'budget < $100', 'tier >= REVIEWED'];
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      {/* Source code */}
+      <g transform="translate(20,40)">
+        <rect width="160" height="220" className="phase-panel" />
+        <text x="10" y="20" className="phase-panel-label">policy.tex</text>
+        {rules.map((r, i) => (
+          <text key={i} x="10" y={50 + i * 28}
+            className={`phase-code ${phase >= 1 ? 'is-compiled' : ''}`}
+            style={{ animationDelay: `${i * 0.15}s` }}>
+            {r}
+          </text>
+        ))}
+      </g>
+      {/* Arrow */}
+      <g transform="translate(190,140)">
+        <line x1="0" y1="10" x2="20" y2="10" className="phase-arrow" />
+        <path d="M 18 6 L 24 10 L 18 14 Z" className="phase-arrow-head" />
+      </g>
+      {/* Compiled output */}
+      <g transform="translate(220,40)">
+        <rect width="160" height="220" className={`phase-panel ${phase >= 2 ? 'is-active' : ''}`} />
+        <text x="10" y="20" className="phase-panel-label">compiled</text>
+        {rules.map((_, i) => (
+          <g key={i} transform={`translate(10,${40 + i * 28})`}>
+            <rect width="140" height="20" className={`phase-gate ${phase >= 2 ? 'is-set' : ''}`}
+              style={{ animationDelay: `${0.4 + i * 0.1}s` }} />
+            <text x="10" y="14" className="phase-gate-text">GATE_{i + 1}</text>
+          </g>
+        ))}
+      </g>
+      <text x="200" y="380" className="phase-readout" textAnchor="middle">POLICY · COMPILED</text>
+    </svg>
+  );
+}
+
+/* Phase 3 — Enforcement: PERMIT/ABSTAIN/FORBID gate */
+function InstEnforcement({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 50);
+    return () => clearInterval(id);
+  }, [active]);
+  const verdict = ['PERMIT', 'ABSTAIN', 'FORBID'][Math.floor((t / 30) % 3)];
+  const cls = verdict === 'PERMIT' ? 'is-permit' : verdict === 'ABSTAIN' ? 'is-abstain' : 'is-forbid';
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      {/* Action approaching */}
+      <line x1="20" y1="200" x2="160" y2="200" className="phase-action-line" />
+      <circle cx={20 + ((t * 4) % 140)} cy="200" r="6" className="phase-action-bead" />
+      {/* Tex gate */}
+      <g transform="translate(160,140)">
+        <rect width="80" height="120" className="phase-gate-tex" />
+        <text x="40" y="65" className="phase-gate-tex-label" textAnchor="middle">TEX</text>
+        <text x="40" y="82" className="phase-gate-tex-sub" textAnchor="middle">142ms</text>
+      </g>
+      {/* Three outcomes */}
+      <g transform="translate(260,160)">
+        <rect width="120" height="20" className={`phase-verdict ${verdict === 'PERMIT' ? 'is-permit-active' : ''}`} />
+        <text x="60" y="14" textAnchor="middle" className="phase-verdict-text">PERMIT</text>
+      </g>
+      <g transform="translate(260,190)">
+        <rect width="120" height="20" className={`phase-verdict ${verdict === 'ABSTAIN' ? 'is-abstain-active' : ''}`} />
+        <text x="60" y="14" textAnchor="middle" className="phase-verdict-text">ABSTAIN</text>
+      </g>
+      <g transform="translate(260,220)">
+        <rect width="120" height="20" className={`phase-verdict ${verdict === 'FORBID' ? 'is-forbid-active' : ''}`} />
+        <text x="60" y="14" textAnchor="middle" className="phase-verdict-text">FORBID</text>
+      </g>
+      <text x="200" y="380" className={`phase-readout ${cls}`} textAnchor="middle">VERDICT · {verdict}</text>
+    </svg>
+  );
+}
+
+/* Phase 4 — Evidence: hash chain blocks linking */
+function InstEvidence({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 80);
+    return () => clearInterval(id);
+  }, [active]);
+  const blocks = 5;
+  const linked = Math.min(blocks, Math.floor(t / 6));
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      {[...Array(blocks)].map((_, i) => {
+        const x = 30 + i * 70;
+        const isLinked = i < linked;
+        return (
+          <g key={i}>
+            {i > 0 && (
+              <line
+                x1={x - 18} y1="200" x2={x} y2="200"
+                className={`phase-chain-link ${isLinked ? 'is-linked' : ''}`}
+              />
+            )}
+            <rect
+              x={x} y="170" width="52" height="60"
+              className={`phase-block ${isLinked ? 'is-sealed' : ''}`}
+              style={{ animationDelay: `${i * 0.18}s` }}
+            />
+            <text x={x + 26} y="195" className="phase-block-num" textAnchor="middle">{String(i + 1).padStart(2, '0')}</text>
+            <text x={x + 26} y="215" className="phase-block-hash" textAnchor="middle">
+              0x{((i * 31337) % 0xfff).toString(16).padStart(3, '0')}
+            </text>
+          </g>
+        );
+      })}
+      <text x="200" y="380" className="phase-readout" textAnchor="middle">CHAIN · SHA-256 · HMAC-SIGNED</text>
+    </svg>
+  );
+}
+
+/* Phase 5 — Calibration: threshold dial tuning */
+function InstCalibration({ active }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setT((v) => v + 1), 50);
+    return () => clearInterval(id);
+  }, [active]);
+  const angle = -Math.PI * 0.6 + Math.sin(t * 0.04) * 0.5;
+  const cx = 200, cy = 220, r = 100;
+  return (
+    <svg viewBox="0 0 400 400" className="phase-svg">
+      {/* Arc */}
+      <path
+        d={`M ${cx + Math.cos(-Math.PI) * r} ${cy + Math.sin(-Math.PI) * r} A ${r} ${r} 0 0 1 ${cx + Math.cos(0) * r} ${cy + Math.sin(0) * r}`}
+        className="phase-dial-arc"
+      />
+      {/* Threshold ticks */}
+      {[...Array(11)].map((_, i) => {
+        const a = -Math.PI + (i / 10) * Math.PI;
+        const r1 = r - 6, r2 = r + 6;
+        return (
+          <line
+            key={i}
+            x1={cx + Math.cos(a) * r1} y1={cy + Math.sin(a) * r1}
+            x2={cx + Math.cos(a) * r2} y2={cy + Math.sin(a) * r2}
+            className={`phase-dial-tick ${i % 5 === 0 ? 'is-major' : ''}`}
+          />
+        );
+      })}
+      {/* Needle */}
+      <line
+        x1={cx} y1={cy}
+        x2={cx + Math.cos(angle) * (r - 10)} y2={cy + Math.sin(angle) * (r - 10)}
+        className="phase-dial-needle"
+      />
+      <circle cx={cx} cy={cy} r="6" className="phase-dial-pivot" />
+      {/* Threshold labels */}
+      <text x={cx - r - 10} y={cy + 6} className="phase-readout-sm" textAnchor="end">PERMIT</text>
+      <text x={cx + r + 10} y={cy + 6} className="phase-readout-sm">FORBID</text>
+      <text x={cx} y={cy - r - 14} className="phase-readout-sm" textAnchor="middle">ABSTAIN</text>
+      <text x="200" y="380" className="phase-readout" textAnchor="middle">THRESHOLDS · TUNED THIS WEEK · 23</text>
+    </svg>
+  );
+}
+
+/* =============================================================
+   HOMEPAGE STRIP — "Your first six weeks"
+   Full mini-section with all 5 phases (skips phase 0 for cleanliness)
+   ============================================================= */
+function FirstSixWeeksStrip() {
+  // Show phases 01–05 (skip the pre-contract Discovery Call on the homepage strip;
+  // it's a sales motion, not a deployment phase. Full timeline lives on /how-it-works.)
+  const stripPhases = PHASES.filter((p) => p.id !== '00');
+  return (
+    <section className="six-weeks" id="six-weeks">
+      <div className="sw-head">
+        <span className="kicker">
+          <span className="kicker-dot" />
+          <span>Your first six weeks</span>
+        </span>
+        <h2 className="sw-h2">
+          From signed contract<br />
+          <span className="ital">to production-grade enforcement.</span>
+        </h2>
+        <p className="sw-lede">
+          A concierge deployment, run by the people who built the engine. No
+          junior consultants. No 6-month implementation projects. No off-the-shelf
+          dashboards bolted onto a stack you don't own.
+        </p>
+      </div>
+
+      <div className="sw-track">
+        {stripPhases.map((p, i) => (
+          <div key={p.id} className="sw-phase">
+            <div className="sw-phase-head">
+              <span className="sw-num">{p.id}</span>
+              <span className="sw-rail" aria-hidden="true">
+                <span className="sw-rail-line" />
+                {i < stripPhases.length - 1 && <span className="sw-rail-arrow">→</span>}
+              </span>
+            </div>
+            <div className="sw-duration">
+              <span className="sw-dur-main">{p.duration}</span>
+              <span className="sw-dur-sub">{p.durationSub}</span>
+            </div>
+            <h3 className="sw-name">{p.name}</h3>
+            <p className="sw-one">{p.one}</p>
+            <div className="sw-outcome">
+              <span className="sw-outcome-label">Outcome</span>
+              <p className="sw-outcome-text">{p.outcome}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="sw-foot">
+        <a
+          href="/how-it-works"
+          className="btn-ghost"
+          onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
+        >
+          <span>See the full deployment timeline</span>
+          <span className="btn-arrow">→</span>
+        </a>
+      </div>
+    </section>
+  );
+}
+
+/* =============================================================
+   /how-it-works — Cinematic horizontal-scroll deployment journey
+   Vertical scroll drives a horizontal track of phase panels.
+   ============================================================= */
+function HowItWorksPage() {
+  const { openTrial } = useTrial();
+  const trackRef = useRef(null);
+  const stickyRef = useRef(null);
+  const [progress, setProgress] = useState(0); // 0..1 across phases
+  const [activePhase, setActivePhase] = useState(0);
+
+  // Drive horizontal scroll from vertical scroll position
+  useEffect(() => {
+    const onScroll = () => {
+      const sticky = stickyRef.current;
+      if (!sticky) return;
+      const rect = sticky.getBoundingClientRect();
+      const total = sticky.offsetHeight - window.innerHeight;
+      const scrolled = -rect.top;
+      const p = Math.max(0, Math.min(1, scrolled / total));
+      setProgress(p);
+      // Active phase = the one we're currently holding on. Switch at the midpoint
+      // of the transition (50% through the snap), so labels feel decisive.
+      const phasePosLive = p * (PHASES.length - 1);
+      const wholeLive = Math.floor(phasePosLive);
+      const fracLive = phasePosLive - wholeLive;
+      const idx = fracLive > 0.85
+        ? Math.min(PHASES.length - 1, wholeLive + 1)
+        : wholeLive;
+      setActivePhase(Math.min(PHASES.length - 1, Math.max(0, idx)));
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Apply horizontal translate with hold-then-snap easing.
+  // Each phase holds for ~70% of its slice; transition is ~30%.
+  // Translation in viewport widths since each phase is 100vw wide.
+  const phasePos = progress * (PHASES.length - 1);
+  const wholeIdx = Math.floor(phasePos);
+  const fracIdx = phasePos - wholeIdx;
+  const transitionStart = 0.7;
+  const eased = fracIdx < transitionStart
+    ? 0
+    : Math.min(1, (fracIdx - transitionStart) / (1 - transitionStart));
+  const translateVw = -((wholeIdx + eased) * 100);
+
+  return (
+    <main className="hiw-page">
+      {/* Hero */}
+      <section className="hiw-hero">
+        <div className="hiw-hero-inner">
+          <span className="kicker">
+            <span className="kicker-dot" />
+            <span>How it works</span>
+            <span className="kicker-sep">/</span>
+            <span>Concierge deployment · 4–6 weeks</span>
+          </span>
+          <h1 className="hiw-h1">
+            <span className="hiw-h1-line">Six weeks from signed</span>
+            <span className="hiw-h1-line ital">to a sealed control plane.</span>
+          </h1>
+          <p className="hiw-lede">
+            Tex is configured to your stack, your rules, your compliance reality —
+            by the people who built the engine. No off-the-shelf dashboard. No
+            junior consultants. No rip-and-replace. Six phases. One outcome.
+          </p>
+          <div className="hiw-hero-meta">
+            <div className="hiw-meta-item">
+              <span className="hiw-meta-num">06</span>
+              <span className="hiw-meta-lbl">phases · discovery to handoff</span>
+            </div>
+            <div className="hiw-meta-item">
+              <span className="hiw-meta-num">4–6</span>
+              <span className="hiw-meta-lbl">weeks to live enforcement</span>
+            </div>
+            <div className="hiw-meta-item">
+              <span className="hiw-meta-num">142</span>
+              <span className="hiw-meta-lbl">ms p95 verdict latency</span>
+            </div>
+          </div>
+          <div className="hiw-hero-scroll" aria-hidden="true">
+            <span>Scroll to begin deployment</span>
+            <span className="hiw-scroll-arrow">↓</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Sticky horizontal-scroll journey */}
+      <section
+        className="hiw-journey"
+        ref={stickyRef}
+        style={{ height: `${PHASES.length * 100}vh` }}
+      >
+        <div className="hiw-sticky">
+          {/* Progress rail at top */}
+          <div className="hiw-rail">
+            <div className="hiw-rail-track">
+              <div
+                className="hiw-rail-fill"
+                style={{ width: `${progress * 100}%` }}
+              />
+              {PHASES.map((p, i) => (
+                <div
+                  key={p.id}
+                  className={`hiw-rail-stop ${i <= activePhase ? 'is-passed' : ''} ${i === activePhase ? 'is-active' : ''}`}
+                  style={{ left: `${(i / (PHASES.length - 1)) * 100}%` }}
+                >
+                  <span className="hiw-rail-dot" />
+                  <span className="hiw-rail-label">
+                    <span className="hiw-rail-id">{p.id}</span>
+                    <span className="hiw-rail-name">{p.name}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="hiw-rail-readout">
+              <span className="hiw-rail-readout-blink" />
+              <span>PHASE {PHASES[activePhase].id} · {PHASES[activePhase].name.toUpperCase()}</span>
+              <span className="hiw-rail-readout-pct">{Math.round(progress * 100)}%</span>
+            </div>
+          </div>
+
+          {/* Phase track */}
+          <div
+            className="hiw-track"
+            ref={trackRef}
+            style={{ transform: `translateX(${translateVw}vw)` }}
+          >
+            {PHASES.map((p, i) => (
+              <article
+                key={p.id}
+                className={`hiw-phase ${i === activePhase ? 'is-active' : ''}`}
+              >
+                <div className="hiw-phase-grid">
+                  <div className="hiw-phase-left">
+                    <div className="hiw-phase-num-wrap">
+                      <span className="hiw-phase-num">{p.id}</span>
+                      <span className="hiw-phase-num-rule" />
+                    </div>
+                    <div className="hiw-phase-duration">
+                      <span className="hiw-dur-main">{p.duration}</span>
+                      <span className="hiw-dur-sub">{p.durationSub}</span>
+                    </div>
+                    <h2 className="hiw-phase-name">{p.name}</h2>
+                    <p className="hiw-phase-one">{p.one}</p>
+
+                    <div className="hiw-deliverables">
+                      <span className="hiw-deliv-label">Deliverables</span>
+                      <ul className="hiw-deliv-list">
+                        {p.deliverables.map((d, k) => (
+                          <li key={k} className="hiw-deliv-item">
+                            <span className="hiw-deliv-marker" aria-hidden="true" />
+                            <span>{d}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="hiw-outcome">
+                      <span className="hiw-outcome-label">What you see at the end</span>
+                      <p className="hiw-outcome-text">{p.outcome}</p>
+                    </div>
+                  </div>
+
+                  <div className="hiw-phase-right">
+                    <div className="hiw-instrument">
+                      <PhaseInstrument phase={p} active={i === activePhase} />
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* What makes this different */}
+      <section className="hiw-difference">
+        <div className="hiw-diff-grid">
+          <div className="hiw-diff-left">
+            <span className="kicker">
+              <span className="kicker-dot" />
+              <span>What makes this different</span>
+            </span>
+            <h2 className="hiw-diff-h2">
+              Most AI security tools<br />
+              <span className="ital">ship you a dashboard.</span>
+            </h2>
+          </div>
+          <div className="hiw-diff-right">
+            <p className="hiw-diff-body">
+              Most AI security tools ship you a dashboard and a quickstart guide.
+              We don't.
+            </p>
+            <p className="hiw-diff-body">
+              Tex is configured to your stack, your rules, your compliance reality —
+              by the people who built the engine. You get a deployed control plane
+              in 4–6 weeks, not a 6-month implementation project run by a junior
+              consultant who's never touched your industry.
+            </p>
+            <p className="hiw-diff-body">
+              You author the rules. We compile them, wire them, and seal every
+              decision they govern. One implementation, one platform, one ongoing
+              relationship — instead of buying eight tools and stitching them
+              together yourself.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Closing CTA */}
+      <section className="hiw-cta">
+        <div className="hiw-cta-inner">
+          <h2 className="hiw-cta-h2">
+            Ready to map<br />
+            <span className="ital">your six weeks?</span>
+          </h2>
+          <p className="hiw-cta-lede">
+            A 30-minute call with the founder. We map your AI agent surface area,
+            your compliance obligations, and your existing security stack. You
+            leave with a written scope-of-work and pricing.
+          </p>
+          <div className="hiw-cta-actions">
+            <button type="button" onClick={openTrial} className="btn-primary">
+              <span>Book the discovery call</span>
+              <span className="btn-arrow">→</span>
+            </button>
+            <a
+              href="/"
+              className="btn-ghost"
+              onClick={(e) => { e.preventDefault(); navigate('/'); }}
+            >
+              <span>Back to overview</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <Footer />
+    </main>
+  );
+}
+
+
+function HomePage({ active, setActive }) {
+  return (
+    <main className="page">
+      <Hero active={active} setActive={setActive} />
+      <div className="layers-stack">
+        {LAYERS.map((layer, i) => (
+          <LayerSection
+            key={layer.id}
+            layer={layer}
+            index={i}
+            active={active}
+            setActive={setActive}
+          />
+        ))}
+      </div>
+      <FirstSixWeeksStrip />
+      <ChainBand />
+      <ClosingPanel />
+      <Footer />
+    </main>
+  );
+}
+
 function App() {
   const [active, setActive] = useState(0);
   const [trialOpen, setTrialOpen] = useState(false);
+  const path = useRoute();
   const onSelect = useCallback((i) => {
+    if (window.location.pathname !== '/') {
+      navigate('/');
+      // Wait for home to mount, then scroll to layer
+      setTimeout(() => {
+        setActive(i);
+        const target = document.getElementById(`layer-${LAYERS[i].id}`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 60);
+      return;
+    }
     setActive(i);
     const target = document.getElementById(`layer-${LAYERS[i].id}`);
     if (target) {
@@ -1711,29 +2465,19 @@ function App() {
   const openTrial = useCallback(() => setTrialOpen(true), []);
   const closeTrial = useCallback(() => setTrialOpen(false), []);
 
+  const isHowItWorks = path === '/how-it-works';
+
   return (
     <TrialContext.Provider value={{ openTrial }}>
       <div className="root-shell">
         <PerspectiveGrid />
-        <LayerBar active={active} setActive={onSelect} />
+        <LayerBar active={active} setActive={onSelect} currentPath={path} />
 
-        <main className="page">
-          <Hero active={active} setActive={setActive} />
-          <div className="layers-stack">
-            {LAYERS.map((layer, i) => (
-              <LayerSection
-                key={layer.id}
-                layer={layer}
-                index={i}
-                active={active}
-                setActive={setActive}
-              />
-            ))}
-          </div>
-          <ChainBand />
-          <ClosingPanel />
-          <Footer />
-        </main>
+        {isHowItWorks ? (
+          <HowItWorksPage />
+        ) : (
+          <HomePage active={active} setActive={setActive} />
+        )}
 
         <TrialModal open={trialOpen} onClose={closeTrial} />
       </div>

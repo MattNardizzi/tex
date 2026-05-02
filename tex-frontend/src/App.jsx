@@ -133,23 +133,25 @@ const LAYERS = [
    - side: 'left' or 'right' — determines which way the hairline elbow goes
    - glow: optional — body-local point where the focused glow blooms when active
 */
-/* Anatomical anchor mapping.
-   `body` — point ON Tex (% of figure-wrap, which is the avatar's bounding box)
-   `label` — where the label sits (% of STAGE = full viewport, so labels can
-             go to the actual screen edges, not just to the figure edges)
-   `side`  — which side of the page the label is on (controls text alignment) */
+/* Anatomical anchor mapping — two-column editorial layout.
+   `body`  — point ON Tex (% of figure-wrap = avatar bounding box)
+   `label` — where the label sits (% of STAGE = full viewport)
+   `side`  — 'left' or 'right' column
+   Layers are organized in two disciplined columns at fixed x-positions.
+   Vertical positions are evenly spaced down each column.
+*/
 const ANATOMY = {
-  // TOP-RIGHT cluster — above headline, around Tex's head
-  '01': { body: { x: 50, y: 23 }, label: { x: 64, y: 4  }, side: 'right' },  // Discovery — forehead
-  '04': { body: { x: 65, y: 28 }, label: { x: 86, y: 4  }, side: 'right' },  // Evaluation — temple
-  // BOTTOM-RIGHT cluster — below headline italic, around shoulders/chest
-  '02': { body: { x: 50, y: 50 }, label: { x: 80, y: 56 }, side: 'right' },  // Registration — throat
-  '03': { body: { x: 80, y: 65 }, label: { x: 90, y: 70 }, side: 'right' },  // Capability — right shoulder
-  // TOP-LEFT cluster — above headline, around Tex's head
-  '07': { body: { x: 50, y: 6  }, label: { x: 36, y: 4  }, side: 'left'  },  // Learning — above head
-  // BOTTOM-LEFT cluster
-  '05': { body: { x: 20, y: 65 }, label: { x: 10, y: 70 }, side: 'left'  },  // Enforcement — left shoulder
-  '06': { body: { x: 50, y: 78 }, label: { x: 18, y: 84 }, side: 'left'  },  // Evidence — chest hex
+  // LEFT COLUMN — 4 anchors at x=3%, side:'right' = label aligned LEFT of its x point
+  // (so x=3% means the label STARTS at 3% from the left edge, doesn't shift off)
+  '07': { body: { x: 50, y: 6  }, label: { x: 3, y: 22 }, side: 'right'  },  // Learning — above head
+  '01': { body: { x: 50, y: 23 }, label: { x: 3, y: 36 }, side: 'right'  },  // Discovery — forehead
+  '02': { body: { x: 50, y: 50 }, label: { x: 3, y: 50 }, side: 'right'  },  // Registration — throat
+  '06': { body: { x: 50, y: 78 }, label: { x: 3, y: 64 }, side: 'right'  },  // Evidence — chest hex
+  // RIGHT COLUMN — 3 anchors with side:'left' = label aligned RIGHT of its x point
+  // (so x=97% means label ENDS at 97% from left edge, doesn't shift off right)
+  '04': { body: { x: 65, y: 28 }, label: { x: 97, y: 30 }, side: 'left' },  // Evaluation — temple
+  '03': { body: { x: 80, y: 65 }, label: { x: 97, y: 48 }, side: 'left' },  // Capability — right shoulder
+  '05': { body: { x: 20, y: 65 }, label: { x: 97, y: 66 }, side: 'left' },  // Enforcement (label on right side of page)
 };
 
 /* =============================================================
@@ -1147,18 +1149,29 @@ const VIZ_MAP = {
 function LayerSection({ layer, index, active, setActive }) {
   const ref = useRef(null);
   const isActive = active === index;
+
+  // Local "in-view" state — independent of which layer is the global active one.
+  // Fires earlier than the active threshold so panels light up as soon as they
+  // begin entering the viewport, not after they're 55% on screen.
+  const [inView, setInView] = useState(false);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const obs = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting && e.intersectionRatio > 0.55) {
+          // In-view: fires at 15% — used for content fade-in
+          if (e.intersectionRatio > 0.15) {
+            setInView(true);
+          }
+          // Active: fires at 45% — used for the global "current layer"
+          if (e.isIntersecting && e.intersectionRatio > 0.45) {
             setActive(index);
           }
         });
       },
-      { threshold: [0.55, 0.7] }
+      { threshold: [0.15, 0.45, 0.7] }
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -1170,7 +1183,7 @@ function LayerSection({ layer, index, active, setActive }) {
     <section
       ref={ref}
       id={`layer-${layer.id}`}
-      className={`layer-section ${isActive ? 'is-active' : ''}`}
+      className={`layer-section ${isActive ? 'is-active' : ''} ${inView ? 'is-inview' : ''}`}
       data-layer={layer.key}
     >
       <div className="ls-grid">

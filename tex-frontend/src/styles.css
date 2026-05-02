@@ -894,10 +894,29 @@ body::after {
 
 .layer-section {
   position: relative;
-  padding: 140px 0;
+  padding: 90px 0;
   border-top: 1px solid var(--edge);
 }
-.layer-section:first-child { border-top: 0; padding-top: 180px; }
+.layer-section:first-child { border-top: 0; padding-top: 130px; }
+
+/* Content fade-in tied to in-view state (fires at 15% visible).
+   Without this, sections would render fine but feel "dead" — this gives a
+   subtle stagger reveal as the user scrolls into each one. */
+.layer-section .ls-left,
+.layer-section .ls-viz-wrap {
+  opacity: 0.55;
+  transform: translateY(12px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.layer-section.is-inview .ls-left,
+.layer-section.is-inview .ls-viz-wrap {
+  opacity: 1;
+  transform: translateY(0);
+}
+.layer-section .ls-viz-wrap {
+  transition-delay: 0.12s;
+}
 
 .ls-grid {
   display: grid;
@@ -3780,26 +3799,48 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 /* ============================================================
    CHEST DATA STREAM — verdicts flow across Tex's chest
    ============================================================ */
+/* CHEST DATA STREAM — verdicts flow across Tex's upper chest
+   Positioned above the hex emblem, with a dark backing band so it reads
+   on any underlying surface color. */
 .chest-stream {
   position: absolute;
   left: 0;
   right: 0;
-  /* Center vertically on Tex's upper chest, just below collarbone */
-  top: 70%;
-  height: 6.5%;
+  top: 60%;
+  height: 7%;
   z-index: 9;
   overflow: hidden;
   pointer-events: none;
-  /* Mask so it fades into Tex's silhouette edges */
+  /* Subtle dark backing band — gives the stream a guaranteed contrast surface */
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 18%,
+    rgba(0, 0, 0, 0.65) 50%,
+    rgba(0, 0, 0, 0.55) 82%,
+    transparent 100%);
+  /* Mask so band fades into Tex's silhouette edges */
   -webkit-mask-image: linear-gradient(90deg,
-    transparent 0%, rgba(0,0,0,0.95) 18%, rgba(0,0,0,0.95) 82%, transparent 100%);
+    transparent 0%, rgba(0,0,0,0.95) 16%, rgba(0,0,0,0.95) 84%, transparent 100%);
   mask-image: linear-gradient(90deg,
-    transparent 0%, rgba(0,0,0,0.95) 18%, rgba(0,0,0,0.95) 82%, transparent 100%);
-  mix-blend-mode: screen;
+    transparent 0%, rgba(0,0,0,0.95) 16%, rgba(0,0,0,0.95) 84%, transparent 100%);
   opacity: 0;
   animation: stream-fade-in 1s 0.4s ease-out forwards;
 }
-@keyframes stream-fade-in { to { opacity: 0.92; } }
+@keyframes stream-fade-in { to { opacity: 1; } }
+
+/* Top + bottom hairlines on the band edges for editorial structure */
+.chest-stream::before,
+.chest-stream::after {
+  content: '';
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(127, 241, 233, 0.45), transparent);
+}
+.chest-stream::before { top: 0; }
+.chest-stream::after  { bottom: 0; }
 
 .chest-stream-track {
   display: flex;
@@ -3809,7 +3850,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   width: max-content;
   animation: chest-scroll 60s linear infinite;
   white-space: nowrap;
-  /* Start with rows visible from the left edge — let scroll move them */
   padding: 0 8%;
 }
 @keyframes chest-scroll {
@@ -3826,7 +3866,6 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   letter-spacing: 0.06em;
   color: var(--tex-bright);
   white-space: nowrap;
-  filter: drop-shadow(0 0 6px rgba(127, 241, 233, 0.55));
 }
 .chest-tag {
   font-size: 9.5px;
@@ -3838,14 +3877,14 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .chest-permit  { color: var(--tex-bright); }
 .chest-permit  .chest-tag  { color: var(--tex-bright); }
-.chest-abstain { color: var(--gold); filter: drop-shadow(0 0 6px rgba(212, 168, 67, 0.5)); }
+.chest-abstain { color: var(--gold); }
 .chest-abstain .chest-tag { color: var(--gold); }
-.chest-forbid  { color: var(--ox-bright); filter: drop-shadow(0 0 8px rgba(229, 71, 89, 0.65)); }
+.chest-forbid  { color: var(--ox-bright); }
 .chest-forbid  .chest-tag { color: var(--ox-bright); }
-.chest-actor { color: rgba(246, 242, 231, 0.9); }
-.chest-arrow { color: rgba(246, 242, 231, 0.4); }
-.chest-action { color: rgba(246, 242, 231, 0.55); }
-.chest-risk { color: rgba(246, 242, 231, 0.45); font-variant-numeric: tabular-nums; }
+.chest-actor  { color: rgba(246, 242, 231, 0.95); font-weight: 500; }
+.chest-arrow  { color: rgba(246, 242, 231, 0.45); }
+.chest-action { color: rgba(246, 242, 231, 0.6); }
+.chest-risk   { color: rgba(246, 242, 231, 0.55); font-variant-numeric: tabular-nums; }
 
 /* ============================================================
    ANATOMICAL ANCHORS — labels at viewport edges with hairlines

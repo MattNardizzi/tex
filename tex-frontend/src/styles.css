@@ -4153,6 +4153,10 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .hv11-trace:hover { border-color: var(--tex) !important; color: var(--tex) !important; }
 
+/* Show full label by default; mobile breakpoint swaps to short label */
+.hv11-trace-short { display: none; }
+.hv11-trace-full  { display: inline; }
+
 .hv11-readout {
   display: flex;
   align-items: center;
@@ -4941,9 +4945,20 @@ html, body { background: var(--void-0); color: var(--bone-100); }
     height: calc(100vh - var(--bar-h)) !important;
     min-height: 560px !important;
   }
+  /* Layout math (top to bottom):
+     0–4%        empty
+     4–32%       headline-wrap (kicker + 2-line h1)
+     32–88%      figure (56% tall, starting at 32% margin-top)
+     88–100%     bottom telemetry bar
+     This eliminates the dead-air gap between figure and CTAs and gives
+     the headline its own clear band above the helmet. */
   .tex-figure-wrap {
-    height: 52% !important;       /* was 60% — give headline more breathing room */
-    margin-top: 22% !important;   /* was 8% — push Tex below the headline entirely */
+    height: 56% !important;
+    margin-top: 32% !important;
+    /* Override aspect-ratio cap on mobile so the figure fills the
+       computed height rather than getting clipped by 900/1024 ratio
+       when the stage is narrower than tall. */
+    max-width: 100% !important;
   }
 
   /* ------- KICKER ------- */
@@ -4961,31 +4976,22 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv11-kicker-sep { display: none !important; }
 
   /* ------- HEADLINE ------- */
-  /* Lift it above Tex's head completely so the italic line doesn't crash
-     through the helmet. With figure at 52% height and 22% top margin,
-     headline at top 5% has clear space above the figure. */
+  /* Headline gets clear sky above the figure. With figure at margin-top
+     32%, headline-wrap at top 4% with ~28% height fits cleanly above. */
   .hv11-headline-wrap {
-    top: 5% !important;
-    gap: 8px !important;
-    padding: 0 12px !important;
+    top: 4% !important;
+    gap: 6px !important;
+    padding: 0 14px !important;
   }
   .hv11-headline {
-    font-size: clamp(32px, 9vw, 52px) !important;
-    line-height: 0.94 !important;
-    letter-spacing: -0.030em !important;
+    font-size: clamp(30px, 8.4vw, 48px) !important;
+    line-height: 0.96 !important;
+    letter-spacing: -0.028em !important;
   }
-  /* Strong full-width scrim — the italic line sits right above the helmet
-     glow and needs solid contrast so the gradient text doesn't fade out */
+  /* No scrim needed on mobile now that headline is clear of the figure.
+     Disable the dark halo entirely so it doesn't show as an artifact. */
   .hv11-headline-wrap::before {
-    left: -8% !important;
-    right: -8% !important;
-    top: -30% !important;
-    bottom: -10% !important;
-    background: radial-gradient(ellipse 90% 75% at center,
-      rgba(0, 0, 0, 0.95) 0%,
-      rgba(0, 0, 0, 0.78) 38%,
-      rgba(0, 0, 0, 0.42) 64%,
-      transparent 92%) !important;
+    display: none !important;
   }
 
   /* ------- FLOATING ANCHORS + HAIRLINES ------- */
@@ -5037,11 +5043,15 @@ html, body { background: var(--void-0); color: var(--bone-100); }
     justify-content: center !important;
     padding: 14px 10px !important;
     min-height: 46px !important;
-    font-size: 9.5px !important;
-    letter-spacing: 0.14em !important;
+    font-size: 10px !important;
+    letter-spacing: 0.16em !important;
     text-align: center !important;
     line-height: 1.2 !important;
+    white-space: nowrap !important;
   }
+  /* Mobile uses the short label so both buttons fit one line */
+  .hv11-trace-full  { display: none !important; }
+  .hv11-trace-short { display: inline !important; }
   .hv11-readout {
     flex-wrap: wrap !important;
     gap: 8px 12px !important;

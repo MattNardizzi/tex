@@ -651,7 +651,8 @@ function Hero({ active, setActive }) {
             <span className="btn-arrow">→</span>
           </button>
           <a href="#layer-01" className="btn-ghost hv11-trace">
-            <span>Trace the seven layers</span>
+            <span className="hv11-trace-full">Trace the seven layers</span>
+            <span className="hv11-trace-short">Trace the layers</span>
           </a>
         </div>
 

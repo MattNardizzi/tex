@@ -3592,86 +3592,40 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   display: block !important;
 }
 
-/* Edge frames — vertical mono labels on left and right margins */
-.hv11-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 28px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-}
-.hv11-edge--left { left: 0; }
-.hv11-edge--right { right: 0; }
-.hv11-edge::before, .hv11-edge::after {
-  content: '';
-  position: absolute;
-  left: 50%; transform: translateX(-50%);
-  width: 1px;
-  background: linear-gradient(180deg, transparent, rgba(226, 223, 214, 0.08), transparent);
-}
-.hv11-edge::before { top: 8%; height: 32%; }
-.hv11-edge::after  { bottom: 8%; height: 32%; }
-.hv11-edge-text {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.42em;
-  color: var(--bone-500);
-  white-space: nowrap;
-  text-transform: uppercase;
+/* Edge labels and scroll cue — disabled in v11 final.
+   Stripped out for cleaner composition. Tex is the page; the page doesn't
+   need a frame around its frame. */
+.hv11-edge,
+.hv11-scroll {
+  display: none !important;
 }
 
 /* ============================================================
    TEX STAGE — full-bleed figure container
+   Tex anchored from TOP. Head at top of stage, shoulders extend past
+   the bottom edge so he becomes the page, not a centered subject.
    ============================================================ */
 .tex-stage {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;     /* anchor to top */
   justify-content: center;
   z-index: 5;
 }
 
-/* Floor reflection — vertically flipped Tex, faded, beneath horizon */
-.tex-reflection {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%) scaleY(-1);
-  height: 18%;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0;
-  animation: reflection-in 1.4s 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.tex-reflection-img {
-  height: 100%;
-  width: auto;
-  display: block;
-  filter: blur(4px) brightness(0.6);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.45) 100%);
-  mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.45) 100%);
-  /* Note: image starts at top, flipped, so the visible part is original top of head */
-}
-@keyframes reflection-in {
-  to { opacity: 0.32; }
-}
+/* Floor reflection — disabled. Tex now extends past bottom edge so there's
+   no floor to reflect against. */
+.tex-reflection { display: none !important; }
 
-/* Tex figure wrap — holds avatar plus all body-anchored overlays */
+/* Tex figure wrap — sized to overshoot the stage so he extends edge-to-edge */
 .tex-figure-wrap {
   position: relative;
-  height: 90%;            /* Tex fills 90% of stage height */
-  max-height: 980px;
+  height: 118%;                /* deliberately overflows so Tex's torso runs off-page */
+  max-height: none;
   aspect-ratio: 900 / 1024;
+  margin-top: -2%;             /* pull head closer to top */
   z-index: 5;
-  /* The avatar's image-space is the coordinate system for anchors — so we
-     position everything as % of THIS wrap, not the stage. */
 }
 
 /* The avatar itself */
@@ -3811,18 +3765,19 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   z-index: 9;
   overflow: hidden;
   pointer-events: none;
-  /* Subtle dark backing band — gives the stream a guaranteed contrast surface */
-  background: linear-gradient(180deg,
+  /* Subtle dark backing band — strong at edges where there's no body, fades
+     through the center so it doesn't obscure Tex */
+  background: linear-gradient(90deg,
     transparent 0%,
-    rgba(0, 0, 0, 0.55) 18%,
-    rgba(0, 0, 0, 0.65) 50%,
-    rgba(0, 0, 0, 0.55) 82%,
+    rgba(0, 0, 0, 0.78) 18%,
+    rgba(0, 0, 0, 0.45) 38%,
+    rgba(0, 0, 0, 0.45) 62%,
+    rgba(0, 0, 0, 0.78) 82%,
     transparent 100%);
-  /* Mask so band fades into Tex's silhouette edges */
-  -webkit-mask-image: linear-gradient(90deg,
-    transparent 0%, rgba(0,0,0,0.95) 16%, rgba(0,0,0,0.95) 84%, transparent 100%);
-  mask-image: linear-gradient(90deg,
-    transparent 0%, rgba(0,0,0,0.95) 16%, rgba(0,0,0,0.95) 84%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg,
+    transparent 0%, rgba(0,0,0,0.95) 25%, rgba(0,0,0,0.95) 75%, transparent 100%);
+  mask-image: linear-gradient(180deg,
+    transparent 0%, rgba(0,0,0,0.95) 25%, rgba(0,0,0,0.95) 75%, transparent 100%);
   opacity: 0;
   animation: stream-fade-in 1s 0.4s ease-out forwards;
 }
@@ -3913,15 +3868,13 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   flex-direction: column;
   gap: 2px;
   white-space: nowrap;
+  /* Side-based offset locked in via translate; animation only fades opacity */
   opacity: 0;
-  transform: translateY(8px);
   animation: anchor-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   transition: filter 0.4s ease;
-  /* Position offset based on side so labels don't extend off-screen */
-  --label-shift: -50%;
 }
-.tex-anchor.side-left  { transform: translate(-100%, 0); align-items: flex-end; text-align: right; }
-.tex-anchor.side-right { transform: translate(0, 0);     align-items: flex-start; text-align: left; }
+.tex-anchor.side-left  { transform: translate(-100%, 0); align-items: flex-end;   text-align: right; }
+.tex-anchor.side-right { transform: translate(0, 0);     align-items: flex-start; text-align: left;  }
 @keyframes anchor-in {
   to { opacity: 1; }
 }
@@ -3960,104 +3913,107 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .tex-anchor.is-active .anchor-verb  { color: var(--tex); opacity: 1; }
 .tex-anchor:hover .anchor-name { color: var(--bone-100); }
 
-/* ---- Hairline SVG covering the entire stage ---- */
+/* ---- Hairlines: lines (in viewBox) and dots (in %) split into two SVGs ---- */
 .tex-hairlines {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 17;
+  z-index: 6;                    /* above figure (z=5), below headline */
   pointer-events: none;
   overflow: visible;
 }
 
-.hairline-grp {
+/* Inactive line — visible cyan thread */
+.hairline-path {
+  stroke: rgba(127, 241, 233, 0.45);
+  stroke-width: 1.2;
+  fill: none;
   opacity: 0;
   animation: hairline-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: stroke 0.4s ease, stroke-width 0.4s ease, filter 0.4s ease;
+  filter: drop-shadow(0 0 2px rgba(86, 230, 220, 0.4));
 }
 @keyframes hairline-in {
   to { opacity: 1; }
 }
-
-.hairline-path {
-  stroke: rgba(226, 223, 214, 0.45);
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-  transition: stroke 0.4s ease, stroke-width 0.4s ease, stroke-dasharray 0.4s ease, filter 0.4s ease;
-}
-.hairline-grp.is-lit .hairline-path {
+.hairline-path.is-lit {
   stroke: var(--tex-bright);
-  stroke-width: 1.6;
-  stroke-dasharray: none;
-  filter: drop-shadow(0 0 5px var(--tex-bright));
-}
-
-.hairline-body-dot {
-  fill: rgba(226, 223, 214, 0.75);
-  transition: fill 0.4s ease, r 0.4s ease, filter 0.4s ease;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.5));
-}
-.hairline-grp.is-lit .hairline-body-dot {
-  fill: var(--tex-bright);
+  stroke-width: 1.8;
   filter: drop-shadow(0 0 6px var(--tex-bright));
 }
 
+/* Body dots + rings */
+.hairline-dot-grp {
+  opacity: 0;
+  animation: hairline-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.hairline-body-dot {
+  fill: rgba(127, 241, 233, 0.7);
+  transition: fill 0.4s ease, filter 0.4s ease;
+  filter: drop-shadow(0 0 3px rgba(127, 241, 233, 0.5));
+}
+.hairline-dot-grp.is-lit .hairline-body-dot {
+  fill: var(--tex-bright);
+  filter: drop-shadow(0 0 8px var(--tex-bright));
+}
+
 .hairline-body-ring {
-  stroke: rgba(127, 241, 233, 0.22);
+  stroke: rgba(127, 241, 233, 0);
   stroke-width: 1;
-  stroke-dasharray: 2 3;
-  transition: stroke 0.4s ease, stroke-width 0.4s ease, opacity 0.4s ease;
+  fill: none;
+  transition: stroke 0.4s ease, opacity 0.4s ease;
   opacity: 0;
 }
-.hairline-grp.is-lit .hairline-body-ring {
+.hairline-dot-grp.is-lit .hairline-body-ring {
   stroke: var(--tex-bright);
   stroke-width: 1.2;
-  stroke-dasharray: none;
   opacity: 1;
   animation: ring-pulse 2s ease-in-out infinite;
 }
 @keyframes ring-pulse {
   0%, 100% { r: 9; opacity: 1; }
-  50%      { r: 12; opacity: 0.4; }
+  50%      { r: 13; opacity: 0.4; }
 }
 
 /* ============================================================
-   HEADLINE — the magazine cover type
+   HEADLINE — locked to Tex's anatomy
+   Kicker sits at top above "One control plane".
+   Italic line crosses Tex's upper chest where there's a dark band.
    ============================================================ */
 .hv11-headline-wrap {
   position: absolute;
   left: 0; right: 0;
-  /* Pulled high so face stays visible underneath, headline acts as a banner */
-  top: 25%;
-  transform: translateY(-50%);
+  top: 8%;                       /* anchored to top, above Tex's head */
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 8px;
   pointer-events: none;
   opacity: 0;
-  animation: headline-in 1.4s 1.0s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: headline-in 1.2s 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-/* Dark halo behind headline — so type reads against Tex's body without
-   needing huge text shadows that turn gradients to silhouettes */
+@keyframes headline-in {
+  from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+/* Soft dark halo behind the type — gives contrast against the figure
+   without obscuring it */
 .hv11-headline-wrap::before {
   content: '';
   position: absolute;
   left: -10%;
   right: -10%;
-  top: -28%;
-  bottom: -28%;
-  background: radial-gradient(ellipse 70% 50% at center,
+  top: -20%;
+  bottom: -22%;
+  background: radial-gradient(ellipse 70% 55% at center,
     rgba(0, 0, 0, 0.78) 0%,
-    rgba(0, 0, 0, 0.55) 30%,
-    rgba(0, 0, 0, 0.28) 55%,
+    rgba(0, 0, 0, 0.50) 32%,
+    rgba(0, 0, 0, 0.22) 58%,
     transparent 80%);
   z-index: -1;
   pointer-events: none;
-}
-@keyframes headline-in {
-  from { opacity: 0; transform: translateY(calc(-50% + 20px)); filter: blur(8px); }
-  to   { opacity: 1; transform: translateY(-50%); filter: blur(0); }
 }
 
 .hv11-kicker {
@@ -4069,8 +4025,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-size: 10px;
   letter-spacing: 0.32em;
   text-transform: uppercase;
-  color: var(--bone-400);
-  margin-top: 8px;
+  color: var(--bone-300);
+  margin-top: 0;
 }
 .hv11-kicker-dot {
   width: 6px; height: 6px;

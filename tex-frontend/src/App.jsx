@@ -141,17 +141,15 @@ const LAYERS = [
    Vertical positions are evenly spaced down each column.
 */
 const ANATOMY = {
-  // LEFT COLUMN — 4 anchors at x=3%, side:'right' = label aligned LEFT of its x point
-  // (so x=3% means the label STARTS at 3% from the left edge, doesn't shift off)
-  '07': { body: { x: 50, y: 6  }, label: { x: 3, y: 22 }, side: 'right'  },  // Learning — above head
-  '01': { body: { x: 50, y: 23 }, label: { x: 3, y: 36 }, side: 'right'  },  // Discovery — forehead
-  '02': { body: { x: 50, y: 50 }, label: { x: 3, y: 50 }, side: 'right'  },  // Registration — throat
-  '06': { body: { x: 50, y: 78 }, label: { x: 3, y: 64 }, side: 'right'  },  // Evidence — chest hex
-  // RIGHT COLUMN — 3 anchors with side:'left' = label aligned RIGHT of its x point
-  // (so x=97% means label ENDS at 97% from left edge, doesn't shift off right)
+  // LEFT COLUMN (4 anchors) — labels at x=3%, body points on Tex's left side
+  '07': { body: { x: 50, y: 6  }, label: { x: 3, y: 22 }, side: 'right' },  // Learning — above head
+  '01': { body: { x: 50, y: 23 }, label: { x: 3, y: 36 }, side: 'right' },  // Discovery — forehead
+  '05': { body: { x: 20, y: 65 }, label: { x: 3, y: 50 }, side: 'right' },  // Enforcement — left shoulder
+  '06': { body: { x: 50, y: 78 }, label: { x: 3, y: 64 }, side: 'right' },  // Evidence — chest hex
+  // RIGHT COLUMN (3 anchors) — labels at x=97%, body points on Tex's right side
   '04': { body: { x: 65, y: 28 }, label: { x: 97, y: 30 }, side: 'left' },  // Evaluation — temple
-  '03': { body: { x: 80, y: 65 }, label: { x: 97, y: 48 }, side: 'left' },  // Capability — right shoulder
-  '05': { body: { x: 20, y: 65 }, label: { x: 97, y: 66 }, side: 'left' },  // Enforcement (label on right side of page)
+  '02': { body: { x: 50, y: 50 }, label: { x: 97, y: 44 }, side: 'left' },  // Registration — throat
+  '03': { body: { x: 80, y: 65 }, label: { x: 97, y: 58 }, side: 'left' },  // Capability — right shoulder
 };
 
 /* =============================================================
@@ -511,47 +509,62 @@ function FullBleedTex({ active, setActive }) {
         </div>
       )}
 
-      {/* Hairline SVG covering the entire stage. Uses percentage attributes
-          so it respects the stage's actual aspect ratio without distortion. */}
+      {/* Hairline lines drawn in a normalized 100x100 viewBox so polyline %-style coords work */}
       {phase >= 5 && Object.keys(bodyPositions).length > 0 && (
         <svg
-          className="tex-hairlines"
+          className="tex-hairlines tex-hairlines-lines"
           aria-hidden="true"
-          width="100%"
-          height="100%"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
         >
           {LAYERS.map((layer, i) => {
             const a = ANATOMY[layer.id];
             const body = bodyPositions[layer.id];
             if (!body) return null;
             const isActive = i === active;
-            const lx = a.label.x;       // % of stage width
-            const ly = a.label.y + 1.6; // slight downward offset to label baseline
-            const bx = body.xPct;       // % of stage width (computed)
-            const by = body.yPct;       // % of stage height (computed)
-            // Elbow x: how far horizontally before turning toward body
+            const lx = a.label.x;
+            const ly = a.label.y + 1.6;
+            const bx = body.xPct;
+            const by = body.yPct;
             const ex = a.side === 'right'
-              ? Math.max(bx + 3, lx - 4)
-              : Math.min(bx - 3, lx + 4);
+              ? Math.max(bx - 4, lx + 4)   // ensure elbow is past label, before body
+              : Math.min(bx + 4, lx - 4);
             return (
-              <g
+              <polyline
                 key={layer.id}
-                className={`hairline-grp ${isActive ? 'is-lit' : ''}`}
+                className={`hairline-path ${isActive ? 'is-lit' : ''}`}
+                points={`${lx},${ly} ${ex},${ly} ${bx},${by}`}
+                fill="none"
+                vectorEffect="non-scaling-stroke"
                 style={{ animationDelay: `${i * 0.11 + 0.2}s` }}
-              >
-                <polyline
-                  className="hairline-path"
-                  points={`${lx}%,${ly}% ${ex}%,${ly}% ${bx}%,${by}%`}
-                  fill="none"
-                />
-                {/* Body anchor dot — small marker on Tex */}
+              />
+            );
+          })}
+        </svg>
+      )}
+
+      {/* Body dots + active rings — separate SVG using natural aspect with % units */}
+      {phase >= 5 && Object.keys(bodyPositions).length > 0 && (
+        <svg
+          className="tex-hairlines tex-hairlines-dots"
+          aria-hidden="true"
+          width="100%"
+          height="100%"
+        >
+          {LAYERS.map((layer, i) => {
+            const body = bodyPositions[layer.id];
+            if (!body) return null;
+            const isActive = i === active;
+            return (
+              <g key={layer.id} className={`hairline-dot-grp ${isActive ? 'is-lit' : ''}`}
+                 style={{ animationDelay: `${i * 0.11 + 0.2}s` }}>
                 <circle
                   className="hairline-body-dot"
-                  cx={`${bx}%`} cy={`${by}%`} r="4"
+                  cx={`${body.xPct}%`} cy={`${body.yPct}%`} r="3.5"
                 />
                 <circle
                   className="hairline-body-ring"
-                  cx={`${bx}%`} cy={`${by}%`} r="9"
+                  cx={`${body.xPct}%`} cy={`${body.yPct}%`} r="9"
                   fill="none"
                 />
               </g>
@@ -571,29 +584,21 @@ function Hero({ active, setActive }) {
 
   return (
     <section className="hero hero-v11" id="top">
-      {/* Edge frame — vertical labels and corner ticks framing the page */}
-      <div className="hv11-edge hv11-edge--left" aria-hidden="true">
-        <span className="hv11-edge-text">TX-AEGIS / BOSTON / 2026</span>
-      </div>
-      <div className="hv11-edge hv11-edge--right" aria-hidden="true">
-        <span className="hv11-edge-text">v0.9.7 / RUNTIME / 142MS-P95</span>
-      </div>
-
       {/* The full-bleed Tex */}
       <FullBleedTex active={active} setActive={setActive} />
 
-      {/* The headline overlapping Tex */}
+      {/* Headline locked to Tex's anatomy — kicker above, italic across upper chest */}
       <div className="hv11-headline-wrap">
-        <h1 className="hv11-headline">
-          <span className="hv11-h-line">One control plane</span>
-          <span className="hv11-h-line hv11-h-italic">for every AI agent.</span>
-        </h1>
         <div className="hv11-kicker">
           <span className="hv11-kicker-dot" />
           <span>Tex by VortexBlack</span>
           <span className="hv11-kicker-sep">/</span>
           <span>Custom-deployed in 4–6 weeks</span>
         </div>
+        <h1 className="hv11-headline">
+          <span className="hv11-h-line">One control plane</span>
+          <span className="hv11-h-line hv11-h-italic">for every AI agent.</span>
+        </h1>
       </div>
 
       {/* Bottom telemetry bar */}
@@ -620,13 +625,6 @@ function Hero({ active, setActive }) {
           <span className="hv11-readout-sep" />
           <span className="hv11-readout-value">2.41<span className="hv11-readout-unit">M / day</span></span>
         </div>
-      </div>
-
-      {/* Scroll cue, bottom right corner */}
-      <div className="hv11-scroll" aria-hidden="true">
-        <span className="hv11-scroll-num">01<span className="hv11-scroll-of">/09</span></span>
-        <span className="hv11-scroll-rule" />
-        <span className="hv11-scroll-arrow">↓</span>
       </div>
     </section>
   );

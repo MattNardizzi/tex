@@ -119,8 +119,8 @@ const LAYERS = [
 ];
 
 /* =============================================================
-   3D PARALLAX GRID — perspective floor + ceiling, mouse-reactive
-   Pure canvas, no Three.js dependency. Real depth via vanishing point.
+   PERSPECTIVE GRID — refined: deep vanishing point, drift, mouse parallax
+   Pure canvas. Tighter palette, calmer motion, atmospheric horizon glow.
    ============================================================= */
 function PerspectiveGrid() {
   const ref = useRef(null);
@@ -147,41 +147,40 @@ function PerspectiveGrid() {
     window.addEventListener('pointermove', move);
 
     const draw = () => {
-      t += 0.012;
+      t += 0.009;
       const w = window.innerWidth, h = window.innerHeight;
       ctx.clearRect(0, 0, w, h);
 
-      // Deep void radial wash
+      // Deep void wash — slightly cooler, more atmospheric
       const wash = ctx.createRadialGradient(
-        w * 0.5 + mx * 80, h * 0.42 + my * 60, 0,
-        w * 0.5, h * 0.5, Math.max(w, h) * 0.85
+        w * 0.5 + mx * 60, h * 0.46 + my * 40, 0,
+        w * 0.5, h * 0.5, Math.max(w, h) * 0.9
       );
-      wash.addColorStop(0, 'rgba(28, 60, 70, 0.32)');
-      wash.addColorStop(0.5, 'rgba(6, 10, 16, 0.55)');
-      wash.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
+      wash.addColorStop(0, 'rgba(20, 50, 60, 0.28)');
+      wash.addColorStop(0.45, 'rgba(6, 10, 16, 0.6)');
+      wash.addColorStop(1, 'rgba(0, 0, 0, 0.96)');
       ctx.fillStyle = wash;
       ctx.fillRect(0, 0, w, h);
 
-      // ===== FLOOR GRID =====
-      // Vanishing point shifts slightly with mouse for parallax
-      const vpX = w * 0.5 + mx * 60;
-      const vpY = h * 0.46 + my * 28;
+      // Vanishing point shifts subtly with mouse (less than before — calmer)
+      const vpX = w * 0.5 + mx * 36;
+      const vpY = h * 0.50 + my * 18;
 
+      // ===== FLOOR GRID =====
       const floorTop = vpY;
       const floorBot = h + 80;
       const floorH = floorBot - floorTop;
 
-      const numH = 28;       // horizontal lines (depth)
-      const numV = 50;       // vertical lines (across)
-      const scrollT = (t * 0.18) % 1; // scrolling offset, 0..1
+      const numH = 26;
+      const numV = 44;
+      const scrollT = (t * 0.12) % 1;
 
-      // Horizontal lines, perspective (bottom = closer)
+      // Horizontal lines, perspective
       for (let i = 0; i < numH; i++) {
-        // Perspective curve: lines are dense near horizon, spread near viewer
         const p = (i + scrollT) / numH;
-        const y = floorTop + Math.pow(p, 2.2) * floorH;
-        const distFade = 1 - Math.pow(p, 0.6); // far = faint, near = bright
-        const alpha = 0.05 + 0.13 * distFade;
+        const y = floorTop + Math.pow(p, 2.3) * floorH;
+        const distFade = 1 - Math.pow(p, 0.55);
+        const alpha = 0.04 + 0.11 * distFade;
         ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -192,28 +191,28 @@ function PerspectiveGrid() {
 
       // Vertical lines, converging at vanishing point
       for (let i = 0; i <= numV; i++) {
-        const xRatio = (i / numV - 0.5) * 2; // -1..1
-        const xBottom = w * 0.5 + xRatio * w * 0.9;
+        const xRatio = (i / numV - 0.5) * 2;
+        const xBottom = w * 0.5 + xRatio * w * 0.95;
         const distFromCenter = Math.abs(xRatio);
-        const alpha = 0.04 + 0.10 * (1 - distFromCenter * 0.5);
+        const alpha = 0.035 + 0.085 * (1 - distFromCenter * 0.45);
         ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(vpX + xRatio * 16, vpY);
+        ctx.moveTo(vpX + xRatio * 14, vpY);
         ctx.lineTo(xBottom, floorBot);
         ctx.stroke();
       }
 
-      // ===== CEILING GRID (inverted) =====
+      // ===== CEILING GRID (inverted, fainter) =====
       const ceilBot = vpY;
       const ceilTop = -80;
       const ceilH = ceilBot - ceilTop;
 
       for (let i = 0; i < numH; i++) {
         const p = (i + scrollT) / numH;
-        const y = ceilBot - Math.pow(p, 2.2) * ceilH;
-        const distFade = 1 - Math.pow(p, 0.6);
-        const alpha = 0.03 + 0.08 * distFade;
+        const y = ceilBot - Math.pow(p, 2.3) * ceilH;
+        const distFade = 1 - Math.pow(p, 0.55);
+        const alpha = 0.022 + 0.06 * distFade;
         ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -224,32 +223,40 @@ function PerspectiveGrid() {
 
       for (let i = 0; i <= numV; i++) {
         const xRatio = (i / numV - 0.5) * 2;
-        const xTop = w * 0.5 + xRatio * w * 0.9;
+        const xTop = w * 0.5 + xRatio * w * 0.95;
         const distFromCenter = Math.abs(xRatio);
-        const alpha = 0.025 + 0.07 * (1 - distFromCenter * 0.5);
+        const alpha = 0.018 + 0.055 * (1 - distFromCenter * 0.45);
         ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(vpX + xRatio * 16, vpY);
+        ctx.moveTo(vpX + xRatio * 14, vpY);
         ctx.lineTo(xTop, ceilTop);
         ctx.stroke();
       }
 
-      // ===== HORIZON GLOW =====
-      const horizonGlow = ctx.createLinearGradient(0, vpY - 60, 0, vpY + 60);
-      horizonGlow.addColorStop(0, 'rgba(86, 230, 220, 0)');
-      horizonGlow.addColorStop(0.5, 'rgba(86, 230, 220, 0.18)');
-      horizonGlow.addColorStop(1, 'rgba(86, 230, 220, 0)');
+      // ===== HORIZON LINE — single bright hairline at vanishing point =====
+      const horizonGlow = ctx.createLinearGradient(0, vpY - 3, 0, vpY + 3);
+      horizonGlow.addColorStop(0, 'rgba(127, 241, 233, 0)');
+      horizonGlow.addColorStop(0.5, 'rgba(127, 241, 233, 0.55)');
+      horizonGlow.addColorStop(1, 'rgba(127, 241, 233, 0)');
       ctx.fillStyle = horizonGlow;
-      ctx.fillRect(0, vpY - 60, w, 120);
+      ctx.fillRect(0, vpY - 1.5, w, 3);
 
-      // ===== DRIFTING DATA POINTS =====
-      for (let i = 0; i < 22; i++) {
-        const phase = i * 1.31 + t * 0.5;
-        const x = ((Math.sin(phase) * 0.5 + 0.5) * w + t * 25 * (i % 3 === 0 ? 1 : -1)) % w;
+      // Soft horizon bloom around the line
+      const horizonBloom = ctx.createLinearGradient(0, vpY - 80, 0, vpY + 80);
+      horizonBloom.addColorStop(0, 'rgba(86, 230, 220, 0)');
+      horizonBloom.addColorStop(0.5, 'rgba(86, 230, 220, 0.14)');
+      horizonBloom.addColorStop(1, 'rgba(86, 230, 220, 0)');
+      ctx.fillStyle = horizonBloom;
+      ctx.fillRect(0, vpY - 80, w, 160);
+
+      // ===== DRIFTING DATA POINTS (calmer, fewer) =====
+      for (let i = 0; i < 16; i++) {
+        const phase = i * 1.31 + t * 0.4;
+        const x = ((Math.sin(phase) * 0.5 + 0.5) * w + t * 18 * (i % 3 === 0 ? 1 : -1)) % w;
         const y = (Math.cos(phase * 0.73) * 0.5 + 0.5) * h;
-        const sz = i % 9 === 0 ? 1.8 : 0.9;
-        ctx.fillStyle = i % 9 === 0 ? 'rgba(120, 240, 230, 0.55)' : 'rgba(180, 220, 230, 0.18)';
+        const sz = i % 9 === 0 ? 1.6 : 0.8;
+        ctx.fillStyle = i % 9 === 0 ? 'rgba(127, 241, 233, 0.5)' : 'rgba(180, 220, 230, 0.16)';
         ctx.fillRect(x, y, sz, sz);
       }
 
@@ -266,25 +273,38 @@ function PerspectiveGrid() {
 }
 
 /* =============================================================
-   LAYER BAR — top-of-page navigation
+   LAYER BAR — refined: cleaner brand, decisive active state,
+   live runtime indicator on the right
    ============================================================= */
 function LayerBar({ active, setActive, currentPath }) {
   const { openTrial: onActivate } = useTrial();
   const isHIW = currentPath === '/how-it-works';
+
+  // Live runtime clock for the bar
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const hh = String(now.getUTCHours()).padStart(2, '0');
+  const mm = String(now.getUTCMinutes()).padStart(2, '0');
+  const ss = String(now.getUTCSeconds()).padStart(2, '0');
+
   return (
     <nav className="layer-bar" aria-label="Seven layer navigation">
       <div className="bar-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
         <div className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22">
+          <svg viewBox="0 0 24 24" width="20" height="20">
             <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="M7 9 H17 M12 9 V16" stroke="currentColor" strokeWidth="1.4" />
           </svg>
         </div>
         <div className="brand-text">
           <span className="brand-name">TEX</span>
-          <span className="brand-sub">by VortexBlack</span>
+          <span className="brand-sub">VortexBlack · Aegis</span>
         </div>
       </div>
+
       <ol className="bar-cells" role="tablist">
         {LAYERS.map((layer, i) => (
           <li key={layer.id}>
@@ -295,13 +315,15 @@ function LayerBar({ active, setActive, currentPath }) {
               className={`bar-cell ${i === active && !isHIW ? 'is-active' : ''}`}
               onClick={() => setActive(i)}
             >
-              <span className="cell-num">{layer.id}</span>
+              <span className="cell-num">L{layer.id}</span>
               <span className="cell-name">{layer.name}</span>
               <span className="cell-rule" aria-hidden="true" />
+              <span className="cell-tick" aria-hidden="true" />
             </button>
           </li>
         ))}
       </ol>
+
       <button
         type="button"
         className={`bar-howitworks ${isHIW ? 'is-active' : ''}`}
@@ -311,6 +333,14 @@ function LayerBar({ active, setActive, currentPath }) {
         <span className="bar-howitworks-dot" aria-hidden="true" />
         <span>How it works</span>
       </button>
+
+      <div className="bar-runtime" aria-hidden="true">
+        <span className="bar-runtime-dot" />
+        <span className="bar-runtime-label">RUNTIME</span>
+        <span className="bar-runtime-clock">{hh}:{mm}:{ss}</span>
+        <span className="bar-runtime-utc">UTC</span>
+      </div>
+
       <button type="button" className="bar-cta" onClick={onActivate}>
         <span>Book a demo</span>
         <span className="cta-arrow">→</span>
@@ -320,19 +350,19 @@ function LayerBar({ active, setActive, currentPath }) {
 }
 
 /* =============================================================
-   AEGIS RING — Holo-chamber containment system
-   - Heptagonal constellation orbiting a focused subject (Tex)
-   - Auto-cycling layer focus with energy-packet pulses
-   - Mouse parallax · 3D head attention tracking · scanline sweep
-   - Hex-frame nodes with snap-on lock brackets
-   - Drifting particle field that follows the active node
-   - Boot-up reveal animation on first paint
+   AEGIS RING — Holo-chamber, redesigned
+   - Heptagonal node constellation orbiting Tex
+   - Tex rendered as a hologram (chromatic split + scanlines + tint)
+   - Node chips dock to ring with connector arms + live signal bars
+   - Active node gets a beautiful expanding lock-bracket and packet pulse
+   - HUD readout docks to ring's south arc with a connector hairline
+   - Four corner reticle marks + horizon hairline anchor the stage
    ============================================================= */
 function AegisRing({ active, setActive }) {
   const cx = 500, cy = 500;
   const radius = 300;
 
-  // Heptagon vertices (top-up). Each maps to a layer.
+  // Heptagon vertices (top-up)
   const vertices = LAYERS.map((_, i) => {
     const angle = (-Math.PI / 2) + (i * 2 * Math.PI) / 7;
     return {
@@ -342,8 +372,7 @@ function AegisRing({ active, setActive }) {
     };
   });
 
-  // Tex's chest emblem position (in viewBox coords) — pulse target.
-  // The avatar sits in the center; the chest emblem is roughly 18% below center.
+  // Tex's chest emblem position — pulse target
   const chestX = cx;
   const chestY = cy + 100;
 
@@ -354,22 +383,22 @@ function AegisRing({ active, setActive }) {
     if (paused) return;
     const id = setInterval(() => {
       setActive((prev) => (prev + 1) % 7);
-    }, 3200);
+    }, 3400);
     return () => clearInterval(id);
   }, [paused, setActive]);
 
   const pauseAutocycle = () => {
     setPaused(true);
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => setPaused(false), 4000);
+    idleTimerRef.current = setTimeout(() => setPaused(false), 5000);
   };
 
-  /* ---- Pulse trigger: every time `active` changes, fire energy packet ---- */
+  /* ---- Pulse trigger ---- */
   const [pulseToken, setPulseToken] = useState(0);
   const prevActiveRef = useRef(active);
   useEffect(() => {
     if (prevActiveRef.current !== active) {
-      setPulseToken((t) => t + 1);
+      setPulseToken((p) => p + 1);
       prevActiveRef.current = active;
     }
   }, [active]);
@@ -382,9 +411,9 @@ function AegisRing({ active, setActive }) {
       const el = stageRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const dx = (e.clientX - (r.left + r.width / 2)) / r.width;  // -0.5..0.5
+      const dx = (e.clientX - (r.left + r.width / 2)) / r.width;
       const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
-      setParallax({ x: dx * 12, y: dy * 12 });
+      setParallax({ x: dx * 14, y: dy * 14 });
     };
     window.addEventListener('mousemove', handle);
     return () => window.removeEventListener('mousemove', handle);
@@ -393,13 +422,13 @@ function AegisRing({ active, setActive }) {
   /* ---- Drifting particles ---- */
   const particles = React.useMemo(() => {
     const arr = [];
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 30; i++) {
       const a = (i * 137.5) * Math.PI / 180;
-      const r = 70 + (i * 23) % 200;
+      const r = 80 + (i * 23) % 200;
       arr.push({
         baseX: cx + Math.cos(a) * r,
         baseY: cy + Math.sin(a) * r,
-        size: 0.8 + (i % 3) * 0.5,
+        size: 0.7 + (i % 3) * 0.5,
         delay: (i * 0.13) % 4,
         speed: 8 + (i % 5),
       });
@@ -419,9 +448,8 @@ function AegisRing({ active, setActive }) {
   const activeVertex = vertices[active];
 
   /* ---- Tex head-attention tilt: subtle 3D rotation toward active node ---- */
-  // active angle is -PI/2 (top) for index 0. Convert to head tilt:
-  const tiltX = Math.sin(activeVertex.angle) * -3;  // ±3° pitch
-  const tiltY = Math.cos(activeVertex.angle) * 4;   // ±4° yaw
+  const tiltX = Math.sin(activeVertex.angle) * -2.2;
+  const tiltY = Math.cos(activeVertex.angle) * 3.2;
 
   /* ---- Constellation lines: each node connects to its two neighbors ---- */
   const constellationLines = vertices.map((v, i) => {
@@ -429,12 +457,29 @@ function AegisRing({ active, setActive }) {
     return { x1: v.x, y1: v.y, x2: next.x, y2: next.y, i };
   });
 
+  /* ---- HUD readout dock position (south arc of containment ring) ---- */
+  const hudDockY = cy + (radius + 60);
+
   return (
     <div
       className={`aegis-stage ${booted ? 'is-booted' : ''}`}
       ref={stageRef}
       style={{ '--px': `${parallax.x}px`, '--py': `${parallax.y}px` }}
     >
+      {/* Four corner reticles framing the stage */}
+      <div className="stage-corner stage-corner--tl" aria-hidden="true">
+        <span className="stage-corner-label">TX-AEGIS</span>
+      </div>
+      <div className="stage-corner stage-corner--tr" aria-hidden="true">
+        <span className="stage-corner-label">v0.9.7</span>
+      </div>
+      <div className="stage-corner stage-corner--bl" aria-hidden="true">
+        <span className="stage-corner-label">42°21′ N</span>
+      </div>
+      <div className="stage-corner stage-corner--br" aria-hidden="true">
+        <span className="stage-corner-label">71°03′ W</span>
+      </div>
+
       <svg
         className="aegis-svg"
         viewBox="0 0 1000 1000"
@@ -449,14 +494,19 @@ function AegisRing({ active, setActive }) {
             <stop offset="100%" stopColor="rgba(0,0,0,0)" />
           </radialGradient>
           <radialGradient id="ambientGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.14)" />
+            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.16)" />
             <stop offset="55%" stopColor="rgba(86, 230, 220, 0.04)" />
             <stop offset="100%" stopColor="rgba(0,0,0,0)" />
           </radialGradient>
           <linearGradient id="scanLine" x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="rgba(86, 230, 220, 0)" />
-            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.65)" />
+            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.7)" />
             <stop offset="100%" stopColor="rgba(86, 230, 220, 0)" />
+          </linearGradient>
+          <linearGradient id="horizonLine" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="rgba(127, 241, 233, 0)" />
+            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.85)" />
+            <stop offset="100%" stopColor="rgba(127, 241, 233, 0)" />
           </linearGradient>
           <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -475,12 +525,6 @@ function AegisRing({ active, setActive }) {
           <filter id="bloomGlow" x="-100%" y="-100%" width="300%" height="300%">
             <feGaussianBlur stdDeviation="18" />
           </filter>
-          {/* Path along the outer telemetry ring for type-on-circle */}
-          <path
-            id="telemetryPath"
-            d={`M ${cx - (radius + 110)} ${cy} A ${radius + 110} ${radius + 110} 0 1 1 ${cx + (radius + 110)} ${cy} A ${radius + 110} ${radius + 110} 0 1 1 ${cx - (radius + 110)} ${cy}`}
-            fill="none"
-          />
         </defs>
 
         {/* Layer 0: ambient bloom */}
@@ -541,6 +585,14 @@ function AegisRing({ active, setActive }) {
         <circle cx={cx} cy={cy} r="180" className="aperture-ring" />
         <circle cx={cx} cy={cy} r="220" className="aperture-ring faint" />
 
+        {/* Layer 4b: horizon hairline through Tex's plane */}
+        <line
+          x1={cx - (radius + 80)} y1={cy + 200}
+          x2={cx + (radius + 80)} y2={cy + 200}
+          stroke="url(#horizonLine)" strokeWidth="1.2"
+          className="horizon-line"
+        />
+
         {/* Layer 5: constellation lines between neighbor nodes */}
         <g className="constellation">
           {constellationLines.map((l, i) => (
@@ -562,7 +614,22 @@ function AegisRing({ active, setActive }) {
           ))}
         </g>
 
-        {/* Layer 6: drifting particles — group shifts gently toward active node */}
+        {/* Layer 5b: connector arms — hairlines from each node OUTWARD
+            toward where the chip will dock (gives the chips a place to attach) */}
+        {vertices.map((v, i) => {
+          const outR = radius + 110;
+          const ax = cx + Math.cos(v.angle) * outR;
+          const ay = cy + Math.sin(v.angle) * outR;
+          return (
+            <line
+              key={`arm-${i}`}
+              x1={v.x} y1={v.y} x2={ax} y2={ay}
+              className={`node-arm ${i === active ? 'is-lit' : ''}`}
+            />
+          );
+        })}
+
+        {/* Layer 6: drifting particles */}
         <g
           className="particle-field"
           style={{
@@ -589,7 +656,7 @@ function AegisRing({ active, setActive }) {
           <circle cx={chestX} cy={chestY} r="160" fill="url(#chestBloom)" className="chest-bloom" />
         </g>
 
-        {/* Layer 8: energy packet — SMIL-animated bead from active node to chest on each pulse */}
+        {/* Layer 8: energy packet — bead from active node to chest on each pulse */}
         <g key={`pkt-${pulseToken}`} className="energy-packet-wrap">
           <line
             x1={activeVertex.x} y1={activeVertex.y}
@@ -637,22 +704,17 @@ function AegisRing({ active, setActive }) {
         {vertices.map((v, i) => {
           const isActive = i === active;
           const r = isActive ? 26 : 18;
-          // Hexagon points (flat-top)
           const hexPts = Array.from({ length: 6 }, (_, k) => {
             const a = (k * Math.PI) / 3;
             return `${v.x + Math.cos(a) * r},${v.y + Math.sin(a) * r}`;
           }).join(' ');
           return (
             <g key={`node-${i}`} className={`node ${isActive ? 'is-active' : ''}`}>
-              {/* Outer halo when active */}
               {isActive && (
                 <circle cx={v.x} cy={v.y} r="44" className="node-halo" filter="url(#bloomGlow)" />
               )}
-              {/* Hex frame */}
               <polygon points={hexPts} className="node-hex" filter={isActive ? 'url(#softGlow)' : undefined} />
-              {/* Inner dot */}
               <circle cx={v.x} cy={v.y} r={isActive ? 5 : 3} className="node-core" />
-              {/* Lock brackets when active */}
               {isActive && (
                 <g className="lock-brackets">
                   {[
@@ -680,28 +742,17 @@ function AegisRing({ active, setActive }) {
           <rect x={cx - 220} y="0" width="440" height="6" fill="url(#scanLine)" className="scanline-bar" />
         </g>
 
-        {/* Layer 11: corner reticle around Tex */}
-        <g className="reticle">
-          {[
-            [-1, -1, 200, 220],
-            [1, -1, 200, 220],
-            [-1, 1, 200, 220],
-            [1, 1, 200, 220],
-          ].map(([sx, sy, dx, dy], k) => {
-            const bx = cx + sx * dx;
-            const by = cy + sy * dy;
-            return (
-              <g key={`ret-${k}`} className="reticle-corner">
-                <path
-                  d={`M ${bx} ${by + sy * 24} L ${bx} ${by} L ${bx - sx * 24} ${by}`}
-                />
-              </g>
-            );
-          })}
-        </g>
+        {/* Layer 11: HUD dock connector — hairline from south of containment ring down */}
+        <line
+          x1={cx} y1={hudDockY}
+          x2={cx} y2={hudDockY + 38}
+          stroke="rgba(86, 230, 220, 0.5)" strokeWidth="1"
+          className="hud-dock-line"
+        />
+        <circle cx={cx} cy={hudDockY} r="3" fill="var(--tex-bright)" filter="url(#softGlow)" />
       </svg>
 
-      {/* Avatar mount with 3D head-attention tilt */}
+      {/* Hologram-treated avatar mount */}
       <div
         className="avatar-mount"
         style={{
@@ -710,16 +761,26 @@ function AegisRing({ active, setActive }) {
       >
         <div className="avatar-floor" aria-hidden="true" />
         <div className="avatar-aura" aria-hidden="true" />
-        <img
-          className="avatar-img"
-          src={texAvatar}
-          alt="Tex — AI control system"
-          key={`av-${pulseToken}`}
-        />
+
+        {/* Hologram stack: three offset RGB-split copies of Tex + scanlines + tint */}
+        <div className="avatar-holo" aria-hidden="true">
+          <img className="avatar-img avatar-img--rgb-r" src={texAvatar} alt="" key={`avr-${pulseToken}`} />
+          <img className="avatar-img avatar-img--rgb-b" src={texAvatar} alt="" />
+          <img
+            className="avatar-img avatar-img--main"
+            src={texAvatar}
+            alt="Tex — AI control system"
+          />
+          {/* Scanline overlay clipped to avatar silhouette via blend mode */}
+          <div className="avatar-scanlines" />
+          {/* Cyan tint overlay */}
+          <div className="avatar-tint" />
+        </div>
+
         <div className="avatar-flash" aria-hidden="true" key={`fl-${pulseToken}`} />
       </div>
 
-      {/* HUD readout at bottom — active layer info */}
+      {/* HUD readout — docked at south of ring with connector */}
       <div className="hud-readout" key={`hud-${active}`}>
         <span className="hud-blink" aria-hidden="true" />
         <span className="hud-id">L{activeLayer.id}</span>
@@ -727,27 +788,35 @@ function AegisRing({ active, setActive }) {
         <span className="hud-name">{activeLayer.name.toUpperCase()}</span>
         <span className="hud-divider">·</span>
         <span className="hud-status">LOCKED</span>
+        <span className="hud-divider">·</span>
+        <span className="hud-latency">{activeLayer.metric.value}</span>
       </div>
 
-      {/* Vertex chips (clickable buttons) */}
+      {/* Vertex chips with live signal bars */}
       {vertices.map((v, i) => {
         const layer = LAYERS[i];
-        const outRadius = radius + 165;
+        const outRadius = radius + 130;
         const chipX = cx + Math.cos(v.angle) * outRadius;
         const chipY = cy + Math.sin(v.angle) * outRadius;
         const xPct = (chipX / 1000) * 100;
         const yPct = (chipY / 1000) * 100;
+        const isActive = i === active;
         return (
           <button
             key={`chip-${i}`}
             type="button"
-            className={`vertex-chip ${i === active ? 'is-active' : ''}`}
+            className={`vertex-chip ${isActive ? 'is-active' : ''}`}
             style={{ left: `${xPct}%`, top: `${yPct}%` }}
             onClick={() => { setActive(i); pauseAutocycle(); }}
             onMouseEnter={() => { setActive(i); pauseAutocycle(); }}
             aria-label={`${layer.name} — ${layer.verb}`}
           >
-            <span className="chip-num">{layer.id}</span>
+            <span className="chip-meta">
+              <span className="chip-num">L{layer.id}</span>
+              <span className="chip-bars" aria-hidden="true">
+                <span /><span /><span /><span />
+              </span>
+            </span>
             <span className="chip-name">{layer.name}</span>
           </button>
         );
@@ -757,7 +826,9 @@ function AegisRing({ active, setActive }) {
 }
 
 /* =============================================================
-   VERDICT TICKER
+   VERDICT TICKER — refined runtime feed
+   Adds left status block (signal bars, region, throughput) and
+   stronger typographic hierarchy on each row.
    ============================================================= */
 const SAMPLE_VERDICTS = [
   { v: 'PERMIT', actor: 'agent_revops_07', action: 'send_email::client.quarterly', risk: '0.12' },
@@ -771,39 +842,72 @@ const SAMPLE_VERDICTS = [
 ];
 
 function VerdictTicker() {
+  // Live throughput counter — increments slightly each second for vibe
+  const [throughput, setThroughput] = useState(2410938);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setThroughput((n) => n + Math.floor(8 + Math.random() * 24));
+    }, 1100);
+    return () => clearInterval(id);
+  }, []);
+  const fmt = (n) => n.toLocaleString('en-US');
+
   return (
     <div className="ticker" aria-label="Live verdict stream">
+      <div className="ticker-status" aria-hidden="true">
+        <span className="ticker-status-dot" />
+        <span className="ticker-status-label">LIVE FEED</span>
+        <span className="ticker-status-bars">
+          <span /><span /><span /><span /><span />
+        </span>
+        <span className="ticker-status-region">US-EAST · BOS</span>
+        <span className="ticker-status-sep" />
+        <span className="ticker-status-throughput">{fmt(throughput)}</span>
+        <span className="ticker-status-throughput-lbl">verdicts today</span>
+      </div>
+
       <div className="ticker-mask">
         <div className="ticker-track">
           {[...SAMPLE_VERDICTS, ...SAMPLE_VERDICTS].map((row, i) => (
             <div key={i} className={`tick-row tick-${row.v.toLowerCase()}`}>
               <span className="tick-tag">{row.v}</span>
               <span className="tick-actor">{row.actor}</span>
+              <span className="tick-arrow">→</span>
               <span className="tick-action">{row.action}</span>
               <span className="tick-risk">r={row.risk}</span>
-              <span className="tick-hash">0x{((i * 31337 + 7) % 0xffffffff).toString(16).padStart(8, '0')}</span>
+              <span className="tick-hash">#{((i * 31337 + 7) % 0xffffffff).toString(16).padStart(8, '0')}</span>
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="ticker-suffix" aria-hidden="true">
+        <span className="ticker-suffix-label">v0.9.7</span>
       </div>
     </div>
   );
 }
 
 /* =============================================================
-   HERO
+   HERO — refined: tighter kicker, decisive type, terminal card,
+   stats with vertical hairlines, scroll counter
    ============================================================= */
 function Hero({ active, setActive }) {
   const { openTrial } = useTrial();
   return (
     <section className="hero" id="top">
+      {/* Edge label — vertical text on the left margin */}
+      <div className="hero-edge-label" aria-hidden="true">
+        <span>TX-AEGIS · BOSTON · 2026</span>
+      </div>
+
       <div className="hero-grid">
         <div className="hero-left">
           <div className="kicker">
             <span className="kicker-dot" />
             <span>Tex by VortexBlack</span>
             <span className="kicker-sep">/</span>
-            <span>Custom-deployed in 4–6 weeks</span>
+            <span>v0.9.7</span>
           </div>
 
           <h1 className="hero-h1">
@@ -813,22 +917,25 @@ function Hero({ active, setActive }) {
 
           <p className="hero-lede">
             We deploy a unified AI control plane in your environment in 4–6 weeks.
-            Discovery scans your stack — your Slack, your Drive, your AgentForce,
-            whatever you're using. We configure policy rules to your specific
-            compliance obligations. We wire enforcement into your existing tools.
+            Discovery scans your stack — Slack, Drive, AgentForce, whatever you're
+            using. We compile your compliance rules into runtime policy. We wire
+            enforcement into your existing tools.
           </p>
 
           <div className="five-second">
+            <div className="five-corner five-corner--tl" aria-hidden="true" />
+            <div className="five-corner five-corner--tr" aria-hidden="true" />
+            <div className="five-corner five-corner--bl" aria-hidden="true" />
+            <div className="five-corner five-corner--br" aria-hidden="true" />
             <div className="five-row">
               <span className="five-label">In five seconds</span>
               <span className="five-rule" />
+              <span className="five-id">FS-001</span>
             </div>
             <p className="five-body">
-              You end up with one dashboard showing every AI agent in your company,
-              what they're allowed to do, what they actually did, and an audit-grade
-              evidence record for every decision. One implementation, one platform,
-              one ongoing relationship — instead of buying eight tools and stitching
-              them together yourself.
+              One dashboard. Every AI agent in your company, what they're allowed
+              to do, what they actually did, and audit-grade evidence for every
+              decision they made.
             </p>
           </div>
 
@@ -844,16 +951,16 @@ function Hero({ active, setActive }) {
 
           <div className="hero-stats">
             <div className="stat">
-              <span className="stat-num">4–6<span className="stat-unit"> weeks</span></span>
+              <span className="stat-num">4–6<span className="stat-unit">weeks</span></span>
               <span className="stat-lbl">to deployed control plane</span>
             </div>
             <div className="stat">
               <span className="stat-num">142<span className="stat-unit">ms</span></span>
-              <span className="stat-lbl">p95 verdict</span>
+              <span className="stat-lbl">p95 verdict latency</span>
             </div>
             <div className="stat">
-              <span className="stat-num">1<span className="stat-unit"> dashboard</span></span>
-              <span className="stat-lbl">every AI agent, every decision</span>
+              <span className="stat-num">1<span className="stat-unit">pane</span></span>
+              <span className="stat-lbl">every agent · every action</span>
             </div>
           </div>
         </div>
@@ -863,10 +970,19 @@ function Hero({ active, setActive }) {
         </div>
       </div>
 
+      {/* Scroll cue at bottom-right */}
+      <div className="hero-scroll-cue" aria-hidden="true">
+        <span className="hsc-counter">01<span className="hsc-counter-of">/09</span></span>
+        <span className="hsc-rule" />
+        <span className="hsc-label">SCROLL</span>
+        <span className="hsc-arrow">↓</span>
+      </div>
+
       <VerdictTicker />
     </section>
   );
 }
+
 
 /* =============================================================
    PER-LAYER VISUALIZATIONS

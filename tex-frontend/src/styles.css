@@ -3618,13 +3618,15 @@ html, body { background: var(--void-0); color: var(--bone-100); }
    no floor to reflect against. */
 .tex-reflection { display: none !important; }
 
-/* Tex figure wrap — sized to overshoot the stage so he extends edge-to-edge */
+/* Tex figure wrap — sized so head sits clearly below the headline and shoulders
+   anchor the bottom without overflowing aggressively. Smaller than v11.0 for
+   a calmer composition. */
 .tex-figure-wrap {
   position: relative;
-  height: 118%;                /* deliberately overflows so Tex's torso runs off-page */
+  height: 96%;                 /* was 118% — calmer, less full-bleed busy */
   max-height: none;
   aspect-ratio: 900 / 1024;
-  margin-top: -2%;             /* pull head closer to top */
+  margin-top: 4%;              /* was -2% — push slightly down so headline breathes */
   z-index: 5;
 }
 
@@ -3999,7 +4001,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
 }
 /* Soft dark halo behind the type — gives contrast against the figure
-   without obscuring it */
+   without obscuring it. Tightened in v11.1 for cleaner italic readability. */
 .hv11-headline-wrap::before {
   content: '';
   position: absolute;
@@ -4007,11 +4009,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   right: -10%;
   top: -20%;
   bottom: -22%;
-  background: radial-gradient(ellipse 70% 55% at center,
-    rgba(0, 0, 0, 0.78) 0%,
-    rgba(0, 0, 0, 0.50) 32%,
-    rgba(0, 0, 0, 0.22) 58%,
-    transparent 80%);
+  background: radial-gradient(ellipse 68% 58% at center,
+    rgba(0, 0, 0, 0.86) 0%,
+    rgba(0, 0, 0, 0.62) 32%,
+    rgba(0, 0, 0, 0.28) 58%,
+    transparent 82%);
   z-index: -1;
   pointer-events: none;
 }
@@ -4190,6 +4192,14 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-size: 13px;
   letter-spacing: 0.04em;
 }
+.hv11-readout-strong {
+  color: var(--tex-bright);
+  font-size: 14.5px;
+  font-weight: 500;
+}
+.hv11-readout-strong .hv11-readout-unit {
+  color: var(--bone-300);
+}
 .hv11-readout-unit {
   color: var(--bone-500);
   font-size: 10px;
@@ -4258,13 +4268,13 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 @media (max-width: 1280px) {
   .hv11-edge { width: 22px; }
   .hv11-edge-text { font-size: 8.5px; letter-spacing: 0.36em; }
-  .tex-figure-wrap { height: 84%; }
+  .tex-figure-wrap { height: 88%; }
   .hv11-bottom { padding: 20px 36px 22px; }
 }
 
 @media (max-width: 980px) {
   .hv11-headline { font-size: clamp(56px, 12vw, 100px); }
-  .tex-figure-wrap { height: 78%; }
+  .tex-figure-wrap { height: 80%; }
   .hv11-bottom { flex-direction: column; align-items: flex-start; gap: 16px; padding: 18px 24px 22px; }
   .hv11-readout { flex-wrap: wrap; gap: 12px; }
   .hv11-scroll { display: none; }
@@ -4276,7 +4286,409 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv11-edge { display: none; }
   .hv11-headline-wrap { top: 14%; gap: 12px; }
   .hv11-headline { font-size: clamp(44px, 11vw, 72px); }
-  .tex-figure-wrap { height: 70%; }
+  .tex-figure-wrap { height: 72%; }
   .tex-anchors { display: none; }
   .chest-stream { display: none; }
+}
+
+/* =============================================================
+   CONTROL PLANE INTRO (CPI) — section after the hero.
+   Image-1 composition: copy block on the left, orbital ring of
+   the seven layers around a smaller Tex figure on the right.
+   ============================================================= */
+.cpi {
+  position: relative;
+  padding: 140px 64px 160px;
+  max-width: var(--max-w);
+  margin: 0 auto;
+  z-index: 2;
+}
+.cpi::before {
+  /* Faint top hairline as a transition from the hero */
+  content: '';
+  position: absolute;
+  left: 8%; right: 8%;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(127, 241, 233, 0.22), transparent);
+}
+
+.cpi-grid {
+  display: grid;
+  grid-template-columns: minmax(440px, 0.95fr) minmax(520px, 1.1fr);
+  gap: 80px;
+  align-items: center;
+}
+
+/* ------- LEFT: copy block ------- */
+.cpi-left {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.cpi-kicker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--bone-300);
+}
+.cpi-kicker-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--tex-bright);
+  box-shadow: 0 0 0 3px rgba(86, 230, 220, 0.16), 0 0 12px var(--tex-bright);
+}
+.cpi-kicker-sep { color: var(--bone-700); }
+
+.cpi-h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: clamp(48px, 5.6vw, 86px);
+  line-height: 0.96;
+  letter-spacing: -0.034em;
+  color: var(--bone-100);
+}
+.cpi-h-line { display: block; }
+.cpi-h-italic {
+  font-style: italic;
+  font-weight: 300;
+  letter-spacing: -0.030em;
+  background: linear-gradient(110deg,
+    var(--bone-100) 0%,
+    var(--tex-bright) 28%,
+    var(--bone-100) 52%,
+    var(--bone-100) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+          color: transparent;
+  display: inline-block;
+}
+
+.cpi-lede {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 16.5px;
+  line-height: 1.62;
+  color: var(--bone-200);
+  max-width: 56ch;
+}
+
+.cpi-callout {
+  border-left: 1px solid var(--edge-tex);
+  padding: 6px 0 6px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cpi-callout-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--tex-bright);
+}
+.cpi-callout-body {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 16.5px;
+  line-height: 1.55;
+  color: var(--bone-200);
+  max-width: 56ch;
+}
+
+.cpi-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.cpi-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 26px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #03191a;
+  font-weight: 600;
+  background: linear-gradient(180deg, var(--tex-bright), var(--tex));
+  border: 0;
+  border-radius: 1px;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 1px var(--tex-bright),
+    0 0 28px rgba(86, 230, 220, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.cpi-cta:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px var(--tex-bright),
+    0 0 36px rgba(86, 230, 220, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.cpi-cta .btn-arrow {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.cpi-trace {
+  display: inline-flex;
+  align-items: center;
+  padding: 16px 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--bone-200);
+  border: 1px solid rgba(226, 223, 214, 0.18);
+  background: rgba(8, 11, 18, 0.6);
+  border-radius: 1px;
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+.cpi-trace:hover {
+  border-color: var(--tex);
+  color: var(--tex);
+}
+
+.cpi-stats {
+  display: flex;
+  align-items: flex-end;
+  gap: 56px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.cpi-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cpi-stat-value {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 38px;
+  line-height: 1;
+  color: var(--bone-100);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.cpi-stat-unit {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  color: var(--bone-400);
+  text-transform: uppercase;
+  margin-left: 10px;
+}
+.cpi-stat-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--bone-500);
+  max-width: 22ch;
+  line-height: 1.5;
+}
+
+/* ------- RIGHT: orbital ring ------- */
+.cpi-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cpi-orbit {
+  position: relative;
+  width: min(560px, 100%);
+  aspect-ratio: 1;
+}
+.cpi-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--edge-tex);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+.cpi-ring-outer { inset: 0;  border-color: rgba(86, 230, 220, 0.22); }
+.cpi-ring-mid   { inset: 12%; border-color: rgba(86, 230, 220, 0.30); }
+.cpi-ring-inner { inset: 26%; border-color: rgba(86, 230, 220, 0.42); }
+
+.cpi-spokes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.cpi-spoke {
+  stroke: rgba(127, 241, 233, 0.22);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.cpi-figure {
+  position: absolute;
+  inset: 28%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cpi-figure-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  filter:
+    drop-shadow(0 0 36px rgba(86, 230, 220, 0.28))
+    drop-shadow(0 12px 32px rgba(0, 0, 0, 0.6))
+    contrast(1.04);
+}
+.cpi-figure-glow {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(127, 241, 233, 0.22) 0%,
+    rgba(86, 230, 220, 0.10) 38%,
+    transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+  animation: cpi-glow-breathe 6s ease-in-out infinite;
+}
+@keyframes cpi-glow-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
+.cpi-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(8, 11, 18, 0.85);
+  border: 1px solid var(--edge-tex);
+  border-radius: 1px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-200);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  animation: cpi-chip-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  z-index: 3;
+}
+.cpi-chip:hover {
+  border-color: var(--tex-bright);
+  color: var(--bone-100);
+  background: rgba(13, 22, 30, 0.95);
+  box-shadow: 0 0 14px rgba(86, 230, 220, 0.22);
+}
+.cpi-chip-num {
+  font-size: 9.5px;
+  color: var(--tex-bright);
+  letter-spacing: 0.22em;
+}
+.cpi-chip-name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--bone-100);
+}
+@keyframes cpi-chip-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 6px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+.cpi-node-active {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  /* Rotate the empty container; the dot is its ::before child. */
+  animation: cpi-node-spin 18s linear infinite;
+  pointer-events: none;
+}
+.cpi-node-active::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -50%;             /* place dot on the outer ring */
+  transform: translate(-50%, -50%);
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--tex-bright);
+  box-shadow: 0 0 0 3px rgba(86, 230, 220, 0.25), 0 0 18px var(--tex-bright);
+}
+@keyframes cpi-node-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Responsive — collapse to single column on narrower viewports */
+@media (max-width: 1100px) {
+  .cpi { padding: 100px 36px 120px; }
+  .cpi-grid { grid-template-columns: 1fr; gap: 60px; }
+  .cpi-orbit { width: min(440px, 100%); margin: 0 auto; }
+  .cpi-stats { gap: 36px; }
+}
+@media (max-width: 720px) {
+  .cpi { padding: 72px 22px 90px; }
+  .cpi-h2 { font-size: clamp(38px, 9vw, 56px); }
+  .cpi-orbit { width: min(360px, 100%); }
+  .cpi-stat-value { font-size: 30px; }
+  .cpi-chip { font-size: 9px; padding: 5px 9px; }
+  .cpi-chip-name { font-size: 11px; }
+}
+
+/* =============================================================
+   PERFORMANCE PASS
+   - layer-section gets content-visibility so off-screen sections
+     don't paint or run their viz layout.
+   - Reduce paint cost on smooth scroll for users on lower-power
+     hardware.
+   - Honor prefers-reduced-motion: kill the canvas + all heavy
+     keyframes for users that opted out.
+   ============================================================= */
+.layer-section {
+  /* Skips paint and layout entirely until the section is near the
+     viewport. Massive scroll perf win on long pages. */
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 800px;
+}
+.cpi {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 720px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ambient { display: none !important; }
 }

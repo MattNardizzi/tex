@@ -164,7 +164,6 @@ function PerspectiveGrid() {
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    let raf, t = 0;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -173,12 +172,14 @@ function PerspectiveGrid() {
       canvas.style.width = window.innerWidth + 'px';
       canvas.style.height = window.innerHeight + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
     };
-    resize();
-    window.addEventListener('resize', resize);
 
+    /* Render once. The previous implementation ran rAF at 60fps just to
+       drift 8 sub-pixel particles — invisible on the page, brutal on the
+       main thread during scroll. Static render eliminates the bottleneck
+       while preserving the visual. */
     const draw = () => {
-      t += 0.004;
       const w = window.innerWidth, h = window.innerHeight;
       ctx.clearRect(0, 0, w, h);
 
@@ -223,21 +224,27 @@ function PerspectiveGrid() {
       ctx.fillStyle = mist;
       ctx.fillRect(0, horizonY, w, h - horizonY);
 
-      // A handful of slow-drifting micro particles, far from busy
-      for (let i = 0; i < 8; i++) {
-        const phase = i * 1.31 + t * 0.5;
-        const x = ((Math.sin(phase) * 0.5 + 0.5) * w + t * 8 * (i % 3 === 0 ? 1 : -1)) % w;
-        const y = (Math.cos(phase * 0.73) * 0.5 + 0.5) * h;
-        ctx.fillStyle = 'rgba(127, 241, 233, 0.35)';
+      // A few static specks for texture (not animated — was a perf hog)
+      for (let i = 0; i < 14; i++) {
+        const seed = i * 1.31;
+        const x = ((Math.sin(seed) * 0.5 + 0.5) * w);
+        const y = (Math.cos(seed * 0.73) * 0.5 + 0.5) * h;
+        ctx.fillStyle = 'rgba(127, 241, 233, 0.32)';
         ctx.fillRect(x, y, 1, 1);
       }
-
-      raf = requestAnimationFrame(draw);
     };
-    draw();
+
+    resize();
+    // Debounced resize so we don't redraw on every pixel
+    let resizeT;
+    const onResize = () => {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(resize, 120);
+    };
+    window.addEventListener('resize', onResize);
     return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', resize);
+      window.removeEventListener('resize', onResize);
+      clearTimeout(resizeT);
     };
   }, []);
   return <canvas className="ambient" ref={ref} aria-hidden="true" />;
@@ -393,13 +400,56 @@ function FullBleedTex({ active, setActive }) {
     if (v === 'FORBID' || v === 'ABSTAIN') setChestPulse((n) => n + 1);
   }, []);
 
-  /* Auto-cycle active layer after bootup */
+  /* Auto-cycle active layer after bootup. Pauses when hero is not in view
+     (off-screen) to free the main thread during scroll on the rest of the page. */
   useEffect(() => {
     if (phase < 5) return;
-    const id = setInterval(() => {
-      setActive((prev) => (prev + 1) % 7);
-    }, 3600);
-    return () => clearInterval(id);
+    let id = null;
+    let visible = true;
+
+    const start = () => {
+      if (id) return;
+      id = setInterval(() => {
+        if (!visible) return;
+        setActive((prev) => (prev + 1) % 7);
+        if (Math.random() < 0.34) setChestPulse((n) => n + 1);
+      }, 3600);
+    };
+    const stop = () => {
+      if (id) { clearInterval(id); id = null; }
+    };
+
+    start();
+
+    // Pause when tab is hidden
+    const onVis = () => {
+      visible = !document.hidden;
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    // Pause when hero is scrolled out of view
+    const stage = stageRef.current;
+    let obs = null;
+    if (stage && 'IntersectionObserver' in window) {
+      obs = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting && e.intersectionRatio > 0.1) {
+            visible = !document.hidden;
+            start();
+          } else {
+            visible = false;
+            stop();
+          }
+        });
+      }, { threshold: [0, 0.1] });
+      obs.observe(stage);
+    }
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVis);
+      if (obs) obs.disconnect();
+    };
   }, [phase, setActive]);
 
   /* Measure stage + figure-wrap so we can compute body anchor positions in
@@ -469,10 +519,8 @@ function FullBleedTex({ active, setActive }) {
           />
         )}
 
-        {/* Chest data stream */}
-        {phase >= 6 && <ChestDataStream onVerdict={handleVerdict} />}
-
-        {/* Chest pulse on FORBID/ABSTAIN */}
+        {/* Chest pulse on FORBID/ABSTAIN — kept for layer transitions but
+            chest data stream removed for a calmer hero composition */}
         <div
           className="tex-chest-pulse"
           key={`pulse-${chestPulse}`}
@@ -617,18 +665,170 @@ function Hero({ active, setActive }) {
           <span className="hv11-readout-dot" />
           <span className="hv11-readout-label">RUNTIME</span>
           <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value">v0.9.7</span>
-          <span className="hv11-readout-sep" />
           <span className="hv11-readout-value">142<span className="hv11-readout-unit">ms p95</span></span>
           <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value">14.4<span className="hv11-readout-unit">M sealed</span></span>
+          <span className="hv11-readout-value hv11-readout-strong">14.4<span className="hv11-readout-unit">M sealed</span></span>
           <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value">2.41<span className="hv11-readout-unit">M / day</span></span>
+          <span className="hv11-readout-value hv11-readout-strong">2.41<span className="hv11-readout-unit">M / day</span></span>
         </div>
       </div>
     </section>
   );
 }
+
+
+
+/* =============================================================
+   CONTROL PLANE INTRO — the section that follows the hero.
+   Image-1 composition: kicker + headline + body + "In five
+   seconds" + CTAs + 3 stats on the left; orbital ring of seven
+   layers around a smaller Tex avatar on the right.
+   ============================================================= */
+function ControlPlaneIntro() {
+  const { openTrial } = useTrial();
+
+  // Layer order around the orbit, starting at top and going clockwise:
+  //   01 Discovery (top), 02 Registration (top-right), 03 Capability (right),
+  //   04 Evaluation (bottom-right), 05 Enforcement (bottom-left),
+  //   06 Evidence (left), 07 Learning (top-left)
+  // Angle in degrees, 0 = top, going clockwise.
+  const ORBIT = [
+    { id: '01', name: 'Discovery',    angle: 0   },
+    { id: '02', name: 'Registration', angle: 52  },
+    { id: '03', name: 'Capability',   angle: 104 },
+    { id: '04', name: 'Evaluation',   angle: 156 },
+    { id: '05', name: 'Enforcement',  angle: 204 },
+    { id: '06', name: 'Evidence',     angle: 256 },
+    { id: '07', name: 'Learning',     angle: 308 },
+  ];
+
+  return (
+    <section className="cpi" id="control-plane">
+      <div className="cpi-grid">
+
+        {/* LEFT: copy block */}
+        <div className="cpi-left">
+          <div className="cpi-kicker">
+            <span className="cpi-kicker-dot" />
+            <span>Tex by VortexBlack</span>
+            <span className="cpi-kicker-sep">/</span>
+            <span>Custom-deployed in 4–6 weeks</span>
+          </div>
+
+          <h2 className="cpi-h2">
+            <span className="cpi-h-line">One control plane</span>
+            <span className="cpi-h-line cpi-h-italic">for every AI agent.</span>
+          </h2>
+
+          <p className="cpi-lede">
+            We deploy a unified AI control plane in your environment in 4–6 weeks.
+            Discovery scans your stack — your Slack, your Drive, your AgentForce,
+            whatever you're using. We configure policy rules to your specific
+            compliance obligations. We wire enforcement into your existing tools.
+          </p>
+
+          <div className="cpi-callout">
+            <span className="cpi-callout-label">In five seconds</span>
+            <p className="cpi-callout-body">
+              You end up with one dashboard showing every AI agent in your company,
+              what they're allowed to do, what they actually did, and an audit-grade
+              evidence record for every decision. One implementation, one platform,
+              one ongoing relationship — instead of buying eight tools and stitching
+              them together yourself.
+            </p>
+          </div>
+
+          <div className="cpi-actions">
+            <button type="button" onClick={openTrial} className="cpi-cta">
+              <span>Book a 20-min founder call</span>
+              <span className="btn-arrow">→</span>
+            </button>
+            <a href="#layer-01" className="cpi-trace">
+              <span>Trace the seven layers</span>
+            </a>
+          </div>
+
+          <div className="cpi-stats">
+            <div className="cpi-stat">
+              <span className="cpi-stat-value">4–6<span className="cpi-stat-unit">weeks</span></span>
+              <span className="cpi-stat-label">to deployed control plane</span>
+            </div>
+            <div className="cpi-stat">
+              <span className="cpi-stat-value">142<span className="cpi-stat-unit">ms</span></span>
+              <span className="cpi-stat-label">p95 verdict</span>
+            </div>
+            <div className="cpi-stat">
+              <span className="cpi-stat-value">1<span className="cpi-stat-unit">dashboard</span></span>
+              <span className="cpi-stat-label">every AI agent, every decision</span>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT: orbital ring composition */}
+        <div className="cpi-right" aria-hidden="false">
+          <div className="cpi-orbit">
+            {/* Concentric guide rings */}
+            <div className="cpi-ring cpi-ring-outer" aria-hidden="true" />
+            <div className="cpi-ring cpi-ring-mid"   aria-hidden="true" />
+            <div className="cpi-ring cpi-ring-inner" aria-hidden="true" />
+
+            {/* Connector spokes — one per chip */}
+            <svg className="cpi-spokes" viewBox="0 0 100 100" aria-hidden="true" preserveAspectRatio="none">
+              {ORBIT.map((o) => {
+                const rad = (o.angle - 90) * Math.PI / 180;
+                const r = 47;
+                const x = 50 + Math.cos(rad) * r;
+                const y = 50 + Math.sin(rad) * r;
+                return (
+                  <line
+                    key={o.id}
+                    x1="50" y1="50"
+                    x2={x} y2={y}
+                    className="cpi-spoke"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })}
+            </svg>
+
+            {/* Tex figure at center, smaller */}
+            <div className="cpi-figure">
+              <img src={texAvatar} alt="Tex" className="cpi-figure-img" />
+              <div className="cpi-figure-glow" aria-hidden="true" />
+            </div>
+
+            {/* Layer chips placed around the orbit */}
+            {ORBIT.map((o, i) => {
+              const rad = (o.angle - 90) * Math.PI / 180;
+              const r = 47;
+              const x = 50 + Math.cos(rad) * r;
+              const y = 50 + Math.sin(rad) * r;
+              return (
+                <a
+                  key={o.id}
+                  href={`#layer-${o.id}`}
+                  className="cpi-chip"
+                  style={{
+                    left: `${x}%`,
+                    top: `${y}%`,
+                    animationDelay: `${0.4 + i * 0.07}s`,
+                  }}
+                >
+                  <span className="cpi-chip-num">{o.id}</span>
+                  <span className="cpi-chip-name">{o.name}</span>
+                </a>
+              );
+            })}
+
+            {/* Active node dot — pulses around the orbit */}
+            <div className="cpi-node-active" aria-hidden="true" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 
 
@@ -2195,6 +2395,7 @@ function HomePage({ active, setActive }) {
   return (
     <main className="page">
       <Hero active={active} setActive={setActive} />
+      <ControlPlaneIntro />
       <div className="layers-stack">
         {LAYERS.map((layer, i) => (
           <LayerSection

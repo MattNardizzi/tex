@@ -119,8 +119,44 @@ const LAYERS = [
 ];
 
 /* =============================================================
-   PERSPECTIVE GRID — refined: deep vanishing point, drift, mouse parallax
-   Pure canvas. Tighter palette, calmer motion, atmospheric horizon glow.
+   V11 — MAGAZINE COVER HERO
+   Tex full-bleed. Headline breaks across shoulder. Seven anatomical
+   layer anchors. Verdicts stream across his chest. Bootup sequence
+   on first load. Stillness with intention.
+   ============================================================= */
+
+/* Per-layer anatomical anchor positions, expressed as percentages of
+   the Tex avatar image dimensions (which we'll preserve exactly).
+   Each anchor has:
+   - body: where the hairline terminates ON Tex's anatomy (% of avatar)
+   - label: where the label floats (% of avatar, outside the silhouette)
+   - side: 'left' or 'right' — determines which way the hairline elbow goes
+   - glow: optional — body-local point where the focused glow blooms when active
+*/
+/* Anatomical anchor mapping.
+   `body` — point ON Tex (% of figure-wrap, which is the avatar's bounding box)
+   `label` — where the label sits (% of STAGE = full viewport, so labels can
+             go to the actual screen edges, not just to the figure edges)
+   `side`  — which side of the page the label is on (controls text alignment) */
+const ANATOMY = {
+  // TOP-RIGHT cluster — above headline, around Tex's head
+  '01': { body: { x: 50, y: 23 }, label: { x: 64, y: 4  }, side: 'right' },  // Discovery — forehead
+  '04': { body: { x: 65, y: 28 }, label: { x: 86, y: 4  }, side: 'right' },  // Evaluation — temple
+  // BOTTOM-RIGHT cluster — below headline italic, around shoulders/chest
+  '02': { body: { x: 50, y: 50 }, label: { x: 80, y: 56 }, side: 'right' },  // Registration — throat
+  '03': { body: { x: 80, y: 65 }, label: { x: 90, y: 70 }, side: 'right' },  // Capability — right shoulder
+  // TOP-LEFT cluster — above headline, around Tex's head
+  '07': { body: { x: 50, y: 6  }, label: { x: 36, y: 4  }, side: 'left'  },  // Learning — above head
+  // BOTTOM-LEFT cluster
+  '05': { body: { x: 20, y: 65 }, label: { x: 10, y: 70 }, side: 'left'  },  // Enforcement — left shoulder
+  '06': { body: { x: 50, y: 78 }, label: { x: 18, y: 84 }, side: 'left'  },  // Evidence — chest hex
+};
+
+/* =============================================================
+   PERSPECTIVE GRID — radically simplified.
+   No floor lattice, no ceiling, no mouse parallax. Just deep void
+   with a single horizontal horizon line and a soft radial wash.
+   The page becomes a portrait, not a dashboard.
    ============================================================= */
 function PerspectiveGrid() {
   const ref = useRef(null);
@@ -128,7 +164,7 @@ function PerspectiveGrid() {
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    let raf, t = 0, mx = 0, my = 0;
+    let raf, t = 0;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -138,126 +174,62 @@ function PerspectiveGrid() {
       canvas.style.height = window.innerHeight + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    const move = (e) => {
-      mx = (e.clientX / window.innerWidth - 0.5);
-      my = (e.clientY / window.innerHeight - 0.5);
-    };
     resize();
     window.addEventListener('resize', resize);
-    window.addEventListener('pointermove', move);
 
     const draw = () => {
-      t += 0.009;
+      t += 0.004;
       const w = window.innerWidth, h = window.innerHeight;
       ctx.clearRect(0, 0, w, h);
 
-      // Deep void wash — slightly cooler, more atmospheric
+      // Deep void radial wash centered slightly above midpoint
       const wash = ctx.createRadialGradient(
-        w * 0.5 + mx * 60, h * 0.46 + my * 40, 0,
-        w * 0.5, h * 0.5, Math.max(w, h) * 0.9
+        w * 0.5, h * 0.46, 0,
+        w * 0.5, h * 0.5, Math.max(w, h) * 0.85
       );
-      wash.addColorStop(0, 'rgba(20, 50, 60, 0.28)');
-      wash.addColorStop(0.45, 'rgba(6, 10, 16, 0.6)');
-      wash.addColorStop(1, 'rgba(0, 0, 0, 0.96)');
+      wash.addColorStop(0, 'rgba(18, 38, 48, 0.32)');
+      wash.addColorStop(0.5, 'rgba(6, 9, 14, 0.65)');
+      wash.addColorStop(1, 'rgba(0, 0, 0, 0.98)');
       ctx.fillStyle = wash;
       ctx.fillRect(0, 0, w, h);
 
-      // Vanishing point shifts subtly with mouse (less than before — calmer)
-      const vpX = w * 0.5 + mx * 36;
-      const vpY = h * 0.50 + my * 18;
+      // Horizon hairline — a single bright cyan line at 70% height
+      const horizonY = Math.floor(h * 0.70);
+      const horizonGrad = ctx.createLinearGradient(0, horizonY, w, horizonY);
+      horizonGrad.addColorStop(0, 'rgba(127, 241, 233, 0)');
+      horizonGrad.addColorStop(0.18, 'rgba(127, 241, 233, 0.05)');
+      horizonGrad.addColorStop(0.5, 'rgba(127, 241, 233, 0.55)');
+      horizonGrad.addColorStop(0.82, 'rgba(127, 241, 233, 0.05)');
+      horizonGrad.addColorStop(1, 'rgba(127, 241, 233, 0)');
+      ctx.strokeStyle = horizonGrad;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, horizonY);
+      ctx.lineTo(w, horizonY);
+      ctx.stroke();
 
-      // ===== FLOOR GRID =====
-      const floorTop = vpY;
-      const floorBot = h + 80;
-      const floorH = floorBot - floorTop;
+      // Soft horizon bloom
+      const bloom = ctx.createLinearGradient(0, horizonY - 60, 0, horizonY + 60);
+      bloom.addColorStop(0, 'rgba(86, 230, 220, 0)');
+      bloom.addColorStop(0.5, 'rgba(86, 230, 220, 0.08)');
+      bloom.addColorStop(1, 'rgba(86, 230, 220, 0)');
+      ctx.fillStyle = bloom;
+      ctx.fillRect(0, horizonY - 60, w, 120);
 
-      const numH = 26;
-      const numV = 44;
-      const scrollT = (t * 0.12) % 1;
+      // Floor reflection mist below horizon — very subtle
+      const mist = ctx.createLinearGradient(0, horizonY, 0, h);
+      mist.addColorStop(0, 'rgba(86, 230, 220, 0.04)');
+      mist.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = mist;
+      ctx.fillRect(0, horizonY, w, h - horizonY);
 
-      // Horizontal lines, perspective
-      for (let i = 0; i < numH; i++) {
-        const p = (i + scrollT) / numH;
-        const y = floorTop + Math.pow(p, 2.3) * floorH;
-        const distFade = 1 - Math.pow(p, 0.55);
-        const alpha = 0.04 + 0.11 * distFade;
-        ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
-
-      // Vertical lines, converging at vanishing point
-      for (let i = 0; i <= numV; i++) {
-        const xRatio = (i / numV - 0.5) * 2;
-        const xBottom = w * 0.5 + xRatio * w * 0.95;
-        const distFromCenter = Math.abs(xRatio);
-        const alpha = 0.035 + 0.085 * (1 - distFromCenter * 0.45);
-        ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(vpX + xRatio * 14, vpY);
-        ctx.lineTo(xBottom, floorBot);
-        ctx.stroke();
-      }
-
-      // ===== CEILING GRID (inverted, fainter) =====
-      const ceilBot = vpY;
-      const ceilTop = -80;
-      const ceilH = ceilBot - ceilTop;
-
-      for (let i = 0; i < numH; i++) {
-        const p = (i + scrollT) / numH;
-        const y = ceilBot - Math.pow(p, 2.3) * ceilH;
-        const distFade = 1 - Math.pow(p, 0.55);
-        const alpha = 0.022 + 0.06 * distFade;
-        ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
-
-      for (let i = 0; i <= numV; i++) {
-        const xRatio = (i / numV - 0.5) * 2;
-        const xTop = w * 0.5 + xRatio * w * 0.95;
-        const distFromCenter = Math.abs(xRatio);
-        const alpha = 0.018 + 0.055 * (1 - distFromCenter * 0.45);
-        ctx.strokeStyle = `rgba(86, 230, 220, ${alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(vpX + xRatio * 14, vpY);
-        ctx.lineTo(xTop, ceilTop);
-        ctx.stroke();
-      }
-
-      // ===== HORIZON LINE — single bright hairline at vanishing point =====
-      const horizonGlow = ctx.createLinearGradient(0, vpY - 3, 0, vpY + 3);
-      horizonGlow.addColorStop(0, 'rgba(127, 241, 233, 0)');
-      horizonGlow.addColorStop(0.5, 'rgba(127, 241, 233, 0.55)');
-      horizonGlow.addColorStop(1, 'rgba(127, 241, 233, 0)');
-      ctx.fillStyle = horizonGlow;
-      ctx.fillRect(0, vpY - 1.5, w, 3);
-
-      // Soft horizon bloom around the line
-      const horizonBloom = ctx.createLinearGradient(0, vpY - 80, 0, vpY + 80);
-      horizonBloom.addColorStop(0, 'rgba(86, 230, 220, 0)');
-      horizonBloom.addColorStop(0.5, 'rgba(86, 230, 220, 0.14)');
-      horizonBloom.addColorStop(1, 'rgba(86, 230, 220, 0)');
-      ctx.fillStyle = horizonBloom;
-      ctx.fillRect(0, vpY - 80, w, 160);
-
-      // ===== DRIFTING DATA POINTS (calmer, fewer) =====
-      for (let i = 0; i < 16; i++) {
-        const phase = i * 1.31 + t * 0.4;
-        const x = ((Math.sin(phase) * 0.5 + 0.5) * w + t * 18 * (i % 3 === 0 ? 1 : -1)) % w;
+      // A handful of slow-drifting micro particles, far from busy
+      for (let i = 0; i < 8; i++) {
+        const phase = i * 1.31 + t * 0.5;
+        const x = ((Math.sin(phase) * 0.5 + 0.5) * w + t * 8 * (i % 3 === 0 ? 1 : -1)) % w;
         const y = (Math.cos(phase * 0.73) * 0.5 + 0.5) * h;
-        const sz = i % 9 === 0 ? 1.6 : 0.8;
-        ctx.fillStyle = i % 9 === 0 ? 'rgba(127, 241, 233, 0.5)' : 'rgba(180, 220, 230, 0.16)';
-        ctx.fillRect(x, y, sz, sz);
+        ctx.fillStyle = 'rgba(127, 241, 233, 0.35)';
+        ctx.fillRect(x, y, 1, 1);
       }
 
       raf = requestAnimationFrame(draw);
@@ -266,29 +238,18 @@ function PerspectiveGrid() {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('pointermove', move);
     };
   }, []);
   return <canvas className="ambient" ref={ref} aria-hidden="true" />;
 }
 
 /* =============================================================
-   LAYER BAR — refined: cleaner brand, decisive active state,
-   live runtime indicator on the right
+   LAYER BAR — kept structurally but tightened to one row of
+   layers, no runtime clock cluttering. Small, top-pinned.
    ============================================================= */
 function LayerBar({ active, setActive, currentPath }) {
   const { openTrial: onActivate } = useTrial();
   const isHIW = currentPath === '/how-it-works';
-
-  // Live runtime clock for the bar
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const hh = String(now.getUTCHours()).padStart(2, '0');
-  const mm = String(now.getUTCMinutes()).padStart(2, '0');
-  const ss = String(now.getUTCSeconds()).padStart(2, '0');
 
   return (
     <nav className="layer-bar" aria-label="Seven layer navigation">
@@ -301,7 +262,7 @@ function LayerBar({ active, setActive, currentPath }) {
         </div>
         <div className="brand-text">
           <span className="brand-name">TEX</span>
-          <span className="brand-sub">VortexBlack · Aegis</span>
+          <span className="brand-sub">VortexBlack</span>
         </div>
       </div>
 
@@ -334,13 +295,6 @@ function LayerBar({ active, setActive, currentPath }) {
         <span>How it works</span>
       </button>
 
-      <div className="bar-runtime" aria-hidden="true">
-        <span className="bar-runtime-dot" />
-        <span className="bar-runtime-label">RUNTIME</span>
-        <span className="bar-runtime-clock">{hh}:{mm}:{ss}</span>
-        <span className="bar-runtime-utc">UTC</span>
-      </div>
-
       <button type="button" className="bar-cta" onClick={onActivate}>
         <span>Book a demo</span>
         <span className="cta-arrow">→</span>
@@ -350,638 +304,332 @@ function LayerBar({ active, setActive, currentPath }) {
 }
 
 /* =============================================================
-   AEGIS RING — Holo-chamber, redesigned
-   - Heptagonal node constellation orbiting Tex
-   - Tex rendered as a hologram (chromatic split + scanlines + tint)
-   - Node chips dock to ring with connector arms + live signal bars
-   - Active node gets a beautiful expanding lock-bracket and packet pulse
-   - HUD readout docks to ring's south arc with a connector hairline
-   - Four corner reticle marks + horizon hairline anchor the stage
+   AEGIS RING — kept as named export but redirects to FullBleedTex
+   so internal refs in App still resolve. Not used in v11 hero.
    ============================================================= */
-function AegisRing({ active, setActive }) {
-  const cx = 500, cy = 500;
-  const radius = 300;
-
-  // Heptagon vertices (top-up)
-  const vertices = LAYERS.map((_, i) => {
-    const angle = (-Math.PI / 2) + (i * 2 * Math.PI) / 7;
-    return {
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius,
-      angle,
-    };
-  });
-
-  // Tex's chest emblem position — pulse target
-  const chestX = cx;
-  const chestY = cy + 100;
-
-  /* ---- Auto-cycle (pauses on user interaction, resumes after idle) ---- */
-  const [paused, setPaused] = useState(false);
-  const idleTimerRef = useRef(null);
-  useEffect(() => {
-    if (paused) return;
-    const id = setInterval(() => {
-      setActive((prev) => (prev + 1) % 7);
-    }, 3400);
-    return () => clearInterval(id);
-  }, [paused, setActive]);
-
-  const pauseAutocycle = () => {
-    setPaused(true);
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => setPaused(false), 5000);
-  };
-
-  /* ---- Pulse trigger ---- */
-  const [pulseToken, setPulseToken] = useState(0);
-  const prevActiveRef = useRef(active);
-  useEffect(() => {
-    if (prevActiveRef.current !== active) {
-      setPulseToken((p) => p + 1);
-      prevActiveRef.current = active;
-    }
-  }, [active]);
-
-  /* ---- Mouse parallax for the whole stage ---- */
-  const stageRef = useRef(null);
-  const [parallax, setParallax] = useState({ x: 0, y: 0 });
-  useEffect(() => {
-    const handle = (e) => {
-      const el = stageRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const dx = (e.clientX - (r.left + r.width / 2)) / r.width;
-      const dy = (e.clientY - (r.top + r.height / 2)) / r.height;
-      setParallax({ x: dx * 14, y: dy * 14 });
-    };
-    window.addEventListener('mousemove', handle);
-    return () => window.removeEventListener('mousemove', handle);
-  }, []);
-
-  /* ---- Drifting particles ---- */
-  const particles = React.useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 30; i++) {
-      const a = (i * 137.5) * Math.PI / 180;
-      const r = 80 + (i * 23) % 200;
-      arr.push({
-        baseX: cx + Math.cos(a) * r,
-        baseY: cy + Math.sin(a) * r,
-        size: 0.7 + (i % 3) * 0.5,
-        delay: (i * 0.13) % 4,
-        speed: 8 + (i % 5),
-      });
-    }
-    return arr;
-  }, []);
-
-  /* ---- Boot-up reveal flag ---- */
-  const [booted, setBooted] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setBooted(true), 50);
-    return () => clearTimeout(t);
-  }, []);
-
-  /* ---- Active layer info ---- */
-  const activeLayer = LAYERS[active];
-  const activeVertex = vertices[active];
-
-  /* ---- Tex head-attention tilt: subtle 3D rotation toward active node ---- */
-  const tiltX = Math.sin(activeVertex.angle) * -2.2;
-  const tiltY = Math.cos(activeVertex.angle) * 3.2;
-
-  /* ---- Constellation lines: each node connects to its two neighbors ---- */
-  const constellationLines = vertices.map((v, i) => {
-    const next = vertices[(i + 1) % 7];
-    return { x1: v.x, y1: v.y, x2: next.x, y2: next.y, i };
-  });
-
-  /* ---- HUD readout dock position (south arc of containment ring) ---- */
-  const hudDockY = cy + (radius + 60);
-
-  return (
-    <div
-      className={`aegis-stage ${booted ? 'is-booted' : ''}`}
-      ref={stageRef}
-      style={{ '--px': `${parallax.x}px`, '--py': `${parallax.y}px` }}
-    >
-      {/* Four corner reticles framing the stage */}
-      <div className="stage-corner stage-corner--tl" aria-hidden="true">
-        <span className="stage-corner-label">TX-AEGIS</span>
-      </div>
-      <div className="stage-corner stage-corner--tr" aria-hidden="true">
-        <span className="stage-corner-label">v0.9.7</span>
-      </div>
-      <div className="stage-corner stage-corner--bl" aria-hidden="true">
-        <span className="stage-corner-label">42°21′ N</span>
-      </div>
-      <div className="stage-corner stage-corner--br" aria-hidden="true">
-        <span className="stage-corner-label">71°03′ W</span>
-      </div>
-
-      <svg
-        className="aegis-svg"
-        viewBox="0 0 1000 1000"
-        aria-hidden="true"
-        preserveAspectRatio="xMidYMid meet"
-      >
-        <defs>
-          {/* Radial bloom centered on Tex's chest */}
-          <radialGradient id="chestBloom" cx="50%" cy="60%" r="35%">
-            <stop offset="0%" stopColor="rgba(127, 241, 233, 0.55)" />
-            <stop offset="40%" stopColor="rgba(86, 230, 220, 0.18)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-          </radialGradient>
-          <radialGradient id="ambientGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(86, 230, 220, 0.16)" />
-            <stop offset="55%" stopColor="rgba(86, 230, 220, 0.04)" />
-            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-          </radialGradient>
-          <linearGradient id="scanLine" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgba(86, 230, 220, 0)" />
-            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.7)" />
-            <stop offset="100%" stopColor="rgba(86, 230, 220, 0)" />
-          </linearGradient>
-          <linearGradient id="horizonLine" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(127, 241, 233, 0)" />
-            <stop offset="50%" stopColor="rgba(127, 241, 233, 0.85)" />
-            <stop offset="100%" stopColor="rgba(127, 241, 233, 0)" />
-          </linearGradient>
-          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id="hardGlow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="8" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id="bloomGlow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="18" />
-          </filter>
-        </defs>
-
-        {/* Layer 0: ambient bloom */}
-        <circle cx={cx} cy={cy} r={radius + 180} fill="url(#ambientGlow)" className="ambient-bloom" />
-
-        {/* Layer 1: rotating outer telemetry ring with tick marks */}
-        <g className="telemetry-ring">
-          <circle cx={cx} cy={cy} r={radius + 100} className="ring-thin" />
-          <circle cx={cx} cy={cy} r={radius + 120} className="ring-thin faint" />
-          {Array.from({ length: 72 }, (_, i) => {
-            const a = (i / 72) * Math.PI * 2;
-            const major = i % 6 === 0;
-            const r1 = radius + 100;
-            const r2 = major ? radius + 118 : radius + 108;
-            return (
-              <line
-                key={`t-${i}`}
-                x1={cx + Math.cos(a) * r1}
-                y1={cy + Math.sin(a) * r1}
-                x2={cx + Math.cos(a) * r2}
-                y2={cy + Math.sin(a) * r2}
-                className={`tele-tick ${major ? 'is-major' : ''}`}
-              />
-            );
-          })}
-        </g>
-
-        {/* Layer 2: counter-rotating coordinate readouts */}
-        <g className="coord-ring">
-          {[0, 18, 36, 54].map((deg) => {
-            const a = (deg / 72) * Math.PI * 2;
-            const r = radius + 142;
-            return (
-              <text
-                key={`c-${deg}`}
-                x={cx + Math.cos(a) * r}
-                y={cy + Math.sin(a) * r}
-                className="coord-label"
-                textAnchor="middle"
-                dominantBaseline="middle"
-              >
-                {String(deg * 5).padStart(3, '0')}°
-              </text>
-            );
-          })}
-        </g>
-
-        {/* Layer 3: containment ring (the main visible perimeter) */}
-        <circle cx={cx} cy={cy} r={radius + 60} className="containment-ring" />
-        <circle cx={cx} cy={cy} r={radius + 60} className="containment-ring-active"
-          style={{
-            transformOrigin: `${cx}px ${cy}px`,
-            transform: `rotate(${(active * 360) / 7 - 90}deg)`,
-          }}
-        />
-
-        {/* Layer 4: inner aperture circle (around Tex) */}
-        <circle cx={cx} cy={cy} r="180" className="aperture-ring" />
-        <circle cx={cx} cy={cy} r="220" className="aperture-ring faint" />
-
-        {/* Layer 4b: horizon hairline through Tex's plane */}
-        <line
-          x1={cx - (radius + 80)} y1={cy + 200}
-          x2={cx + (radius + 80)} y2={cy + 200}
-          stroke="url(#horizonLine)" strokeWidth="1.2"
-          className="horizon-line"
-        />
-
-        {/* Layer 5: constellation lines between neighbor nodes */}
-        <g className="constellation">
-          {constellationLines.map((l, i) => (
-            <line
-              key={`cl-${i}`}
-              x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-              className={`const-line ${i === active || (i + 1) % 7 === active ? 'is-lit' : ''}`}
-              style={{ animationDelay: `${i * 0.08}s` }}
-            />
-          ))}
-          {/* Spokes from each node to center */}
-          {vertices.map((v, i) => (
-            <line
-              key={`sp-${i}`}
-              x1={v.x} y1={v.y} x2={chestX} y2={chestY}
-              className={`spoke-line ${i === active ? 'is-lit' : ''}`}
-              style={{ animationDelay: `${0.4 + i * 0.06}s` }}
-            />
-          ))}
-        </g>
-
-        {/* Layer 5b: connector arms — hairlines from each node OUTWARD
-            toward where the chip will dock (gives the chips a place to attach) */}
-        {vertices.map((v, i) => {
-          const outR = radius + 110;
-          const ax = cx + Math.cos(v.angle) * outR;
-          const ay = cy + Math.sin(v.angle) * outR;
-          return (
-            <line
-              key={`arm-${i}`}
-              x1={v.x} y1={v.y} x2={ax} y2={ay}
-              className={`node-arm ${i === active ? 'is-lit' : ''}`}
-            />
-          );
-        })}
-
-        {/* Layer 6: drifting particles */}
-        <g
-          className="particle-field"
-          style={{
-            transform: `translate(${(activeVertex.x - cx) * 0.06}px, ${(activeVertex.y - cy) * 0.06}px)`,
-          }}
-        >
-          {particles.map((p, i) => (
-            <circle
-              key={`pt-${i}`}
-              cx={p.baseX}
-              cy={p.baseY}
-              r={p.size}
-              className="particle"
-              style={{
-                animationDelay: `${p.delay}s`,
-                animationDuration: `${p.speed}s`,
-              }}
-            />
-          ))}
-        </g>
-
-        {/* Layer 7: chest bloom (intensifies on pulse arrival) */}
-        <g key={`bloom-${pulseToken}`} className="chest-bloom-wrap">
-          <circle cx={chestX} cy={chestY} r="160" fill="url(#chestBloom)" className="chest-bloom" />
-        </g>
-
-        {/* Layer 8: energy packet — bead from active node to chest on each pulse */}
-        <g key={`pkt-${pulseToken}`} className="energy-packet-wrap">
-          <line
-            x1={activeVertex.x} y1={activeVertex.y}
-            x2={chestX} y2={chestY}
-            className="packet-trail"
-            filter="url(#hardGlow)"
-          />
-          <circle r="7" fill="var(--tex-bright)" filter="url(#hardGlow)" className="packet-bead">
-            <animate
-              attributeName="cx"
-              from={activeVertex.x}
-              to={chestX}
-              dur="0.95s"
-              fill="freeze"
-              calcMode="spline"
-              keySplines="0.5 0 0.5 1"
-            />
-            <animate
-              attributeName="cy"
-              from={activeVertex.y}
-              to={chestY}
-              dur="0.95s"
-              fill="freeze"
-              calcMode="spline"
-              keySplines="0.5 0 0.5 1"
-            />
-            <animate
-              attributeName="r"
-              values="3;9;14;0"
-              keyTimes="0;0.15;0.85;1"
-              dur="0.95s"
-              fill="freeze"
-            />
-            <animate
-              attributeName="opacity"
-              values="0;1;1;0"
-              keyTimes="0;0.1;0.85;1"
-              dur="0.95s"
-              fill="freeze"
-            />
-          </circle>
-        </g>
-
-        {/* Layer 9: hex-frame nodes */}
-        {vertices.map((v, i) => {
-          const isActive = i === active;
-          const r = isActive ? 26 : 18;
-          const hexPts = Array.from({ length: 6 }, (_, k) => {
-            const a = (k * Math.PI) / 3;
-            return `${v.x + Math.cos(a) * r},${v.y + Math.sin(a) * r}`;
-          }).join(' ');
-          return (
-            <g key={`node-${i}`} className={`node ${isActive ? 'is-active' : ''}`}>
-              {isActive && (
-                <circle cx={v.x} cy={v.y} r="44" className="node-halo" filter="url(#bloomGlow)" />
-              )}
-              <polygon points={hexPts} className="node-hex" filter={isActive ? 'url(#softGlow)' : undefined} />
-              <circle cx={v.x} cy={v.y} r={isActive ? 5 : 3} className="node-core" />
-              {isActive && (
-                <g className="lock-brackets">
-                  {[
-                    [-1, -1], [1, -1], [-1, 1], [1, 1],
-                  ].map(([sx, sy], k) => {
-                    const bx = v.x + sx * 44;
-                    const by = v.y + sy * 44;
-                    return (
-                      <path
-                        key={`b-${k}`}
-                        d={`M ${bx} ${by + sy * 11} L ${bx} ${by} L ${bx - sx * 11} ${by}`}
-                        className="bracket"
-                        style={{ animationDelay: `${k * 0.06}s` }}
-                      />
-                    );
-                  })}
-                </g>
-              )}
-            </g>
-          );
-        })}
-
-        {/* Layer 10: vertical scan line that sweeps over Tex */}
-        <g className="scan-sweep">
-          <rect x={cx - 220} y="0" width="440" height="6" fill="url(#scanLine)" className="scanline-bar" />
-        </g>
-
-        {/* Layer 11: HUD dock connector — hairline from south of containment ring down */}
-        <line
-          x1={cx} y1={hudDockY}
-          x2={cx} y2={hudDockY + 38}
-          stroke="rgba(86, 230, 220, 0.5)" strokeWidth="1"
-          className="hud-dock-line"
-        />
-        <circle cx={cx} cy={hudDockY} r="3" fill="var(--tex-bright)" filter="url(#softGlow)" />
-      </svg>
-
-      {/* Hologram-treated avatar mount */}
-      <div
-        className="avatar-mount"
-        style={{
-          transform: `translate3d(calc(-50% + var(--px) * 0.4), calc(-50% + var(--py) * 0.4), 0) perspective(1200px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
-        }}
-      >
-        <div className="avatar-floor" aria-hidden="true" />
-        <div className="avatar-aura" aria-hidden="true" />
-
-        {/* Hologram stack: three offset RGB-split copies of Tex + scanlines + tint */}
-        <div className="avatar-holo" aria-hidden="true">
-          <img className="avatar-img avatar-img--rgb-r" src={texAvatar} alt="" key={`avr-${pulseToken}`} />
-          <img className="avatar-img avatar-img--rgb-b" src={texAvatar} alt="" />
-          <img
-            className="avatar-img avatar-img--main"
-            src={texAvatar}
-            alt="Tex — AI control system"
-          />
-          {/* Scanline overlay clipped to avatar silhouette via blend mode */}
-          <div className="avatar-scanlines" />
-          {/* Cyan tint overlay */}
-          <div className="avatar-tint" />
-        </div>
-
-        <div className="avatar-flash" aria-hidden="true" key={`fl-${pulseToken}`} />
-      </div>
-
-      {/* HUD readout — docked at south of ring with connector */}
-      <div className="hud-readout" key={`hud-${active}`}>
-        <span className="hud-blink" aria-hidden="true" />
-        <span className="hud-id">L{activeLayer.id}</span>
-        <span className="hud-divider">·</span>
-        <span className="hud-name">{activeLayer.name.toUpperCase()}</span>
-        <span className="hud-divider">·</span>
-        <span className="hud-status">LOCKED</span>
-        <span className="hud-divider">·</span>
-        <span className="hud-latency">{activeLayer.metric.value}</span>
-      </div>
-
-      {/* Vertex chips with live signal bars */}
-      {vertices.map((v, i) => {
-        const layer = LAYERS[i];
-        const outRadius = radius + 130;
-        const chipX = cx + Math.cos(v.angle) * outRadius;
-        const chipY = cy + Math.sin(v.angle) * outRadius;
-        const xPct = (chipX / 1000) * 100;
-        const yPct = (chipY / 1000) * 100;
-        const isActive = i === active;
-        return (
-          <button
-            key={`chip-${i}`}
-            type="button"
-            className={`vertex-chip ${isActive ? 'is-active' : ''}`}
-            style={{ left: `${xPct}%`, top: `${yPct}%` }}
-            onClick={() => { setActive(i); pauseAutocycle(); }}
-            onMouseEnter={() => { setActive(i); pauseAutocycle(); }}
-            aria-label={`${layer.name} — ${layer.verb}`}
-          >
-            <span className="chip-meta">
-              <span className="chip-num">L{layer.id}</span>
-              <span className="chip-bars" aria-hidden="true">
-                <span /><span /><span /><span />
-              </span>
-            </span>
-            <span className="chip-name">{layer.name}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+function AegisRing() { return null; }
 
 /* =============================================================
-   VERDICT TICKER — refined runtime feed
-   Adds left status block (signal bars, region, throughput) and
-   stronger typographic hierarchy on each row.
+   VERDICT STREAM — refactored: a horizontal row of live verdicts
+   that streams across Tex's chest, in front of the avatar but
+   behind the headline, with screen blend so it reads as data
+   flowing through his body.
    ============================================================= */
 const SAMPLE_VERDICTS = [
-  { v: 'PERMIT', actor: 'agent_revops_07', action: 'send_email::client.quarterly', risk: '0.12' },
-  { v: 'ABSTAIN', actor: 'copilot_legal_03', action: 'file.write::contracts/draft.docx', risk: '0.61' },
-  { v: 'FORBID', actor: 'agent_support_22', action: 'api.call::stripe.refund.full', risk: '0.94' },
-  { v: 'PERMIT', actor: 'workflow_ops_11', action: 'tool.invoke::salesforce.update', risk: '0.18' },
-  { v: 'PERMIT', actor: 'agent_marketing_04', action: 'send_message::slack#campaigns', risk: '0.22' },
-  { v: 'FORBID', actor: 'agent_research_19', action: 'browse::external.unverified', risk: '0.88' },
-  { v: 'ABSTAIN', actor: 'copilot_finance_02', action: 'export::ledger.q3', risk: '0.55' },
-  { v: 'PERMIT', actor: 'agent_hr_05', action: 'create::onboarding.task', risk: '0.09' },
+  { v: 'PERMIT',  actor: 'agent_revops_07',     action: 'send_email::client.quarterly',      risk: '0.12' },
+  { v: 'ABSTAIN', actor: 'copilot_legal_03',    action: 'file.write::contracts/draft.docx',  risk: '0.61' },
+  { v: 'FORBID',  actor: 'agent_support_22',    action: 'api.call::stripe.refund.full',      risk: '0.94' },
+  { v: 'PERMIT',  actor: 'workflow_ops_11',     action: 'tool.invoke::salesforce.update',    risk: '0.18' },
+  { v: 'PERMIT',  actor: 'agent_marketing_04',  action: 'send_message::slack#campaigns',     risk: '0.22' },
+  { v: 'FORBID',  actor: 'agent_research_19',   action: 'browse::external.unverified',       risk: '0.88' },
+  { v: 'ABSTAIN', actor: 'copilot_finance_02',  action: 'export::ledger.q3',                 risk: '0.55' },
+  { v: 'PERMIT',  actor: 'agent_hr_05',         action: 'create::onboarding.task',           risk: '0.09' },
 ];
 
-function VerdictTicker() {
-  // Live throughput counter — increments slightly each second for vibe
-  const [throughput, setThroughput] = useState(2410938);
+function ChestDataStream({ onVerdict }) {
+  // Notify parent on each verdict cycle so we can pulse the chest glow.
   useEffect(() => {
+    if (!onVerdict) return;
     const id = setInterval(() => {
-      setThroughput((n) => n + Math.floor(8 + Math.random() * 24));
-    }, 1100);
+      const i = Math.floor(Math.random() * SAMPLE_VERDICTS.length);
+      onVerdict(SAMPLE_VERDICTS[i].v);
+    }, 1800);
     return () => clearInterval(id);
-  }, []);
-  const fmt = (n) => n.toLocaleString('en-US');
+  }, [onVerdict]);
 
   return (
-    <div className="ticker" aria-label="Live verdict stream">
-      <div className="ticker-status" aria-hidden="true">
-        <span className="ticker-status-dot" />
-        <span className="ticker-status-label">LIVE FEED</span>
-        <span className="ticker-status-bars">
-          <span /><span /><span /><span /><span />
-        </span>
-        <span className="ticker-status-region">US-EAST · BOS</span>
-        <span className="ticker-status-sep" />
-        <span className="ticker-status-throughput">{fmt(throughput)}</span>
-        <span className="ticker-status-throughput-lbl">verdicts today</span>
-      </div>
-
-      <div className="ticker-mask">
-        <div className="ticker-track">
-          {[...SAMPLE_VERDICTS, ...SAMPLE_VERDICTS].map((row, i) => (
-            <div key={i} className={`tick-row tick-${row.v.toLowerCase()}`}>
-              <span className="tick-tag">{row.v}</span>
-              <span className="tick-actor">{row.actor}</span>
-              <span className="tick-arrow">→</span>
-              <span className="tick-action">{row.action}</span>
-              <span className="tick-risk">r={row.risk}</span>
-              <span className="tick-hash">#{((i * 31337 + 7) % 0xffffffff).toString(16).padStart(8, '0')}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="ticker-suffix" aria-hidden="true">
-        <span className="ticker-suffix-label">v0.9.7</span>
+    <div className="chest-stream" aria-hidden="true">
+      <div className="chest-stream-track">
+        {[...SAMPLE_VERDICTS, ...SAMPLE_VERDICTS, ...SAMPLE_VERDICTS].map((row, i) => (
+          <div key={i} className={`chest-row chest-${row.v.toLowerCase()}`}>
+            <span className="chest-tag">{row.v}</span>
+            <span className="chest-actor">{row.actor}</span>
+            <span className="chest-arrow">→</span>
+            <span className="chest-action">{row.action}</span>
+            <span className="chest-risk">r={row.risk}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
+function VerdictTicker() { return null; /* superseded by ChestDataStream */ }
+
 /* =============================================================
-   HERO — refined: tighter kicker, decisive type, terminal card,
-   stats with vertical hairlines, scroll counter
+   FULL-BLEED TEX — the centerpiece component
+   - Avatar held at viewport-height scale, centered
+   - Anatomical anchor labels with hairlines into body points
+   - Active layer triggers a focused body-point glow
+   - Bootup sequence: eyes -> forehead -> chest -> halo -> anchors
+   ============================================================= */
+function FullBleedTex({ active, setActive }) {
+  /* Bootup phases:
+     0 = void (initial)
+     1 = eyes ignite
+     2 = forehead T
+     3 = chest emblem
+     4 = full halo
+     5 = anchor labels reveal one by one
+     6 = stream begins
+  */
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    const seq = [
+      [0, 1],
+      [380, 2],
+      [720, 3],
+      [1080, 4],
+      [1500, 5],
+      [2700, 6],
+    ];
+    const timers = seq.map(([ms, p]) => setTimeout(() => setPhase(p), ms));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  /* Pulse the chest glow on every passing FORBID/ABSTAIN verdict */
+  const [chestPulse, setChestPulse] = useState(0);
+  const handleVerdict = useCallback((v) => {
+    if (v === 'FORBID' || v === 'ABSTAIN') setChestPulse((n) => n + 1);
+  }, []);
+
+  /* Auto-cycle active layer after bootup */
+  useEffect(() => {
+    if (phase < 5) return;
+    const id = setInterval(() => {
+      setActive((prev) => (prev + 1) % 7);
+    }, 3600);
+    return () => clearInterval(id);
+  }, [phase, setActive]);
+
+  /* Measure stage + figure-wrap so we can compute body anchor positions in
+     stage-space coordinates, which lets us draw hairlines that span from
+     screen-edge labels to body-anchored dots. */
+  const stageRef = useRef(null);
+  const figureRef = useRef(null);
+  const [bodyPositions, setBodyPositions] = useState({});
+
+  useEffect(() => {
+    const measure = () => {
+      const stage = stageRef.current;
+      const figure = figureRef.current;
+      if (!stage || !figure) return;
+      const sRect = stage.getBoundingClientRect();
+      const fRect = figure.getBoundingClientRect();
+      const next = {};
+      for (const id in ANATOMY) {
+        const body = ANATOMY[id].body;
+        // Body point in stage-relative pixels:
+        const bx = (fRect.left - sRect.left) + (body.x / 100) * fRect.width;
+        const by = (fRect.top  - sRect.top)  + (body.y / 100) * fRect.height;
+        // Convert to % of stage for resolution-independent positioning
+        next[id] = {
+          xPct: (bx / sRect.width) * 100,
+          yPct: (by / sRect.height) * 100,
+        };
+      }
+      setBodyPositions(next);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    // Re-measure once everything's painted (image loaded)
+    const t = setTimeout(measure, 100);
+    return () => {
+      window.removeEventListener('resize', measure);
+      clearTimeout(t);
+    };
+  }, []);
+
+  const activeLayer = LAYERS[active];
+  const activeBody = bodyPositions[activeLayer.id];
+
+  return (
+    <div ref={stageRef} className={`tex-stage phase-${phase}`} data-active={activeLayer.id}>
+      {/* Floor reflection */}
+      <div className="tex-reflection" aria-hidden="true">
+        <img src={texAvatar} alt="" className="tex-reflection-img" />
+      </div>
+
+      {/* Tex figure wrap */}
+      <div ref={figureRef} className="tex-figure-wrap" aria-hidden="false">
+        <img src={texAvatar} alt="Tex — AI control system" className="tex-figure" />
+
+        {/* Eye ignite — fires phase 1+ */}
+        <div className="tex-eyes-ignite" aria-hidden="true" />
+
+        {/* Per-layer focused glow on active body point */}
+        {phase >= 4 && (
+          <div
+            className="tex-focus-glow"
+            key={`focus-${active}`}
+            style={{
+              left: `${ANATOMY[activeLayer.id].body.x}%`,
+              top: `${ANATOMY[activeLayer.id].body.y}%`,
+            }}
+          />
+        )}
+
+        {/* Chest data stream */}
+        {phase >= 6 && <ChestDataStream onVerdict={handleVerdict} />}
+
+        {/* Chest pulse on FORBID/ABSTAIN */}
+        <div
+          className="tex-chest-pulse"
+          key={`pulse-${chestPulse}`}
+          aria-hidden="true"
+        />
+      </div>
+
+      {/* Anchor LABELS — positioned in stage coords at viewport edges */}
+      {phase >= 5 && (
+        <div className="tex-anchors">
+          {LAYERS.map((layer, i) => {
+            const a = ANATOMY[layer.id];
+            const isActive = i === active;
+            return (
+              <button
+                key={layer.id}
+                type="button"
+                className={`tex-anchor ${isActive ? 'is-active' : ''} side-${a.side}`}
+                style={{
+                  left: `${a.label.x}%`,
+                  top: `${a.label.y}%`,
+                  animationDelay: `${i * 0.11}s`,
+                }}
+                onClick={() => setActive(i)}
+                onMouseEnter={() => setActive(i)}
+                aria-label={`${layer.name} — ${layer.verb}`}
+              >
+                <span className="anchor-num">L{layer.id}</span>
+                <span className="anchor-name">{layer.name}</span>
+                <span className="anchor-verb">{layer.verb}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Hairline SVG covering the entire stage. Uses percentage attributes
+          so it respects the stage's actual aspect ratio without distortion. */}
+      {phase >= 5 && Object.keys(bodyPositions).length > 0 && (
+        <svg
+          className="tex-hairlines"
+          aria-hidden="true"
+          width="100%"
+          height="100%"
+        >
+          {LAYERS.map((layer, i) => {
+            const a = ANATOMY[layer.id];
+            const body = bodyPositions[layer.id];
+            if (!body) return null;
+            const isActive = i === active;
+            const lx = a.label.x;       // % of stage width
+            const ly = a.label.y + 1.6; // slight downward offset to label baseline
+            const bx = body.xPct;       // % of stage width (computed)
+            const by = body.yPct;       // % of stage height (computed)
+            // Elbow x: how far horizontally before turning toward body
+            const ex = a.side === 'right'
+              ? Math.max(bx + 3, lx - 4)
+              : Math.min(bx - 3, lx + 4);
+            return (
+              <g
+                key={layer.id}
+                className={`hairline-grp ${isActive ? 'is-lit' : ''}`}
+                style={{ animationDelay: `${i * 0.11 + 0.2}s` }}
+              >
+                <polyline
+                  className="hairline-path"
+                  points={`${lx}%,${ly}% ${ex}%,${ly}% ${bx}%,${by}%`}
+                  fill="none"
+                />
+                {/* Body anchor dot — small marker on Tex */}
+                <circle
+                  className="hairline-body-dot"
+                  cx={`${bx}%`} cy={`${by}%`} r="4"
+                />
+                <circle
+                  className="hairline-body-ring"
+                  cx={`${bx}%`} cy={`${by}%`} r="9"
+                  fill="none"
+                />
+              </g>
+            );
+          })}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+/* =============================================================
+   HERO — the magazine cover composition
    ============================================================= */
 function Hero({ active, setActive }) {
   const { openTrial } = useTrial();
+
   return (
-    <section className="hero" id="top">
-      {/* Edge label — vertical text on the left margin */}
-      <div className="hero-edge-label" aria-hidden="true">
-        <span>TX-AEGIS · BOSTON · 2026</span>
+    <section className="hero hero-v11" id="top">
+      {/* Edge frame — vertical labels and corner ticks framing the page */}
+      <div className="hv11-edge hv11-edge--left" aria-hidden="true">
+        <span className="hv11-edge-text">TX-AEGIS / BOSTON / 2026</span>
+      </div>
+      <div className="hv11-edge hv11-edge--right" aria-hidden="true">
+        <span className="hv11-edge-text">v0.9.7 / RUNTIME / 142MS-P95</span>
       </div>
 
-      <div className="hero-grid">
-        <div className="hero-left">
-          <div className="kicker">
-            <span className="kicker-dot" />
-            <span>Tex by VortexBlack</span>
-            <span className="kicker-sep">/</span>
-            <span>v0.9.7</span>
-          </div>
+      {/* The full-bleed Tex */}
+      <FullBleedTex active={active} setActive={setActive} />
 
-          <h1 className="hero-h1">
-            <span className="h1-line">One control plane</span>
-            <span className="h1-line h1-italic">for every AI agent.</span>
-          </h1>
-
-          <p className="hero-lede">
-            We deploy a unified AI control plane in your environment in 4–6 weeks.
-            Discovery scans your stack — Slack, Drive, AgentForce, whatever you're
-            using. We compile your compliance rules into runtime policy. We wire
-            enforcement into your existing tools.
-          </p>
-
-          <div className="five-second">
-            <div className="five-corner five-corner--tl" aria-hidden="true" />
-            <div className="five-corner five-corner--tr" aria-hidden="true" />
-            <div className="five-corner five-corner--bl" aria-hidden="true" />
-            <div className="five-corner five-corner--br" aria-hidden="true" />
-            <div className="five-row">
-              <span className="five-label">In five seconds</span>
-              <span className="five-rule" />
-              <span className="five-id">FS-001</span>
-            </div>
-            <p className="five-body">
-              One dashboard. Every AI agent in your company, what they're allowed
-              to do, what they actually did, and audit-grade evidence for every
-              decision they made.
-            </p>
-          </div>
-
-          <div className="hero-actions">
-            <button type="button" onClick={openTrial} className="btn-primary">
-              <span>Book a demo</span>
-              <span className="btn-arrow">→</span>
-            </button>
-            <a href="#layer-01" className="btn-ghost">
-              <span>Trace the seven layers</span>
-            </a>
-          </div>
-
-          <div className="hero-stats">
-            <div className="stat">
-              <span className="stat-num">4–6<span className="stat-unit">weeks</span></span>
-              <span className="stat-lbl">to deployed control plane</span>
-            </div>
-            <div className="stat">
-              <span className="stat-num">142<span className="stat-unit">ms</span></span>
-              <span className="stat-lbl">p95 verdict latency</span>
-            </div>
-            <div className="stat">
-              <span className="stat-num">1<span className="stat-unit">pane</span></span>
-              <span className="stat-lbl">every agent · every action</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="hero-right">
-          <AegisRing active={active} setActive={setActive} />
+      {/* The headline overlapping Tex */}
+      <div className="hv11-headline-wrap">
+        <h1 className="hv11-headline">
+          <span className="hv11-h-line">One control plane</span>
+          <span className="hv11-h-line hv11-h-italic">for every AI agent.</span>
+        </h1>
+        <div className="hv11-kicker">
+          <span className="hv11-kicker-dot" />
+          <span>Tex by VortexBlack</span>
+          <span className="hv11-kicker-sep">/</span>
+          <span>Custom-deployed in 4–6 weeks</span>
         </div>
       </div>
 
-      {/* Scroll cue at bottom-right */}
-      <div className="hero-scroll-cue" aria-hidden="true">
-        <span className="hsc-counter">01<span className="hsc-counter-of">/09</span></span>
-        <span className="hsc-rule" />
-        <span className="hsc-label">SCROLL</span>
-        <span className="hsc-arrow">↓</span>
+      {/* Bottom telemetry bar */}
+      <div className="hv11-bottom">
+        <div className="hv11-bottom-left">
+          <button type="button" onClick={openTrial} className="btn-primary hv11-cta">
+            <span>Book a demo</span>
+            <span className="btn-arrow">→</span>
+          </button>
+          <a href="#layer-01" className="btn-ghost hv11-trace">
+            <span>Trace the seven layers</span>
+          </a>
+        </div>
+
+        <div className="hv11-readout" aria-hidden="false">
+          <span className="hv11-readout-dot" />
+          <span className="hv11-readout-label">RUNTIME</span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value">v0.9.7</span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value">142<span className="hv11-readout-unit">ms p95</span></span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value">14.4<span className="hv11-readout-unit">M sealed</span></span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value">2.41<span className="hv11-readout-unit">M / day</span></span>
+        </div>
       </div>
 
-      <VerdictTicker />
+      {/* Scroll cue, bottom right corner */}
+      <div className="hv11-scroll" aria-hidden="true">
+        <span className="hv11-scroll-num">01<span className="hv11-scroll-of">/09</span></span>
+        <span className="hv11-scroll-rule" />
+        <span className="hv11-scroll-arrow">↓</span>
+      </div>
     </section>
   );
 }
+
 
 
 /* =============================================================

@@ -13,21 +13,24 @@ const useTrial = () => useContext(TrialContext);
 
 /* =============================================================
    THE SEVEN LAYERS
-   Positioning: Tex is one custom-deployed control plane for every
-   AI agent in your company — discovery, identity, policy, runtime,
-   evidence, learning. Configured to your stack. Wired to your tools.
+   Positioning: Tex is the evidence layer for AI underwriting and
+   claims agents at insurtechs and MGAs. Discovery, identity,
+   policy, runtime adjudication, cryptographic evidence, calibration —
+   configured to your stack (Bedrock, Azure OpenAI, custom) and your
+   specific obligations (NAIC Model Bulletin, carrier rider questions,
+   state DOI examinations).
    ============================================================= */
 const LAYERS = [
   {
     id: '01',
     key: 'discovery',
     name: 'Discovery',
-    verb: 'See every agent.',
+    verb: 'See every underwriting and claims agent.',
     absorbs: 'Agent inventory',
     rivals: 'Continuous · agentless · cross-stack',
-    one: 'We scan your specific stack — your Slack, your Drive, your AgentForce, whatever you\'re using — and build a live inventory of every AI agent in your company.',
+    one: 'We scan your specific stack — Bedrock, Azure OpenAI, AgentForce, in-house Python services, vendor copilots — and build a live inventory of every AI agent touching underwriting, claims, pricing, and intake.',
     detail:
-      'First-party agents, vendor copilots, MCP-bound tools, browser automations, the autonomous workflows nobody wrote down. We map them all, bind them to a hash, and keep the inventory live as your stack evolves.',
+      'First-party underwriting agents, claims triage bots, vendor copilots, MCP-bound tools, the broker-portal automations nobody documented. We map them all, bind each to a hash, and keep the inventory live as your stack evolves through carrier integrations and platform migrations.',
     proof: ['agents.indexed', 'first-party + vendor + shadow', 'continuous re-scan'],
     metric: { label: 'agents observed', value: '4,217' },
     instrument: 'radar',
@@ -39,9 +42,9 @@ const LAYERS = [
     verb: 'Bind actor and owner.',
     absorbs: 'Agent identity',
     rivals: 'Owner · scope · environment · trust tier',
-    one: 'Every agent we discover gets a cryptographic identity, a human owner, an environment, and a trust tier — wired into how your team already works.',
+    one: 'Every agent we discover gets a cryptographic identity, a human owner, an environment, and a trust tier — wired into how your underwriting and claims teams already work.',
     detail:
-      'No orphans. No anonymous actors. We bind each agent to its owner, its scope, and the accountability path back to a real person. When a partner, auditor, or regulator asks "who authorized this agent," the answer is one query away.',
+      'No orphans. No anonymous actors. Each agent is bound to its owner, its scope, and the accountability path back to a real person. When a carrier partner, state DOI examiner, or plaintiff\'s counsel asks "who authorized this agent to make this decision," the answer is one query away — not a six-week forensic exercise.',
     proof: ['actor.signed', 'owner.bound', 'env.scoped'],
     metric: { label: 'actors registered', value: '4,217 / 4,217' },
     instrument: 'binding',
@@ -53,9 +56,9 @@ const LAYERS = [
     verb: 'Define allowed power.',
     absorbs: 'Policy as code',
     rivals: 'Compiled · scoped · budgeted',
-    one: 'We configure policy rules to your specific compliance obligations and compile them into runtime constraints your agents cannot exceed.',
+    one: 'We translate your specific obligations — NAIC Model Bulletin requirements, carrier rider questionnaires, state DOI rules, FINRA where applicable — into runtime constraints your agents cannot exceed.',
     detail:
-      'Capability is the contract: what this agent may do, to what data, in which environments, with what budget, under whose authority. Your written rules become live, machine-enforceable boundaries — yours to author, yours to amend, never auto-rewritten.',
+      'Capability is the contract: what this agent may do, to which policyholder data, in which environments, with what binding authority. Your written governance becomes live, machine-enforceable boundaries — yours to author, yours to amend, never auto-rewritten by the system.',
     proof: ['policy.compiled', 'scope.bound', 'budget.set'],
     metric: { label: 'capabilities defined', value: '186' },
     instrument: 'compiler',
@@ -67,9 +70,9 @@ const LAYERS = [
     verb: 'Read the real action.',
     absorbs: 'Runtime adjudication',
     rivals: 'Six judges · parallel · deterministic',
-    one: 'Six judgment layers fire in parallel against the actual action — not the prompt — and reach a verdict in 142ms p95.',
+    one: 'Six judgment layers fire in parallel against the actual underwriting or claims action — not the prompt — and reach a verdict in 142ms p95.',
     detail:
-      'Deterministic patterns, retrieval, specialist models, semantic intent, router, and evidence run simultaneously against the real outbound message, tool call, file write, or API request. Each layer\'s output is hashed into the next so the verdict is reproducible from inputs alone.',
+      'Deterministic patterns, retrieval against your bound policy, specialist judges, semantic intent, router fusion, and evidence run simultaneously against the real binding letter, declination, claim disposition, or pricing decision. Each layer\'s output is hashed into the next so the verdict is reproducible from inputs alone — six months or six years later.',
     proof: ['deterministic', 'retrieval', 'specialists', 'semantic', 'router', 'evidence'],
     metric: { label: 'p95 latency', value: '142 ms' },
     instrument: 'judges',
@@ -81,9 +84,9 @@ const LAYERS = [
     verb: 'Permit. Abstain. Forbid.',
     absorbs: 'Action gateway',
     rivals: 'Three states · machine-binding',
-    one: 'We wire enforcement into your existing tools so the verdict actually stops, holds, or releases the action before it reaches the real world.',
+    one: 'We wire enforcement into your existing underwriting and claims systems so the verdict actually stops, holds, or releases the action before it binds the carrier or the policyholder.',
     detail:
-      'A single verdict, three states, machine-binding. Permit releases the action under recorded authority. Abstain holds for human review — your reviewer, your queue, your call. Forbid blocks the action and seals the attempt as evidence. No "after-the-fact alerts" — actual runtime control.',
+      'A single verdict, three states, machine-binding. Permit releases the action under recorded authority. Abstain holds for human review — your underwriter, your claims adjuster, your queue. Forbid blocks the action and seals the attempt as evidence. No "after-the-fact alerts" on a quote that already went out — actual runtime control before the binding letter ships.',
     proof: ['PERMIT', 'ABSTAIN', 'FORBID'],
     metric: { label: 'verdicts / day', value: '2.41 M' },
     instrument: 'gates',
@@ -95,9 +98,9 @@ const LAYERS = [
     verb: 'Seal the proof.',
     absorbs: 'Audit chain',
     rivals: 'SHA-256 · HMAC-signed · replayable',
-    one: 'Every decision becomes a SHA-256 hash-chained, HMAC-signed evidence bundle — replayable on demand, six months or six years later.',
+    one: 'Every decision becomes a SHA-256 hash-chained, HMAC-signed evidence bundle — replayable on demand for your carrier partner, your state DOI examiner, or plaintiff\'s counsel six months or six years later.',
     detail:
-      'One dashboard showing every AI agent in your company, what they\'re allowed to do, what they actually did, and an audit-grade evidence record for every decision. Tamper-evident. Auditor-ready. When the question comes — examiner, partner, lawsuit, internal investigation — the answer is one query and a deterministic replay.',
+      'One dashboard your General Counsel can hand to a carrier or regulator without flinching. Every AI agent in your underwriting and claims stack, what they were allowed to do, what they actually did, the policy version in effect when they did it, and an audit-grade evidence record for every decision. Tamper-evident. Auditor-ready. When the carrier rider questionnaire arrives at renewal, the answer is one query and a deterministic replay.',
     proof: ['sha-256', 'hmac-signed', 'append-only'],
     metric: { label: 'bundles sealed', value: '14,392,118' },
     instrument: 'chain',
@@ -109,9 +112,9 @@ const LAYERS = [
     verb: 'Tune without drift.',
     absorbs: 'Closed-loop calibration',
     rivals: 'Human-authored · audit-preserved',
-    one: 'Refine thresholds from sealed outcomes — without letting the system rewrite the rules you wrote.',
+    one: 'Refine thresholds from sealed underwriting and claims outcomes — without letting the system rewrite the policy rules your compliance team authored.',
     detail:
-      'Calibration uses your own evidence chain to retune thresholds and routing as your business changes. Policy stays human-authored. Every proposed change is logged, reviewed, and approval-gated. The system improves; the rules stay yours.',
+      'Calibration uses your own evidence chain to retune thresholds and routing as your book of business changes. Policy stays human-authored — the kind of human-in-the-loop your carrier partners and state DOIs are now demanding. Every proposed change is logged, reviewed, and approval-gated. The system improves; the rules stay yours.',
     proof: ['signal.bound', 'human.authored', 'audit.preserved'],
     metric: { label: 'thresholds tuned', value: '23 this week' },
     instrument: 'dial',
@@ -635,11 +638,11 @@ function Hero({ active, setActive }) {
           <span className="hv11-kicker-dot" />
           <span>Tex by VortexBlack</span>
           <span className="hv11-kicker-sep">/</span>
-          <span>Custom-deployed in 4–6 weeks</span>
+          <span>Built for insurtechs and MGAs · Deployed in 4–6 weeks</span>
         </div>
         <h1 className="hv11-headline">
-          <span className="hv11-h-line">One control plane</span>
-          <span className="hv11-h-line hv11-h-italic">for every AI agent.</span>
+          <span className="hv11-h-line">Cryptographic evidence</span>
+          <span className="hv11-h-line hv11-h-italic">for every AI underwriting and claims decision.</span>
         </h1>
       </div>
 
@@ -705,19 +708,22 @@ function ControlPlaneIntro() {
             <span className="cpi-kicker-dot" />
             <span>Tex by VortexBlack</span>
             <span className="cpi-kicker-sep">/</span>
-            <span>Custom-deployed in 4–6 weeks</span>
+            <span>Built for insurtechs and MGAs · Deployed in 4–6 weeks</span>
           </div>
 
           <h2 className="cpi-h2">
-            <span className="cpi-h-line">One control plane</span>
-            <span className="cpi-h-line cpi-h-italic">for every AI agent.</span>
+            <span className="cpi-h-line">The evidence layer</span>
+            <span className="cpi-h-line cpi-h-italic">your carrier partners are now asking for.</span>
           </h2>
 
           <p className="cpi-lede">
-            We deploy a unified AI control plane in your environment in 4–6 weeks.
-            Discovery scans your stack — your Slack, your Drive, your AgentForce,
-            whatever you're using. We configure policy rules to your specific
-            compliance obligations. We wire enforcement into your existing tools.
+            When your carrier partner or a state DOI asks tomorrow to see the
+            exact record of how your AI underwriting agent priced a specific
+            risk last quarter — model version, data sources, policy in effect,
+            decision rationale — could your team produce that in under an hour?
+            Tex is built so the answer is yes. We deploy in 4–6 weeks on top of
+            your Bedrock, Azure OpenAI, or in-house stack, and seal every AI
+            decision in a tamper-evident evidence chain.
           </p>
 
           {/* Framed callout — corner brackets, hairline rule, FS-001 tag */}
@@ -732,9 +738,9 @@ function ControlPlaneIntro() {
               <span className="cpi-callout-tag">FS-001</span>
             </header>
             <blockquote className="cpi-callout-body">
-              One platform, one dashboard, one relationship. Every AI agent in
-              your company, what they're allowed to do, what they actually did,
-              and audit-grade evidence for every decision they made.
+              Audit-grade documentation, mapped to NAIC Model Bulletin and cyber
+              insurance AI rider questionnaires, that your General Counsel can
+              hand to a carrier or state regulator without flinching.
             </blockquote>
           </figure>
 
@@ -751,7 +757,7 @@ function ControlPlaneIntro() {
           <div className="cpi-stats">
             <div className="cpi-stat">
               <span className="cpi-stat-value">4–6<span className="cpi-stat-unit">weeks</span></span>
-              <span className="cpi-stat-label">to deployed control plane</span>
+              <span className="cpi-stat-label">to deployed evidence layer</span>
             </div>
             <div className="cpi-stat">
               <span className="cpi-stat-value">142<span className="cpi-stat-unit">ms</span></span>
@@ -759,7 +765,7 @@ function ControlPlaneIntro() {
             </div>
             <div className="cpi-stat">
               <span className="cpi-stat-value">1<span className="cpi-stat-unit">dashboard</span></span>
-              <span className="cpi-stat-label">every AI agent, every decision</span>
+              <span className="cpi-stat-label">every decision, audit-ready</span>
             </div>
           </div>
         </div>
@@ -847,12 +853,13 @@ function HomeHowItWorksIntro() {
         </span>
         <h2 className="hh-hiw-h2">
           <span className="hh-hiw-h-line">Six weeks from signed</span>
-          <span className="hh-hiw-h-line hh-hiw-h-italic">to a sealed control plane.</span>
+          <span className="hh-hiw-h-line hh-hiw-h-italic">to a sealed evidence chain.</span>
         </h2>
         <p className="hh-hiw-lede">
-          Tex is configured to your stack, your rules, your compliance reality —
-          by the people who built the engine. No off-the-shelf dashboard. No
-          junior consultants. No rip-and-replace. Six phases. One outcome.
+          Tex is configured to your stack — Bedrock, Azure OpenAI, or your in-house
+          underwriting and claims AI — by the people who built the engine. No
+          off-the-shelf dashboard. No junior consultants who have never read a
+          NAIC bulletin. No rip-and-replace. Six phases. One outcome.
         </p>
         <div className="hh-hiw-scroll" aria-hidden="true">
           <span>Scroll to begin deployment</span>
@@ -1482,7 +1489,9 @@ function ChainBand() {
         </h2>
         <p className="cb-lede">
           Each layer's output is hashed into the next. Break any link and the entire
-          chain reports tampering. Everyone logs it. Tex proves it.
+          chain reports tampering. Most underwriting and claims AI logs to JSON.
+          That logging loses discovery disputes. Tex's evidence chain wins them.
+          Everyone logs it. Tex proves it.
         </p>
       </div>
       <div className="chain-track">
@@ -1514,18 +1523,19 @@ function ClosingPanel() {
         <div className="cl-left">
           <span className="kicker">
             <span className="kicker-dot" />
-            <span>Begin with the audit</span>
+            <span>Begin with the discovery call</span>
           </span>
           <h2 className="cl-h2">
-            Who controls<br />
-            <span className="ital">your agents?</span>
+            When the carrier asks,<br />
+            <span className="ital">can you answer?</span>
           </h2>
           <p className="cl-lede">
-            Four to six weeks. We deploy a unified AI control plane in your
-            environment, configured to your specific stack and your specific
-            compliance obligations. One implementation, one platform, one
-            ongoing relationship — instead of buying eight tools and stitching
-            them together yourself.
+            Four to six weeks. We deploy the evidence layer in your environment,
+            configured to your specific underwriting and claims stack and your
+            specific obligations — NAIC Model Bulletin, carrier rider
+            questionnaires, state DOI examination protocols. One implementation,
+            one platform, one ongoing relationship — instead of building it in
+            house for nine months while the renewal date keeps moving closer.
           </p>
           <div className="hero-actions">
             <button type="button" onClick={openTrial} className="btn-primary">
@@ -1550,17 +1560,17 @@ function ClosingPanel() {
             <div className="cl-card-row">
               <span className="cl-rk">01</span>
               <span className="cl-rn">Inventory</span>
-              <span className="cl-rd">Map every agent, copilot, and shadow workflow.</span>
+              <span className="cl-rd">Map every underwriting, claims, and pricing agent in your stack.</span>
             </div>
             <div className="cl-card-row">
               <span className="cl-rk">02</span>
-              <span className="cl-rn">Control</span>
-              <span className="cl-rd">Bind authority and run real actions through Tex.</span>
+              <span className="cl-rn">Adjudicate</span>
+              <span className="cl-rd">Bind authority and run real decisions through Tex.</span>
             </div>
             <div className="cl-card-row">
               <span className="cl-rk">03</span>
-              <span className="cl-rn">Proof</span>
-              <span className="cl-rd">Receive the sealed evidence chain.</span>
+              <span className="cl-rn">Prove</span>
+              <span className="cl-rd">Hand the carrier or DOI a sealed evidence chain.</span>
             </div>
           </div>
         </div>
@@ -1581,7 +1591,7 @@ function Footer() {
         </div>
         <span className="foot-name">Tex by VortexBlack</span>
       </div>
-      <div className="foot-mid">One control plane for every AI agent. Boston · 2026.</div>
+      <div className="foot-mid">Evidence-grade governance for AI underwriting and claims agents. Boston · 2026.</div>
       <div className="foot-right"><a href="#top">↑ top</a></div>
     </footer>
   );
@@ -1689,7 +1699,7 @@ function TrialModal({ open, onClose }) {
             <span className="trial-tag">DEMO · INTAKE</span>
             <h3 className="trial-title">Book a demo</h3>
             <p className="trial-sub">
-              See Tex run on your stack. Pick a slot below.
+              See Tex run on your underwriting and claims stack. Pick a slot below.
             </p>
           </div>
           <button type="button" className="trial-close" onClick={onClose} aria-label="Close">
@@ -1763,11 +1773,11 @@ const PHASES = [
     name: 'Discovery Call',
     duration: 'Week 0',
     durationSub: 'Before contract',
-    one: '30-minute call with the founder. We map your AI agent surface area, your compliance obligations, and your existing security stack.',
+    one: '30-minute call with the founder. We map your AI underwriting and claims surface area, the carrier and DOI obligations you face today, and your existing security stack.',
     deliverables: [
-      'Surface area assessment',
-      'Compliance obligation mapping',
-      'Existing security stack review',
+      'Surface area assessment (Bedrock, Azure OpenAI, custom)',
+      'Carrier rider + NAIC + state DOI obligation mapping',
+      'Existing security and audit-log review',
       'Written scope-of-work and pricing',
     ],
     outcome: 'You leave with a written scope-of-work and pricing. No commitment.',
@@ -1778,11 +1788,11 @@ const PHASES = [
     name: 'Inventory',
     duration: 'Week 1',
     durationSub: 'Read-only scan',
-    one: 'We connect Tex to your environment via read-only credentials. Discovery scans your Slack, Drive, GitHub, AgentForce, vendor copilots, and MCP-bound tools.',
+    one: 'We connect Tex to your environment via read-only credentials. Discovery scans your Bedrock and Azure OpenAI tenants, your in-house Python services, your AgentForce orgs, vendor copilots, and MCP-bound tools touching underwriting, claims, and pricing.',
     deliverables: [
       'Read-only credential connection',
       'Cross-stack agent discovery',
-      'First-party + vendor + shadow workflow detection',
+      'Underwriting + claims + intake agent map',
       'Owner and trust tier proposal',
     ],
     outcome: 'Signed inventory dashboard with every agent, owner, and trust tier proposed.',
@@ -1793,10 +1803,10 @@ const PHASES = [
     name: 'Policy Configuration',
     duration: 'Week 2–3',
     durationSub: 'Workshop + compile',
-    one: 'We sit with your compliance and security teams in a structured policy workshop. Your written rules become live, machine-enforceable policy as code. You author. We compile.',
+    one: 'We sit with your General Counsel, Chief Compliance Officer, and Head of Underwriting in a structured policy workshop. Your written rules — NAIC bulletin program documentation, carrier rider questionnaires, state DOI guidance — become live, machine-enforceable policy as code. You author. We compile.',
     deliverables: [
-      'Structured policy workshop',
-      'Regulatory + AUP + data handling translation',
+      'Structured policy workshop (GC + CCO + Head of UW)',
+      'NAIC + carrier rider + state DOI translation',
       'Policy-as-code compilation per agent class',
       'Capability layer scoped to your obligations',
     ],
@@ -1808,12 +1818,12 @@ const PHASES = [
     name: 'Enforcement Wiring',
     duration: 'Week 3–5',
     durationSub: 'Runtime integration',
-    one: "We integrate Tex's adjudication engine into your existing agent stack. Your agents call Tex before executing. PERMIT releases. ABSTAIN routes to human review. FORBID blocks and seals as evidence.",
+    one: "We integrate Tex's adjudication engine into your underwriting and claims pipelines. Your agents call Tex before binding a quote, sending a declination, or executing a claim disposition. PERMIT releases. ABSTAIN routes to a human underwriter or adjuster. FORBID blocks and seals as evidence.",
     deliverables: [
       'Adjudication engine integration',
       'PERMIT / ABSTAIN / FORBID wiring',
-      'Human-review routing for ABSTAIN',
-      'No rip-and-replace of existing tools',
+      'Human-review routing for ABSTAIN (UW desk + claims queue)',
+      'No rip-and-replace of existing PAS or claims systems',
     ],
     outcome: 'Live runtime enforcement with verdict latency under 200ms.',
     instrument: 'enforcement',
@@ -1823,11 +1833,11 @@ const PHASES = [
     name: 'Evidence + Handoff',
     duration: 'Week 5–6',
     durationSub: 'Production handoff',
-    one: 'Every decision is sealed in a hash-chained, HMAC-signed evidence bundle, replayable on demand. Security gets a dashboard. Compliance gets audit-ready reports. We hand you the keys.',
+    one: 'Every decision is sealed in a hash-chained, HMAC-signed evidence bundle, replayable on demand. Engineering gets a runtime dashboard. Your General Counsel gets an audit-ready evidence package mapped to the carrier and DOI questionnaires you actually face.',
     deliverables: [
       'SHA-256 hash-chained evidence bundles',
       'HMAC-signed, replayable on demand',
-      'Security dashboard + compliance reports',
+      'GC dashboard + carrier rider response package',
       '90-day runbook + named point of contact',
     ],
     outcome: 'Production-grade adjudication, full audit trail, named ongoing point of contact.',
@@ -1838,14 +1848,14 @@ const PHASES = [
     name: 'Ongoing Calibration',
     duration: 'Month 2+',
     durationSub: 'Closed-loop tuning',
-    one: 'Tex tunes thresholds against your actual outcomes. Policy stays human-authored — you author the rules, we measure their performance. Your stack evolves; the inventory keeps up.',
+    one: 'Tex tunes thresholds against your actual underwriting and claims outcomes. Policy stays human-authored — your compliance team writes the rules, we measure their performance. Your stack evolves through carrier integrations and product launches; the inventory keeps up.',
     deliverables: [
       'Threshold tuning against sealed outcomes',
       'Quarterly business reviews',
       'On-demand integration support',
       'Continuous discovery as your stack evolves',
     ],
-    outcome: 'A living control plane that improves with use — without rewriting your rules.',
+    outcome: 'A living evidence layer that improves with use — without rewriting your rules.',
     instrument: 'calibration',
   },
 ];
@@ -2136,8 +2146,9 @@ function FirstSixWeeksStrip() {
         </h2>
         <p className="sw-lede">
           A concierge deployment, run by the people who built the engine. No
-          junior consultants. No 6-month implementation projects. No off-the-shelf
-          dashboards bolted onto a stack you don't own.
+          junior consultants who have never read a NAIC bulletin. No 6-month
+          implementation projects. No off-the-shelf dashboards bolted onto a
+          stack you don't own.
         </p>
       </div>
 
@@ -2360,12 +2371,14 @@ function HowItWorksPage() {
           </span>
           <h1 className="hiw-h1">
             <span className="hiw-h1-line">Six weeks from signed</span>
-            <span className="hiw-h1-line ital">to a sealed control plane.</span>
+            <span className="hiw-h1-line ital">to a sealed evidence chain.</span>
           </h1>
           <p className="hiw-lede">
-            Tex is configured to your stack, your rules, your compliance reality —
-            by the people who built the engine. No off-the-shelf dashboard. No
-            junior consultants. No rip-and-replace. Six phases. One outcome.
+            Tex is configured to your stack — Bedrock, Azure OpenAI, or your
+            in-house underwriting and claims AI — by the people who built the
+            engine. No off-the-shelf dashboard. No junior consultants who have
+            never read a NAIC bulletin. No rip-and-replace. Six phases. One
+            outcome.
           </p>
           <div className="hiw-hero-meta">
             <div className="hiw-meta-item">
@@ -2410,16 +2423,17 @@ function HowItWorksPage() {
               We don't.
             </p>
             <p className="hiw-diff-body">
-              Tex is configured to your stack, your rules, your compliance reality —
-              by the people who built the engine. You get a deployed control plane
-              in 4–6 weeks, not a 6-month implementation project run by a junior
-              consultant who's never touched your industry.
+              Tex is configured to your stack, your rules, your insurance
+              compliance reality — by the people who built the engine. You get
+              a deployed evidence layer in 4–6 weeks, not a 6-month
+              implementation project run by a junior consultant who's never
+              read a NAIC bulletin or a carrier rider questionnaire.
             </p>
             <p className="hiw-diff-body">
               You author the rules. We compile them, wire them, and seal every
-              decision they govern. One implementation, one platform, one ongoing
-              relationship — instead of buying eight tools and stitching them
-              together yourself.
+              decision they govern. One implementation, one platform, one
+              ongoing relationship — instead of building it in-house for nine
+              months while the renewal date keeps moving closer.
             </p>
           </div>
         </div>
@@ -2433,9 +2447,10 @@ function HowItWorksPage() {
             <span className="ital">your six weeks?</span>
           </h2>
           <p className="hiw-cta-lede">
-            A 30-minute call with the founder. We map your AI agent surface area,
-            your compliance obligations, and your existing security stack. You
-            leave with a written scope-of-work and pricing.
+            A 30-minute call with the founder. We map your AI underwriting and
+            claims surface area, the carrier and DOI obligations you face today,
+            and your existing security stack. You leave with a written
+            scope-of-work and pricing.
           </p>
           <div className="hiw-cta-actions">
             <button type="button" onClick={openTrial} className="btn-primary">

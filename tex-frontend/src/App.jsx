@@ -252,59 +252,131 @@ function PerspectiveGrid() {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
+    /* Build two parallax star layers and a few nebula blooms once.
+       Drawing happens every frame for slow drift + scroll-linked y offset. */
+    let stars = [];
+    let nebulae = [];
+    let scrollY = 0;
+    let t0 = performance.now();
+    let raf = 0;
+    let visible = true;
+
+    const buildLayers = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      stars = [];
+      // Layer 1 — far stars, dense, tiny, drift slow
+      const farCount = Math.floor((w * h) / 9000);  // ~150 on a 1440x900 viewport
+      for (let i = 0; i < farCount; i++) {
+        stars.push({
+          x: Math.random() * w * 1.1,
+          y: Math.random() * h * 1.6 - h * 0.2,
+          r: Math.random() * 0.7 + 0.2,
+          o: Math.random() * 0.5 + 0.15,
+          tw: Math.random() * 6 + 2,
+          phase: Math.random() * Math.PI * 2,
+          layer: 0,
+        });
+      }
+      // Layer 2 — near stars, sparser, brighter, drift faster (parallax)
+      const nearCount = Math.floor((w * h) / 28000); // ~46
+      for (let i = 0; i < nearCount; i++) {
+        stars.push({
+          x: Math.random() * w * 1.1,
+          y: Math.random() * h * 1.6 - h * 0.2,
+          r: Math.random() * 1.4 + 0.6,
+          o: Math.random() * 0.6 + 0.35,
+          tw: Math.random() * 4 + 1.5,
+          phase: Math.random() * Math.PI * 2,
+          layer: 1,
+        });
+      }
+      // Nebula blooms — soft cyan radial blobs that drift
+      nebulae = [
+        { x: w * 0.18, y: h * 0.25, r: 380, hue: 'rgba(56, 200, 220, ALPHA)', a: 0.06, drift: 0.6 },
+        { x: w * 0.78, y: h * 0.65, r: 460, hue: 'rgba(86, 230, 220, ALPHA)', a: 0.05, drift: 0.4 },
+        { x: w * 0.45, y: h * 1.1,  r: 520, hue: 'rgba(40, 120, 160, ALPHA)', a: 0.07, drift: 0.5 },
+      ];
+    };
+
     const draw = () => {
       const w = window.innerWidth, h = window.innerHeight;
+      const t = (performance.now() - t0) / 1000;
+
       ctx.clearRect(0, 0, w, h);
 
-      // Deep void radial wash centered slightly above midpoint
+      // 1. Deep space background — radial wash, slightly cyan-tinted near top
       const wash = ctx.createRadialGradient(
-        w * 0.5, h * 0.46, 0,
-        w * 0.5, h * 0.5, Math.max(w, h) * 0.85
+        w * 0.5, h * 0.4, 0,
+        w * 0.5, h * 0.5, Math.max(w, h) * 0.95
       );
-      wash.addColorStop(0, 'rgba(18, 38, 48, 0.32)');
-      wash.addColorStop(0.5, 'rgba(6, 9, 14, 0.65)');
-      wash.addColorStop(1, 'rgba(0, 0, 0, 0.98)');
+      wash.addColorStop(0,   'rgba(8, 14, 22, 1)');
+      wash.addColorStop(0.4, 'rgba(4, 7, 12, 1)');
+      wash.addColorStop(1,   'rgba(0, 0, 0, 1)');
       ctx.fillStyle = wash;
       ctx.fillRect(0, 0, w, h);
 
-      // Horizon hairline — a single bright cyan line at 70% height
-      const horizonY = Math.floor(h * 0.70);
-      const horizonGrad = ctx.createLinearGradient(0, horizonY, w, horizonY);
-      horizonGrad.addColorStop(0, 'rgba(127, 241, 233, 0)');
-      horizonGrad.addColorStop(0.18, 'rgba(127, 241, 233, 0.05)');
-      horizonGrad.addColorStop(0.5, 'rgba(127, 241, 233, 0.55)');
-      horizonGrad.addColorStop(0.82, 'rgba(127, 241, 233, 0.05)');
-      horizonGrad.addColorStop(1, 'rgba(127, 241, 233, 0)');
-      ctx.strokeStyle = horizonGrad;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(0, horizonY);
-      ctx.lineTo(w, horizonY);
-      ctx.stroke();
+      // 2. Nebula blooms — slow drift
+      nebulae.forEach((n, i) => {
+        const driftX = Math.sin(t * 0.05 + i) * 40 * n.drift;
+        const driftY = Math.cos(t * 0.04 + i * 1.7) * 30 * n.drift;
+        const cx = n.x + driftX;
+        const cy = n.y + driftY - scrollY * 0.06;
+        const breathe = 1 + Math.sin(t * 0.2 + i) * 0.08;
+        const r = n.r * breathe;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        grad.addColorStop(0,    n.hue.replace('ALPHA', String(n.a)));
+        grad.addColorStop(0.5,  n.hue.replace('ALPHA', String(n.a * 0.4)));
+        grad.addColorStop(1,    n.hue.replace('ALPHA', '0'));
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      });
 
-      // Soft horizon bloom
-      const bloom = ctx.createLinearGradient(0, horizonY - 60, 0, horizonY + 60);
-      bloom.addColorStop(0, 'rgba(86, 230, 220, 0)');
-      bloom.addColorStop(0.5, 'rgba(86, 230, 220, 0.08)');
-      bloom.addColorStop(1, 'rgba(86, 230, 220, 0)');
-      ctx.fillStyle = bloom;
-      ctx.fillRect(0, horizonY - 60, w, 120);
+      // 3. Stars — two layers, twinkle + parallax-by-scroll
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+        const parallax = s.layer === 1 ? 0.22 : 0.08;
+        const driftX = s.layer === 1 ? Math.sin(t * 0.04 + s.phase) * 8 : 0;
+        const x = s.x + driftX;
+        let y = s.y - scrollY * parallax;
+        // wrap stars vertically as they scroll out
+        const range = h * 1.4;
+        while (y < -h * 0.2) y += range;
+        while (y > h * 1.2) y -= range;
 
-      // Floor reflection mist below horizon — very subtle
-      const mist = ctx.createLinearGradient(0, horizonY, 0, h);
-      mist.addColorStop(0, 'rgba(86, 230, 220, 0.04)');
-      mist.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = mist;
-      ctx.fillRect(0, horizonY, w, h - horizonY);
+        const tw = 0.6 + 0.4 * Math.sin(t * (2 * Math.PI / s.tw) + s.phase);
+        const a = s.o * tw;
+        ctx.fillStyle = `rgba(220, 240, 245, ${a})`;
+        ctx.beginPath();
+        ctx.arc(x, y, s.r, 0, Math.PI * 2);
+        ctx.fill();
 
-      // A few static specks for texture (was animated — major scroll hog)
-      for (let i = 0; i < 14; i++) {
-        const seed = i * 1.31;
-        const x = ((Math.sin(seed) * 0.5 + 0.5) * w);
-        const y = (Math.cos(seed * 0.73) * 0.5 + 0.5) * h;
-        ctx.fillStyle = 'rgba(127, 241, 233, 0.32)';
-        ctx.fillRect(x, y, 1, 1);
+        // Bloom on layer-1 (near) stars
+        if (s.layer === 1 && s.r > 1.0) {
+          const bloomGrad = ctx.createRadialGradient(x, y, 0, x, y, s.r * 5);
+          bloomGrad.addColorStop(0, `rgba(127, 241, 233, ${a * 0.35})`);
+          bloomGrad.addColorStop(1, 'rgba(127, 241, 233, 0)');
+          ctx.fillStyle = bloomGrad;
+          ctx.beginPath();
+          ctx.arc(x, y, s.r * 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
+
+      // 4. Vignette — darker at corners
+      const vig = ctx.createRadialGradient(
+        w * 0.5, h * 0.5, Math.min(w, h) * 0.3,
+        w * 0.5, h * 0.5, Math.max(w, h) * 0.85
+      );
+      vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      vig.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+      ctx.fillStyle = vig;
+      ctx.fillRect(0, 0, w, h);
+    };
+
+    const tick = () => {
+      if (visible) draw();
+      raf = requestAnimationFrame(tick);
     };
 
     const resize = () => {
@@ -314,20 +386,36 @@ function PerspectiveGrid() {
       canvas.style.width = window.innerWidth + 'px';
       canvas.style.height = window.innerHeight + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildLayers();
       draw();
     };
 
-    resize();
+    const onScroll = () => { scrollY = window.scrollY || window.pageYOffset; };
+    const onVis = () => { visible = !document.hidden; };
 
-    // Debounced resize — no per-frame rAF anymore
+    resize();
+    raf = requestAnimationFrame(tick);
+
     let resizeT;
     const onResize = () => {
       clearTimeout(resizeT);
       resizeT = setTimeout(resize, 120);
     };
     window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onVis);
+
+    // Honor reduced motion — kill the rAF loop, just draw once
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      cancelAnimationFrame(raf);
+    }
+
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onVis);
       clearTimeout(resizeT);
     };
   }, []);
@@ -2661,13 +2749,16 @@ function TexFigureV13() {
   );
 }
 
-/* Live verdict ticker. Rotates through rows every 1.6s. */
+/* Live verdict ticker. Rotates through rows. Real terminal alignment —
+   every row uses the same fixed-grid column template so values stack. */
 function HV13Ticker() {
   const [idx, setIdx] = useState(0);
+  const [seq, setSeq] = useState(4217);
   useEffect(() => {
     const id = setInterval(() => {
       setIdx((n) => (n + 1) % HV13_TICKER_ROWS.length);
-    }, 1600);
+      setSeq((n) => n + 1);
+    }, 1800);
     return () => clearInterval(id);
   }, []);
 
@@ -2682,17 +2773,27 @@ function HV13Ticker() {
     <div className="hv13-ticker" aria-live="polite">
       <div className="hv13-ticker-label">
         <span className="hv13-ticker-dot" />
-        <span>LIVE</span>
+        <span className="hv13-ticker-label-text">LIVE</span>
+        <span className="hv13-ticker-seq">#{seq.toLocaleString()}</span>
       </div>
-      <div className="hv13-ticker-track">
+      <div className="hv13-ticker-stream">
+        {/* Column header row — fixed, always present, locks the columns */}
+        <div className="hv13-ticker-row hv13-ticker-head" aria-hidden="true">
+          <span className="hv13-ticker-c-verdict">VERDICT</span>
+          <span className="hv13-ticker-c-actor">ACTOR</span>
+          <span className="hv13-ticker-c-action">ACTION</span>
+          <span className="hv13-ticker-c-risk">RISK</span>
+          <span className="hv13-ticker-c-latency">LATENCY</span>
+        </div>
         {visible.map((row, i) => (
           <div key={`${idx}-${i}`} className={`hv13-ticker-row hv13-${row.v.toLowerCase()} hv13-row-${i}`}>
-            <span className="hv13-ticker-tag">{row.v}</span>
-            <span className="hv13-ticker-actor">{row.actor}</span>
-            <span className="hv13-ticker-arrow">→</span>
-            <span className="hv13-ticker-action">{row.action}</span>
-            <span className="hv13-ticker-risk">r={row.risk}</span>
-            <span className="hv13-ticker-t">{row.t}ms</span>
+            <span className="hv13-ticker-c-verdict">
+              <span className="hv13-ticker-tag">{row.v}</span>
+            </span>
+            <span className="hv13-ticker-c-actor">{row.actor}</span>
+            <span className="hv13-ticker-c-action">{row.action}</span>
+            <span className="hv13-ticker-c-risk">{row.risk}</span>
+            <span className="hv13-ticker-c-latency">{row.t}<span className="hv13-ticker-unit">ms</span></span>
           </div>
         ))}
       </div>

@@ -156,6 +156,90 @@ const ANATOMY = {
 };
 
 /* =============================================================
+   HOMEPAGE NARRATIVE — V12
+   Locked positioning:
+     Headline:  AI Agent Ecosystem Authority
+     Subhead:   Execution-time authorization for every AI agent action.
+     Tagline:   The only moment you can control an AI agent is before it acts.
+   ============================================================= */
+
+/* The verb chain — sequential, equal weight. */
+const VERBS = [
+  {
+    n: '01',
+    word: 'Intercept',
+    line: 'Every agent action routes through Tex before it runs.',
+  },
+  {
+    n: '02',
+    word: 'Authorize',
+    line: 'Tex evaluates against policy, context, and risk — and issues a signed permit, or denies it.',
+  },
+  {
+    n: '03',
+    word: 'Verify',
+    line: 'At execution, the permit is checked again. No permit, no execution.',
+  },
+  {
+    n: '04',
+    word: 'Execute',
+    line: 'Authorized actions run, logged to a tamper-evident evidence chain.',
+  },
+];
+
+/* Built for proof — depth pillars. */
+const PROOF_PILLARS = [
+  {
+    n: 'P/01',
+    title: 'Signed permits',
+    line: 'Cryptographically bound to the decision that authorized them.',
+    spec: 'ed25519 · single-use · scoped',
+  },
+  {
+    n: 'P/02',
+    title: 'Tamper-evident evidence',
+    line: 'Hash-chained, replayable, verifiable offline.',
+    spec: 'sha-256 · hmac · append-only',
+  },
+  {
+    n: 'P/03',
+    title: 'Temporal agent graph',
+    line: 'Tex understands the action, the agent, the chain of delegation, and the ecosystem it operates in.',
+    spec: 'actor · delegation · ecosystem',
+  },
+  {
+    n: 'P/04',
+    title: 'Discovery',
+    line: "Tex finds the agents you didn't know you had.",
+    spec: 'first-party · vendor · shadow',
+  },
+];
+
+/* Regulatory + standards anchors. OWASP ASI is the lead. */
+const REGULATORY_ANCHORS = [
+  {
+    code: 'OWASP ASI 2026',
+    title: 'Reference adjudicator',
+    note: 'Tex is the reference implementation cited for execution-time authorization in the OWASP Agent Security Initiative.',
+  },
+  {
+    code: 'EU AI Act',
+    title: 'Article 50',
+    note: 'Transparency obligations for AI systems interacting with persons — satisfied by signed permit + evidence per action.',
+  },
+  {
+    code: 'NAIC',
+    title: 'Model Bulletin',
+    note: 'Use of AI by insurers — documented authorization and audit trail for every agent decision.',
+  },
+  {
+    code: 'FTC',
+    title: 'Section 5',
+    note: 'Unfair or deceptive acts — provable, replayable record of what an AI agent did, when, and on whose authority.',
+  },
+];
+
+/* =============================================================
    PERSPECTIVE GRID — radically simplified.
    No floor lattice, no ceiling, no mouse parallax. Just deep void
    with a single horizontal horizon line and a soft radial wash.
@@ -259,7 +343,7 @@ function LayerBar({ active, setActive, currentPath }) {
   const isHIW = currentPath === '/how-it-works';
 
   return (
-    <nav className="layer-bar" aria-label="Seven layer navigation">
+    <nav className={`layer-bar ${isHIW ? 'layer-bar--hiw' : 'layer-bar--home'}`} aria-label="Tex navigation">
       <div className="bar-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
         <div className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="20" height="20">
@@ -273,24 +357,47 @@ function LayerBar({ active, setActive, currentPath }) {
         </div>
       </div>
 
-      <ol className="bar-cells" role="tablist">
-        {LAYERS.map((layer, i) => (
-          <li key={layer.id}>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={i === active}
-              className={`bar-cell ${i === active && !isHIW ? 'is-active' : ''}`}
-              onClick={() => setActive(i)}
-            >
-              <span className="cell-num">L{layer.id}</span>
-              <span className="cell-name">{layer.name}</span>
-              <span className="cell-rule" aria-hidden="true" />
-              <span className="cell-tick" aria-hidden="true" />
-            </button>
+      {isHIW ? (
+        /* /how-it-works keeps the original 7-layer cell nav so that page is untouched. */
+        <ol className="bar-cells" role="tablist">
+          {LAYERS.map((layer, i) => (
+            <li key={layer.id}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={i === active}
+                className={`bar-cell ${i === active && !isHIW ? 'is-active' : ''}`}
+                onClick={() => setActive(i)}
+              >
+                <span className="cell-num">L{layer.id}</span>
+                <span className="cell-name">{layer.name}</span>
+                <span className="cell-rule" aria-hidden="true" />
+                <span className="cell-tick" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        /* Homepage — minimal verb nav: jumps within the page. */
+        <ol className="bar-verbs" role="tablist">
+          {VERBS.map((v) => (
+            <li key={v.n}>
+              <a className="bar-verb" href={`#verb-${v.n}`}>
+                <span className="bar-verb-num">/{v.n}</span>
+                <span className="bar-verb-word">{v.word}</span>
+                <span className="bar-verb-rule" aria-hidden="true" />
+              </a>
+            </li>
+          ))}
+          <li>
+            <a className="bar-verb bar-verb--proof" href="#proof">
+              <span className="bar-verb-num">§</span>
+              <span className="bar-verb-word">Proof</span>
+              <span className="bar-verb-rule" aria-hidden="true" />
+            </a>
           </li>
-        ))}
-      </ol>
+        </ol>
+      )}
 
       <button
         type="button"
@@ -2474,28 +2581,390 @@ function HowItWorksPage() {
 }
 
 
-function HomePage({ active, setActive }) {
+/* =============================================================
+   HOMEPAGE V12 — Locked positioning
+   AI Agent Ecosystem Authority
+   Execution-time authorization for every AI agent action.
+   The only moment you can control an AI agent is before it acts.
+
+   Five layers: Hero, Verb chain, Built for proof, Regulatory anchors, CTA.
+   Aesthetic: Fight Night poster meets Bloomberg terminal.
+   ============================================================= */
+
+/* Tex figure — homepage variant. Same bootup phases and chest pulse
+   as FullBleedTex but without the 7-layer anatomical anchor system.
+   Tex stays the central armored figure; the surrounding scaffolding
+   (hairlines, layer labels) is replaced by editorial typography. */
+function TexFigureV12() {
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    const seq = [
+      [0, 1],
+      [380, 2],
+      [720, 3],
+      [1080, 4],
+      [1500, 5],
+      [2700, 6],
+    ];
+    const timers = seq.map(([ms, p]) => setTimeout(() => setPhase(p), ms));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  /* Idle chest pulse — keeps the figure alive without distracting. */
+  const [chestPulse, setChestPulse] = useState(0);
+  useEffect(() => {
+    if (phase < 5) return;
+    let id = null;
+    let visible = true;
+    const tick = () => {
+      if (!visible) return;
+      setChestPulse((n) => n + 1);
+    };
+    id = setInterval(tick, 3600);
+    const onVis = () => { visible = !document.hidden; };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (id) clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [phase]);
+
   return (
-    <main className="page">
-      <Hero active={active} setActive={setActive} />
-      <ControlPlaneIntro />
-      <HomeHowItWorksIntro />
-      <HiwJourney variant="inline" />
-      <div className="layers-stack">
-        {LAYERS.map((layer, i) => (
-          <LayerSection
-            key={layer.id}
-            layer={layer}
-            index={i}
-            active={active}
-            setActive={setActive}
-          />
+    <div className={`tex-stage tex-stage--v12 phase-${phase}`}>
+      <div className="tex-reflection" aria-hidden="true">
+        <img src={texAvatar} alt="" className="tex-reflection-img" />
+      </div>
+      <div className="tex-figure-wrap" aria-hidden="false">
+        <img src={texAvatar} alt="Tex — AI agent ecosystem authority" className="tex-figure" />
+        <div className="tex-eyes-ignite" aria-hidden="true" />
+        <div
+          className="tex-chest-pulse"
+          key={`pulse-${chestPulse}`}
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+  );
+}
+
+/* HERO — magazine cover composition. Tex centered. Headline left,
+   subhead+tagline right of figure on desktop, stacked on mobile. */
+function HeroV12() {
+  const { openTrial } = useTrial();
+
+  return (
+    <section className="hv12" id="top">
+      <TexFigureV12 />
+
+      {/* Top kicker — terminal stamp */}
+      <div className="hv12-kicker" aria-hidden="false">
+        <span className="hv12-kicker-dot" />
+        <span className="hv12-kicker-mono">TEX // VORTEXBLACK</span>
+        <span className="hv12-kicker-sep">/</span>
+        <span className="hv12-kicker-mono">v12 · execution-gate authority</span>
+      </div>
+
+      {/* Editorial headline — Fight Night poster scale */}
+      <h1 className="hv12-headline">
+        <span className="hv12-h-line">AI Agent</span>
+        <span className="hv12-h-line hv12-h-italic">Ecosystem Authority</span>
+      </h1>
+
+      {/* Subhead + tagline — locked copy */}
+      <div className="hv12-sub">
+        <p className="hv12-subhead">
+          Execution-time authorization <span className="hv12-sub-em">for every AI agent action.</span>
+        </p>
+        <p className="hv12-tagline">
+          The only moment you can control an AI agent is before it acts.
+        </p>
+      </div>
+
+      {/* CTAs */}
+      <div className="hv12-actions">
+        <button type="button" onClick={openTrial} className="btn-primary hv12-cta">
+          <span>Book a demo</span>
+          <span className="btn-arrow">→</span>
+        </button>
+        <a
+          href="/how-it-works"
+          className="btn-ghost hv12-trace"
+          onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
+        >
+          <span>See how it works</span>
+          <span className="btn-arrow">→</span>
+        </a>
+      </div>
+
+      {/* Bottom terminal readout — Bloomberg bar */}
+      <div className="hv12-readout" aria-hidden="false">
+        <div className="hv12-readout-cell">
+          <span className="hv12-readout-label">RUNTIME</span>
+          <span className="hv12-readout-value"><span className="hv12-readout-dot hv12-permit" /> permit · abstain · forbid</span>
+        </div>
+        <div className="hv12-readout-cell">
+          <span className="hv12-readout-label">PIPELINE</span>
+          <span className="hv12-readout-value">deterministic → retrieval → specialists → semantic → router → evidence</span>
+        </div>
+        <div className="hv12-readout-cell">
+          <span className="hv12-readout-label">REFERENCE</span>
+          <span className="hv12-readout-value">OWASP ASI 2026 adjudicator</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* VERB CHAIN — Intercept · Authorize · Verify · Execute.
+   Equal weight, sequential. Connected by a hairline. */
+function VerbChain() {
+  return (
+    <section className="vchain" id="how-it-works">
+      <header className="vchain-head">
+        <span className="kicker">
+          <span className="kicker-dot" />
+          <span>How it works</span>
+          <span className="kicker-sep">/</span>
+          <span>Four moves. One sealed loop.</span>
+        </span>
+        <h2 className="vchain-h2">
+          <span>The action runs through Tex —</span>
+          <span className="ital">or it doesn't run.</span>
+        </h2>
+      </header>
+
+      <div className="vchain-track" role="list">
+        {VERBS.map((v, i) => (
+          <article
+            key={v.n}
+            id={`verb-${v.n}`}
+            className="vchain-cell"
+            role="listitem"
+            style={{ animationDelay: `${0.1 + i * 0.08}s` }}
+          >
+            <header className="vchain-cell-head">
+              <span className="vchain-cell-num">/{v.n}</span>
+              <span className="vchain-cell-rule" aria-hidden="true" />
+              <span className="vchain-cell-tick" aria-hidden="true">●</span>
+            </header>
+            <h3 className="vchain-cell-word">{v.word}<span className="vchain-cell-dot">.</span></h3>
+            <p className="vchain-cell-line">{v.line}</p>
+          </article>
         ))}
       </div>
-      <FirstSixWeeksStrip />
-      <ChainBand />
-      <ClosingPanel />
-      <Footer />
+
+      {/* Continuous hairline beneath the four cells, with hash tokens
+          interleaved so it reads as a cryptographic pipeline. */}
+      <div className="vchain-hash" aria-hidden="true">
+        <span className="vchain-hash-tok">0x9f3a</span>
+        <span className="vchain-hash-line" />
+        <span className="vchain-hash-tok">0x4c81</span>
+        <span className="vchain-hash-line" />
+        <span className="vchain-hash-tok">0x71e5</span>
+        <span className="vchain-hash-line" />
+        <span className="vchain-hash-tok">0x2a08</span>
+        <span className="vchain-hash-line" />
+        <span className="vchain-hash-tok hv12-permit-tok">PERMIT</span>
+      </div>
+    </section>
+  );
+}
+
+/* BUILT FOR PROOF — depth pillars. Four cards with corner brackets. */
+function BuiltForProof() {
+  return (
+    <section className="bfp" id="proof">
+      <header className="bfp-head">
+        <span className="kicker">
+          <span className="kicker-dot" />
+          <span>What makes it work</span>
+        </span>
+        <h2 className="bfp-h2">
+          Built for <span className="ital">proof.</span>
+        </h2>
+        <p className="bfp-lede">
+          Observation tells you what already happened. Tex gates execution before it does — and signs the record on the way through.
+        </p>
+      </header>
+
+      <div className="bfp-grid">
+        {PROOF_PILLARS.map((p, i) => (
+          <article
+            key={p.n}
+            className="bfp-cell"
+            style={{ animationDelay: `${0.05 + i * 0.07}s` }}
+          >
+            <span className="bfp-corner bfp-corner-tl" aria-hidden="true" />
+            <span className="bfp-corner bfp-corner-tr" aria-hidden="true" />
+            <span className="bfp-corner bfp-corner-bl" aria-hidden="true" />
+            <span className="bfp-corner bfp-corner-br" aria-hidden="true" />
+
+            <header className="bfp-cell-head">
+              <span className="bfp-cell-num">{p.n}</span>
+              <span className="bfp-cell-rule" aria-hidden="true" />
+              <span className="bfp-cell-spec">{p.spec}</span>
+            </header>
+            <h3 className="bfp-cell-title">{p.title}</h3>
+            <p className="bfp-cell-line">{p.line}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* REGULATORY ANCHORS — editorial list with hairline separators.
+   Customer logos placeholder strip below. */
+function RegulatoryAnchors() {
+  return (
+    <section className="reganc" id="regulatory">
+      <header className="reganc-head">
+        <span className="kicker">
+          <span className="kicker-dot" />
+          <span>Regulatory anchors</span>
+        </span>
+        <h2 className="reganc-h2">
+          Where Tex is <span className="ital">cited and aligned.</span>
+        </h2>
+      </header>
+
+      <ol className="reganc-list">
+        {REGULATORY_ANCHORS.map((r, i) => (
+          <li key={r.code} className="reganc-row" style={{ animationDelay: `${0.05 + i * 0.06}s` }}>
+            <span className="reganc-row-num">{String(i + 1).padStart(2, '0')}</span>
+            <div className="reganc-row-id">
+              <span className="reganc-code">{r.code}</span>
+              <span className="reganc-title">{r.title}</span>
+            </div>
+            <p className="reganc-note">{r.note}</p>
+            <span className="reganc-row-rule" aria-hidden="true" />
+          </li>
+        ))}
+      </ol>
+
+      {/* Customer logo strip — placeholder until disclosure */}
+      <div className="reganc-logos" aria-label="Customer logos">
+        <header className="reganc-logos-head">
+          <span className="kicker reganc-logos-kicker">
+            <span className="kicker-dot" />
+            <span>Reference customers</span>
+          </span>
+          <span className="reganc-logos-meta">Awaiting public disclosure</span>
+        </header>
+        <div className="reganc-logos-row">
+          <span className="reganc-logo-slot" aria-hidden="true">
+            <span className="reganc-logo-mark">▢</span>
+            <span className="reganc-logo-cap">CONFIDENTIAL</span>
+          </span>
+          <span className="reganc-logo-slot" aria-hidden="true">
+            <span className="reganc-logo-mark">▢</span>
+            <span className="reganc-logo-cap">CONFIDENTIAL</span>
+          </span>
+          <span className="reganc-logo-slot" aria-hidden="true">
+            <span className="reganc-logo-mark">▢</span>
+            <span className="reganc-logo-cap">CONFIDENTIAL</span>
+          </span>
+          <span className="reganc-logo-slot" aria-hidden="true">
+            <span className="reganc-logo-mark">▢</span>
+            <span className="reganc-logo-cap">CONFIDENTIAL</span>
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* CLOSING CTA — final panel. */
+function HomeClosingCTA() {
+  const { openTrial } = useTrial();
+  return (
+    <section className="hcta" id="trial">
+      <div className="hcta-grid">
+        <div className="hcta-left">
+          <span className="kicker">
+            <span className="kicker-dot" />
+            <span>Begin</span>
+          </span>
+          <h2 className="hcta-h2">
+            Before it <span className="ital">acts.</span>
+          </h2>
+          <p className="hcta-lede">
+            Every other category observes, detects, logs. Tex authorizes — at execution, with a signed permit, against your policy. That's the only moment governance actually works.
+          </p>
+          <div className="hcta-actions">
+            <button type="button" onClick={openTrial} className="btn-primary">
+              <span>Book a demo</span>
+              <span className="btn-arrow">→</span>
+            </button>
+            <a
+              href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`}
+              className="btn-ghost"
+            >
+              <span>Talk to the founder</span>
+            </a>
+            <a
+              href="/how-it-works"
+              className="btn-ghost"
+              onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
+            >
+              <span>See how it works</span>
+              <span className="btn-arrow">→</span>
+            </a>
+          </div>
+        </div>
+        <aside className="hcta-right">
+          <div className="hcta-card">
+            <header className="hcta-card-head">
+              <span className="hcta-card-stamp">PERMIT // 0x9f3a4c81</span>
+              <span className="hcta-card-rule" aria-hidden="true" />
+              <span className="hcta-card-meta">ed25519 · single-use · scoped</span>
+            </header>
+            <pre className="hcta-card-body">{`{
+  "actor"   : "agent_xyz_07",
+  "action"  : "tool.invoke::stripe.refund",
+  "policy"  : "p/risk-tier-2@v17",
+  "verdict" : "PERMIT",
+  "expiry"  : "+38ms",
+  "evidence": "sha256:9f3a4c81…2a08"
+}`}</pre>
+            <footer className="hcta-card-foot">
+              <span className="hcta-card-foot-label">A signed permit, bound to its decision. Verifiable offline.</span>
+            </footer>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+/* HOMEPAGE FOOTER — clean replacement of the old insurtech footer. */
+function HomeFooter() {
+  return (
+    <footer className="site-foot">
+      <div className="foot-left">
+        <div className="brand-mark sm" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18">
+            <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="none" stroke="currentColor" strokeWidth="1.4"/>
+            <path d="M7 9 H17 M12 9 V16" stroke="currentColor" strokeWidth="1.4"/>
+          </svg>
+        </div>
+        <span className="foot-name">Tex by VortexBlack</span>
+      </div>
+      <div className="foot-mid">Execution-time authorization for AI agents. Boston · 2026.</div>
+      <div className="foot-right"><a href="#top">↑ top</a></div>
+    </footer>
+  );
+}
+
+function HomePage({ active, setActive }) {
+  return (
+    <main className="page page--home-v12">
+      <HeroV12 />
+      <VerbChain />
+      <BuiltForProof />
+      <RegulatoryAnchors />
+      <HomeClosingCTA />
+      <HomeFooter />
     </main>
   );
 }

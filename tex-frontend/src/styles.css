@@ -5279,15 +5279,30 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 /* =============================================================
    HERO V14 — 3D depth grid, animated Tex, verb chain in hero
    ============================================================= */
+
+/* GLOBAL FIXED BACKDROP — sits behind every section so the grid
+   doesn't break at the hero/next-section boundary. Lives at the root
+   level alongside <PerspectiveGrid />. */
+.hv14-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  perspective: 1400px;
+  perspective-origin: 50% 60%;
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(8, 11, 18, 0.85) 0%, rgba(0,0,0,0.95) 70%);
+  overflow: hidden;
+}
+
 .hv14 {
   position: relative;
   width: 100%;
   min-height: calc(100vh - var(--bar-h));
-  overflow: hidden;
+  overflow: visible;
   isolation: isolate;
-  background: radial-gradient(ellipse 80% 60% at 50% 50%, var(--void-2) 0%, var(--void-0) 70%);
-  perspective: 1400px;
-  perspective-origin: 50% 60%;
+  background: transparent;
 }
 
 /* ---------- 3D LAYERED GRID BACKGROUND ---------- */
@@ -5520,7 +5535,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-family: var(--serif);
   font-weight: 300;
   font-size: clamp(56px, 7.4vw, 110px);
-  line-height: 0.92;
+  line-height: 1.0;
   letter-spacing: -0.025em;
   color: var(--bone-100);
   margin: 0 0 32px;
@@ -5530,6 +5545,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   opacity: 0;
   transform: translateY(24px);
   animation: hv14-fade-up 1s ease-out forwards;
+  /* Padding to prevent descender clipping (background-clip: text crops to bbox) */
+  padding-bottom: 0.08em;
 }
 .hv14-h-line:nth-child(1) { animation-delay: 0.4s; }
 .hv14-h-line:nth-child(2) { animation-delay: 0.55s; font-style: italic; color: var(--bone-200); }
@@ -5541,6 +5558,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   background-clip: text;
   -webkit-text-fill-color: transparent;
   position: relative;
+  padding-bottom: 0.12em;
 }
 
 @keyframes hv14-fade-up {
@@ -5555,13 +5573,15 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .hv14-subhead {
   font-family: var(--sans);
   font-size: clamp(18px, 1.5vw, 22px);
-  line-height: 1.4;
+  line-height: 1.45;
   font-weight: 400;
   color: var(--bone-100);
   margin: 0 0 16px;
+  text-shadow: 0 0 24px rgba(0,0,0,0.9);
 }
 .hv14-subhead-em {
-  color: var(--tex);
+  color: var(--tex-bright);
+  font-weight: 500;
 }
 .hv14-tagline {
   font-family: var(--serif);
@@ -5569,10 +5589,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-weight: 300;
   font-size: clamp(15px, 1.2vw, 18px);
   line-height: 1.5;
-  color: var(--bone-400);
+  color: var(--bone-300);
   margin: 0 0 36px;
   padding-left: 20px;
   border-left: 1px solid var(--edge-tex);
+  text-shadow: 0 0 24px rgba(0,0,0,0.9);
 }
 
 .hv14-actions {
@@ -5650,10 +5671,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .hv14-figure-stage {
   position: relative;
   width: 100%;
-  height: 720px;
+  height: 820px;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  padding-top: 100px;
   opacity: 0;
   animation: hv14-figure-arrive 1.4s ease-out 0.3s forwards;
 }
@@ -5894,76 +5916,148 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   to   { opacity: 1; }
 }
 
-/* ---------- VERB CHAIN — INSIDE HERO ---------- */
-.hv14-verb-chain {
+/* ---------- AUTHORITY LOOP — orbital ring around Tex's head ---------- */
+.hv14-loop {
   position: absolute;
-  bottom: 64px;
+  /* Ring orbits Tex's head from outside. Stage is 820px tall with
+     100px top padding before image. Tex head center sits at ~y=310.
+     Ring center aligned to that with top: 6%. */
+  top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 16px 28px;
-  background: rgba(4, 6, 10, 0.7);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid var(--edge-strong);
-  border-top: 1px solid var(--edge-tex);
-  max-width: calc(100vw - 80px);
-  white-space: nowrap;
+  width: 76%;
+  max-width: 520px;
+  aspect-ratio: 1 / 1;
+  z-index: 7;
+  pointer-events: none;
   opacity: 0;
-  animation: hv14-fade-up 1s ease-out 1.4s forwards;
-  box-shadow: 0 -8px 32px rgba(0,0,0,0.6), 0 0 60px rgba(86, 230, 220, 0.08);
+  animation: hv14-loop-arrive 1.6s ease-out 0.5s forwards;
 }
-.hv14-verb-chain-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--bone-500);
-  padding-right: 24px;
-  margin-right: 24px;
-  border-right: 1px solid var(--edge-strong);
+@keyframes hv14-loop-arrive {
+  0%   { opacity: 0; transform: translateX(-50%) scale(0.92) rotate(-8deg); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1)    rotate(0deg);  }
 }
-.hv14-verb-step {
-  display: flex;
-  align-items: center;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--bone-300);
-  position: relative;
-  transition: color 0.4s ease;
+.hv14-loop-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-.hv14-verb-step:not(:last-child)::after {
-  content: '→';
-  margin: 0 16px;
-  color: var(--tex);
-  font-size: 14px;
+
+/* Outer aura — soft cyan glow ring */
+.hv14-loop-aura {
+  fill: none;
+  stroke: rgba(86, 230, 220, 0.18);
+  stroke-width: 1.5;
+  filter: blur(6px);
+  animation: hv14-loop-aura-pulse 4s ease-in-out infinite;
 }
-.hv14-verb-step-num {
-  font-size: 10px;
-  color: var(--tex);
-  margin-right: 8px;
-  opacity: 0.7;
+@keyframes hv14-loop-aura-pulse {
+  0%, 100% { opacity: 0.7; stroke-width: 1.5; }
+  50%      { opacity: 1;   stroke-width: 3;   }
+}
+
+/* Main orbital ring */
+.hv14-loop-ring {
+  fill: none;
+  stroke: rgba(86, 230, 220, 0.55);
+  stroke-width: 1;
+  filter: drop-shadow(0 0 6px rgba(86, 230, 220, 0.5));
+}
+
+/* Inner ring — dashed, slow rotation */
+.hv14-loop-ring-inner {
+  fill: none;
+  stroke: rgba(86, 230, 220, 0.28);
+  stroke-width: 0.8;
+  stroke-dasharray: 3 6;
+  transform-origin: 300px 300px;
+  animation: hv14-loop-rotate 80s linear infinite;
+}
+@keyframes hv14-loop-rotate {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Tick marks around the ring */
+.hv14-loop-tick {
+  stroke: rgba(86, 230, 220, 0.35);
+  stroke-width: 1;
+}
+.hv14-loop-tick-major {
+  stroke: rgba(127, 241, 233, 0.7);
+  stroke-width: 1.5;
+}
+
+/* Traveling pulse — orbits the ring continuously */
+.hv14-loop-traveler {
+  transform-origin: 300px 300px;
+  animation: hv14-loop-rotate 6s linear infinite;
+}
+.hv14-loop-traveler-dot {
+  fill: var(--tex-bright);
+  filter: drop-shadow(0 0 8px var(--tex-bright)) drop-shadow(0 0 4px var(--tex));
+}
+.hv14-loop-traveler-glow {
+  fill: rgba(127, 241, 233, 0.25);
+  filter: blur(4px);
+}
+
+/* Verb groups — anchor node + label */
+.hv14-loop-verb {
+  transition: opacity 0.5s ease;
+}
+
+.hv14-loop-node-outer {
+  fill: none;
+  stroke: rgba(86, 230, 220, 0.4);
+  stroke-width: 1;
   transition: all 0.4s ease;
 }
-.hv14-verb-step-word {
-  color: var(--bone-100);
-  font-weight: 500;
+.hv14-loop-node-inner {
+  fill: rgba(86, 230, 220, 0.4);
   transition: all 0.4s ease;
 }
 
-.hv14-verb-step.is-active .hv14-verb-step-word {
-  color: var(--tex);
-  text-shadow: 0 0 12px rgba(86, 230, 220, 0.6);
+/* Active verb — node lights up */
+.hv14-loop-verb.is-active .hv14-loop-node-outer {
+  stroke: var(--tex-bright);
+  stroke-width: 2;
+  r: 14;
+  filter: drop-shadow(0 0 10px var(--tex-bright));
 }
-.hv14-verb-step.is-active .hv14-verb-step-num {
-  color: var(--tex-bright);
-  opacity: 1;
+.hv14-loop-verb.is-active .hv14-loop-node-inner {
+  fill: var(--tex-bright);
+  r: 7;
+  filter: drop-shadow(0 0 8px var(--tex-bright));
 }
+
+/* Number label */
+.hv14-loop-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  fill: rgba(127, 241, 233, 0.7);
+  transition: fill 0.4s ease;
+}
+.hv14-loop-verb.is-active .hv14-loop-num {
+  fill: var(--tex-bright);
+}
+
+/* Word label — uppercase mono */
+.hv14-loop-word {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  fill: var(--bone-300);
+  transition: all 0.4s ease;
+}
+.hv14-loop-verb.is-active .hv14-loop-word {
+  fill: var(--tex-bright);
+  filter: drop-shadow(0 0 8px rgba(86, 230, 220, 0.7));
+}
+
 
 /* ---------- SCROLL CUE ---------- */
 .hv14-scroll-cue {
@@ -6005,31 +6099,25 @@ html, body { background: var(--void-0); color: var(--bone-100); }
     text-align: center;
   }
   .hv14-content { order: 1; }
-  .hv14-figure-stage { order: 2; height: 520px; }
+  .hv14-figure-stage { order: 2; height: 620px; padding-top: 80px; }
   .hv14-figure-img { height: 480px; }
   .hv14-eyebrow { justify-content: center; }
   .hv14-tagline { border-left: 0; padding-left: 0; }
   .hv14-actions { justify-content: center; }
   .hv14-sub { margin: 0 auto; }
-  .hv14-verb-chain {
-    flex-wrap: wrap;
-    justify-content: center;
-    padding: 14px 20px;
-    bottom: 40px;
-  }
-  .hv14-verb-step { font-size: 10px; }
-  .hv14-verb-step:not(:last-child)::after { margin: 0 10px; }
-  .hv14-readout-tag { display: none; }
+  .hv14-loop { width: 78%; max-width: 460px; top: 6%; }
+  .hv14-loop-word { font-size: 12px; letter-spacing: 0.18em; }
 }
 
 @media (max-width: 640px) {
   .hv14-headline { font-size: clamp(40px, 12vw, 64px); }
   .hv14-actions { flex-direction: column; align-items: stretch; }
   .hv14-cta-primary, .hv14-cta-ghost { justify-content: center; }
-  .hv14-verb-chain-label { display: none; }
   .hv14-figure-img { height: 380px; }
-  .hv14-figure-stage { height: 420px; }
-  .hv14-orbital { width: 480px; height: 480px; }
+  .hv14-figure-stage { height: 500px; padding-top: 60px; }
+  .hv14-loop { width: 82%; max-width: 380px; top: 6%; }
+  .hv14-loop-word { font-size: 10px; letter-spacing: 0.14em; }
+  .hv14-loop-num { font-size: 9px; }
 }
 
 /* =============================================================

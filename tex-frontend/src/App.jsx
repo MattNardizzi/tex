@@ -2696,30 +2696,38 @@ function HowItWorksPage() {
    and the four verbs of the authority loop.
    ============================================================= */
 
+/* Global fixed backdrop — sits behind every section. Lives at the
+   root shell level so the 3D grid stays continuous as you scroll
+   through the entire page (hero, verb chain, proof, regulatory,
+   closing CTA) without breaks. */
+function HeroBackdrop() {
+  return (
+    <div className="hv14-backdrop" aria-hidden="true">
+      <div className="hv14-3d-stage">
+        <div className="hv14-grid-floor" />
+        <div className="hv14-grid-mid" />
+        <div className="hv14-grid-ceiling" />
+      </div>
+      <div className="hv14-depth-lines" />
+      <div className="hv14-horizon" />
+      <div className="hv14-haze-1" />
+      <div className="hv14-haze-2" />
+      <div className="hv14-vignette" />
+    </div>
+  );
+}
+
 /* Tex figure v14 — properly scaled, breathing motion, eye pulse,
-   chest emblem pulse, orbital rings, scan line, corner brackets,
-   floating data tags. */
+   chest emblem pulse, scan line, corner brackets. The Authority Loop
+   ring orbits around Tex's head — see HV14AuthorityLoop. */
 function TexFigureV14() {
   return (
     <div className="hv14-figure-stage" aria-hidden="false">
       {/* Atmospheric backlight */}
       <div className="hv14-figure-veil" />
 
-      {/* Orbital rings — slow rotation around the figure */}
-      <svg className="hv14-orbital" viewBox="0 0 800 800" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
-        <circle cx="400" cy="400" r="320" className="hv14-orbital-ring hv14-orbital-r1" />
-        <circle cx="400" cy="400" r="280" className="hv14-orbital-ring hv14-orbital-r2" />
-        <circle cx="400" cy="400" r="360" className="hv14-orbital-ring hv14-orbital-r3" />
-        {/* Tick marks on the outer ring */}
-        {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => {
-          const rad = (deg - 90) * Math.PI / 180;
-          const x1 = 400 + Math.cos(rad) * 360;
-          const y1 = 400 + Math.sin(rad) * 360;
-          const x2 = 400 + Math.cos(rad) * 372;
-          const y2 = 400 + Math.sin(rad) * 372;
-          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} className="hv14-orbital-tick" />;
-        })}
-      </svg>
+      {/* Authority loop — orbital ring of four verbs around Tex's head */}
+      <HV14AuthorityLoop />
 
       {/* Pulse rings emanating from the chest emblem */}
       <span className="hv14-pulse-ring" />
@@ -2744,11 +2752,6 @@ function TexFigureV14() {
       <span className="hv14-corner hv14-corner-tr" aria-hidden="true" />
       <span className="hv14-corner hv14-corner-bl" aria-hidden="true" />
       <span className="hv14-corner hv14-corner-br" aria-hidden="true" />
-
-      {/* Floating data readout tags */}
-      <div className="hv14-readout-tag hv14-readout-tl">EXECUTION GATE · LIVE</div>
-      <div className="hv14-readout-tag hv14-readout-tr">P95 · 142MS</div>
-      <div className="hv14-readout-tag hv14-readout-bl">SHA-256 · SEALED</div>
     </div>
   );
 }
@@ -2762,27 +2765,110 @@ const HV14_VERBS = [
   { n: '04', word: 'Execute'   },
 ];
 
-function HV14VerbChain() {
+/* Authority Loop — orbital ring of four verbs that surrounds Tex's
+   head. A pulse dot travels around the ring; each verb lights up as
+   the dot passes its position, then fades to dim cyan. The loop
+   completes one full revolution every ~6 seconds. */
+function HV14AuthorityLoop() {
   const [active, setActive] = useState(0);
   useEffect(() => {
     const id = setInterval(() => {
       setActive((i) => (i + 1) % HV14_VERBS.length);
-    }, 1400);
+    }, 1500);
     return () => clearInterval(id);
   }, []);
 
+  // Position verbs at 12/3/6/9 o'clock (top/right/bottom/left)
+  // SVG coordinate system: 0,0 top-left. Center at (300, 300), radius 240.
+  const cx = 300, cy = 300, r = 240;
+  const positions = [
+    { angle: -90, anchor: 'middle',  baseline: 'auto'    }, // top
+    { angle:   0, anchor: 'start',   baseline: 'middle'  }, // right
+    { angle:  90, anchor: 'middle',  baseline: 'hanging' }, // bottom
+    { angle: 180, anchor: 'end',     baseline: 'middle'  }, // left
+  ];
+  const labelOffset = 36; // distance from ring out to label
+
   return (
-    <div className="hv14-verb-chain" aria-label="Authority loop">
-      <span className="hv14-verb-chain-label">Authority loop</span>
-      {HV14_VERBS.map((v, i) => (
-        <div
-          key={v.n}
-          className={`hv14-verb-step ${active === i ? 'is-active' : ''}`}
-        >
-          <span className="hv14-verb-step-num">{v.n}</span>
-          <span className="hv14-verb-step-word">{v.word}</span>
-        </div>
-      ))}
+    <div className="hv14-loop" aria-label="Authority loop">
+      <svg
+        className="hv14-loop-svg"
+        viewBox="0 0 600 600"
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden="true"
+      >
+        {/* Outer aura — soft glow ring */}
+        <circle cx={cx} cy={cy} r={r + 4} className="hv14-loop-aura" />
+
+        {/* Main orbital ring */}
+        <circle cx={cx} cy={cy} r={r} className="hv14-loop-ring" />
+
+        {/* Inner ring — finer, slower */}
+        <circle cx={cx} cy={cy} r={r - 14} className="hv14-loop-ring-inner" />
+
+        {/* Tick marks at every 30° */}
+        {Array.from({ length: 24 }).map((_, i) => {
+          const deg = i * 15;
+          const rad = (deg - 90) * Math.PI / 180;
+          const inner = r - 6;
+          const outer = r + 6;
+          const x1 = cx + Math.cos(rad) * inner;
+          const y1 = cy + Math.sin(rad) * inner;
+          const x2 = cx + Math.cos(rad) * outer;
+          const y2 = cy + Math.sin(rad) * outer;
+          return (
+            <line
+              key={i}
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              className={`hv14-loop-tick ${i % 6 === 0 ? 'hv14-loop-tick-major' : ''}`}
+            />
+          );
+        })}
+
+        {/* Traveling pulse — orbits the ring continuously */}
+        <g className="hv14-loop-traveler">
+          <circle cx={cx + r} cy={cy} r="6" className="hv14-loop-traveler-dot" />
+          <circle cx={cx + r} cy={cy} r="14" className="hv14-loop-traveler-glow" />
+        </g>
+
+        {/* Verb anchors at 4 cardinal points */}
+        {HV14_VERBS.map((v, i) => {
+          const { angle, anchor, baseline } = positions[i];
+          const rad = angle * Math.PI / 180;
+          const px = cx + Math.cos(rad) * r;
+          const py = cy + Math.sin(rad) * r;
+          const lx = cx + Math.cos(rad) * (r + labelOffset);
+          const ly = cy + Math.sin(rad) * (r + labelOffset);
+          const isActive = active === i;
+          return (
+            <g key={v.n} className={`hv14-loop-verb ${isActive ? 'is-active' : ''}`}>
+              {/* Anchor node on the ring */}
+              <circle cx={px} cy={py} r="10" className="hv14-loop-node-outer" />
+              <circle cx={px} cy={py} r="5"  className="hv14-loop-node-inner" />
+
+              {/* Label — number above word */}
+              <text
+                x={lx}
+                y={ly - 10}
+                textAnchor={anchor}
+                dominantBaseline={baseline}
+                className="hv14-loop-num"
+              >
+                {v.n}
+              </text>
+              <text
+                x={lx}
+                y={ly + 12}
+                textAnchor={anchor}
+                dominantBaseline={baseline}
+                className="hv14-loop-word"
+              >
+                {v.word.toUpperCase()}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
@@ -2793,18 +2879,6 @@ function HeroV14() {
 
   return (
     <section className="hv14" id="top">
-      {/* 3D depth grid background */}
-      <div className="hv14-3d-stage" aria-hidden="true">
-        <div className="hv14-grid-floor" />
-        <div className="hv14-grid-mid" />
-        <div className="hv14-grid-ceiling" />
-      </div>
-      <div className="hv14-depth-lines" aria-hidden="true" />
-      <div className="hv14-horizon" aria-hidden="true" />
-      <div className="hv14-haze-1" aria-hidden="true" />
-      <div className="hv14-haze-2" aria-hidden="true" />
-      <div className="hv14-vignette" aria-hidden="true" />
-
       {/* Top kicker — minimal */}
       <div className="hv14-kicker">
         <span className="hv14-kicker-dot" />
@@ -2855,9 +2929,6 @@ function HeroV14() {
         {/* RIGHT: Tex figure */}
         <TexFigureV14 />
       </div>
-
-      {/* Verb chain — pinned bottom-center inside hero */}
-      <HV14VerbChain />
 
       {/* Scroll cue */}
       <a href="#how-it-works" className="hv14-scroll-cue" aria-label="Scroll to how it works">
@@ -3275,6 +3346,7 @@ function App() {
     <TrialContext.Provider value={{ openTrial }}>
       <div className="root-shell">
         <PerspectiveGrid />
+        <HeroBackdrop />
         <LayerBar active={active} setActive={onSelect} currentPath={path} />
 
         {isHowItWorks ? (

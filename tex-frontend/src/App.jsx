@@ -2690,26 +2690,45 @@ function HowItWorksPage() {
    ============================================================= */
 
 /* Sample verdicts for the live ticker. Cycles continuously. */
-/* =============================================================
-   HERO V14 — 3D depth grid, animated Tex, in-hero verb chain.
-   No ticker, no live counter, no timestamp. Just Tex, the headline,
-   and the four verbs of the authority loop.
-   ============================================================= */
+const HV13_TICKER_ROWS = [
+  { v: 'PERMIT',  actor: 'agent_revops_07',     action: 'send_email::client.quarterly',      risk: '0.12', t: '142' },
+  { v: 'ABSTAIN', actor: 'copilot_legal_03',    action: 'file.write::contracts/draft.docx',  risk: '0.61', t: '198' },
+  { v: 'FORBID',  actor: 'agent_support_22',    action: 'api.call::stripe.refund.full',      risk: '0.94', t: '167' },
+  { v: 'PERMIT',  actor: 'workflow_ops_11',     action: 'tool.invoke::salesforce.update',    risk: '0.18', t: '109' },
+  { v: 'PERMIT',  actor: 'agent_marketing_04',  action: 'send_message::slack#campaigns',     risk: '0.22', t: '134' },
+  { v: 'FORBID',  actor: 'agent_research_19',   action: 'browse::external.unverified',       risk: '0.88', t: '221' },
+  { v: 'ABSTAIN', actor: 'copilot_finance_02',  action: 'export::ledger.q3',                 risk: '0.55', t: '178' },
+  { v: 'PERMIT',  actor: 'agent_hr_05',         action: 'create::onboarding.task',           risk: '0.09', t: '88'  },
+  { v: 'PERMIT',  actor: 'agent_data_14',       action: 'query::warehouse.metrics',          risk: '0.31', t: '125' },
+  { v: 'FORBID',  actor: 'agent_email_03',      action: 'send::external.bulk_500',           risk: '0.91', t: '203' },
+];
 
-/* Tex figure v14 — properly scaled, breathing motion, eye pulse,
-   chest emblem pulse, orbital rings, scan line, corner brackets,
-   floating data tags. */
-function TexFigureV14() {
+/* Tex figure v13 — properly scaled, with continuous breathing motion,
+   eye pulse, chest emblem pulse, and animated scan lines. No bootup
+   sequence — Tex is alive from frame one. */
+function TexFigureV13() {
   return (
-    <div className="hv14-figure-stage" aria-hidden="false">
-      {/* Atmospheric backlight */}
-      <div className="hv14-figure-veil" />
+    <div className="hv13-figure-stage" aria-hidden="false">
+      {/* Atmospheric backdrop — radial cyan veil + vignette */}
+      <div className="hv13-stage-veil" />
+
+      {/* Animated scan line that sweeps Tex vertically */}
+      <div className="hv13-scanline" aria-hidden="true" />
+
+      {/* The figure itself — wrapped for breathing motion */}
+      <div className="hv13-figure-breathe">
+        <img src={texAvatar} alt="Tex — AI agent ecosystem authority" className="hv13-figure-img" />
+        {/* Eye glow overlay — positioned over the avatar's eye region */}
+        <div className="hv13-eye-glow" aria-hidden="true" />
+        {/* Chest emblem glow — positioned over the chest hex */}
+        <div className="hv13-chest-glow" aria-hidden="true" />
+      </div>
 
       {/* Orbital rings — slow rotation around the figure */}
-      <svg className="hv14-orbital" viewBox="0 0 800 800" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
-        <circle cx="400" cy="400" r="320" className="hv14-orbital-ring hv14-orbital-r1" />
-        <circle cx="400" cy="400" r="280" className="hv14-orbital-ring hv14-orbital-r2" />
-        <circle cx="400" cy="400" r="360" className="hv14-orbital-ring hv14-orbital-r3" />
+      <svg className="hv13-orbital" viewBox="0 0 800 800" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+        <circle cx="400" cy="400" r="320" className="hv13-orbital-ring hv13-orbital-r1" />
+        <circle cx="400" cy="400" r="280" className="hv13-orbital-ring hv13-orbital-r2" />
+        <circle cx="400" cy="400" r="360" className="hv13-orbital-ring hv13-orbital-r3" />
         {/* Tick marks on the outer ring */}
         {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg) => {
           const rad = (deg - 90) * Math.PI / 180;
@@ -2717,157 +2736,194 @@ function TexFigureV14() {
           const y1 = 400 + Math.sin(rad) * 360;
           const x2 = 400 + Math.cos(rad) * 372;
           const y2 = 400 + Math.sin(rad) * 372;
-          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} className="hv14-orbital-tick" />;
+          return <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2} className="hv13-orbital-tick" />;
         })}
       </svg>
 
-      {/* Pulse rings emanating from the chest emblem */}
-      <span className="hv14-pulse-ring" />
-      <span className="hv14-pulse-ring" />
-      <span className="hv14-pulse-ring" />
-
-      {/* Floor disk — Tex stands on this glow */}
-      <div className="hv14-floor-disk" />
-
-      {/* Scan line that sweeps Tex vertically */}
-      <div className="hv14-scanline" aria-hidden="true" />
-
-      {/* The figure itself — wrapped for breathing motion */}
-      <div className="hv14-figure-breathe">
-        <img src={texAvatar} alt="Tex — AI agent ecosystem authority" className="hv14-figure-img" />
-        <div className="hv14-eye-glow" aria-hidden="true" />
-        <div className="hv14-chest-glow" aria-hidden="true" />
-      </div>
-
-      {/* Corner brackets — define the figure frame */}
-      <span className="hv14-corner hv14-corner-tl" aria-hidden="true" />
-      <span className="hv14-corner hv14-corner-tr" aria-hidden="true" />
-      <span className="hv14-corner hv14-corner-bl" aria-hidden="true" />
-      <span className="hv14-corner hv14-corner-br" aria-hidden="true" />
-
-      {/* Floating data readout tags */}
-      <div className="hv14-readout-tag hv14-readout-tl">EXECUTION GATE · LIVE</div>
-      <div className="hv14-readout-tag hv14-readout-tr">P95 · 142MS</div>
-      <div className="hv14-readout-tag hv14-readout-bl">SHA-256 · SEALED</div>
+      {/* Corner brackets — define the hero frame */}
+      <span className="hv13-corner hv13-corner-tl" aria-hidden="true" />
+      <span className="hv13-corner hv13-corner-tr" aria-hidden="true" />
+      <span className="hv13-corner hv13-corner-bl" aria-hidden="true" />
+      <span className="hv13-corner hv13-corner-br" aria-hidden="true" />
     </div>
   );
 }
 
-/* In-hero verb chain — Intercept -> Authorize -> Verify -> Execute.
-   Sequential activation cycles every 1.4s. */
-const HV14_VERBS = [
-  { n: '01', word: 'Intercept' },
-  { n: '02', word: 'Authorize' },
-  { n: '03', word: 'Verify'    },
-  { n: '04', word: 'Execute'   },
-];
-
-function HV14VerbChain() {
-  const [active, setActive] = useState(0);
+/* Live verdict ticker. Rotates through rows. Real terminal alignment —
+   every row uses the same fixed-grid column template so values stack. */
+function HV13Ticker() {
+  const [idx, setIdx] = useState(0);
+  const [seq, setSeq] = useState(4217);
   useEffect(() => {
     const id = setInterval(() => {
-      setActive((i) => (i + 1) % HV14_VERBS.length);
-    }, 1400);
+      setIdx((n) => (n + 1) % HV13_TICKER_ROWS.length);
+      setSeq((n) => n + 1);
+    }, 1800);
     return () => clearInterval(id);
   }, []);
 
+  /* Show 3 rows at a time, cycling. */
+  const visible = [
+    HV13_TICKER_ROWS[idx],
+    HV13_TICKER_ROWS[(idx + 1) % HV13_TICKER_ROWS.length],
+    HV13_TICKER_ROWS[(idx + 2) % HV13_TICKER_ROWS.length],
+  ];
+
   return (
-    <div className="hv14-verb-chain" aria-label="Authority loop">
-      <span className="hv14-verb-chain-label">Authority loop</span>
-      {HV14_VERBS.map((v, i) => (
-        <div
-          key={v.n}
-          className={`hv14-verb-step ${active === i ? 'is-active' : ''}`}
-        >
-          <span className="hv14-verb-step-num">{v.n}</span>
-          <span className="hv14-verb-step-word">{v.word}</span>
+    <div className="hv13-ticker" aria-live="polite">
+      <div className="hv13-ticker-label">
+        <span className="hv13-ticker-dot" />
+        <span className="hv13-ticker-label-text">LIVE</span>
+        <span className="hv13-ticker-seq">#{seq.toLocaleString()}</span>
+      </div>
+      <div className="hv13-ticker-stream">
+        {/* Column header row — fixed, always present, locks the columns */}
+        <div className="hv13-ticker-row hv13-ticker-head" aria-hidden="true">
+          <span className="hv13-ticker-c-verdict">VERDICT</span>
+          <span className="hv13-ticker-c-actor">ACTOR</span>
+          <span className="hv13-ticker-c-action">ACTION</span>
+          <span className="hv13-ticker-c-risk">RISK</span>
+          <span className="hv13-ticker-c-latency">LATENCY</span>
         </div>
-      ))}
+        {visible.map((row, i) => (
+          <div key={`${idx}-${i}`} className={`hv13-ticker-row hv13-${row.v.toLowerCase()} hv13-row-${i}`}>
+            <span className="hv13-ticker-c-verdict">
+              <span className="hv13-ticker-tag">{row.v}</span>
+            </span>
+            <span className="hv13-ticker-c-actor">{row.actor}</span>
+            <span className="hv13-ticker-c-action">{row.action}</span>
+            <span className="hv13-ticker-c-risk">{row.risk}</span>
+            <span className="hv13-ticker-c-latency">{row.t}<span className="hv13-ticker-unit">ms</span></span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* HERO V14 — main component. */
-function HeroV14() {
+/* Animated counter that increments on mount — used for the readout stats. */
+function HV13Counter({ to, suffix = '', duration = 1800 }) {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setVal(Math.floor(eased * to));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [to, duration]);
+  return <>{val.toLocaleString()}{suffix}</>;
+}
+
+/* HERO V13 — magazine cover with Tex right-of-center, bold poster type,
+   live ticker readout, animated everything. */
+function HeroV13() {
   const { openTrial } = useTrial();
 
   return (
-    <section className="hv14" id="top">
-      {/* 3D depth grid background */}
-      <div className="hv14-3d-stage" aria-hidden="true">
-        <div className="hv14-grid-floor" />
-        <div className="hv14-grid-mid" />
-        <div className="hv14-grid-ceiling" />
+    <section className="hv13" id="top">
+      {/* Background grid — animated */}
+      <div className="hv13-bg-grid" aria-hidden="true" />
+
+      {/* Top kicker — terminal stamp, with live timestamp */}
+      <HV13Kicker />
+
+      {/* Tex figure — sized properly, anchored right */}
+      <TexFigureV13 />
+
+      {/* Headline — overlaps Tex aggressively */}
+      <h1 className="hv13-headline">
+        <span className="hv13-h-line hv13-h-roman">AI Agent</span>
+        <span className="hv13-h-line hv13-h-italic">Ecosystem</span>
+        <span className="hv13-h-line hv13-h-italic hv13-h-overlap">Authority</span>
+      </h1>
+
+      {/* Subhead + tagline */}
+      <div className="hv13-sub">
+        <p className="hv13-subhead">
+          Execution-time authorization
+          <span className="hv13-sub-em"> for every AI agent action.</span>
+        </p>
+        <p className="hv13-tagline">
+          The only moment you can control an AI agent is before it acts.
+        </p>
+        <div className="hv13-actions">
+          <button type="button" onClick={openTrial} className="hv13-cta-primary">
+            <span>Book a demo</span>
+            <span className="hv13-cta-arrow">→</span>
+            <span className="hv13-cta-glow" aria-hidden="true" />
+          </button>
+          <a
+            href="/how-it-works"
+            className="hv13-cta-ghost"
+            onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
+          >
+            <span>See how it works</span>
+            <span className="hv13-cta-arrow">→</span>
+          </a>
+        </div>
       </div>
-      <div className="hv14-depth-lines" aria-hidden="true" />
-      <div className="hv14-horizon" aria-hidden="true" />
-      <div className="hv14-haze-1" aria-hidden="true" />
-      <div className="hv14-haze-2" aria-hidden="true" />
-      <div className="hv14-vignette" aria-hidden="true" />
 
-      {/* Top kicker — minimal */}
-      <div className="hv14-kicker">
-        <span className="hv14-kicker-dot" />
-        <span className="hv14-kicker-tex">TEX</span>
-        <span className="hv14-kicker-sep" />
-        <span className="hv14-kicker-dim">VORTEXBLACK</span>
-        <span className="hv14-kicker-sep" />
-        <span className="hv14-kicker-dim">EXECUTION-GATE AUTHORITY</span>
-      </div>
-
-      {/* Main two-column stage */}
-      <div className="hv14-stage">
-        {/* LEFT: typography */}
-        <div className="hv14-content">
-          <div className="hv14-eyebrow">Tex // The execution layer</div>
-
-          <h1 className="hv14-headline">
-            <span className="hv14-h-line">AI Agent</span>
-            <span className="hv14-h-line">Ecosystem</span>
-            <span className="hv14-h-line">Authority</span>
-          </h1>
-
-          <div className="hv14-sub">
-            <p className="hv14-subhead">
-              Execution-time authorization
-              <span className="hv14-subhead-em"> for every AI agent action.</span>
-            </p>
-            <p className="hv14-tagline">
-              The only moment you can control an AI agent is before it acts.
-            </p>
-            <div className="hv14-actions">
-              <button type="button" onClick={openTrial} className="hv14-cta-primary">
-                <span>Book a demo</span>
-                <span className="hv14-cta-arrow">→</span>
-              </button>
-              <a
-                href="/how-it-works"
-                className="hv14-cta-ghost"
-                onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
-              >
-                <span>See how it works</span>
-                <span className="hv14-cta-arrow">→</span>
-              </a>
-            </div>
+      {/* Bottom readout — solid black, fully legible, with live ticker */}
+      <div className="hv13-readout-bar">
+        <HV13Ticker />
+        <div className="hv13-readout-meta">
+          <div className="hv13-readout-cell">
+            <span className="hv13-readout-label">PIPELINE</span>
+            <span className="hv13-readout-value hv13-readout-mono">
+              deterministic <span className="hv13-arrow">→</span> retrieval <span className="hv13-arrow">→</span> specialists <span className="hv13-arrow">→</span> semantic <span className="hv13-arrow">→</span> router <span className="hv13-arrow">→</span> evidence
+            </span>
+          </div>
+          <div className="hv13-readout-cell hv13-readout-stat">
+            <span className="hv13-readout-label">SEALED</span>
+            <span className="hv13-readout-value hv13-readout-num">
+              <HV13Counter to={14392118} />
+            </span>
+          </div>
+          <div className="hv13-readout-cell hv13-readout-stat">
+            <span className="hv13-readout-label">P95</span>
+            <span className="hv13-readout-value hv13-readout-num">142<span className="hv13-readout-unit">ms</span></span>
           </div>
         </div>
-
-        {/* RIGHT: Tex figure */}
-        <TexFigureV14 />
       </div>
 
-      {/* Verb chain — pinned bottom-center inside hero */}
-      <HV14VerbChain />
-
       {/* Scroll cue */}
-      <a href="#how-it-works" className="hv14-scroll-cue" aria-label="Scroll to how it works">
-        <span>Scroll</span>
-        <span className="hv14-scroll-arrow">↓</span>
+      <a href="#how-it-works" className="hv13-scroll-cue" aria-label="Scroll to how it works">
+        <span className="hv13-scroll-cue-label">SCROLL</span>
+        <span className="hv13-scroll-cue-arrow">↓</span>
       </a>
     </section>
   );
 }
 
+/* Top kicker with live timestamp. */
+function HV13Kicker() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const ts = now.toISOString().split('T')[1].split('.')[0] + 'Z';
+
+  return (
+    <div className="hv13-kicker">
+      <div className="hv13-kicker-cell">
+        <span className="hv13-kicker-dot" />
+        <span className="hv13-kicker-mono">TEX // VORTEXBLACK</span>
+      </div>
+      <div className="hv13-kicker-cell hv13-kicker-cell-mid">
+        <span className="hv13-kicker-mono hv13-kicker-dim">v13 · execution-gate authority</span>
+      </div>
+      <div className="hv13-kicker-cell">
+        <span className="hv13-kicker-mono hv13-kicker-dim">{ts}</span>
+      </div>
+    </div>
+  );
+}
 
 /* Hook: triggers when element scrolls into view, returns ref + boolean. */
 function useInView(options = {}) {
@@ -3166,23 +3222,24 @@ function HomeClosingCTAV13() {
             Every other category observes, detects, logs. Tex authorizes — at execution, with a signed permit, against your policy. That&apos;s the only moment governance actually works.
           </p>
           <div className="hcta13-actions">
-            <button type="button" onClick={openTrial} className="hv14-cta-primary">
+            <button type="button" onClick={openTrial} className="hv13-cta-primary">
               <span>Book a demo</span>
-              <span className="hv14-cta-arrow">→</span>
+              <span className="hv13-cta-arrow">→</span>
+              <span className="hv13-cta-glow" aria-hidden="true" />
             </button>
             <a
               href={`mailto:${FOUNDER_EMAIL}?subject=Tex%20%E2%80%94%20founder%20conversation`}
-              className="hv14-cta-ghost"
+              className="hv13-cta-ghost"
             >
               <span>Talk to the founder</span>
             </a>
             <a
               href="/how-it-works"
-              className="hv14-cta-ghost"
+              className="hv13-cta-ghost"
               onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}
             >
               <span>See how it works</span>
-              <span className="hv14-cta-arrow">→</span>
+              <span className="hv13-cta-arrow">→</span>
             </a>
           </div>
         </div>
@@ -3233,7 +3290,7 @@ function HomeFooterV13() {
 function HomePage({ active, setActive }) {
   return (
     <main className="page page--home-v13">
-      <HeroV14 />
+      <HeroV13 />
       <VerbChainV13 />
       <BuiltForProofV13 />
       <RegulatoryAnchorsV13 />

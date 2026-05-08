@@ -14,4 +14,16 @@ openai>=1.40.0
 psycopg[binary]>=3.1.0
 asyncpg>=0.29.0
 
+# Classical signature primitives (ECDSA-P256) for the events ledger.
+# Added in Thread 2 with explicit approval. The events ledger uses this
+# as the default signature provider via tex.events._ecdsa_provider.
+# Will be superseded by liboqs (ML-DSA-65) in Thread 4 via the
+# tex.pqcrypto.algorithm_agility provider abstraction.
+cryptography>=42
+
+# Temporal knowledge graph backbone for the ecosystem layer.
+# Added in Thread 3 with explicit approval. Used by
+# tex.graph.temporal_kg.InMemoryTemporalKG (P0 in-memory backend).
+networkx>=3.2
+
 -e .

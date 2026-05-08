@@ -156,7 +156,9 @@ def test_every_pipeline_stage_populates_its_output(runtime) -> None:
     assert pdp_result.deterministic_result is not None
     assert pdp_result.retrieval_context is not None
     assert pdp_result.specialist_bundle is not None
-    assert len(pdp_result.specialist_bundle.results) == 4  # default suite has 4 judges
+    # Default suite size: 4 original judges + OwaspSkillsTop10Specialist +
+    # McpInjectionSpecialist = 6 (Thread 7 registration, P0 stack rank).
+    assert len(pdp_result.specialist_bundle.results) == 6
     assert pdp_result.semantic_analysis is not None
     assert len(pdp_result.semantic_analysis.dimension_results) == 5  # 5 canonical dims
     assert pdp_result.routing_result is not None

@@ -8,6 +8,8 @@ from tex.specialists.base import (
     SpecialistJudge,
     SpecialistResult,
 )
+from tex.specialists.mcp_injection_specialist import McpInjectionSpecialist
+from tex.specialists.owasp_skills_top10_specialist import OwaspSkillsTop10Specialist
 
 
 class SecretAndPiiSpecialist:
@@ -336,6 +338,8 @@ def default_specialist_judges() -> tuple[SpecialistJudge, ...]:
         ExternalSharingSpecialist(),
         UnauthorizedCommitmentSpecialist(),
         DestructiveOrBypassSpecialist(),
+        OwaspSkillsTop10Specialist(),
+        McpInjectionSpecialist(),
     )
 
 

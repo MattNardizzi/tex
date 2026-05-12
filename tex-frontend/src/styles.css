@@ -5283,20 +5283,24 @@ html, body { background: var(--void-0); color: var(--bone-100); }
    HERO V14 — 3D depth grid, animated Tex, verb chain in hero
    ============================================================= */
 
-/* GLOBAL FIXED BACKDROP — sits behind every section so the grid
-   doesn't break at the hero/next-section boundary. Lives at the root
-   level alongside <PerspectiveGrid />. */
-.hv14-backdrop {
+/* =============================================================
+   WEBGL BACKDROP — Three.js scene mounted as a fixed canvas behind
+   every section. Container is the wrapper div; the canvas itself
+   is appended by BackdropWebGL.jsx.
+   ============================================================= */
+.backdrop-webgl {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 90% 70% at 50% 40%, rgba(10, 18, 28, 1) 0%, rgba(4, 6, 10, 1) 75%),
-    #02040a;
-  overflow: hidden;
+  background: #02040a;
+}
+.backdrop-webgl > canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .hv14 {
@@ -5308,162 +5312,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   background: transparent;
 }
 
-/* =============================================================
-   MODERN BACKDROP — replaces the old 3D wireframe grid
-   Layers (back to front):
-     1. Base dark gradient (.hv14-backdrop itself)
-     2. Gradient mesh blobs (slow position drift)
-     3. Drifting diagonal light beams
-     4. Canvas particle field with parallax + depth
-     5. Soft horizon glow band
-     6. Vignette to darken edges
-   ============================================================= */
 
-/* ---------- GRADIENT MESH ---------- */
-.hv14-mesh {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-  will-change: transform;
-  filter: blur(80px);
-}
-.hv14-mesh-1 {
-  top: -15%;
-  left: -10%;
-  width: 55%;
-  height: 55%;
-  background: radial-gradient(circle, rgba(86, 230, 220, 0.16) 0%, transparent 60%);
-  animation: hv14-mesh-drift-1 28s ease-in-out infinite;
-}
-.hv14-mesh-2 {
-  top: 30%;
-  right: -15%;
-  width: 60%;
-  height: 65%;
-  background: radial-gradient(circle, rgba(58, 110, 165, 0.18) 0%, transparent 60%);
-  animation: hv14-mesh-drift-2 36s ease-in-out infinite;
-}
-.hv14-mesh-3 {
-  bottom: -20%;
-  left: 25%;
-  width: 65%;
-  height: 60%;
-  background: radial-gradient(circle, rgba(127, 241, 233, 0.10) 0%, transparent 65%);
-  animation: hv14-mesh-drift-3 44s ease-in-out infinite;
-}
-@keyframes hv14-mesh-drift-1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(8%, 6%) scale(1.08); }
-}
-@keyframes hv14-mesh-drift-2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-10%, -4%) scale(1.05); }
-}
-@keyframes hv14-mesh-drift-3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-6%, -8%) scale(1.06); }
-}
-
-/* ---------- DIAGONAL LIGHT BEAMS ---------- */
-/* Long thin diagonal volumetric streaks drifting across the scene.
-   Built as rotated, blurred linear gradients. */
-.hv14-beam {
-  position: absolute;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  filter: blur(28px);
-  opacity: 0.4;
-}
-.hv14-beam-1 {
-  top: -40%;
-  left: -10%;
-  width: 60%;
-  height: 180%;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(127, 241, 233, 0.22) 35%,
-    rgba(127, 241, 233, 0.28) 50%,
-    rgba(127, 241, 233, 0.22) 65%,
-    transparent 100%);
-  transform: rotate(18deg);
-  animation: hv14-beam-drift-1 22s ease-in-out infinite;
-}
-.hv14-beam-2 {
-  top: -30%;
-  right: -20%;
-  width: 50%;
-  height: 170%;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(86, 230, 220, 0.16) 40%,
-    rgba(86, 230, 220, 0.22) 55%,
-    transparent 100%);
-  transform: rotate(-22deg);
-  animation: hv14-beam-drift-2 30s ease-in-out infinite;
-}
-.hv14-beam-3 {
-  top: 10%;
-  left: 30%;
-  width: 35%;
-  height: 130%;
-  background: linear-gradient(180deg,
-    transparent 0%,
-    rgba(170, 245, 240, 0.12) 50%,
-    transparent 100%);
-  transform: rotate(8deg);
-  animation: hv14-beam-drift-3 26s ease-in-out infinite;
-  opacity: 0.3;
-}
-@keyframes hv14-beam-drift-1 {
-  0%, 100% { transform: rotate(18deg) translateX(0); opacity: 0.4; }
-  50%      { transform: rotate(20deg) translateX(40px); opacity: 0.55; }
-}
-@keyframes hv14-beam-drift-2 {
-  0%, 100% { transform: rotate(-22deg) translateX(0); opacity: 0.35; }
-  50%      { transform: rotate(-24deg) translateX(-50px); opacity: 0.5; }
-}
-@keyframes hv14-beam-drift-3 {
-  0%, 100% { transform: rotate(8deg) translateY(0); opacity: 0.3; }
-  50%      { transform: rotate(10deg) translateY(30px); opacity: 0.4; }
-}
-
-/* ---------- PARTICLE CANVAS ---------- */
-.hv14-particles {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 2;
-}
-
-/* ---------- HORIZON GLOW ---------- */
-.hv14-horizon {
-  position: absolute;
-  left: 50%;
-  top: 78%;
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    rgba(86, 230, 220, 0.25) 30%,
-    rgba(127, 241, 233, 0.55) 50%,
-    rgba(86, 230, 220, 0.25) 70%,
-    transparent 100%);
-  transform: translate(-50%, -50%);
-  filter: blur(0.5px);
-  box-shadow: 0 0 80px 4px rgba(86, 230, 220, 0.25);
-}
-
-/* ---------- VIGNETTE ---------- */
-.hv14-vignette {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 110% 75% at 50% 55%, transparent 50%, rgba(0,0,0,0.7) 100%);
-  pointer-events: none;
-  z-index: 3;
-}
 
 /* ---------- KICKER ---------- */
 .hv14-kicker {

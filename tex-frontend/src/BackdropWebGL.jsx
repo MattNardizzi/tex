@@ -172,128 +172,121 @@ export default function BackdropWebGL() {
     scene.add(stars);
 
     // ============================================================
-    // 2. MESH ARTIFACT — distorted icosahedron, vertex displacement,
-    //    fresnel rim glow. Slowly rotating in the deep distance.
+    // 2. MESH ARTIFACT — distant displaced wireframe icosahedron.
+    //    Pure wireframe (no solid fill), pushed deep into the fog
+    //    so it reads as a far-off geometric phantom, not a foreground
+    //    object. Same vertex displacement noise as before so the
+    //    shape pulses and lives, but rendering is sparse line edges.
     // ============================================================
-    const artifactGeo = new THREE.IcosahedronGeometry(110, 4);
-    const artifactMat = new THREE.ShaderMaterial({
+    const ARTIFACT_RADIUS = 140;
+    const ARTIFACT_Z = -1300;          // deep, sits inside fog
+    const artifactBaseGeo = new THREE.IcosahedronGeometry(ARTIFACT_RADIUS, 5);
+    // Convert tri faces -> line segments via WireframeGeometry.
+    const wireGeo = new THREE.WireframeGeometry(artifactBaseGeo);
+
+    // Shared simplex-noise glsl (used by both displacement + we keep
+    // the vertex shader self-contained on the line material).
+    const NOISE_GLSL = /* glsl */ `
+      vec3 mod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 mod289(vec4 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
+      vec4 permute(vec4 x){ return mod289(((x*34.0)+1.0)*x); }
+      vec4 taylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
+      float snoise(vec3 v){
+        const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+        const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+        vec3 i = floor(v + dot(v, C.yyy));
+        vec3 x0 = v - i + dot(i, C.xxx);
+        vec3 g = step(x0.yzx, x0.xyz);
+        vec3 l = 1.0 - g;
+        vec3 i1 = min(g.xyz, l.zxy);
+        vec3 i2 = max(g.xyz, l.zxy);
+        vec3 x1 = x0 - i1 + C.xxx;
+        vec3 x2 = x0 - i2 + C.yyy;
+        vec3 x3 = x0 - D.yyy;
+        i = mod289(i);
+        vec4 p = permute(permute(permute(
+                 i.z + vec4(0.0, i1.z, i2.z, 1.0))
+               + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+               + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+        float n_ = 0.142857142857;
+        vec3 ns = n_ * D.wyz - D.xzx;
+        vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+        vec4 x_ = floor(j * ns.z);
+        vec4 y_ = floor(j - 7.0 * x_);
+        vec4 x = x_ * ns.x + ns.yyyy;
+        vec4 y = y_ * ns.x + ns.yyyy;
+        vec4 h = 1.0 - abs(x) - abs(y);
+        vec4 b0 = vec4(x.xy, y.xy);
+        vec4 b1 = vec4(x.zw, y.zw);
+        vec4 s0 = floor(b0)*2.0 + 1.0;
+        vec4 s1 = floor(b1)*2.0 + 1.0;
+        vec4 sh = -step(h, vec4(0.0));
+        vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+        vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+        vec3 p0 = vec3(a0.xy, h.x);
+        vec3 p1 = vec3(a0.zw, h.y);
+        vec3 p2 = vec3(a1.xy, h.z);
+        vec3 p3 = vec3(a1.zw, h.w);
+        vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+        p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+        vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+        m = m * m;
+        return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+      }
+    `;
+
+    const wireMat = new THREE.ShaderMaterial({
       uniforms: {
-        uTime:    { value: 0 },
-        uColorA:  { value: new THREE.Color(0x56e6dc) },
-        uColorB:  { value: new THREE.Color(0x123040) },
-        uOpacity: { value: 0.85 },
+        uTime:   { value: 0 },
+        uColor:  { value: new THREE.Color(0x56e6dc) },
+        uFogColor:   { value: new THREE.Color(0x02040a) },
+        uFogDensity: { value: 0.00065 },
       },
-      vertexShader: /* glsl */ `
+      vertexShader: `
         uniform float uTime;
-        varying vec3 vNormal;
-        varying vec3 vViewDir;
-        varying float vDisplace;
-
-        // Classic simplex noise (Ashima)
-        vec3 mod289(vec3 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 mod289(vec4 x){ return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 permute(vec4 x){ return mod289(((x*34.0)+1.0)*x); }
-        vec4 taylorInvSqrt(vec4 r){ return 1.79284291400159 - 0.85373472095314 * r; }
-        float snoise(vec3 v){
-          const vec2 C = vec2(1.0/6.0, 1.0/3.0);
-          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-          vec3 i = floor(v + dot(v, C.yyy));
-          vec3 x0 = v - i + dot(i, C.xxx);
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min(g.xyz, l.zxy);
-          vec3 i2 = max(g.xyz, l.zxy);
-          vec3 x1 = x0 - i1 + C.xxx;
-          vec3 x2 = x0 - i2 + C.yyy;
-          vec3 x3 = x0 - D.yyy;
-          i = mod289(i);
-          vec4 p = permute(permute(permute(
-                   i.z + vec4(0.0, i1.z, i2.z, 1.0))
-                 + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-                 + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-          float n_ = 0.142857142857;
-          vec3 ns = n_ * D.wyz - D.xzx;
-          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_);
-          vec4 x = x_ * ns.x + ns.yyyy;
-          vec4 y = y_ * ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-          vec4 b0 = vec4(x.xy, y.xy);
-          vec4 b1 = vec4(x.zw, y.zw);
-          vec4 s0 = floor(b0)*2.0 + 1.0;
-          vec4 s1 = floor(b1)*2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-          vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
-          vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
-          vec3 p0 = vec3(a0.xy, h.x);
-          vec3 p1 = vec3(a0.zw, h.y);
-          vec3 p2 = vec3(a1.xy, h.z);
-          vec3 p3 = vec3(a1.zw, h.w);
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-        }
-
+        varying float vFogDepth;
+        ${NOISE_GLSL}
         void main() {
-          // Layered noise displacement — gives the surface a living, fluid feel
-          float n  = snoise(normal * 1.6 + uTime * 0.15);
-          float n2 = snoise(normal * 4.0 + uTime * 0.22);
-          float d = n * 0.55 + n2 * 0.18;
-          vDisplace = d;
-
-          vec3 displaced = position + normal * d * 22.0;
+          // Re-derive a "normal" from position direction (WireframeGeometry
+          // strips normals, but for a unit-ish sphere, normalize(position)
+          // is a valid surface normal).
+          vec3 nrm = normalize(position);
+          float n  = snoise(nrm * 1.6 + uTime * 0.15);
+          float n2 = snoise(nrm * 4.0 + uTime * 0.22);
+          float d  = n * 0.55 + n2 * 0.18;
+          vec3 displaced = position + nrm * d * 22.0;
 
           vec4 mv = modelViewMatrix * vec4(displaced, 1.0);
-          vNormal = normalize(normalMatrix * normal);
-          vViewDir = normalize(-mv.xyz);
-
+          vFogDepth = -mv.z;
           gl_Position = projectionMatrix * mv;
         }
       `,
-      fragmentShader: /* glsl */ `
-        uniform vec3 uColorA;
-        uniform vec3 uColorB;
-        uniform float uOpacity;
-        varying vec3 vNormal;
-        varying vec3 vViewDir;
-        varying float vDisplace;
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform vec3 uFogColor;
+        uniform float uFogDensity;
+        varying float vFogDepth;
         void main() {
-          // Fresnel — bright on edges, dim on center
-          float f = 1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0);
-          f = pow(f, 2.2);
-
-          // Inner gradient based on displacement
-          vec3 base = mix(uColorB, uColorA, smoothstep(-0.4, 0.6, vDisplace));
-          vec3 rim  = uColorA * f * 2.4;
-
-          vec3 color = base * 0.18 + rim;
-          gl_FragColor = vec4(color, uOpacity * (0.45 + f * 0.55));
+          // Exponential fog applied manually so the line color
+          // fades into the void naturally.
+          float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
+          fogFactor = clamp(fogFactor, 0.0, 1.0);
+          vec3 col = mix(uColor, uFogColor, fogFactor);
+          // Base wire alpha is very low — this is supposed to feel like
+          // a half-glimpsed structure, not a glowing object.
+          float alpha = 0.22 * (1.0 - fogFactor * 0.85);
+          gl_FragColor = vec4(col, alpha);
         }
       `,
       transparent: true,
       depthWrite: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     });
-    const artifact = new THREE.Mesh(artifactGeo, artifactMat);
-    artifact.position.set(0, 0, -650);
-    scene.add(artifact);
 
-    // Wireframe overlay of the same geometry — extra detail without weight
-    const wireGeo = new THREE.IcosahedronGeometry(112, 2);
-    const wireMat = new THREE.LineBasicMaterial({
-      color: 0x56e6dc,
-      transparent: true,
-      opacity: 0.18,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const wireEdges = new THREE.LineSegments(new THREE.EdgesGeometry(wireGeo), wireMat);
-    wireEdges.position.copy(artifact.position);
-    scene.add(wireEdges);
+    const artifact = new THREE.LineSegments(wireGeo, wireMat);
+    // Offset left + slightly up so it doesn't sit directly behind Tex
+    artifact.position.set(-260, 60, ARTIFACT_Z);
+    scene.add(artifact);
 
     // ============================================================
     // 3. LIGHT STREAKS — speed-of-light style streaks behind camera
@@ -424,11 +417,9 @@ export default function BackdropWebGL() {
       artifact.rotation.x = t * 0.05;
       artifact.rotation.y = t * 0.08;
       artifact.rotation.z = t * 0.03;
-      wireEdges.rotation.copy(artifact.rotation);
       const pulse = 1 + Math.min(0.18, Math.abs(scrollVel) * 0.002);
       artifact.scale.setScalar(pulse);
-      wireEdges.scale.setScalar(pulse * 1.01);
-      artifactMat.uniforms.uTime.value = t;
+      wireMat.uniforms.uTime.value = t;
 
       // Light streaks: pull forward when user scrolls
       const streakIntensity = Math.min(1.0, Math.abs(scrollVel) * 0.06);
@@ -465,8 +456,7 @@ export default function BackdropWebGL() {
       starGeo.dispose();
       starMat.dispose();
       ptTex.dispose();
-      artifactGeo.dispose();
-      artifactMat.dispose();
+      artifactBaseGeo.dispose();
       wireGeo.dispose();
       wireMat.dispose();
       glowMap.dispose();

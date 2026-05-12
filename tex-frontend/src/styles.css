@@ -6196,6 +6196,26 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   50%      { transform: scale(1.3); opacity: 0.7; transform-origin: center; }
 }
 
+/* =============================================================
+   SHARED REVEAL + AMBIENT KEYFRAMES
+   These are referenced by the V13 family (.vc13-cell, .bfp13-cell,
+   .ra13-row, etc.) but were missing from the stylesheet — so any
+   element relying on them stayed at its base `opacity: 0` and
+   never appeared. Restored here.
+   ============================================================= */
+@keyframes hv13-h-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hv13-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.8); }
+}
+@keyframes hv13-veil-breathe {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
 .vc13-track {
   position: relative;
   max-width: 1400px;
@@ -6958,10 +6978,37 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv13-headline { top: 4%; font-size: clamp(36px, 8vw, 56px) !important; }
 }
 
+/* =============================================================
+   SAFETY REVEAL — universal fallback
+   2.5s after mount the <html> element gets `.js-revealed`. Any
+   element using an entrance animation that hasn't landed yet
+   (broken keyframe, reduced motion override, throttled tab,
+   IntersectionObserver that never fired) is forced visible.
+   This guarantees a reader always sees content even if the
+   choreography fails.
+   ============================================================= */
+.js-revealed .hv14-eyebrow,
+.js-revealed .hv14-h-line,
+.js-revealed .hv14-sub,
+.js-revealed .hv14-actions,
+.js-revealed .hv14-figure-stage,
+.js-revealed .hv13-h-line,
+.js-revealed .hv13-sub,
+.js-revealed .vc13-cell,
+.js-revealed .bfp13-cell,
+.js-revealed .bfp13-head,
+.js-revealed .ra13-head,
+.js-revealed .ra13-row {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .hv13-h-line, .hv13-sub, .hv13-kicker, .hv13-readout-bar, .hv13-scroll-cue,
-  .hv13-corner, .vc13-cell, .bfp13-cell, .bfp13-head, .ra13-head, .ra13-row {
+  .hv13-corner, .vc13-cell, .bfp13-cell, .bfp13-head, .ra13-head, .ra13-row,
+  .hv14-eyebrow, .hv14-h-line, .hv14-sub, .hv14-actions, .hv14-kicker,
+  .hv14-scroll-cue {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;

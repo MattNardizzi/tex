@@ -251,6 +251,7 @@ function PerspectiveGrid() {
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return; // Hostile environments without canvas support — bail safely.
 
     /* Build two parallax star layers and a few nebula blooms once.
        Drawing happens every frame for slow drift + scroll-linked y offset. */
@@ -1592,23 +1593,44 @@ function LayerSection({ layer, index, active, setActive }) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+
+    // Already-in-view fallback (matches useInView). Sections taller
+    // than the viewport never hit 0.15/0.45 ratios, so we additionally
+    // check geometry on mount.
+    const rect = el.getBoundingClientRect();
+    if (rect.top < window.innerHeight && rect.bottom > 0) {
+      setInView(true);
+    }
+
     const obs = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          // In-view: fires at 15% — used for content fade-in
-          if (e.intersectionRatio > 0.15) {
+          // In-view: any pixel visible -> fade content in
+          if (e.isIntersecting) {
             setInView(true);
           }
-          // Active: fires at 45% — used for the global "current layer"
-          if (e.isIntersecting && e.intersectionRatio > 0.45) {
+          // Active: fires when the section dominates the viewport.
+          // Uses ratio for short sections AND geometry for tall ones
+          // (a section taller than the viewport can't reach 0.45).
+          const r = e.boundingClientRect;
+          const vh = window.innerHeight;
+          const tallSectionCentered = r.top < vh * 0.5 && r.bottom > vh * 0.5;
+          if (e.isIntersecting && (e.intersectionRatio > 0.45 || tallSectionCentered)) {
             setActive(index);
           }
         });
       },
-      { threshold: [0.15, 0.45, 0.7] }
+      { threshold: [0, 0.15, 0.45, 0.7], rootMargin: '0px 0px -10% 0px' }
     );
     obs.observe(el);
-    return () => obs.disconnect();
+
+    // Safety net: reveal content after 1.2s even if observer is silent.
+    const safety = setTimeout(() => setInView(true), 1200);
+
+    return () => {
+      obs.disconnect();
+      clearTimeout(safety);
+    };
   }, [index, setActive]);
 
   const Viz = VIZ_MAP[layer.key];
@@ -2946,6 +2968,19 @@ function useInView(options = {}) {
   const [inView, setInView] = useState(false);
   useEffect(() => {
     if (!ref.current) return;
+
+    // Fallback: if IO is unsupported, or if the section is already
+    // anywhere near the viewport at mount, just reveal it.
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return;
+    }
+    const rect = ref.current.getBoundingClientRect();
+    if (rect.top < window.innerHeight && rect.bottom > 0) {
+      setInView(true);
+      return;
+    }
+
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -2953,10 +2988,22 @@ function useInView(options = {}) {
           obs.disconnect();
         }
       },
-      { threshold: 0.2, ...options }
+      // Trigger as soon as ANY pixel of the section enters the viewport,
+      // and pre-arm 200px above the fold so cards reveal before the
+      // user scrolls onto them. Threshold 0 is critical: thresholds
+      // like 0.2 never fire on sections taller than the viewport.
+      { threshold: 0, rootMargin: '0px 0px -10% 0px', ...options }
     );
     obs.observe(ref.current);
-    return () => obs.disconnect();
+
+    // Safety net: if IO hasn't fired after 1.2s (e.g. hot-reload,
+    // print stylesheet, deferred scroll), reveal anyway.
+    const safety = setTimeout(() => setInView(true), 1200);
+
+    return () => {
+      obs.disconnect();
+      clearTimeout(safety);
+    };
   }, []);
   return [ref, inView];
 }
@@ -3318,6 +3365,22 @@ function App() {
   const [active, setActive] = useState(0);
   const [trialOpen, setTrialOpen] = useState(false);
   const path = useRoute();
+
+  // Safety reveal: 2.5s after mount, force everything visible.
+  // If for any reason an entrance animation fails (reduced motion,
+  // missing keyframe, throttled tab, etc.) elements stuck at opacity:0
+  // will still appear. CSS `.js-revealed` rule below handles this.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      document.documentElement.classList.add('js-revealed');
+    }, 2500);
+    // Also add immediately if the page loaded with reduced motion preferences
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.documentElement.classList.add('js-revealed');
+    }
+    return () => clearTimeout(t);
+  }, []);
+
   const onSelect = useCallback((i) => {
     if (window.location.pathname !== '/') {
       navigate('/');

@@ -2781,10 +2781,10 @@ function TexFigureV14() {
 /* In-hero verb chain — Intercept -> Authorize -> Verify -> Execute.
    Sequential activation cycles every 1.4s. */
 const HV14_VERBS = [
-  { n: '01', word: 'Intercept' },
-  { n: '02', word: 'Authorize' },
-  { n: '03', word: 'Verify'    },
-  { n: '04', word: 'Execute'   },
+  { n: '01', word: 'Intercept', caption: 'Every action routes through Tex.' },
+  { n: '02', word: 'Authorize', caption: 'Policy decides: permit or forbid.' },
+  { n: '03', word: 'Verify',    caption: 'Evidence is signed and chained.' },
+  { n: '04', word: 'Execute',   caption: 'Only sanctioned actions run.'    },
 ];
 
 /* Authority Loop — orbital ring of four verbs that surrounds Tex's
@@ -2868,10 +2868,10 @@ function HV14AuthorityLoop() {
               <circle cx={px} cy={py} r="10" className="hv14-loop-node-outer" />
               <circle cx={px} cy={py} r="5"  className="hv14-loop-node-inner" />
 
-              {/* Label — number above word */}
+              {/* Label — number above word, caption below */}
               <text
                 x={lx}
-                y={ly - 10}
+                y={ly - 18}
                 textAnchor={anchor}
                 dominantBaseline={baseline}
                 className="hv14-loop-num"
@@ -2880,12 +2880,21 @@ function HV14AuthorityLoop() {
               </text>
               <text
                 x={lx}
-                y={ly + 12}
+                y={ly + 6}
                 textAnchor={anchor}
                 dominantBaseline={baseline}
                 className="hv14-loop-word"
               >
                 {v.word.toUpperCase()}
+              </text>
+              <text
+                x={lx}
+                y={ly + 26}
+                textAnchor={anchor}
+                dominantBaseline={baseline}
+                className="hv14-loop-caption"
+              >
+                {v.caption}
               </text>
             </g>
           );

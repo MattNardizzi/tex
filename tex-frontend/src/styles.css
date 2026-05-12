@@ -2673,9 +2673,9 @@ html, body {
 /* "How it works" — restyled */
 .bar-howitworks {
   padding: 0 20px;
-  font-size: 9.5px;
-  letter-spacing: 0.22em;
-  color: var(--bone-400);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--bone-200);
   gap: 8px;
 }
 .bar-howitworks-dot {
@@ -2729,8 +2729,10 @@ html, body {
 
 /* CTA — sharper */
 .bar-cta {
-  font-size: 10px;
-  letter-spacing: 0.22em;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  font-weight: 500;
+  color: var(--tex-bright);
   background: linear-gradient(180deg, rgba(86, 230, 220, 0.16), rgba(86, 230, 220, 0.04));
   position: relative;
   overflow: hidden;
@@ -5467,10 +5469,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   align-items: center;
   gap: 14px;
   font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  font-size: 12px;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--bone-400);
+  color: var(--bone-200);
+  text-shadow: 0 0 18px rgba(0,0,0,0.9);
 }
 .hv14-kicker-dot {
   width: 6px; height: 6px;
@@ -5485,14 +5488,14 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .hv14-kicker-sep {
   width: 1px; height: 12px;
-  background: var(--edge-strong);
+  background: var(--bone-400);
 }
 .hv14-kicker-tex {
   color: var(--bone-100);
-  font-weight: 500;
+  font-weight: 600;
 }
 .hv14-kicker-dim {
-  color: var(--bone-500);
+  color: var(--bone-200);
 }
 
 /* ---------- MAIN STAGE ---------- */
@@ -5919,14 +5922,15 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 /* ---------- AUTHORITY LOOP — orbital ring around Tex's head ---------- */
 .hv14-loop {
   position: absolute;
-  /* Ring orbits Tex's head from outside. Stage is 820px tall with
-     100px top padding before image. Tex head center sits at ~y=310.
-     Ring center aligned to that with top: 6%. */
-  top: 6%;
+  /* Ring now wraps Tex's entire body, not just his head. Figure
+     is 680px tall, padding-top 100px on an 820px stage — Tex's
+     vertical center sits near 54% from the top. Loop centered
+     there, scaled to span roughly head-to-foot. */
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  width: 76%;
-  max-width: 520px;
+  transform: translate(-50%, -50%);
+  width: 105%;
+  max-width: 760px;
   aspect-ratio: 1 / 1;
   z-index: 7;
   pointer-events: none;
@@ -5934,8 +5938,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   animation: hv14-loop-arrive 1.6s ease-out 0.5s forwards;
 }
 @keyframes hv14-loop-arrive {
-  0%   { opacity: 0; transform: translateX(-50%) scale(0.92) rotate(-8deg); }
-  100% { opacity: 1; transform: translateX(-50%) scale(1)    rotate(0deg);  }
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.92) rotate(-8deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1)    rotate(0deg);  }
 }
 .hv14-loop-svg {
   display: block;
@@ -6058,6 +6062,19 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   filter: drop-shadow(0 0 8px rgba(86, 230, 220, 0.7));
 }
 
+/* Caption — short explainer beneath each verb */
+.hv14-loop-caption {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  fill: var(--bone-400);
+  transition: fill 0.4s ease;
+}
+.hv14-loop-verb.is-active .hv14-loop-caption {
+  fill: var(--bone-100);
+}
+
 
 /* ---------- SCROLL CUE ---------- */
 .hv14-scroll-cue {
@@ -6105,8 +6122,9 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv14-tagline { border-left: 0; padding-left: 0; }
   .hv14-actions { justify-content: center; }
   .hv14-sub { margin: 0 auto; }
-  .hv14-loop { width: 78%; max-width: 460px; top: 6%; }
+  .hv14-loop { width: 96%; max-width: 580px; top: 50%; }
   .hv14-loop-word { font-size: 12px; letter-spacing: 0.18em; }
+  .hv14-loop-caption { font-size: 9.5px; }
 }
 
 @media (max-width: 640px) {
@@ -6115,9 +6133,10 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   .hv14-cta-primary, .hv14-cta-ghost { justify-content: center; }
   .hv14-figure-img { height: 380px; }
   .hv14-figure-stage { height: 500px; padding-top: 60px; }
-  .hv14-loop { width: 82%; max-width: 380px; top: 6%; }
+  .hv14-loop { width: 100%; max-width: 460px; top: 50%; }
   .hv14-loop-word { font-size: 10px; letter-spacing: 0.14em; }
   .hv14-loop-num { font-size: 9px; }
+  .hv14-loop-caption { font-size: 8.5px; }
 }
 
 /* =============================================================

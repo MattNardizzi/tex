@@ -238,18 +238,15 @@ export default function BackdropWebGL() {
     const wireMat = new THREE.ShaderMaterial({
       uniforms: {
         uTime:   { value: 0 },
-        uColor:  { value: new THREE.Color(0x56e6dc) },
+        uColor:  { value: new THREE.Color(0x7ff1e9) },
         uFogColor:   { value: new THREE.Color(0x02040a) },
-        uFogDensity: { value: 0.00065 },
+        uFogDensity: { value: 0.00045 },
       },
       vertexShader: `
         uniform float uTime;
         varying float vFogDepth;
         ${NOISE_GLSL}
         void main() {
-          // Re-derive a "normal" from position direction (WireframeGeometry
-          // strips normals, but for a unit-ish sphere, normalize(position)
-          // is a valid surface normal).
           vec3 nrm = normalize(position);
           float n  = snoise(nrm * 1.6 + uTime * 0.15);
           float n2 = snoise(nrm * 4.0 + uTime * 0.22);
@@ -267,20 +264,18 @@ export default function BackdropWebGL() {
         uniform float uFogDensity;
         varying float vFogDepth;
         void main() {
-          // Exponential fog applied manually so the line color
-          // fades into the void naturally.
+          // Exponential fog — fades color toward void with distance.
           float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
           fogFactor = clamp(fogFactor, 0.0, 1.0);
-          vec3 col = mix(uColor, uFogColor, fogFactor);
-          // Base wire alpha is very low — this is supposed to feel like
-          // a half-glimpsed structure, not a glowing object.
-          float alpha = 0.22 * (1.0 - fogFactor * 0.85);
+          vec3 col = mix(uColor, uFogColor, fogFactor * 0.55);
+          // Visible but ghostly — a glimpsed phantom, not a focal object.
+          float alpha = 0.55 * (1.0 - fogFactor * 0.55);
           gl_FragColor = vec4(col, alpha);
         }
       `,
       transparent: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
+      blending: THREE.AdditiveBlending,
     });
 
     const artifact = new THREE.LineSegments(wireGeo, wireMat);

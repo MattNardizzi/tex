@@ -2620,9 +2620,10 @@ html, body {
   letter-spacing: 0.22em;
 }
 .bar-brand .brand-sub {
-  font-size: 9px;
-  letter-spacing: 0.20em;
-  color: var(--bone-500);
+  font-size: 10.5px;
+  letter-spacing: 0.22em;
+  font-weight: 500;
+  color: var(--bone-200);
 }
 
 /* Cell — sharper, more decisive active state */
@@ -5360,10 +5361,10 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   z-index: 4;
   max-width: var(--max-w);
   margin: 0 auto;
-  padding: 110px 56px 180px;
+  padding: 40px 56px 80px;
   display: grid;
   grid-template-columns: 1.05fr 1fr;
-  gap: 60px;
+  gap: 48px;
   align-items: center;
   min-height: calc(100vh - var(--bar-h));
 }
@@ -5373,11 +5374,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .hv14-eyebrow {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--tex);
-  margin-bottom: 32px;
+  margin-bottom: 20px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -5393,11 +5394,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .hv14-headline {
   font-family: var(--serif);
   font-weight: 300;
-  font-size: clamp(56px, 7.4vw, 110px);
-  line-height: 1.0;
+  font-size: clamp(44px, 5.2vw, 80px);
+  line-height: 1.02;
   letter-spacing: -0.025em;
   color: var(--bone-100);
-  margin: 0 0 32px;
+  margin: 0 0 24px;
 }
 .hv14-h-line {
   display: block;
@@ -5431,11 +5432,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 }
 .hv14-subhead {
   font-family: var(--sans);
-  font-size: clamp(18px, 1.5vw, 22px);
+  font-size: clamp(16px, 1.3vw, 19px);
   line-height: 1.45;
   font-weight: 400;
   color: var(--bone-100);
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   text-shadow: 0 0 24px rgba(0,0,0,0.9);
 }
 .hv14-subhead-em {
@@ -5446,11 +5447,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-family: var(--serif);
   font-style: italic;
   font-weight: 300;
-  font-size: clamp(15px, 1.2vw, 18px);
+  font-size: clamp(14px, 1.05vw, 16px);
   line-height: 1.5;
   color: var(--bone-300);
-  margin: 0 0 36px;
-  padding-left: 20px;
+  margin: 0 0 24px;
+  padding-left: 18px;
   border-left: 1px solid var(--edge-tex);
   text-shadow: 0 0 24px rgba(0,0,0,0.9);
 }
@@ -5530,11 +5531,11 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .hv14-figure-stage {
   position: relative;
   width: 100%;
-  height: 820px;
+  height: clamp(480px, 65vh, 640px);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-top: 100px;
+  padding-top: 40px;
   opacity: 0;
   animation: hv14-figure-arrive 1.4s ease-out 0.3s forwards;
 }
@@ -5586,7 +5587,7 @@ html, body { background: var(--void-0); color: var(--bone-100); }
 .hv14-figure-img {
   position: relative;
   display: block;
-  height: 680px;
+  height: clamp(380px, 56vh, 540px);
   width: auto;
   max-width: 100%;
   z-index: 5;
@@ -6037,8 +6038,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   margin: 0;
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(40px, 5.6vw, 84px);
-  line-height: 0.96;
+  font-size: clamp(34px, 4vw, 60px);
+  line-height: 1.02;
   letter-spacing: -0.022em;
   color: #fff;
   max-width: 1100px;
@@ -6178,8 +6179,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   font-family: var(--serif);
   font-style: italic;
   font-weight: 400;
-  font-size: clamp(40px, 5.2vw, 72px);
-  line-height: 0.94;
+  font-size: clamp(30px, 3.4vw, 48px);
+  line-height: 0.96;
   letter-spacing: -0.022em;
   color: #fff;
 }
@@ -6249,8 +6250,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   margin: 0;
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(44px, 6.4vw, 100px);
-  line-height: 0.94;
+  font-size: clamp(36px, 4.4vw, 64px);
+  line-height: 0.98;
   letter-spacing: -0.026em;
   color: #fff;
 }
@@ -6441,8 +6442,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   margin: 0;
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(40px, 5.6vw, 80px);
-  line-height: 0.96;
+  font-size: clamp(34px, 4vw, 58px);
+  line-height: 1.02;
   letter-spacing: -0.022em;
   color: #fff;
   max-width: 1000px;
@@ -6605,8 +6606,8 @@ html, body { background: var(--void-0); color: var(--bone-100); }
   margin: 0;
   font-family: var(--serif);
   font-weight: 400;
-  font-size: clamp(60px, 9.5vw, 184px);
-  line-height: 0.86;
+  font-size: clamp(44px, 5.4vw, 88px);
+  line-height: 0.94;
   letter-spacing: -0.03em;
   color: #fff;
 }

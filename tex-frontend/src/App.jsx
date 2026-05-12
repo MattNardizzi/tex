@@ -2718,22 +2718,27 @@ function HowItWorksPage() {
    and the four verbs of the authority loop.
    ============================================================= */
 
-/* Global fixed backdrop — sits behind every section. Lives at the
-   root shell level so the 3D grid stays continuous as you scroll
-   through the entire page (hero, verb chain, proof, regulatory,
-   closing CTA) without breaks. */
+/* Global fixed backdrop — sits behind every section. Modern
+   volumetric look: deep gradient mesh + drifting cyan light beams +
+   horizon glow + vignette. PerspectiveGrid (separate component)
+   handles the deep-space starfield and nebulae beneath this layer. */
 function HeroBackdrop() {
   return (
     <div className="hv14-backdrop" aria-hidden="true">
-      <div className="hv14-3d-stage">
-        <div className="hv14-grid-floor" />
-        <div className="hv14-grid-mid" />
-        <div className="hv14-grid-ceiling" />
-      </div>
-      <div className="hv14-depth-lines" />
+      {/* Deep gradient mesh — large blurred radial blobs that shift slowly */}
+      <div className="hv14-mesh hv14-mesh-1" />
+      <div className="hv14-mesh hv14-mesh-2" />
+      <div className="hv14-mesh hv14-mesh-3" />
+
+      {/* Drifting cyan light beams — diagonal volumetric streaks */}
+      <div className="hv14-beam hv14-beam-1" />
+      <div className="hv14-beam hv14-beam-2" />
+      <div className="hv14-beam hv14-beam-3" />
+
+      {/* Horizon glow — soft cyan band where the "floor" would be */}
       <div className="hv14-horizon" />
-      <div className="hv14-haze-1" />
-      <div className="hv14-haze-2" />
+
+      {/* Vignette — darkens edges so content reads */}
       <div className="hv14-vignette" />
     </div>
   );

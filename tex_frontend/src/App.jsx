@@ -7,6 +7,107 @@ import './styles.css';
 // JS arrives. CSS shows a deep base color while we wait.
 const BackdropWebGL = lazy(() => import('./BackdropWebGL.jsx'));
 
+const ECOSYSTEM_LAYERS = [
+  {
+    id: '01',
+    title: 'Discovery / Inventory',
+    desc: 'Continuously map every AI agent, tool chain, and shadow workflow.',
+  },
+  {
+    id: '02',
+    title: 'Identity / Access',
+    desc: 'Bind every agent to identity, permissions, trust, and ownership.',
+  },
+  {
+    id: '03',
+    title: 'Monitoring / Observability',
+    desc: 'Trace behavior, anomalies, telemetry, and runtime activity live.',
+  },
+  {
+    id: '04',
+    title: 'Execution Governance',
+    desc: 'Authorize, intercept, permit, abstain, or forbid actions in real time.',
+    featured: true,
+  },
+  {
+    id: '05',
+    title: 'Evidence / Recording',
+    desc: 'Cryptographically chain every decision, execution, and outcome.',
+  },
+  {
+    id: '06',
+    title: 'Learning / Evolution',
+    desc: 'Continuously calibrate governance using outcome feedback loops.',
+  },
+];
+
+function EcosystemHero() {
+  return (
+    <section className="ecosystem-hero">
+      <div className="ecosystem-stars"></div>
+
+      <div className="hero-copy">
+        <div className="hero-kicker">
+          TEX // AI AGENT ECOSYSTEM AUTHORITY
+        </div>
+
+        <h1>
+          Full-Spectrum
+          <br />
+          AI Governance
+        </h1>
+
+        <p className="hero-sub">
+          Tex unifies discovery, identity, observability, execution governance,
+          evidence, and adaptive learning into one continuous governance fabric.
+        </p>
+
+        <div className="hero-buttons">
+          <button className="primary-btn">BOOK A DEMO</button>
+          <button className="secondary-btn">SEE HOW IT WORKS</button>
+        </div>
+      </div>
+
+      <div className="ecosystem-ring-wrap">
+        <div className="ecosystem-ring"></div>
+        <div className="ecosystem-pulse"></div>
+
+        {ECOSYSTEM_LAYERS.map((layer, index) => {
+          const angle = (index / ECOSYSTEM_LAYERS.length) * Math.PI * 2;
+          const radius = 420;
+
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+
+          return (
+            <div
+              key={layer.id}
+              className={`ecosystem-node ${layer.featured ? 'featured-node' : ''}`}
+              style={{
+                transform: `translate(${x}px, ${y}px)`,
+              }}
+            >
+              <div className="node-id">{layer.id}</div>
+              <div className="node-title">{layer.title}</div>
+              <div className="node-desc">{layer.desc}</div>
+            </div>
+          );
+        })}
+
+        <div className="tex-core">
+          <img src={texAvatar} alt="Tex" />
+          <div className="tex-core-glow"></div>
+          <div className="tex-core-label">
+            <span>TEX</span>
+            <small>EXECUTION GOVERNANCE CORE</small>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 /* =============================================================
    CALENDLY — booking config
    ============================================================= */

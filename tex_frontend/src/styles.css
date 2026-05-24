@@ -1,3 +1,280 @@
+
+
+/* =========================================================
+   NEW TEX ECOSYSTEM HERO
+========================================================= */
+
+html, body, #root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow-x: hidden;
+  background: #020611;
+  font-family: Inter, sans-serif;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at center, rgba(0,255,210,0.08), transparent 40%),
+    radial-gradient(circle at top, rgba(0,120,255,0.08), transparent 55%),
+    #020611;
+}
+
+.ecosystem-hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6rem 6vw;
+  color: white;
+  overflow: hidden;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 5;
+  max-width: 620px;
+}
+
+.hero-kicker {
+  color: #53ffe1;
+  letter-spacing: .3rem;
+  font-size: .8rem;
+  margin-bottom: 1.4rem;
+}
+
+.hero-copy h1 {
+  font-size: clamp(4rem, 7vw, 7rem);
+  line-height: .9;
+  margin: 0 0 2rem;
+  font-weight: 300;
+  letter-spacing: -0.25rem;
+}
+
+.hero-sub {
+  max-width: 560px;
+  font-size: 1.15rem;
+  line-height: 1.8;
+  color: rgba(255,255,255,.76);
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2.5rem;
+}
+
+.primary-btn,
+.secondary-btn {
+  padding: 1rem 1.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(83,255,225,.25);
+  background: rgba(255,255,255,.04);
+  color: white;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all .3s ease;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #42f5d7, #1b9cff);
+  color: #021018;
+  font-weight: 700;
+}
+
+.primary-btn:hover,
+.secondary-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0 30px rgba(83,255,225,.25);
+}
+
+.ecosystem-ring-wrap {
+  position: relative;
+  width: 980px;
+  height: 980px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ecosystem-ring {
+  position: absolute;
+  width: 900px;
+  height: 900px;
+  border-radius: 50%;
+  border: 1px solid rgba(83,255,225,.18);
+  box-shadow:
+    0 0 60px rgba(83,255,225,.08),
+    inset 0 0 80px rgba(83,255,225,.04);
+  animation: rotateRing 40s linear infinite;
+}
+
+.ecosystem-pulse {
+  position: absolute;
+  width: 760px;
+  height: 760px;
+  border-radius: 50%;
+  border: 1px dashed rgba(83,255,225,.12);
+  animation: rotateReverse 25s linear infinite;
+}
+
+.ecosystem-node {
+  position: absolute;
+  width: 220px;
+  transform-origin: center;
+  padding: 1rem;
+  border-radius: 24px;
+  background: rgba(7,13,25,.72);
+  border: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 0 30px rgba(0,0,0,.4);
+}
+
+.featured-node {
+  border: 1px solid rgba(83,255,225,.7);
+  background: linear-gradient(
+    135deg,
+    rgba(20,40,70,.95),
+    rgba(7,13,25,.92)
+  );
+  box-shadow:
+    0 0 60px rgba(83,255,225,.32),
+    0 0 120px rgba(83,255,225,.18);
+  transform: scale(1.08) !important;
+}
+
+.featured-node .node-title {
+  color: #53ffe1;
+}
+
+.node-id {
+  font-size: .7rem;
+  letter-spacing: .22rem;
+  color: rgba(83,255,225,.7);
+  margin-bottom: .75rem;
+}
+
+.node-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: .6rem;
+}
+
+.node-desc {
+  color: rgba(255,255,255,.72);
+  line-height: 1.55;
+  font-size: .9rem;
+}
+
+.tex-core {
+  position: absolute;
+  bottom: 40px;
+  width: 420px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tex-core img {
+  width: 100%;
+  filter:
+    drop-shadow(0 0 40px rgba(83,255,225,.3))
+    drop-shadow(0 0 80px rgba(83,255,225,.18));
+}
+
+.tex-core-glow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(83,255,225,.25), transparent 70%);
+  bottom: 80px;
+  z-index: -1;
+  animation: pulseGlow 5s ease-in-out infinite;
+}
+
+.tex-core-label {
+  margin-top: -1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tex-core-label span {
+  letter-spacing: .4rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.tex-core-label small {
+  color: rgba(255,255,255,.55);
+  letter-spacing: .22rem;
+}
+
+@keyframes rotateRing {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes rotateReverse {
+  from { transform: rotate(360deg); }
+  to { transform: rotate(0deg); }
+}
+
+@keyframes pulseGlow {
+  0%,100% {
+    transform: scale(1);
+    opacity: .7;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1400px) {
+  .ecosystem-hero {
+    flex-direction: column;
+    justify-content: flex-start;
+    padding-top: 4rem;
+    gap: 4rem;
+  }
+
+  .hero-copy {
+    text-align: center;
+    max-width: 900px;
+  }
+
+  .hero-buttons {
+    justify-content: center;
+  }
+
+  .ecosystem-ring-wrap {
+    transform: scale(.78);
+  }
+}
+
+@media (max-width: 768px) {
+  .ecosystem-ring-wrap {
+    transform: scale(.45);
+    margin-top: -8rem;
+  }
+
+  .hero-copy h1 {
+    font-size: 3.4rem;
+  }
+
+  .hero-sub {
+    font-size: 1rem;
+  }
+}
+
+
 /* =============================================================
    TEX — Cryptographic Control Plane
    Defense-grade dark · animated · seven distinct instruments

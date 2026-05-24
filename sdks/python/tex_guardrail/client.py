@@ -16,7 +16,7 @@ from typing import Any
 
 
 _DEFAULT_TIMEOUT_SECONDS: float = 5.0
-_DEFAULT_BASE_URL: str = "https://api.tex.io"
+_DEFAULT_BASE_URL: str = "https://api.texaegis.com"
 
 
 class TexError(RuntimeError):
@@ -98,7 +98,7 @@ class TexClient:
     api_key
         Your Tex API key. Sent as `Authorization: Bearer <key>`.
     base_url
-        Base URL of the Tex deployment. Defaults to https://api.tex.io.
+        Base URL of the Tex deployment. Defaults to https://api.texaegis.com.
     timeout_seconds
         Per-request timeout. Defaults to 5 seconds. Tex's p50 is well
         under 200ms; this is the safety net for transient network issues.

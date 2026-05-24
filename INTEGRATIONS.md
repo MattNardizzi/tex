@@ -34,7 +34,7 @@ guardrails:
   - name: tex
     type: webhook
     config:
-      url: https://api.tex.io/v1/guardrail/portkey
+      url: https://api.texaegis.com/v1/guardrail/portkey
       headers:
         Authorization: "Bearer YOUR_TEX_API_KEY"
 ```
@@ -48,7 +48,7 @@ guardrails:
   - guardrail_name: tex
     litellm_params:
       guardrail: webhook
-      api_base: https://api.tex.io/v1/guardrail/litellm
+      api_base: https://api.texaegis.com/v1/guardrail/litellm
       api_key: os.environ/TEX_API_KEY
       mode: pre_call
       default_on: true
@@ -57,7 +57,7 @@ guardrails:
 ### Cloudflare AI Gateway
 
 In the Cloudflare dashboard under your AI Gateway → Guardrails → Custom Webhook:
-- URL: `https://api.tex.io/v1/guardrail/cloudflare`
+- URL: `https://api.texaegis.com/v1/guardrail/cloudflare`
 - Auth header: `Authorization: Bearer YOUR_TEX_API_KEY`
 
 ### Solo.io / Gloo AI Gateway
@@ -68,7 +68,7 @@ kind: GuardrailWebhook
 metadata:
   name: tex
 spec:
-  url: https://api.tex.io/v1/guardrail/solo
+  url: https://api.texaegis.com/v1/guardrail/solo
   headers:
     Authorization: "Bearer YOUR_TEX_API_KEY"
 ```
@@ -79,7 +79,7 @@ spec:
 guardrails:
   - id: tex
     type: webhook
-    url: https://api.tex.io/v1/guardrail/truefoundry
+    url: https://api.texaegis.com/v1/guardrail/truefoundry
     apiKey: ${TEX_API_KEY}
     hooks: [llm_input, llm_output, mcp_tool_pre_invoke, mcp_tool_post_invoke]
 ```
@@ -96,7 +96,7 @@ If you're already calling AWS Bedrock Guardrails and want Tex as a sidecar (or r
 
 In Copilot Studio → Agent settings → Security → External guardrails → Add provider:
 - Name: Tex
-- Endpoint URL: `https://api.tex.io/v1/guardrail/copilot-studio`
+- Endpoint URL: `https://api.texaegis.com/v1/guardrail/copilot-studio`
 - API key: paste your Tex API key
 
 ### OpenAI AgentKit
@@ -110,7 +110,7 @@ agent = AgentKit(
     runtime_guardrails=[
         {
             "name": "tex",
-            "url": "https://api.tex.io/v1/guardrail/agentkit",
+            "url": "https://api.texaegis.com/v1/guardrail/agentkit",
             "headers": {"Authorization": "Bearer YOUR_TEX_API_KEY"},
         },
     ],
@@ -127,7 +127,7 @@ If your agent speaks the Model Context Protocol, add Tex's MCP server to your co
 {
   "mcpServers": {
     "tex": {
-      "url": "https://api.tex.io/mcp",
+      "url": "https://api.texaegis.com/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TEX_API_KEY"
       }
@@ -167,7 +167,7 @@ For the full API, see `sdks/python/README.md`.
 `POST /v1/guardrail` accepts a canonical request shape that's a superset of every gateway's webhook contract.
 
 ```bash
-curl https://api.tex.io/v1/guardrail \
+curl https://api.texaegis.com/v1/guardrail \
   -H "Authorization: Bearer YOUR_TEX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -208,7 +208,7 @@ Two streaming modes are supported, for two different use cases.
 `POST /v1/guardrail/stream` returns a Server-Sent Events stream. Useful when a gateway wants early signals before the full evaluation completes.
 
 ```bash
-curl -N https://api.tex.io/v1/guardrail/stream \
+curl -N https://api.texaegis.com/v1/guardrail/stream \
   -H "Authorization: Bearer YOUR_TEX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Hi Jordan...", "action_type": "send_email"}'
@@ -306,11 +306,11 @@ Every decision — regardless of which integration path created it — produces 
 
 ```bash
 # Replay the durable Decision record:
-curl https://api.tex.io/decisions/{decision_id}/replay \
+curl https://api.texaegis.com/decisions/{decision_id}/replay \
   -H "Authorization: Bearer YOUR_TEX_API_KEY"
 
 # Get the signed evidence bundle (suitable for handing to an auditor):
-curl https://api.tex.io/decisions/{decision_id}/evidence-bundle \
+curl https://api.texaegis.com/decisions/{decision_id}/evidence-bundle \
   -H "Authorization: Bearer YOUR_TEX_API_KEY"
 ```
 

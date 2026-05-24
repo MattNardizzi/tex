@@ -1,0 +1,88 @@
+Thread 10 (extended) — genuine Mithril, TALUS-TEE, HQC, CMS DER
+
+Closes the four "honest gaps" called out at the end of the prior Thread
+10 zip:
+
+1. **Genuine Mithril threshold ML-DSA**, not a quorum certificate.
+2. **TALUS-TEE** 1-round signing harness with attestation.
+3. **HQC** KEM + ML-KEM/HQC hybrid combiner.
+4. **CMS / X.509 DER** serialization for composite signatures.
+
+Plus honest renaming of the prior "threshold" module to "quorum".
+
+New modules
+-----------
+* tex.pqcrypto.threshold_ml_dsa (REWRITTEN)
+    Thin Python wrapper around the vendored Rust crate ``threshold-ml-dsa``
+    v0.3.6 (lattice-safe, ePrint 2026/013, MIT) via a PyO3 binding
+    (vendor/mithril/tex_mithril.so + vendor/mithril/binding_src/).
+    Produces a single bit-for-bit FIPS 204 ML-DSA-44 signature (2,420
+    bytes) verifiable under any unmodified ML-DSA-44 verifier.
+
+* tex.pqcrypto.talus_tee (NEW)
+    TALUS-TEE 1-round signing harness per arxiv 2603.22109 v2 (Kao,
+    Mar 24 2026). Attestation interface for Intel SGX (DCAP), Intel TDX,
+    AMD SEV-SNP; pluggable verifier registry; fail-closed defaults;
+    measurement-pinned signatures; freshness window.
+
+* tex.pqcrypto.hqc (NEW)
+    HQC-128/192/256 (NIST 4th-round selection, FIPS 207 draft).
+    MlKemHqcHybridProvider runs ML-KEM-1024 + HQC-256 in parallel and
+    combines via HKDF-SHA-512. Required by BSI TR-02102 and ANSSI 2024.
+
+* tex.pqcrypto.composite_cms (NEW)
+    ASN.1 DER serialization per draft-ietf-lamps-pq-composite-sigs-18 §4.1
+    and draft-ietf-lamps-cms-composite-sigs-04. CompositeSignatureValue
+    SEQUENCE, AlgorithmIdentifier round-trip, CMS SignerInfo envelope.
+
+Renamed/restructured
+--------------------
+* tex.pqcrypto.threshold_ml_dsa (prior thread) → tex.pqcrypto.quorum_ml_dsa
+  ThresholdMlDsaProvider → QuorumMlDsaProvider (backwards-compat alias kept).
+  Enum: THRESHOLD_ML_DSA_* (now reserved for genuine Mithril) split from
+  new QUORUM_ML_DSA_* (used for the certificate construction).
+* tex.pqcrypto.algorithm_agility: THRESHOLD_ML_DSA_* now raises
+  NotImplementedError with a redirect to the Mithril module (because MPC
+  threshold doesn't fit the single-key Protocol). QUORUM_ML_DSA_* routes
+  to QuorumMlDsaProvider.
+
+Vendored
+--------
+* vendor/mithril/tex_mithril.so — prebuilt x86_64 Linux PyO3 extension.
+* vendor/mithril/binding_src/ — PyO3 binding source (Cargo + lib.rs).
+* vendor/mithril/upstream/ — full threshold-ml-dsa Rust crate source for
+  audit + rebuild on other platforms.
+
+New tests (63)
+--------------
+* tests/pqcrypto/test_threshold_ml_dsa.py (18) — genuine Mithril.
+  Bit-for-bit FIPS 204 output, cross-impl interop with liboqs verifier,
+  deterministic keygen, same-pk invariant across t-subsets.
+* tests/pqcrypto/test_talus_tee.py (15) — attestation interface, fail-
+  closed defaults, measurement pinning, freshness, NATIVE_BCC stub path.
+* tests/pqcrypto/test_hqc.py (16) — round-trip on all three parameter
+  sets, hybrid combiner, KDF binding to both halves.
+* tests/pqcrypto/test_composite_cms.py (14) — DER round-trip, OIDs,
+  AlgorithmIdentifier, malformed DER rejection.
+
+Updated tests
+-------------
+* tests/pqcrypto/test_quorum_ml_dsa.py — renamed from
+  test_threshold_ml_dsa.py with imports/symbols updated for QUORUM_*.
+
+Full test count: 2,905 passed, 5 skipped (intentional liboqs probe paths),
+3 pre-existing ecosystem failures unrelated to pqcrypto. Up from 2,842
+(prior Thread 10).
+
+Honesty
+-------
+- Mithril upstream Rust crate is v0.3 — supports ML-DSA-44 only. ML-DSA-65
+  and ML-DSA-87 quorum signing is served today by the quorum certificate
+  module (independent keys per signer); upgrade to Mithril MPC for L3/L5
+  is a one-line provider swap when upstream v0.4 ships.
+- TALUS BCC+CEF native cryptographic path stubbed at TEX_TALUS_NATIVE_BCC=1
+  (raises NotImplementedError); the operational 1-round profile is
+  delivered today via Mithril inside the TEE coordinator.
+- FN-DSA (FIPS 206 / FALCON) still not shipped — NIST IPD in review.
+
+Co-authored-by: Claude (Sonnet 4.5) via Tex build harness

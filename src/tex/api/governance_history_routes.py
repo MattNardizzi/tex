@@ -37,7 +37,7 @@ from tex.api.agent_routes import (
     _resolve_ledger,
     _resolve_registry,
 )
-from tex.api.auth import TexPrincipal, authenticate_request
+from tex.api.auth import TexPrincipal, authenticate_request, enforce_tenant_match
 from tex.stores.drift_events import DriftEventKind
 
 
@@ -248,17 +248,12 @@ def build_governance_history_router() -> APIRouter:
         payload: CaptureSnapshotRequest,
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> SnapshotSummaryDTO:
-        # If the caller passed tenant_id, scope-check it.
-        if (
-            payload.tenant_id is not None
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != payload.tenant_id.strip().casefold()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match request tenant_id",
-            )
+        # Tenant scope check via the canonical helper. ``enforce_tenant_match``
+        # short-circuits when ``payload.tenant_id`` is None (no requested
+        # tenant ⇒ nothing to compare against) and when the principal is
+        # anonymous or carries ``admin:cross_tenant``. This replaces the
+        # earlier inline ad-hoc check (Thread 3 §migrated).
+        enforce_tenant_match(principal, payload.tenant_id)
 
         store = _resolve_snapshot_store(request)
         registry = _resolve_registry(request)
@@ -327,28 +322,27 @@ def build_governance_history_router() -> APIRouter:
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> SnapshotListResponse:
         # Tenant scope: a non-default keyed principal cannot see other
-        # tenants' snapshots.
-        if (
-            tenant_id is not None
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != tenant_id.strip().casefold()
+        # tenants' snapshots. ``enforce_tenant_match`` 403s on mismatch
+        # and returns the effective tenant — for an unset query against
+        # a tenant-scoped principal it returns the principal's tenant,
+        # auto-scoping the list. (Thread 3 §migrated from inline.)
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        resolved = enforce_tenant_match(principal, tenant_id)
+        # For anonymous / default / cross-tenant principals we keep the
+        # original "list everything when no query is given" semantics.
+        if tenant_id is None and (
+            principal.is_anonymous
+            or principal.tenant == "default"
+            or SCOPE_CROSS_TENANT in principal.scopes
         ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match query tenant_id",
-            )
-        if (
-            tenant_id is None
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-        ):
-            tenant_id = principal.tenant
+            effective_tenant: str | None = None
+        else:
+            effective_tenant = resolved
 
         store = _resolve_snapshot_store(request)
         records = store.list_recent(limit=limit)
-        if tenant_id is not None:
-            normalized = tenant_id.strip().casefold()
+        if effective_tenant is not None:
+            normalized = effective_tenant.strip().casefold()
             records = [
                 r for r in records
                 if (r.get("tenant_id") or "").strip().casefold() == normalized
@@ -374,16 +368,10 @@ def build_governance_history_router() -> APIRouter:
                 detail=f"snapshot not found: {snapshot_id}",
             )
         snapshot_tenant = record.get("tenant_id")
-        if (
-            snapshot_tenant
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != snapshot_tenant.strip().casefold()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match snapshot tenant",
-            )
+        # Mid-handler tenant check via the canonical helper. Falls
+        # through cleanly when ``snapshot_tenant`` is None / empty.
+        # (Thread 3 §migrated from inline.)
+        enforce_tenant_match(principal, snapshot_tenant)
         return SnapshotDetailResponse(snapshot=record)
 
     @router.get(
@@ -405,16 +393,8 @@ def build_governance_history_router() -> APIRouter:
                 detail=f"snapshot not found: {snapshot_id}",
             )
         snapshot_tenant = record_for_scope.get("tenant_id")
-        if (
-            snapshot_tenant
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != snapshot_tenant.strip().casefold()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match snapshot tenant",
-            )
+        # Mid-handler tenant check. (Thread 3 §migrated from inline.)
+        enforce_tenant_match(principal, snapshot_tenant)
 
         drift_store = getattr(request.app.state, "drift_event_store", None)
         discovery_ledger = _resolve_discovery_ledger(request)
@@ -521,16 +501,8 @@ def build_governance_history_router() -> APIRouter:
                 detail=f"snapshot not found: {snapshot_id}",
             )
         snapshot_tenant = record_for_scope.get("tenant_id")
-        if (
-            snapshot_tenant
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != snapshot_tenant.strip().casefold()
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match snapshot tenant",
-            )
+        # Mid-handler tenant check. (Thread 3 §migrated from inline.)
+        enforce_tenant_match(principal, snapshot_tenant)
 
         # Reuse the JSON evidence bundle path — same data, same
         # manifest. Then pack it.
@@ -685,26 +657,24 @@ def build_drift_router() -> APIRouter:
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> DriftListResponse:
         # Scope: a non-default keyed principal sees only its own tenant.
-        if (
-            tenant_id is not None
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-            and principal.tenant.casefold() != tenant_id.strip().casefold()
+        # ``enforce_tenant_match`` 403s on mismatch and returns the
+        # effective tenant — for an unset query against a tenant-scoped
+        # principal it returns the principal's tenant, auto-scoping
+        # the list. (Thread 3 §migrated from inline.)
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        resolved = enforce_tenant_match(principal, tenant_id)
+        if tenant_id is None and (
+            principal.is_anonymous
+            or principal.tenant == "default"
+            or SCOPE_CROSS_TENANT in principal.scopes
         ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="API key tenant does not match query tenant_id",
-            )
-        if (
-            tenant_id is None
-            and not principal.is_anonymous
-            and principal.tenant != "default"
-        ):
-            tenant_id = principal.tenant
+            effective_tenant: str | None = None
+        else:
+            effective_tenant = resolved
 
         store = _resolve_drift_store(request)
-        if tenant_id:
-            events = store.list_for_tenant(tenant_id, limit=limit)
+        if effective_tenant:
+            events = store.list_for_tenant(effective_tenant, limit=limit)
         else:
             events = store.list_recent(limit=limit)
         return DriftListResponse(
@@ -734,9 +704,13 @@ def build_drift_router() -> APIRouter:
         events = store.list_by_kind(kind_enum, limit=limit)
         # Tenant filter applied here too so a per-tenant key cannot
         # see other tenants' drift events even via the kind filter.
+        # (Thread 3 §migrated: now respects admin:cross_tenant scope,
+        # matching the rest of the codebase.)
+        from tex.api.auth import SCOPE_CROSS_TENANT
         if (
             not principal.is_anonymous
             and principal.tenant != "default"
+            and SCOPE_CROSS_TENANT not in principal.scopes
         ):
             events = [e for e in events if e.tenant_id == principal.tenant.casefold()]
         return DriftListResponse(
@@ -775,10 +749,18 @@ def build_scheduler_router() -> APIRouter:
         request: Request,
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> SchedulerRunResponse:
-        # Admin op: when keys are configured, only the operator
-        # ("default" tenant) may invoke it. Per-tenant keys cannot
-        # globally trigger the scheduler.
-        if not principal.is_anonymous and principal.tenant != "default":
+        # Admin op: when keys are configured, only operator-grade keys
+        # (those carrying the ``admin:cross_tenant`` scope OR the
+        # "default" operator tenant) may invoke. Per-tenant keys cannot
+        # globally trigger the scheduler. (Thread 3 §migrated to scope
+        # check; preserves the original "default tenant is operator"
+        # semantics while making the admin gate explicit.)
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        if (
+            not principal.is_anonymous
+            and principal.tenant != "default"
+            and SCOPE_CROSS_TENANT not in principal.scopes
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="scheduler admin actions require operator-grade key",
@@ -796,7 +778,12 @@ def build_scheduler_router() -> APIRouter:
         request: Request,
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> SchedulerStatusResponse:
-        if not principal.is_anonymous and principal.tenant != "default":
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        if (
+            not principal.is_anonymous
+            and principal.tenant != "default"
+            and SCOPE_CROSS_TENANT not in principal.scopes
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="scheduler admin actions require operator-grade key",
@@ -814,7 +801,12 @@ def build_scheduler_router() -> APIRouter:
         request: Request,
         principal: TexPrincipal = Depends(authenticate_request),
     ) -> SchedulerStatusResponse:
-        if not principal.is_anonymous and principal.tenant != "default":
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        if (
+            not principal.is_anonymous
+            and principal.tenant != "default"
+            and SCOPE_CROSS_TENANT not in principal.scopes
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="scheduler admin actions require operator-grade key",

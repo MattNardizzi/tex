@@ -1,0 +1,80 @@
+thread 11: wire IFC into PDP via IfcSpecialist + ARM/FIDES/NeuroTaint/CA-CI
+
+What changed
+------------
+The ``tex.governance.private_data_exec`` subpackage (the GAAP-paper
+sandbox shipped in Thread 1, tests-passing but unconsumed by the PDP)
+is now extended with a new ``ifc/`` subpackage and wired into the
+live ``/v1/guardrail`` request path through a new ``IfcSpecialist``.
+
+New modules (all under ``src/tex/governance/private_data_exec/ifc/``)
+- ``lattice.py``    — 5-level integrity lattice + FIDES product lattice
+- ``provenance.py`` — ARM 4-edge provenance graph + counterfactual edges
+- ``memory.py``     — NeuroTaint cross-session memory stream
+- ``ci_norms.py``   — CA-CI six-tuple contextual integrity norms
+- ``classifier.py`` — Tex-request → labeled-source mapper
+- ``engine.py``     — six-check IFC engine orchestrator
+- ``__init__.py``   — public API
+
+Specialist wiring
+- ``src/tex/specialists/ifc_specialist.py``   — new specialist
+- ``src/tex/specialists/judges.py``           — registered as slot #15
+
+Test coverage (81 new + 2 updated counts)
+- ``tests/governance/test_ifc_lattice.py``    — 14 tests
+- ``tests/governance/test_ifc_provenance.py`` — 14 tests (incl. p99
+                                                <5ms latency benchmark)
+- ``tests/governance/test_ifc_memory.py``     — 8 tests
+- ``tests/governance/test_ifc_ci_norms.py``   — 8 tests
+- ``tests/governance/test_ifc_engine.py``     — 17 tests covering all
+                                                6 violation classes
+- ``tests/specialists/test_ifc_specialist.py``— 12 tests
+- ``tests/test_integration_layer.py``         — 3 live-pipeline
+  ``TestIfcSpecialistInLiveGuardrail`` class    integration tests
+- ``tests/specialists/test_calibration_preservation.py``
+                                              — bumped count 14→15
+- ``tests/test_pdp.py``                       — bumped count 14→15
+
+Six distinct violation classes
+- ``ifc.flow_integrity``           (FIDES dual-axis)
+- ``ifc.causality_laundering``     (ARM novel — denial-feedback leakage)
+- ``ifc.min_trust_floor``          (ARM Layer-2 trust check)
+- ``ifc.ci_norm_violation``        (CA-CI purpose-drift scope creep)
+- ``ifc.neurotaint_cross_session`` (NeuroTaint cross-session axis)
+- ``ifc.rule_of_two_trifecta``     (Meta + EchoLeak corrective)
+
+ASI 2026 mappings
+- All 6 classes               → ASI09 (Unintended Information Leakage)
+- NEUROTAINT_CROSS_SESSION    → ASI09 + ASI07 (Memory Poisoning)
+- RULE_OF_TWO_TRIFECTA        → ASI09 + ASI01 (Agent Goal Hijack)
+
+Documentation
+- ``CLAIMS.md``               — Thread 11 claim block + removed
+                                 ``private_data_exec`` from "not
+                                 wired" list
+- ``FRONTIER_DELTA_thread_11.md`` — full delta brief
+
+References (primary)
+- arXiv:2604.04035 (ARM, Chinaei, Apr 5 2026) — primary anchor;
+  causality laundering + counterfactual edges
+- arXiv:2505.23643 (FIDES, Costa/Köpf et al, Microsoft Research) —
+  dual-axis lattice + type-capacity declassification
+- arXiv:2604.19657 (GAAP, Stanley/Verma/Tsai/Kallas/Kumar, UCLA +
+  Google, Apr 21 2026) — parent paper for `private_data_exec`
+- arXiv:2604.23374 (NeuroTaint / "Ghost in the Agent") —
+  cross-session taint persistence
+- arXiv:2602.16708 (PCAS, Palumbo/Choudhary/Choi/Chalasani/
+  Christodorescu/Jha, Feb 18 2026) — Datalog dependency-graph
+  reference monitor (compatible architecture)
+- arXiv:2506.07564 (SAFEFLOW) — transactional IFC (next thread
+  follow-up)
+- IEEE S&P 2026 (CA-CI, Roemmich/Martin/Schaub) — six-tuple
+  contextual integrity with purpose-as-parameter
+- Meta AI Oct 31 2025 (Rule of Two) + Towards AI Nov 14 2025
+  (EchoLeak counterexample, CVE-2025-32711)
+
+Wedge confirmation: as of May 20 2026, neither Microsoft Agent
+Governance Toolkit (Apr 2 2026 release, MIT, 7 packages) nor Agent
+365 (GA May 1 2026) ships any IFC module. Zenity, Noma, Pillar,
+Lakera, Rubrik SAGE ship none of this either. The papers exist; the
+runtime fusion does not. Thread 11 is the operational wire-in.

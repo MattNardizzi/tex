@@ -131,7 +131,13 @@ class DecisionRouter:
         )
 
         deterministic_score = self._deterministic_score(deterministic_result)
-        specialist_score = specialist_bundle.max_risk_score
+        # Cross-specialist fusion: aggregates the bundle through a
+        # corroboration-aware rule (pair signals + cascading-failure
+        # detection). fused_risk >= max_risk_score always, so this only
+        # increases sensitivity. See src/tex/specialists/fusion.py.
+        from tex.specialists.fusion import fuse as _fuse_specialists
+        _fusion_verdict = _fuse_specialists(specialist_bundle)
+        specialist_score = _fusion_verdict.fused_risk
         semantic_score = semantic_analysis.max_dimension_score
 
         # Agent stream scores. When agent_bundle is None or marks
@@ -523,6 +529,30 @@ class DecisionRouter:
 
         if specialist_bundle.max_risk_score >= 0.60 and final_score < policy.forbid_threshold:
             return True
+
+        # Thread 4.5: frontier specialists firing in the [0.30, 0.60]
+        # band should promote to ABSTAIN even when other layers see
+        # nothing. The paper SOTA numerics (arxiv 2604.10134 §IV,
+        # 2605.03228 §5, 2603.10749, 2601.05755, 2605.03378, 2604.11790,
+        # 2604.05969) are specialist-level, not pipeline-fused. Without
+        # this rule the specialist signal is diluted to PERMIT by zero-
+        # scoring downstream layers. Calibration on benign traffic
+        # preserved because these specialists return floor (0.05) on
+        # benign content.
+        _STRUCTURAL_SPECIALISTS = {
+            # Thread 4 structural defenders
+            "clawguard", "mcpshield", "planguard", "mage", "agentarmor",
+            # Thread 4.5 frontier additions
+            "argus", "attriguard", "vigil",
+        }
+        for _spec in specialist_bundle.results:
+            if (
+                _spec.specialist_name in _STRUCTURAL_SPECIALISTS
+                and _spec.risk_score >= 0.30
+                and _spec.matched_policy_clause_ids
+                and final_score < policy.forbid_threshold
+            ):
+                return True
 
         if any(flag.casefold() == "no_retrieval_context" for flag in uncertainty_flags):
             if final_score >= policy.permit_threshold:

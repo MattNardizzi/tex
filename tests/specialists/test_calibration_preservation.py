@@ -122,4 +122,11 @@ def test_unique_specialist_names_in_bundle(empty_context) -> None:
     bundle = suite.evaluate(request=request, retrieval_context=empty_context)
     names = [r.specialist_name for r in bundle.results]
     assert len(names) == len(set(names))
-    assert len(names) == 6  # 4 existing + 2 new
+    # 4 baseline + 2 owasp/mcp + 5 Thread-4 runtime defenses (clawguard,
+    # mcpshield, planguard, mage, agentarmor) + 3 Thread-4.5 frontier
+    # additions (argus, attriguard, vigil) = 14.
+    assert len(names) == 20  # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign
+    expected_thread_4 = {"clawguard", "mcpshield", "planguard", "mage", "agentarmor"}
+    expected_thread_4_5 = {"argus", "attriguard", "vigil"}
+    assert expected_thread_4.issubset(set(names))
+    assert expected_thread_4_5.issubset(set(names))

@@ -26,4 +26,18 @@ cryptography>=42
 # tex.graph.temporal_kg.InMemoryTemporalKG (P0 in-memory backend).
 networkx>=3.2
 
+# ASN.1 / DER encoding for composite ML-DSA
+# (draft-ietf-lamps-pq-composite-sigs-18, April 2026; latest revision
+# May 20, 2026), X.509 certificate handling, and CMS shapes across
+# tex.pqcrypto.*. Must be kept in sync with pyproject.toml.
+pyasn1>=0.6.0
+pyasn1_modules>=0.4.0
+
+# BLAKE3-XOF for the algorithm-agile signing context binding path
+# (arxiv 2605.06788). Used as the context-binding hash inside
+# tex.pqcrypto.* ML-DSA dispatch. Must be kept in sync with
+# pyproject.toml.
+blake3>=0.4.1
+
 -e .
+poseidon-hash>=0.1.4

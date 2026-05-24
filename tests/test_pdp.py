@@ -157,8 +157,10 @@ def test_every_pipeline_stage_populates_its_output(runtime) -> None:
     assert pdp_result.retrieval_context is not None
     assert pdp_result.specialist_bundle is not None
     # Default suite size: 4 original judges + OwaspSkillsTop10Specialist +
-    # McpInjectionSpecialist = 6 (Thread 7 registration, P0 stack rank).
-    assert len(pdp_result.specialist_bundle.results) == 6
+    # McpInjectionSpecialist + Thread-4 runtime defenses (ClawGuard,
+    # MCPShield, PlanGuard, MAGE, AgentArmor) + Thread-4.5 frontier
+    # additions (Argus, AttriGuard, Vigil) = 14.
+    assert len(pdp_result.specialist_bundle.results) == 20  # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign
     assert pdp_result.semantic_analysis is not None
     assert len(pdp_result.semantic_analysis.dimension_results) == 5  # 5 canonical dims
     assert pdp_result.routing_result is not None

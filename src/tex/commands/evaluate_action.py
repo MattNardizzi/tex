@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
@@ -25,6 +27,8 @@ from tex.stores.precedent_store import InMemoryPrecedentStore
 from tex.stores.tenant_content_baseline import InMemoryTenantContentBaseline
 
 AGENT_IDENTITY_NAMESPACE = UUID("9d9d47ff-e665-4abc-9316-390ec97f02fb")
+
+_logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -218,6 +222,14 @@ class EvaluateActionCommand:
                 response = response.model_copy(
                     update={"evidence_hash": evidence_record.record_hash}
                 )
+                # Thread 2 — emit first-class contract violation evidence
+                # rows linked to this decision evidence row. See
+                # _record_contract_violation_evidence for rationale.
+                self._record_contract_violation_evidence(
+                    decision=decision,
+                    pdp_result=pdp_result,
+                    parent_evidence_hash=evidence_record.record_hash,
+                )
             else:
                 self._decision_store.save(decision)
                 self._save_precedent(decision)
@@ -234,6 +246,13 @@ class EvaluateActionCommand:
                     # mutation we allow at the application layer.
                     response = response.model_copy(
                         update={"evidence_hash": evidence_record.record_hash}
+                    )
+                    # Thread 2 — emit first-class contract violation evidence
+                    # rows linked to this decision evidence row.
+                    self._record_contract_violation_evidence(
+                        decision=decision,
+                        pdp_result=pdp_result,
+                        parent_evidence_hash=evidence_record.record_hash,
                     )
 
             self._record_action_ledger_entry(
@@ -570,6 +589,35 @@ class EvaluateActionCommand:
                 request.agent_identity.fingerprint_hash
             )
 
+        # Thread 12 — composite TEE attestation (Intel TDX + NVIDIA GPU).
+        # Gated by TEX_TEE_MODE=1 so non-CC deployments pay zero cost and
+        # existing tests are unaffected. When enabled, each decision's
+        # evidence record carries a hardware-rooted attestation JWT whose
+        # nonce is bound to the decision_id (CrossGuard pattern, arxiv
+        # 2604.23280, Apr 28 2026). Failures are isolated: TEE collection
+        # errors are recorded as a metadata flag but never block the
+        # decision from being recorded — the decision path stays
+        # fail-closed at the PDP layer, not at the audit layer.
+        if os.environ.get("TEX_TEE_MODE", "").strip() == "1":
+            try:
+                from tex.tee import compose_attestation
+
+                envelope = compose_attestation(
+                    decision_id=str(decision.decision_id),
+                    request_id=str(request.request_id),
+                )
+                metadata["tee_composite_attestation"] = envelope.model_dump(
+                    mode="json"
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Record the failure as evidence so auditors can see the
+                # operator wanted TEE binding but the attestation
+                # collection failed. The decision itself is unaffected.
+                metadata["tee_composite_attestation_error"] = {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc)[:512],
+                }
+
         return metadata
 
     @staticmethod
@@ -611,6 +659,114 @@ class EvaluateActionCommand:
             decision,
             metadata=metadata,
         )
+
+    def _record_contract_violation_evidence(
+        self,
+        *,
+        decision: Decision,
+        pdp_result: PDPResult,
+        parent_evidence_hash: str,
+    ) -> None:
+        """
+        Emit one evidence row per behavioral contract violation, each
+        linked to the parent decision evidence row by
+        ``parent_evidence_hash``.
+
+        Why this is its own method
+        --------------------------
+        Contract findings already live inside ``decision.findings`` and
+        are durable inside the parent decision row. But that makes them
+        not separately addressable: an auditor cannot pull a single
+        violation receipt without re-deriving it from the decision payload.
+        First-class contract-violation evidence rows give every violation:
+          * its own ``payload_sha256``
+          * its own ``record_hash`` in the linear chain
+          * a ``parent_evidence_hash`` cross-reference back to the
+            decision row that triggered it
+
+        This is the "evidence on demand" claim. See
+        ``EvidenceRecorder.record_contract_violation`` for the per-row
+        payload schema and its alignment to arxiv 2602.22302 §5.2.
+
+        Best-effort semantics
+        ---------------------
+        A failure inside this method does NOT block the request. The
+        parent decision evidence row has already been written and is
+        the source of truth; the contract-violation rows are an
+        addressable cross-reference. If the recorder raises, we log
+        and continue — the violation is still durable in the parent
+        decision row's findings array.
+
+        Recorder discovery: the recorder must expose
+        ``record_contract_violation`` for this method to do anything.
+        The memory system's recorder may not — in that case we silently
+        skip. Operators wiring a custom recorder can opt out simply by
+        not implementing the method.
+        """
+        recorder = self._evidence_recorder
+        if recorder is None:
+            return
+        record_method = getattr(recorder, "record_contract_violation", None)
+        if record_method is None:
+            return
+
+        contract_findings = [
+            f for f in decision.findings if f.source == "contracts.behavioral"
+        ]
+        if not contract_findings:
+            return
+
+        for finding in contract_findings:
+            try:
+                meta = dict(finding.metadata) if finding.metadata else {}
+                contract_id = str(meta.get("contract_id", ""))
+                violated_clause = str(meta.get("violated_clause", ""))
+                clause_ltl = str(meta.get("clause_ltl", ""))
+                step_index = int(meta.get("step_index", 0))
+                compliance_gap = float(meta.get("compliance_gap", 0.0))
+                severity_class = str(meta.get("severity_class", ""))
+                is_soft = bool(meta.get("is_soft", False))
+                session_key_val = meta.get("session_key")
+                session_key = (
+                    str(session_key_val) if session_key_val is not None else None
+                )
+                replayed_window_size = int(
+                    meta.get("replayed_window_size", 0)
+                )
+                deadline_val = meta.get("recovery_deadline_step")
+                recovery_deadline_step = (
+                    int(deadline_val) if deadline_val is not None else None
+                )
+
+                record_method(
+                    decision_id=decision.decision_id,
+                    request_id=decision.request_id,
+                    policy_version=decision.policy_version,
+                    contract_id=contract_id,
+                    violated_clause=violated_clause,
+                    clause_ltl=clause_ltl,
+                    step_index=step_index,
+                    compliance_gap=compliance_gap,
+                    severity_class=severity_class,
+                    is_soft=is_soft,
+                    rule_name=finding.rule_name,
+                    message=finding.message,
+                    parent_evidence_hash=parent_evidence_hash,
+                    session_key=session_key,
+                    replayed_window_size=replayed_window_size,
+                    recovery_deadline_step=recovery_deadline_step,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Best-effort. The parent decision evidence row carries
+                # the violation in its findings array, so audit is not
+                # lost — we just don't get the addressable receipt.
+                _logger.warning(
+                    "EvaluateActionCommand: failed to record contract-violation "
+                    "evidence for decision %s contract %s: %s",
+                    decision.decision_id,
+                    meta.get("contract_id", "<unknown>"),
+                    exc,
+                )
 
     def _record_action_ledger_entry(
         self,

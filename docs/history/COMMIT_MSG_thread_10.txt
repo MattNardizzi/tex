@@ -1,0 +1,99 @@
+Thread 10 — frontier post-quantum cryptography wave
+
+Closes the post-quantum cryptography layer beyond every shipping
+competitor as of May 18, 2026. Adds the production-ready half of the
+NIST PQ standards Tex left stubbed in Thread 4, plus two frontier
+constructions (threshold ML-DSA, composite ML-DSA) that no AI
+governance product currently implements.
+
+Modules added
+-------------
+* tex.pqcrypto.ml_kem
+    Full FIPS 203 binding via liboqs 0.15. ML-KEM-512/768/1024 with
+    formally-verified PQCP mlkem-native backend (CBMC + HOL-Light).
+    Fail-closed length validation, telemetry on every operation,
+    documented implicit-rejection contract per FIPS 203 §7.3.
+
+* tex.pqcrypto.slh_dsa
+    Full FIPS 205 binding via liboqs 0.15. SLH-DSA-128s/128f/192s/256s
+    with built-in sign-then-verify fault countermeasure per ePrint
+    2026/759 (NXP, Apr 17 2026). SlhDsaFaultDetected exception carries
+    structured metadata for telemetry. SLH-DSA-256s is the CNSA 2.0
+    mandated path for software/firmware signing.
+
+* tex.pqcrypto.threshold_ml_dsa
+    k-of-n quorum signing across THRESHOLD_ML_DSA_44/65/87.
+    QuorumDescriptor with SHA-256 commitment binding the policy.
+    Sybil resistance via duplicate-index rejection. Forward-compatible
+    with the Mithril MPC scheme (ePrint 2026/013) once the Rust crate
+    gets a Python binding (placeholder gated behind MITHRIL_BACKEND).
+
+* tex.pqcrypto.composite_ml_dsa
+    Composite signatures per draft-ietf-lamps-pq-composite-sigs-18
+    (Apr 9 2026). COMPOSITE_ML_DSA_65_ED25519 (~3,377 byte signatures)
+    and COMPOSITE_ML_DSA_87_ECDSA_P384 (~4,733 byte signatures).
+    HPKE-style domain separators from draft revision 16, non-
+    separability enforced. For BSI 2021 / ANSSI 2024 jurisdictions.
+
+* tex.pqcrypto.evidence_quorum
+    Production glue between threshold provider and evidence chain.
+    EvidenceQuorumPolicy.from_env() reads TEX_EVIDENCE_QUORUM_K and
+    TEX_EVIDENCE_QUORUM_N; quorum signing always uses
+    THRESHOLD_ML_DSA_87 (CNSA 2.0 Level 5). Serialize/deserialize of
+    the embedded pq_quorum_signature payload with descriptor
+    self-consistency check.
+
+Modules updated
+---------------
+* tex.pqcrypto.algorithm_agility
+    SignatureAlgorithm enum gains SLH_DSA_{128S,128F,192S,256S},
+    THRESHOLD_ML_DSA_{44,65,87}, COMPOSITE_ML_DSA_65_ED25519,
+    COMPOSITE_ML_DSA_87_ECDSA_P384. All wired in
+    get_signature_provider with lazy imports.
+
+Tests
+-----
+* tests/pqcrypto/test_ml_kem.py (29 tests)
+* tests/pqcrypto/test_slh_dsa.py (24 tests)
+* tests/pqcrypto/test_threshold_ml_dsa.py (32 tests)
+* tests/pqcrypto/test_composite_ml_dsa.py (19 tests)
+* tests/pqcrypto/test_evidence_quorum.py (12 tests)
+
+Updated:
+* tests/frontier/test_pqcrypto.py — removed two now-stale "remains
+  stub" tests, added "now implemented" tests for ml_kem and slh_dsa.
+* tests/institutional/test_pq_signing.py — SLH-DSA dispatch test
+  updated to expect the now-wired provider. Selection-chain test
+  catch-up to include BLAKE3_ML_DSA_65 (Thread 8.1 stale assertion).
+
+Full test count: 2842 passed, 5 skipped (all expected:
+liboqs-installed-cannot-test-missing-oqs + torch not in CI). Three
+pre-existing failures in ecosystem/thread-7 are unrelated to
+pqcrypto.
+
+Documentation
+-------------
+* CLAIMS.md — Thread 10 claim block (NIST PQ standards + threshold
+  + composite). Includes honest gaps (no MPC single-FIPS-204
+  threshold; no FN-DSA; no constant-time SLH-DSA).
+* FRONTIER_DELTA_thread_10.md — frontier research findings (TALUS,
+  Mithril, ML-DSaaS, Hermine, Quorus; composite drafts -15 through
+  -18; liboqs 0.15 algorithm rename; CNSA 2.0 April update; CoV
+  side-channel research; NXP fault countermeasure paper).
+
+What this lets Tex tell customers
+---------------------------------
+- U.S. NSS / defence supply chain (CNSA 2.0 Jan 2027 procurement gate):
+  ML-KEM-1024 + ML-DSA-87 + SLH-DSA-256s present and tested. No other
+  AI governance product ships this stack.
+- EU / DACH (BSI, ANSSI): composite ML-DSA per the current IETF LAMPS
+  draft. Microsoft AGT and Asqav ship ML-DSA-65 alongside Ed25519 as
+  independent credentials, not as a composite signature — a single
+  break voids the entire scheme. Tex's composite requires both halves.
+- Long-lived audit trails (EU AI Act, 10+ year retention): threshold
+  ML-DSA-87 quorum signing means a single-key compromise — by an
+  insider, a stolen HSM, or a future quantum break against an HSM
+  that didn't migrate — cannot forge an evidence record. k of n must
+  collude or be compromised.
+
+Co-authored-by: Claude (Sonnet 4.5) via Tex build harness

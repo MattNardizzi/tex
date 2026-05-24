@@ -139,18 +139,23 @@ def emit_sb942_disclosure(
         Asserts the latent disclosure is detectable by the covered
         provider's free AI detection tool (§ 22757(a)).
 
-    TODO(P0): emit SB 942 disclosure record bound to C2PA manifest
-        — DONE: manifest binding + four required fields + media_type
-        + permanent-website-link option + detection-tool flag.
-    TODO(AB-853-2027): emit large-online-platform redistribution record
-        when AB 853 extension obligations come into force on 1 January
-        2027 (provenance-data detection + UI display + user-inspect).
-    TODO(AB-853-2028): emit capture-device manufacturer attestation
-        when AB 853 extension obligations come into force on 1 January
-        2028.
-    TODO(spec-track): if the California AG publishes implementing
-        regulations naming a specific industry standard (currently
-        ``"C2PA"`` is a sensible default), pin to the named standard.
+    Notes on completed wiring:
+
+    - **SB 942 disclosure record bound to C2PA manifest (wired):**
+      C2PA manifest binding + four required fields (covered_provider_name,
+      genai_system_name+version, created_or_altered_at, unique_identifier)
+      + media_type + permanent-website-link option + detection-tool flag.
+
+    Tracking notes (future statutory phases):
+
+    - **TODO(AB-853-2027):** emit large-online-platform redistribution record
+      when AB 853 extension obligations come into force on 1 January 2027
+      (provenance-data detection + UI display + user-inspect).
+    - **TODO(AB-853-2028):** emit capture-device manufacturer attestation
+      when AB 853 extension obligations come into force on 1 January 2028.
+    - **TODO(spec-track):** if the California AG publishes implementing
+      regulations naming a specific industry standard (currently
+      ``"C2PA"`` is a sensible default), pin to the named standard.
     """
     payload = SB942LatentDisclosurePayload(
         covered_provider_name=covered_provider_name,

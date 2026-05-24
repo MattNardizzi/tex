@@ -23,11 +23,37 @@ P2 — the digital twin is a 6-month build. Risk evaluator skeleton in P1.
 """
 
 from tex.systemic.risk_evaluator import SystemicRiskEvaluator
-from tex.systemic.digital_twin import EcosystemDigitalTwin
-from tex.systemic.cascade_predictor import CascadePredictor
+from tex.systemic.digital_twin import EcosystemDigitalTwin, DEFAULT_HORIZON, MAX_HORIZON
+from tex.systemic._koopman import TenantSignalProfile
+from tex.systemic._sccal import (
+    curvature_gated_attention_step,
+    curvature_gated_recurrence,
+)
+from tex.systemic.cascade_predictor import (
+    CascadePredictor,
+    DependencyEdge,
+    estimate_edge_probability,
+)
+from tex.systemic.trajectory import (
+    CascadePath,
+    SimulationTrajectory,
+    SystemicWeights,
+    TrajectoryStep,
+)
 
 __all__ = [
     "SystemicRiskEvaluator",
     "EcosystemDigitalTwin",
     "CascadePredictor",
+    "DependencyEdge",
+    "estimate_edge_probability",
+    "CascadePath",
+    "SimulationTrajectory",
+    "SystemicWeights",
+    "TrajectoryStep",
+    "TenantSignalProfile",
+    "curvature_gated_attention_step",
+    "curvature_gated_recurrence",
+    "DEFAULT_HORIZON",
+    "MAX_HORIZON",
 ]

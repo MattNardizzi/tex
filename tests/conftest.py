@@ -24,6 +24,13 @@ from pathlib import Path
 
 import pytest
 
+# Thread 4 (May 2026): the ``import tex.ecosystem`` workaround that
+# previously sat here was removed once the underlying circular import
+# (``tex.events.crypto_provenance`` <-> ``tex.ecosystem.engine``) was
+# broken by moving ``CryptoProvenance`` to TYPE_CHECKING in
+# ``ecosystem/engine.py`` and ``events/ledger.py``. See
+# THREAD_4_CHANGELOG.md.
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _disable_semantic_provider_for_tests(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:

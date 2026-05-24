@@ -25,11 +25,17 @@ Priority: P0.
 from __future__ import annotations
 
 import base64
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from tex.ecosystem.proposed_event import ProposedEvent
 from tex.events._canonical import canonical_json, canonical_sha256, sha256_hex
-from tex.events.crypto_provenance import CryptoProvenance
+# Thread 4 (May 2026): ``CryptoProvenance`` moved to TYPE_CHECKING to
+# break the ``tex.pitch`` -> ``tex.c2pa`` -> ``tex.events`` ->
+# ``tex.ecosystem`` -> ``tex.events.ledger`` ->
+# ``tex.events.crypto_provenance`` cycle. ``CryptoProvenance`` is used
+# only as a parameter annotation on ``append_proposed``; the runtime
+# call ``provenance.attach(...)`` uses duck typing and does not need
+# the class at module load.
 from tex.events.event import Event, genesis_ledger_hash
 from tex.events.exceptions import (
     ChainLinkError,
@@ -42,6 +48,9 @@ from tex.events.exceptions import (
 )
 from tex.observability.telemetry import emit_event
 from tex.pqcrypto.algorithm_agility import SignatureProvider
+
+if TYPE_CHECKING:
+    from tex.events.crypto_provenance import CryptoProvenance
 
 
 @runtime_checkable
@@ -143,7 +152,7 @@ class InMemoryLedger:
         self,
         proposed: ProposedEvent,
         *,
-        provenance: CryptoProvenance,
+        provenance: "CryptoProvenance",
         event_id: str | None = None,
         tool_receipt_id: str | None = None,
     ) -> Event:

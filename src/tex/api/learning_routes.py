@@ -331,7 +331,36 @@ def _proposal_to_detail_dto(proposal) -> ProposalDetailDTO:
 
 
 def build_learning_router() -> APIRouter:
-    from tex.api.auth import RequireScope, authenticate_request
+    from tex.api.auth import (
+        RequireScope,
+        RequireTenantMatch,
+        TexPrincipal,
+        authenticate_request,
+        enforce_tenant_match,
+    )
+
+    # Pre-handler dependency factories. Routes whose request body or
+    # query carries ``tenant_id`` route through these, so a tenant-A key
+    # cannot file proposals against tenant-B's namespace or query its
+    # calibration health.
+    _RequireBodyTenant = RequireTenantMatch.from_body("tenant_id")
+    _RequireQueryTenant = RequireTenantMatch.from_query("tenant_id")
+
+    def _enforce_proposal_tenant(
+        principal: TexPrincipal, proposal
+    ) -> None:
+        """Post-fetch tenant check against a proposal's stored tenant_id.
+
+        Proposals carry an optional ``tenant_id``. When present, it must
+        match the principal's tenant (with the usual cross-tenant scope
+        and anonymous-passthrough rules from ``enforce_tenant_match``).
+        When ``proposal.tenant_id`` is None, no enforcement is possible
+        — the proposal predates tenant binding and is treated as
+        tenant-neutral.
+        """
+        if proposal.tenant_id is None:
+            return
+        enforce_tenant_match(principal, proposal.tenant_id)
 
     router = APIRouter(
         prefix="/v1/learning",
@@ -342,7 +371,10 @@ def build_learning_router() -> APIRouter:
     @router.post(
         "/proposals",
         response_model=CreateProposalResponseDTO,
-        dependencies=[Depends(RequireScope("learning:write"))],
+        dependencies=[
+            Depends(RequireScope("learning:write")),
+            Depends(_RequireBodyTenant),
+        ],
     )
     def create_proposal(
         body: CreateProposalRequestDTO,
@@ -393,7 +425,32 @@ def build_learning_router() -> APIRouter:
         tenant_id: str | None = None,
         status_filter: str | None = None,
         limit: int = 50,
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> list[ProposalSummaryDTO]:
+        # Resolve the effective tenant filter. ``enforce_tenant_match``
+        # returns the principal's own tenant when ``tenant_id`` is unset
+        # and the principal is non-default-non-cross-tenant — that's
+        # exactly the auto-scoping behavior we want here so a tenant-A
+        # key with no query filter doesn't accidentally see all
+        # proposals.
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        if (
+            tenant_id is None
+            and not principal.is_anonymous
+            and SCOPE_CROSS_TENANT not in principal.scopes
+            and principal.tenant != "default"
+        ):
+            effective_tenant: str | None = principal.tenant
+        else:
+            # ``enforce_tenant_match`` raises 403 on mismatch when both
+            # sides are set. When tenant_id is None and the principal
+            # is anonymous/default/cross-tenant, this returns the
+            # default-ish value but we want to keep "list everything"
+            # semantics for those principals, so we use None.
+            if tenant_id is not None:
+                enforce_tenant_match(principal, tenant_id)
+            effective_tenant = tenant_id
+
         store = _proposal_store(request)
         if status_filter is not None:
             try:
@@ -406,17 +463,21 @@ def build_learning_router() -> APIRouter:
             proposals = [
                 p
                 for p in store.list_recent(limit=limit)
-                if p.status is want and (tenant_id is None or p.tenant_id == tenant_id)
+                if p.status is want and (effective_tenant is None or p.tenant_id == effective_tenant)
             ]
         else:
-            if tenant_id is not None:
-                proposals = list(store.list_for_tenant(tenant_id, limit=limit))
+            if effective_tenant is not None:
+                proposals = list(store.list_for_tenant(effective_tenant, limit=limit))
             else:
                 proposals = list(store.list_recent(limit=limit))
         return [_proposal_to_summary_dto(p) for p in proposals]
 
     @router.get("/proposals/{proposal_id}", response_model=ProposalDetailDTO)
-    def get_proposal(proposal_id: UUID, request: Request) -> ProposalDetailDTO:
+    def get_proposal(
+        proposal_id: UUID,
+        request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
+    ) -> ProposalDetailDTO:
         store = _proposal_store(request)
         try:
             proposal = store.require(proposal_id)
@@ -425,6 +486,7 @@ def build_learning_router() -> APIRouter:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"proposal not found: {proposal_id}",
             )
+        _enforce_proposal_tenant(principal, proposal)
         return _proposal_to_detail_dto(proposal)
 
     @router.post(
@@ -436,7 +498,20 @@ def build_learning_router() -> APIRouter:
         proposal_id: UUID,
         body: ApproveProposalRequestDTO,
         request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> ProposalDetailDTO:
+        # Tenant gate before any approval action. Fetch first so we can
+        # 404 cleanly when the id is invalid, then enforce.
+        store = _proposal_store(request)
+        try:
+            existing = store.require(proposal_id)
+        except ProposalNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"proposal not found: {proposal_id}",
+            )
+        _enforce_proposal_tenant(principal, existing)
+
         approver = _resolve_actor(
             request, body_value=body.approver, field_name="approver"
         )
@@ -467,7 +542,18 @@ def build_learning_router() -> APIRouter:
         proposal_id: UUID,
         body: RejectProposalRequestDTO,
         request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> ProposalDetailDTO:
+        store = _proposal_store(request)
+        try:
+            existing = store.require(proposal_id)
+        except ProposalNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"proposal not found: {proposal_id}",
+            )
+        _enforce_proposal_tenant(principal, existing)
+
         rejecter = _resolve_actor(
             request, body_value=body.rejecter, field_name="rejecter"
         )
@@ -499,7 +585,18 @@ def build_learning_router() -> APIRouter:
         proposal_id: UUID,
         body: RollbackProposalRequestDTO,
         request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> ProposalDetailDTO:
+        store = _proposal_store(request)
+        try:
+            existing = store.require(proposal_id)
+        except ProposalNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"proposal not found: {proposal_id}",
+            )
+        _enforce_proposal_tenant(principal, existing)
+
         rolled_back_by = _resolve_actor(
             request, body_value=body.rolled_back_by, field_name="rolled_back_by"
         )
@@ -521,7 +618,11 @@ def build_learning_router() -> APIRouter:
             )
         return _proposal_to_detail_dto(rolled)
 
-    @router.get("/health", response_model=HealthResponseDTO)
+    @router.get(
+        "/health",
+        response_model=HealthResponseDTO,
+        dependencies=[Depends(_RequireQueryTenant)],
+    )
     def calibration_health(
         request: Request,
         tenant_id: str,
@@ -677,6 +778,7 @@ def build_learning_router() -> APIRouter:
         proposal_id: UUID,
         request: Request,
         limit: int = 50,
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> list[dict[str, Any]]:
         """
         Return the durable audit trail for a proposal.
@@ -688,12 +790,13 @@ def build_learning_router() -> APIRouter:
         store = _proposal_store(request)
         # Fail fast if proposal doesn't exist.
         try:
-            store.require(proposal_id)
+            existing = store.require(proposal_id)
         except ProposalNotFoundError:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"proposal not found: {proposal_id}",
             )
+        _enforce_proposal_tenant(principal, existing)
         return store.list_audit_trail(proposal_id, limit=limit)
 
     return router

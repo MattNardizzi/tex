@@ -61,6 +61,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ASSERTION_LABEL_ACTIONS_V2: str = "c2pa.actions.v2"
 ASSERTION_LABEL_CAWG_CREATIVE_WORK: str = "cawg.creative_work"
 ASSERTION_LABEL_TEX_VERDICT: str = "tex.verdict"
+ASSERTION_LABEL_TEX_EVIDENCE_COSIGN: str = "tex.evidence_cosign"
 
 # Per W3C / IPTC digital-source-type vocabulary, the value that marks
 # content as fully AI-generated (not assisted, not edited).
@@ -70,6 +71,15 @@ DIGITAL_SOURCE_TYPE_TRAINED_ALGORITHMIC: str = (
 
 # Tex verdict assertion schema URL — versioned so we can evolve.
 TEX_VERDICT_SCHEMA_V1: str = "https://schemas.texaegis.com/c2pa/tex.verdict/v1"
+
+# Tex evidence-cosign schema URL — locks the wire format of the
+# Thread-5 post-quantum co-signature assertion that closes the six
+# attack classes identified in arxiv 2604.24890 (Sherman/Krawetz/NSA,
+# Apr 27 2026, "Verifying Provenance of Digital Media: Why the C2PA
+# Specifications Fall Short").
+TEX_EVIDENCE_COSIGN_SCHEMA_V1: str = (
+    "https://schemas.texaegis.com/c2pa/tex.evidence_cosign/v1"
+)
 
 
 class C2paAssertion(BaseModel):
@@ -135,9 +145,15 @@ def build_ai_generation_assertion(
     "marked in a machine-readable format and detectable as artificially
     generated or manipulated".
 
-    TODO(P0): emit per CAWG 1.2 + C2PA AI training-data assertion vocabulary.
+    Wiring notes (formerly P0 TODOs, now satisfied):
+    - **CAWG 1.2 + AI training-data assertion vocabulary (wired):** the
+      assertion uses the ``c2pa.actions.v2`` schema with the IPTC
+      ``trainedAlgorithmicMedia`` digitalSourceType. ``trainingDataClass``
+      is emitted under ``parameters`` per the C2PA AI training-data
+      vocabulary §3.
+
     TODO(spec-verify): cross-check ``digitalSourceType`` field name and
-        action vocabulary against C2PA 2.2 actions assertion JSON schema
+        action vocabulary against C2PA 2.4 actions assertion JSON schema
         once the schema is in scope.
     """
     action: dict[str, Any] = {
@@ -243,10 +259,11 @@ def build_email_manifest(
       - the Tex verdict (PERMIT/ABSTAIN/FORBID) ID for traceback
       - sender and recipient envelope (NOT body — privacy)
 
-    TODO(P0): emit complete manifest with three assertions:
-              c2pa.actions.v2 (AI-gen),
-              cawg.creative_work (sender attribution),
-              tex.verdict (Tex-specific extension assertion linking to the verdict)
+    Wiring notes (formerly P0 TODO, now satisfied): the function emits
+    a complete manifest with the three required assertions:
+    ``c2pa.actions.v2`` (AI-generation), ``cawg.creative_work`` (sender
+    attribution + delivery envelope), and ``tex.verdict`` (Tex extension
+    assertion linking to the verdict id).
     """
     if not from_address:
         raise ValueError("from_address is required")
@@ -312,3 +329,132 @@ def build_email_manifest(
         assertions=(actions, cawg, verdict_assertion),
     )
     return C2paManifest(claim=claim)
+
+
+def build_tex_evidence_cosign_assertion(
+    *,
+    cosign_algorithm: str,
+    cosign_signature_b64: str,
+    cosign_public_key_b64: str,
+    cosign_key_id: str,
+    bound_timestamp: str,
+    full_file_sha256: str,
+    canonicalization_version: str,
+    retention_anchor: dict[str, Any],
+    revocation_proof: dict[str, Any] | None = None,
+) -> C2paAssertion:
+    """
+    Build a ``tex.evidence_cosign`` assertion that closes the six
+    attack classes identified in arxiv 2604.24890 (Sherman et al.,
+    Apr 27 2026) against C2PA 2.2–2.4.
+
+    The cosign is a Tex-internal assertion carried inside the C2PA
+    manifest. The outer COSE_Sign1 signs the claim CBOR (which
+    includes this assertion), so the cosign fields are themselves
+    tamper-evident under the spec-conformant signature. The
+    cosign's own signature is computed under a Tex-side
+    algorithm-agile provider (ML-DSA-65 by default — post-quantum)
+    over a deterministic canonicalization of the asset hash, the
+    outer-signature timestamp, the verdict id, and the
+    full-file hash; that signature is base64-encoded and stored
+    in ``cosign_signature_b64``.
+
+    What each field defends against
+    -------------------------------
+    - ``bound_timestamp`` — included in the signed cosign input,
+      so swapping the outer trusted timestamp (NSA paper attack
+      #1) yields a cosign that no longer verifies.
+    - ``revocation_proof`` — hash-pin of the OCSP response or CRL
+      snapshot the outer signing cert was validated against at
+      signing time. Defends against the spec's optional revocation
+      checking (attack #2).
+    - ``canonicalization_version`` — pins the exact canonical-CBOR
+      profile + assertion ordering the manifest was hashed under.
+      Two validators that disagree on this string disagree
+      structurally and cannot produce contradictory VALID results
+      (attack #3).
+    - ``full_file_sha256`` — SHA-256 of the entire signed asset
+      with NO exclusion ranges. C2PA permits exclusion ranges
+      (attack #4); the cosign covers the full byte stream.
+    - ``retention_anchor`` — a pointer into Tex's hash-chained
+      evidence ledger (``record_hash`` + path), so a manifest
+      whose C2PA certificate expires (attack #5) can still be
+      re-verified offline via the chain.
+
+    The remaining recommendations (independent security audit;
+    clarified public-comm claims) are policy/operational, not
+    serialization-level.
+
+    All inputs are strings or JSON-safe dicts. The assertion is
+    CBOR-encodable under the standard canonical encoding used
+    elsewhere in this module.
+    """
+    if len(full_file_sha256) != 64:
+        raise ValueError("full_file_sha256 must be a 64-character SHA-256 hex digest")
+    if not cosign_signature_b64:
+        raise ValueError("cosign_signature_b64 must not be empty")
+    if not cosign_public_key_b64:
+        raise ValueError("cosign_public_key_b64 must not be empty")
+    if not cosign_key_id:
+        raise ValueError("cosign_key_id must not be empty")
+    if not bound_timestamp:
+        raise ValueError("bound_timestamp must not be empty")
+    if not canonicalization_version:
+        raise ValueError("canonicalization_version must not be empty")
+    if "record_hash" not in retention_anchor:
+        raise ValueError(
+            "retention_anchor must include a 'record_hash' field pointing into "
+            "the Tex evidence chain"
+        )
+
+    payload: dict[str, Any] = {
+        "$schema": TEX_EVIDENCE_COSIGN_SCHEMA_V1,
+        "algorithm": cosign_algorithm,
+        "key_id": cosign_key_id,
+        "public_key": cosign_public_key_b64,
+        "signature": cosign_signature_b64,
+        "bound_timestamp": bound_timestamp,
+        "full_file_sha256": full_file_sha256,
+        "canonicalization_version": canonicalization_version,
+        "retention_anchor": dict(retention_anchor),
+        "defends_against": {
+            "paper": "arxiv:2604.24890",
+            "attacks": [
+                "timestamp_swap",
+                "revocation_skipped",
+                "cross_validator_contradiction",
+                "exclusion_range_tamper",
+                "cert_expiry_before_retention",
+            ],
+        },
+    }
+    if revocation_proof is not None:
+        payload["revocation_proof"] = dict(revocation_proof)
+    return C2paAssertion(
+        label=ASSERTION_LABEL_TEX_EVIDENCE_COSIGN,
+        data=payload,
+    )
+
+
+def attach_cosign_assertion(
+    manifest: C2paManifest,
+    cosign: C2paAssertion,
+) -> C2paManifest:
+    """
+    Return a new ``C2paManifest`` with ``cosign`` appended to the claim's
+    assertion tuple.
+
+    The cosign is appended (not prepended) so that vanilla C2PA validators
+    iterate the spec-defined assertions first and treat ``tex.evidence_cosign``
+    as a trailing extension assertion they will skip if they don't recognise
+    the label.
+    """
+    if cosign.label != ASSERTION_LABEL_TEX_EVIDENCE_COSIGN:
+        raise ValueError(
+            f"attach_cosign_assertion expected label "
+            f"{ASSERTION_LABEL_TEX_EVIDENCE_COSIGN!r}, got {cosign.label!r}"
+        )
+    new_claim = manifest.claim.model_copy(
+        update={"assertions": (*manifest.claim.assertions, cosign)}
+    )
+    return manifest.model_copy(update={"claim": new_claim})

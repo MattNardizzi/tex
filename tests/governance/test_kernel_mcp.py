@@ -348,7 +348,7 @@ class TestLayer4Secrets:
             ("ghp_abcdefghijklmnopqrstuvwxyz0123456789", "github_pat"),
             ("ghs_abcdefghijklmnopqrstuvwxyz0123456789", "github_pat"),
             ("xoxb-1234-5678-abcdefghij", "slack_token"),
-            ("sk_test_example_key"),
+            ("sk_test_example_key", "stripe_key"),
             (
                 "sk-ant-abcdefghijklmnopqrstuvwxyz0123",
                 "openai_anthropic",

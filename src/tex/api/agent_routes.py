@@ -22,14 +22,19 @@ from collections import Counter
 from datetime import UTC, datetime
 import hashlib
 import hmac
-import os
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
+from tex.api.auth import (
+    RequireScope,
+    RequireTenantMatch,
+    TexPrincipal,
+    authenticate_request,
+    enforce_tenant_match,
+)
 from tex.domain.agent import (
     AgentAttestation,
     AgentEnvironment,
@@ -481,6 +486,103 @@ def _resolve_discovery_ledger(request: Request):
     return getattr(request.app.state, "discovery_ledger", None)
 
 
+def _enforce_agent_tenant_match(
+    principal: TexPrincipal, agent: AgentIdentity
+) -> None:
+    """
+    After a registry fetch, enforce that the principal can act on this
+    agent's tenant.
+
+    Routes that fetch an agent by ``agent_id`` (a UUID, opaque to the
+    caller — so this is the classic BOLA shape from OWASP API #1) MUST
+    call this immediately after the fetch. The agent's stored
+    ``tenant_id`` is the source of truth; the principal's tenant is
+    compared against it, with the usual ``admin:cross_tenant`` and
+    anonymous-passes-through rules from ``enforce_tenant_match``.
+    """
+    enforce_tenant_match(principal, agent.tenant_id)
+
+
+def _filter_agents_to_principal(
+    agents: tuple[AgentIdentity, ...],
+    principal: TexPrincipal,
+) -> tuple[AgentIdentity, ...]:
+    """
+    Filter a list of agents to those the principal can see.
+
+    - Anonymous principal ⇒ everything (dev/no-auth mode preserved).
+    - ``admin:cross_tenant`` ⇒ everything.
+    - Default-tenant principal ⇒ everything (operator-grade access).
+    - Otherwise ⇒ only agents whose ``tenant_id`` casefold-matches
+      the principal's tenant.
+
+    This closes the BOLA on ``GET /v1/agents`` (and friends) where a
+    tenant-A key could list tenant-B's agents because the route never
+    constrained by tenant. The fix is applied post-fetch (route layer)
+    rather than in the store, so the store API stays untouched and a
+    future thread can lift this into ``list_for_tenant`` for
+    performance without changing semantics.
+    """
+    if principal.is_anonymous:
+        return agents
+    from tex.api.auth import SCOPE_CROSS_TENANT
+    if SCOPE_CROSS_TENANT in principal.scopes:
+        return agents
+    if principal.tenant == "default":
+        return agents
+    target = principal.tenant.casefold()
+    return tuple(
+        a for a in agents if (a.tenant_id or "").casefold() == target
+    )
+
+
+def _filter_ledger_entries_to_principal(
+    entries: tuple[Any, ...],
+    principal: TexPrincipal,
+    registry: InMemoryAgentRegistry,
+) -> tuple[Any, ...]:
+    """
+    Filter ledger entries to those whose agent belongs to the
+    principal's tenant.
+
+    Ledger entries do not carry ``tenant_id`` directly (only
+    ``agent_id``), so we resolve via the registry. Entries whose
+    referenced agent is missing from the registry are dropped under
+    a non-cross-tenant principal — they represent ghost references
+    we cannot bind, and exposing them would be a slow leak.
+    """
+    if principal.is_anonymous:
+        return entries
+    from tex.api.auth import SCOPE_CROSS_TENANT
+    if SCOPE_CROSS_TENANT in principal.scopes:
+        return entries
+    if principal.tenant == "default":
+        return entries
+    target = principal.tenant.casefold()
+    out = []
+    # Cache agent lookups across the (potentially long) entry stream so
+    # repeated agent_ids only hit the registry once.
+    cache: dict[Any, str] = {}
+    for entry in entries:
+        agent_id = entry.agent_id
+        if agent_id is None:
+            continue
+        cached = cache.get(agent_id)
+        if cached is None:
+            try:
+                agent = registry.require(agent_id)
+            except AgentNotFoundError:
+                cache[agent_id] = ""  # negative cache
+                continue
+            cached = (agent.tenant_id or "").casefold()
+            cache[agent_id] = cached
+        if cached == "":
+            continue
+        if cached == target:
+            out.append(entry)
+    return tuple(out)
+
+
 def _ledger_entry_to_dto(entry: Any) -> LedgerEntryDTO:
     return LedgerEntryDTO(
         entry_id=entry.entry_id,
@@ -519,7 +621,20 @@ def _evidence_root(entries: tuple[Any, ...]) -> str:
 
 
 def _sign_summary(payload: str) -> str:
-    secret = os.environ.get("TEX_EVIDENCE_SUMMARY_SECRET", "dev-only-change-me")
+    # Pull the HMAC secret from the centralized Settings rather than
+    # reaching into ``os.environ`` directly. The Settings-layer
+    # ``_validate_production_secrets`` model_validator (see tex.config)
+    # already refused to boot if this secret is missing or the in-repo
+    # sentinel in a production-like environment, so by the time this
+    # function runs we are guaranteed either:
+    #   * a real, high-entropy secret (production / staging), or
+    #   * the explicit local-dev sentinel (TEX_APP_ENV in {dev,
+    #     development, test, testing, local}).
+    # The fallback to the sentinel is preserved for the local-dev case
+    # so unit tests and contributor laptops keep working without any
+    # environment setup.
+    from tex.config import get_settings  # local import to avoid cycle on cold start
+    secret = get_settings().get_evidence_summary_secret() or "dev-only-change-me"
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
@@ -883,12 +998,20 @@ def build_agent_router() -> APIRouter:
         dependencies=[Depends(authenticate_request)],
     )
 
+    # Pre-handler dependency factory for routes whose request body carries
+    # ``tenant_id``. Enforces tenant binding BEFORE the handler runs, so
+    # a tenant-A key cannot register agents into tenant-B's namespace.
+    _RequireBodyTenant = RequireTenantMatch.from_body("tenant_id")
+
     @router.post(
         "",
         response_model=AgentDTO,
         status_code=status.HTTP_201_CREATED,
         summary="Register a new agent",
-        dependencies=[Depends(RequireScope("agent:write"))],
+        dependencies=[
+            Depends(RequireScope("agent:write")),
+            Depends(_RequireBodyTenant),
+        ],
     )
     def register_agent(payload: RegisterAgentRequest, request: Request) -> AgentDTO:
         registry = _resolve_registry(request)
@@ -919,12 +1042,17 @@ def build_agent_router() -> APIRouter:
     def list_agents(
         request: Request,
         status_filter: AgentLifecycleStatus | None = Query(default=None, alias="status"),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> AgentListResponse:
         registry = _resolve_registry(request)
         if status_filter is not None:
             agents = registry.list_by_status(status_filter)
         else:
             agents = registry.list_all()
+        # Post-fetch tenant filter: a tenant-scoped principal sees only
+        # their own tenant's agents. See _filter_agents_to_principal for
+        # the rules. Closes the BOLA on this list endpoint.
+        agents = _filter_agents_to_principal(agents, principal)
         return AgentListResponse(
             agents=[AgentDTO.from_domain(a) for a in agents],
             total=len(agents),
@@ -938,9 +1066,15 @@ def build_agent_router() -> APIRouter:
     def systemic_risks(
         request: Request,
         limit: int = Query(default=5_000, ge=1, le=50_000),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> SystemicRiskResponse:
         ledger = _resolve_ledger(request)
+        registry = _resolve_registry(request)
         entries = ledger.list_all(limit=limit)
+        # Post-fetch tenant filter via the registry: drop entries whose
+        # agent is outside the principal's tenant. See
+        # _filter_ledger_entries_to_principal.
+        entries = _filter_ledger_entries_to_principal(entries, principal, registry)
         risks = _build_systemic_risks(entries)
         return SystemicRiskResponse(risks=risks, total=len(risks))
 
@@ -949,14 +1083,84 @@ def build_agent_router() -> APIRouter:
         response_model=GovernanceResponse,
         summary="Dual-source governance-state matrix (GOVERNED / UNGOVERNED / PARTIAL / UNKNOWN)",
     )
-    def governance_state(request: Request) -> GovernanceResponse:
+    def governance_state(
+        request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
+    ) -> GovernanceResponse:
         registry = _resolve_registry(request)
         action_ledger = _resolve_ledger(request)
         discovery_ledger = _resolve_discovery_ledger(request)
-        return _build_governance(
+        full = _build_governance(
             registry=registry,
             action_ledger=action_ledger,
             discovery_ledger=discovery_ledger,
+        )
+        # Post-build tenant filter: re-emit the response scoped to the
+        # principal's tenant. Counts are recomputed from the filtered
+        # rows so they remain consistent with the agents list (an
+        # unfiltered counts row over a filtered agents list would be
+        # actively misleading). Coverage root and signature are
+        # recomputed from the filtered ids; we use the same payload
+        # shape that _build_governance uses.
+        from tex.api.auth import SCOPE_CROSS_TENANT
+        if (
+            principal.is_anonymous
+            or SCOPE_CROSS_TENANT in principal.scopes
+            or principal.tenant == "default"
+        ):
+            return full
+
+        target = principal.tenant.casefold()
+        filtered_agents = [
+            row for row in full.agents
+            if (row.tenant_id or "").casefold() == target
+        ]
+        # Recompute counts from filtered rows.
+        forbid_total = sum(row.forbid_count for row in filtered_agents)
+        states = Counter(row.governance_state for row in filtered_agents)
+        high_risk = [row for row in filtered_agents if row.risk_band == "HIGH"]
+        new_counts = GovernanceCountsDTO(
+            total_agents=len(filtered_agents),
+            governed=states.get("GOVERNED", 0),
+            ungoverned=states.get("UNGOVERNED", 0),
+            partial=states.get("PARTIAL", 0),
+            unknown=states.get("UNKNOWN", 0),
+            high_risk_total=len(high_risk),
+            high_risk_ungoverned=sum(
+                1 for row in high_risk if row.governance_state == "UNGOVERNED"
+            ),
+            governed_with_forbids=sum(
+                1 for row in filtered_agents
+                if row.governance_state == "GOVERNED" and row.forbid_count > 0
+            ),
+        )
+        # Recompute the coverage root over filtered agent ids/keys so
+        # the signature continues to bind exactly what we return.
+        coverage_inputs = [
+            str(row.agent_id) if row.agent_id is not None
+            else (row.reconciliation_key or "")
+            for row in filtered_agents
+        ]
+        coverage_root = hashlib.sha256(
+            ("|".join(sorted(coverage_inputs)) or "no-agents").encode("utf-8")
+        ).hexdigest()
+        signature_payload = "|".join(
+            [
+                str(new_counts.total_agents),
+                str(new_counts.governed),
+                str(new_counts.ungoverned),
+                str(new_counts.partial),
+                str(new_counts.unknown),
+                str(forbid_total),
+                coverage_root,
+            ]
+        )
+        return GovernanceResponse(
+            counts=new_counts,
+            agents=filtered_agents,
+            coverage_root_sha256=coverage_root,
+            signature_hmac_sha256=_sign_summary(signature_payload),
+            generated_at=full.generated_at,
         )
 
     @router.get(
@@ -968,7 +1172,17 @@ def build_agent_router() -> APIRouter:
         request: Request,
         agent_id: UUID = Path(...),
         limit: int = Query(default=500, ge=1, le=5_000),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> EvidenceSummaryResponse:
+        registry = _resolve_registry(request)
+        try:
+            agent = registry.require(agent_id)
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # Mid-handler tenant check: the agent's stored tenant_id is the
+        # source of truth, not anything the caller might have passed.
+        _enforce_agent_tenant_match(principal, agent)
+
         ledger = _resolve_ledger(request)
         entries = ledger.list_for_agent(agent_id, limit=limit)
         total = len(entries)
@@ -1024,12 +1238,14 @@ def build_agent_router() -> APIRouter:
     def get_agent(
         request: Request,
         agent_id: UUID = Path(...),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> AgentDTO:
         registry = _resolve_registry(request)
         try:
             agent = registry.require(agent_id)
         except AgentNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, agent)
         return AgentDTO.from_domain(agent)
 
     @router.patch(
@@ -1042,12 +1258,14 @@ def build_agent_router() -> APIRouter:
         request: Request,
         payload: UpdateAgentRequest,
         agent_id: UUID = Path(...),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> AgentDTO:
         registry = _resolve_registry(request)
         try:
             current = registry.require(agent_id)
         except AgentNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, current)
 
         updates: dict[str, Any] = {}
         if payload.name is not None:
@@ -1089,8 +1307,15 @@ def build_agent_router() -> APIRouter:
         request: Request,
         payload: LifecycleTransitionRequest,
         agent_id: UUID = Path(...),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> AgentDTO:
         registry = _resolve_registry(request)
+        # Fetch first to enforce tenant binding BEFORE mutating state.
+        try:
+            existing = registry.require(agent_id)
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, existing)
         try:
             stored = registry.set_lifecycle(agent_id, payload.status)
         except AgentNotFoundError as exc:
@@ -1105,8 +1330,19 @@ def build_agent_router() -> APIRouter:
     def get_history(
         request: Request,
         agent_id: UUID = Path(...),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> AgentHistoryResponse:
         registry = _resolve_registry(request)
+        # Resolve current revision first to enforce tenant binding. We
+        # use ``require`` rather than ``history()`` because ``history``
+        # returns an empty tuple for unknown agents — we need the 404
+        # to fire BEFORE the tenant check and the tenant check to fire
+        # BEFORE returning any historical data.
+        try:
+            current = registry.require(agent_id)
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, current)
         revisions = registry.history(agent_id)
         if not revisions:
             raise HTTPException(status_code=404, detail=f"agent not found: {agent_id}")
@@ -1124,7 +1360,14 @@ def build_agent_router() -> APIRouter:
         request: Request,
         agent_id: UUID = Path(...),
         limit: int = Query(default=50, ge=1, le=500),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> LedgerListResponse:
+        registry = _resolve_registry(request)
+        try:
+            agent = registry.require(agent_id)
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, agent)
         ledger = _resolve_ledger(request)
         entries = ledger.list_for_agent(agent_id, limit=limit)
         return LedgerListResponse(
@@ -1143,7 +1386,14 @@ def build_agent_router() -> APIRouter:
         request: Request,
         agent_id: UUID = Path(...),
         window: int = Query(default=200, ge=1, le=2_000),
+        principal: TexPrincipal = Depends(authenticate_request),
     ) -> BaselineResponse:
+        registry = _resolve_registry(request)
+        try:
+            agent = registry.require(agent_id)
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        _enforce_agent_tenant_match(principal, agent)
         ledger = _resolve_ledger(request)
         baseline = ledger.compute_baseline(agent_id, window=window)
         return BaselineResponse.from_domain(baseline)

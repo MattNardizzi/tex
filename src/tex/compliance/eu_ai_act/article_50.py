@@ -143,17 +143,23 @@ def emit_article_50_evidence(
         Defaults to the 3 March 2026 second draft. Update to
         ``"final_2026_06"`` once the final Code publishes.
 
-    TODO(P0): bind c2pa_manifest -> article 50 disclosure attestation
-        — DONE: ``manifest`` is required, signature is required,
-        ``instance_id`` is verified to equal ``c2pa_manifest_id``.
-    TODO(P0): include the machine-readable disclosure flag
-        — DONE: ``Article50DisclosurePayload.digital_source_type`` is
-        the IPTC ``trainedAlgorithmicMedia`` URI.
-    TODO(spec-track): pin against the FINAL Code of Practice when
-        published in June 2026; the four cumulative criteria are
-        statutory but the operationalisation may tighten.
-    TODO(P1): add an explicit ``benchmarks_passed`` field once the
-        AI Office publishes its measurement methodology.
+    Notes on completed wiring:
+
+    - **C2PA manifest binding (wired):** ``manifest`` is required, signature
+      is required, and ``instance_id`` is verified to equal
+      ``c2pa_manifest_id`` so the Article 50 record is cryptographically
+      bound to the disclosed content.
+    - **Machine-readable disclosure flag (wired):**
+      ``Article50DisclosurePayload.digital_source_type`` is set to the IPTC
+      ``trainedAlgorithmicMedia`` URI per the Code of Practice §1.1.
+
+    Tracking notes (not blocking):
+
+    - **TODO(spec-track):** pin against the FINAL Code of Practice when
+      published in June 2026; the four cumulative criteria are statutory but
+      the operationalisation may tighten under the Code's final text.
+    - **TODO(P1):** add an explicit ``benchmarks_passed`` field once the
+      AI Office publishes its measurement methodology.
     """
     payload = Article50DisclosurePayload(
         digital_source_type=DIGITAL_SOURCE_TYPE_TRAINED_ALGORITHMIC,

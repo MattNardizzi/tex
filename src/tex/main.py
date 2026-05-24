@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 
 from tex.agent.suite import AgentEvaluationSuite
 from tex.api.arcade_leaderboard import router as arcade_leaderboard_router  # ARCADE
@@ -20,12 +21,19 @@ from tex.api.guardrail_adapters import router as guardrail_adapters_router  # GU
 from tex.api.guardrail_streaming import router as guardrail_streaming_router  # GUARDRAIL: SSE + async
 from tex.api.leaderboard import router as leaderboard_router  # LEADERBOARD
 from tex.api.mcp_server import router as mcp_router  # MCP: server interface
+from tex.api.tee_routes import router as tee_router  # Thread 12: composite TEE attestation
+from tex.api.vet_routes import router as vet_router  # Thread 13: VET Web Proofs + AID
+from tex.api.zkprov_routes import router as zkprov_router  # Thread 14: ZKPROV training-data provenance
+from tex.api.incident_routes import build_incident_router  # Thread 3: causal attribution
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
 from tex.commands.calibrate_policy import CalibratePolicyCommand
 from tex.commands.evaluate_action import EvaluateActionCommand
 from tex.commands.export_bundle import ExportBundleCommand
 from tex.commands.report_outcome import ReportOutcomeCommand
+from tex.config import get_settings
+from tex.contracts import BehavioralContract, ContractEnforcer
+from tex.engine.contract_bridge import SessionEnforcerRegistry
 from tex.db import arcade_leaderboard_repo  # ARCADE
 from tex.db import leaderboard_repo  # LEADERBOARD
 from tex.discovery.connectors import (
@@ -46,6 +54,11 @@ from tex.domain.retrieval import RetrievedEntity, RetrievedPolicyClause, Retriev
 from tex.engine.pdp import PolicyDecisionPoint
 from tex.evidence.exporter import EvidenceExporter
 from tex.evidence.recorder import EvidenceRecorder
+# Thread 5: C2PA emission + manifest mirror + digital-twin wiring.
+from tex.evidence.c2pa_emitter import C2paEmitter
+from tex.evidence.manifest_mirror import PostgresManifestMirror
+from tex.ecosystem.state import EcosystemState
+from tex.systemic.digital_twin import EcosystemDigitalTwin
 from tex.learning.calibrator import ThresholdCalibrator, build_default_calibrator
 from tex.learning.calibration_safety import CalibrationSafetyGuard
 from tex.learning.drift import PolicyDriftMonitor
@@ -163,6 +176,39 @@ class TexRuntime:
     # so existing callers keep working AND new callers (replay engine,
     # health endpoints, audit exporters) can use the unified API.
     memory: Any = None
+
+    # Thread 5: C2PA emission + manifest mirror.
+    # ----------------------------------------------------------------------
+    # ``manifest_mirror`` is a ``PostgresManifestMirror`` that durably
+    # stores every C2PA 2.4 manifest emitted on a PERMIT verdict that
+    # carried an outbound artifact. The mirror no-ops cleanly when
+    # ``DATABASE_URL`` is unset (the JSONL chain still anchors the
+    # manifest hash, so the manifest is byte-identical-derivable
+    # offline at re-sign time).
+    #
+    # The ``c2pa_routes`` GET handler at /v1/evidence/{record_id}/c2pa
+    # resolves this from ``runtime.manifest_mirror``; a missing or
+    # disabled mirror is reported as 503 to the caller per the
+    # canonical c2pa_routes contract.
+    manifest_mirror: Any = None
+
+    # Thread 5: digital-twin wiring for /v1/ecosystem/twin/simulate.
+    # ----------------------------------------------------------------------
+    # ``ecosystem_twin`` is a long-lived ``EcosystemDigitalTwin`` instance
+    # whose Koopman operator + conformal calibration buffer accumulate
+    # across all twin invocations (each call ``fork_at(...)`` produces
+    # a fully isolated child for the actual simulation, so the parent
+    # is mutated only by the calibration feedback path).
+    #
+    # ``ecosystem_state_factory`` is a zero-arg callable that materializes
+    # the *current* ``EcosystemState`` projection. The twin endpoint
+    # invokes this on every request rather than holding a stale reference;
+    # in pure in-memory mode the projection is computed live from
+    # ``agent_registry`` + observed drift state, in Postgres mode the
+    # projection still reads from the in-process stores (which the
+    # discovery + drift loops keep current).
+    ecosystem_twin: Any = None
+    ecosystem_state_factory: Any = None
 
 
 class InMemoryPolicyClauseStoreAdapter:
@@ -339,6 +385,61 @@ class InMemoryEntityStoreAdapter:
         return self._store.find_relevant(request=request, limit=limit)
 
 
+def _build_default_contract_suite() -> tuple[BehavioralContract, ...]:
+    """
+    Build the default set of ``BehavioralContract``s for the Tex runtime.
+
+    Returns the contracts as a tuple so the caller can pick the
+    enforcement mode (session-scoped via ``SessionEnforcerRegistry`` or
+    stateless via a single ``ContractEnforcer``). The contracts
+    themselves are immutable, so the same tuple is safe to share across
+    enforcer instances.
+
+    One seed contract, with ``agent_id="*"`` so it fires on every request
+    regardless of whether agent context is supplied. Tenants are expected
+    to extend this suite via their own configuration; the seed exists to
+    prove the wiring is live end-to-end and to give the integration test
+    something hard-FORBID to assert against.
+
+    Contract — ``content-no-api-keys`` (HARD GOVERNANCE)
+        ``G(field:content~not_contains:sk-proj-)``
+        Globally, content must not contain the literal "sk-proj-" — the
+        canonical OpenAI project-key prefix. A single match short-circuits
+        to FORBID.
+
+    Why one seed contract instead of two
+    ------------------------------------
+    A second "recipient required for send_email" contract was prototyped
+    as a soft-governance demo but was removed because the existing Tex
+    SDK contract treats a recipient-less send_email as PERMIT in some
+    workflows. The ``TestBehavioralContracts`` integration test class
+    demonstrates the soft-violation → ABSTAIN path via a contract
+    injected at test time.
+    """
+    no_api_keys = BehavioralContract.make(
+        contract_id="content-no-api-keys",
+        agent_id="*",
+        description=(
+            "Hard governance: content must never contain the canonical "
+            "OpenAI project-key prefix 'sk-proj-'."
+        ),
+        hard_governance_ltl=(
+            "G(field:content~not_contains:sk-proj-)",
+        ),
+        covered_event_kinds=("*",),
+        severity_on_violation="block",
+    )
+    return (no_api_keys,)
+
+
+# Kept for backwards compat with any caller that constructed an enforcer
+# directly. New code should use _build_default_contract_suite() +
+# SessionEnforcerRegistry instead.
+def _build_default_contract_enforcer() -> ContractEnforcer:
+    """Build the default stateless ``ContractEnforcer`` (legacy mode)."""
+    return ContractEnforcer(contracts=_build_default_contract_suite())
+
+
 def build_runtime(
     *,
     evidence_path: str | Path = DEFAULT_EVIDENCE_PATH,
@@ -417,18 +518,39 @@ def build_runtime(
     # mirror (PostgresEvidenceMirror) is kept attached for backward
     # compat with any operator dashboards that still query that table —
     # both mirrors are idempotent and cost-bounded.
+    #
+    # Thread 5: every recorder built here is wired with a ``C2paEmitter``
+    # and a ``PostgresManifestMirror``. The emitter is invoked by the
+    # recorder ONLY when a caller passes ``outbound_artifact=...`` AND a
+    # complete ``C2paEmissionContext`` to ``record_decision(...)`` AND
+    # the decision verdict is PERMIT. All three conditions are decided
+    # by the caller, not by the recorder, so the existing 2,200+ tests
+    # that simply record decisions without artifacts observe no change
+    # in behavior. The mirror is unconditionally constructed because it
+    # no-ops cleanly when ``DATABASE_URL`` is unset (see
+    # ``PostgresManifestMirror.__init__`` line 114-120).
+    manifest_mirror = PostgresManifestMirror()
+    c2pa_emitter = C2paEmitter()
+
+    legacy_evidence_mirror: Any = None
     if database_configured:
         from tex.evidence.postgres_mirror import PostgresEvidenceMirror
 
         legacy_evidence_mirror = PostgresEvidenceMirror()
-        recorder = EvidenceRecorder(
-            normalized_evidence_path, mirror=legacy_evidence_mirror
-        )
-        # Re-point the memory system's recorder at the same instance so
-        # the JSONL chain (and legacy mirror) is shared.
-        memory.recorder = recorder
-    else:
-        recorder = memory.recorder
+
+    recorder = EvidenceRecorder(
+        normalized_evidence_path,
+        mirror=legacy_evidence_mirror,
+        c2pa_emitter=c2pa_emitter,
+        manifest_mirror=manifest_mirror,
+    )
+    # Re-point the memory system's recorder at the same instance so the
+    # JSONL chain (and all Thread 5 emission wiring) is shared. The
+    # MemorySystem's __post_init__ already constructed a vanilla
+    # EvidenceRecorder; this overwrite is the single source-of-truth
+    # promotion that lets MemorySystem.record_decision_with_policy
+    # benefit from C2PA emission without changing its own constructor.
+    memory.recorder = recorder
 
     exporter = EvidenceExporter(recorder)
 
@@ -560,9 +682,44 @@ def build_runtime(
         metrics=discovery_metrics,
     )
 
+    # ── Thread 1 / 1.5: behavioral contracts (LTLf) wiring ────────────────
+    # The default runtime ships a small, opt-out contract suite. Operators
+    # can disable it with TEX_CONTRACTS_DISABLE=1 to bypass the contract
+    # layer entirely. Two contract-layer modes are available:
+    #
+    #   * Session-scoped (default, Thread 1.5): per-(agent_id, session_id)
+    #     enforcer instances with ledger-replay on session bootstrap.
+    #     Honours the ABC paper's (p, δ, k)-satisfaction across requests.
+    #   * Stateless (legacy, Thread 1): single global enforcer, no ledger
+    #     replay. Set TEX_CONTRACTS_MODE=stateless to opt in.
+    #
+    # FRONTIER_DELTA_thread_1.md §6 and §11.
+    contracts_disabled = os.environ.get(
+        "TEX_CONTRACTS_DISABLE", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    contracts_mode = os.environ.get(
+        "TEX_CONTRACTS_MODE", "session_scoped"
+    ).strip().lower()
+
+    contract_enforcer: ContractEnforcer | None = None
+    contract_session_registry: SessionEnforcerRegistry | None = None
+    contract_action_ledger: object | None = None
+    if not contracts_disabled:
+        seeded_contracts = _build_default_contract_suite()
+        if contracts_mode == "stateless":
+            contract_enforcer = ContractEnforcer(contracts=seeded_contracts)
+        else:
+            contract_session_registry = SessionEnforcerRegistry(
+                contracts=seeded_contracts,
+            )
+            contract_action_ledger = action_ledger
+
     pdp = PolicyDecisionPoint(
         retrieval_orchestrator=retrieval_orchestrator,
         agent_evaluator=agent_suite,
+        contract_enforcer=contract_enforcer,
+        contract_session_registry=contract_session_registry,
+        contract_action_ledger=contract_action_ledger,
     )
     calibrator = build_default_calibrator()
 
@@ -637,6 +794,120 @@ def build_runtime(
         exporter=exporter,
     )
 
+    # ----- Thread 5: digital-twin wiring -----------------------------------
+    #
+    # Build a single long-lived ``EcosystemDigitalTwin``. We do NOT pass
+    # a temporal-KG handle today: the InMemoryTemporalKG is wired only
+    # inside the EcosystemEngine pipeline (Thread 7 will compose that),
+    # and the twin's ``fork_at`` path tolerates ``graph=None`` — callers
+    # supply an ``EcosystemState`` directly via the route's state
+    # factory. The Koopman operator + conformal calibration buffer
+    # accumulate across all invocations.
+    ecosystem_twin = EcosystemDigitalTwin()
+
+    # Per-request projection of the live ecosystem state.
+    #
+    # This is the smallest correct projection that lets the twin
+    # endpoint return a meaningful trajectory on a real deployment:
+    # active agent count is observed from the agent registry, the
+    # rest of the axes (drift signals, compromise ratio, governance
+    # graph id) default to neutral values until the corresponding
+    # subsystems start writing through.
+    #
+    # The factory is intentionally side-effect-free and cheap: the
+    # twin route invokes it per request, and we do not want a
+    # database round trip on the hot path. The agent registry's
+    # ``list_all()`` is an in-memory tuple snapshot under a single
+    # RLock (see ``InMemoryAgentRegistry.list_all`` line 154-156),
+    # so this is O(n_agents) memory bandwidth and zero I/O.
+    _twin_state_factory_registry = agent_registry
+    _twin_state_factory_action_ledger = action_ledger
+
+    def _build_ecosystem_state() -> EcosystemState:
+        from datetime import UTC as _UTC, datetime as _dt
+        from hashlib import sha256 as _sha256
+
+        from tex.domain.agent import AgentLifecycleStatus as _Status
+
+        # Use the registry's snapshot — best-effort, never raises.
+        try:
+            all_agents = _twin_state_factory_registry.list_all()
+        except Exception:  # noqa: BLE001
+            all_agents = ()
+
+        active = tuple(
+            sorted(
+                str(a.agent_id)
+                for a in all_agents
+                if a.lifecycle_status is _Status.ACTIVE
+            )
+        )
+
+        # Capability surface projection. AgentIdentity carries a
+        # CapabilitySurface; we project its grant identifiers into a
+        # stable tuple. Empty when no agents are registered.
+        active_capability_ids: tuple[str, ...] = ()
+        active_tool_ids: tuple[str, ...] = ()
+        try:
+            caps: set[str] = set()
+            tools: set[str] = set()
+            for a in all_agents:
+                if a.lifecycle_status is not _Status.ACTIVE:
+                    continue
+                surface = getattr(a, "capability_surface", None)
+                if surface is None:
+                    continue
+                # CapabilitySurface model carries grants/tools as
+                # tuples on the model; we tolerate the absence of
+                # either attribute since older identity shapes may
+                # not have them.
+                grants = getattr(surface, "grants", ()) or ()
+                for g in grants:
+                    cap_id = getattr(g, "capability_id", None)
+                    if cap_id is not None:
+                        caps.add(str(cap_id))
+                tool_list = getattr(surface, "tools", ()) or ()
+                for t in tool_list:
+                    tool_id = getattr(t, "tool_id", None) or getattr(t, "name", None)
+                    if tool_id is not None:
+                        tools.add(str(tool_id))
+            active_capability_ids = tuple(sorted(caps))
+            active_tool_ids = tuple(sorted(tools))
+        except Exception:  # noqa: BLE001
+            active_capability_ids = ()
+            active_tool_ids = ()
+
+        snapshot_at = _dt.now(_UTC)
+
+        # Canonical state hash for replay verification. We hash the
+        # tuple of stable ids in their sorted form so the same
+        # underlying state produces the same hash regardless of
+        # iteration order.
+        h = _sha256()
+        h.update(snapshot_at.isoformat().encode("ascii"))
+        for aid in active:
+            h.update(b"\x00")
+            h.update(aid.encode("ascii"))
+        h.update(b"\x01")
+        for tid in active_tool_ids:
+            h.update(tid.encode("ascii"))
+            h.update(b"\x00")
+        h.update(b"\x02")
+        for cid in active_capability_ids:
+            h.update(cid.encode("ascii"))
+            h.update(b"\x00")
+
+        return EcosystemState(
+            snapshot_at=snapshot_at,
+            state_hash=h.hexdigest(),
+            active_agent_ids=active,
+            active_tool_ids=active_tool_ids,
+            active_capability_ids=active_capability_ids,
+            active_governance_graph_id="tex-default-graph-v1",
+            aggregate_drift_signals={},
+            sliding_window_compromise_ratio=0.0,
+        )
+
     return TexRuntime(
         pdp=pdp,
         calibrator=calibrator,
@@ -677,6 +948,10 @@ def build_runtime(
         learning_metrics=learning_metrics,
         learning_alert_engine=learning_alert_engine,
         memory=memory,
+        # Thread 5
+        manifest_mirror=manifest_mirror,
+        ecosystem_twin=ecosystem_twin,
+        ecosystem_state_factory=_build_ecosystem_state,
     )
 
 
@@ -689,7 +964,33 @@ def create_app(
     Create and configure the FastAPI application for Tex.
 
     If no runtime is supplied, this builds the default in-process runtime.
+
+    The first thing this function does is force a load of the Tex
+    :class:`tex.config.Settings` so the fail-closed startup guards
+    (``_validate_production_secrets``) fire before any runtime is
+    constructed or any request is served. If the guard rejects the
+    environment, a :class:`RuntimeError` is raised with a clear
+    operator-facing remediation message — never a half-built app, never
+    a stub-mode TEE quote silently entering an evidence bundle, never
+    an evidence summary signed with the in-repo HMAC sentinel.
     """
+    # Force settings load. Catches:
+    #   * TEX_EVIDENCE_SUMMARY_SECRET missing/sentinel in production-like
+    #     environments (HMAC key for evidence-bundle manifest signing).
+    #   * TEX_TEE_ATTESTATION_MODE='test' in production-like environments
+    #     (stub mode would emit non-attested evidence).
+    #   * TEX_SEMANTIC_PROVIDER='openai' without OPENAI_API_KEY.
+    #   * Any other Settings-level validation regression.
+    # The lru_cache on get_settings means the cost is paid exactly once
+    # per process.
+    try:
+        get_settings()
+    except (ValidationError, ValueError) as exc:
+        raise RuntimeError(
+            "Tex refused to start: environment configuration failed "
+            f"fail-closed validation.\n\n{exc}"
+        ) from exc
+
     resolved_runtime = runtime or build_runtime(evidence_path=evidence_path)
 
     @asynccontextmanager
@@ -747,6 +1048,7 @@ def create_app(
     )
 
     app.include_router(build_api_router())
+    app.include_router(build_incident_router())  # THREAD 3: CAUSAL ATTRIBUTION
     app.include_router(build_agent_router())  # AGENT GOVERNANCE
     app.include_router(build_tenant_router())  # V11: TENANT BASELINE
     app.include_router(build_discovery_router())  # V13: DISCOVERY
@@ -763,6 +1065,9 @@ def create_app(
     from tex.api.system_state_routes import build_system_state_router
     app.include_router(build_system_state_router())
     app.include_router(leaderboard_router)  # LEADERBOARD
+    app.include_router(tee_router)  # THREAD 12: composite TEE attestation
+    app.include_router(vet_router)  # THREAD 13: VET Web Proofs + AID
+    app.include_router(zkprov_router)  # THREAD 14: ZKPROV training-data provenance
 
     # V17: Learning/Drift layer
     from tex.api.learning_routes import build_learning_router
@@ -772,6 +1077,30 @@ def create_app(
     app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
     app.include_router(guardrail_streaming_router)  # GUARDRAIL: SSE + async + chunk streaming
     app.include_router(mcp_router)  # MCP: server interface
+
+    # Thread 5: C2PA Content Credentials endpoints
+    from tex.api.c2pa_routes import router as c2pa_router
+    app.include_router(c2pa_router)
+
+    # Thread 4 (May 2026): Layer 5 (Reporting / Documenting / Logging)
+    # export endpoints. /v1/exports/vp-marketing, /v1/exports/ciso,
+    # /v1/exports/insurer expose the signed evidence chain to three
+    # audiences the deploying company has to answer to (offline
+    # verifiers like insurers / AI Act QMS auditors / NAIC examiners;
+    # the company's own security team; and the team running
+    # customer-facing AI agents). All require scope ``evidence:export``;
+    # the insurer route additionally runs
+    # ``RequireTenantMatch.from_body('tenant_id')`` before the handler
+    # (Thread 3 BOLA defence).
+    from tex.api.pitch_routes import build_pitch_router
+    app.include_router(build_pitch_router())
+
+    # Thread 9: Ecosystem digital-twin simulation endpoint.
+    # The router is unconditionally registered; the endpoint itself
+    # returns 503 unless ``app.state.ecosystem_twin`` and
+    # ``app.state.ecosystem_state_factory`` are attached at startup.
+    from tex.api.ecosystem_twin_routes import build_twin_router
+    app.include_router(build_twin_router())
 
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:
@@ -871,6 +1200,22 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.poisoning_detector = runtime.poisoning_detector
     app.state.learning_metrics = runtime.learning_metrics
     app.state.learning_alert_engine = runtime.learning_alert_engine
+
+    # Thread 5: C2PA manifest mirror + digital twin + state factory.
+    # ------------------------------------------------------------------
+    # ``manifest_mirror`` is read from runtime.manifest_mirror by the
+    # /v1/evidence/{record_id}/c2pa GET handler in c2pa_routes; we
+    # ALSO publish it as app.state.manifest_mirror so the more direct
+    # ``request.app.state.manifest_mirror`` access pattern works for
+    # future routes that don't want to go through ``runtime``.
+    app.state.manifest_mirror = runtime.manifest_mirror
+    # ``ecosystem_twin`` and ``ecosystem_state_factory`` are the two
+    # names ecosystem_twin_routes.simulate() reads from. Setting both
+    # turns /v1/ecosystem/twin/simulate from a 503 into a working
+    # endpoint that returns a conformal-covered fused-systemic-risk
+    # trajectory on every call.
+    app.state.ecosystem_twin = runtime.ecosystem_twin
+    app.state.ecosystem_state_factory = runtime.ecosystem_state_factory
 
 
 def _seed_default_policies(policy_store: InMemoryPolicyStore) -> None:

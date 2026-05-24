@@ -14,12 +14,18 @@ Reference
 arxiv 2512.18561 (AAF) section (i) — cryptographically verifiable
 interaction provenance.
 
-Priority: P0.
+Status
+------
+- **RFC 8785 canonicalization (wired):** via
+  ``tex.events._canonical.canonical_json``. Full I-JSON number
+  serialization remains a P1 cleanup (see ``_canonical.py``).
+- **ML-DSA signing (wired):** ``CryptoProvenance.from_proposed`` accepts
+  any ``algorithm_agility`` provider; default is ECDSA-P256 for
+  call-site compatibility but ML-DSA-65 (native pyca/cryptography 48
+  or liboqs fallback) and the hybrid composite work without
+  call-site edits.
 
-TODO(P0): canonicalize per RFC 8785 — partially satisfied (see _canonical.py;
-  full I-JSON number serialization deferred to P1).
-TODO(P0): sign record_hash via ML-DSA provider — provider abstraction wired;
-  ML-DSA itself is Thread 4. Default is ECDSA-P256.
+Priority: P0.
 """
 
 from __future__ import annotations
@@ -106,10 +112,12 @@ class CryptoProvenance:
         tool_receipt_id
             Optional link to a HMAC tool receipt (tex.receipts).
 
-        TODO(P0): full RFC 8785 canonicalization — see _canonical.py for the
-          float-handling caveat (P1).
-        TODO(P0): swap to ML-DSA via Thread 4 — change is one constructor
-          argument; no call-site edits.
+        Implementation notes (formerly P0 TODOs):
+        - **RFC 8785 canonicalization** via the ``_canonical`` module
+          (float-handling caveat tracked as P1).
+        - **ML-DSA via algorithm-agility dispatcher:** swap from the
+          ECDSA-P256 default by passing a different signing provider; no
+          call-site edits.
         """
         payload_sha256 = canonical_sha256(proposed.payload)
 

@@ -1115,3 +1115,180 @@ class ExportBundleResponseDTO(BaseModel):
             export_format=result.export_format,
             bundle_included=result.bundle is not None,
         )
+
+# ---------------------------------------------------------------------------
+# Causal attribution DTOs — Thread 3
+# ---------------------------------------------------------------------------
+#
+# These DTOs surface CausalAttributionResult and the SCITT-shaped Signed
+# Statement over the HTTP boundary. The wire format follows the SCITT
+# Refusal Events draft-02 (Jan 29 2026) for the claim set and the PTV draft
+# (Mar 2026) for the optional ZK envelope.
+#
+# Design notes
+# ------------
+# * The COSE_Sign1 envelope is returned as hex-encoded bytes. Real SCITT
+#   transparency-service verifiers consume the bytes directly; HTTP clients
+#   typically prefer hex for inspectability.
+# * The claim set is returned as JSON (already CBOR-decoded) for caller
+#   convenience. The cryptographic binding is on the CBOR-encoded form,
+#   which is reconstructable from the claim set; we make this explicit in
+#   the docs.
+# * The PTV envelope and TEE attestation are optional and only present
+#   when the corresponding request flags were set.
+
+
+class CausalCandidateDTO(BaseModel):
+    """Public DTO for a single attribution candidate."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    agent_id: str
+    decisive_step_index: int
+    step_id: str
+    confidence: float
+    integrity_level: str
+    reasoning_perspective: str
+
+
+class PTVEnvelopeDTO(BaseModel):
+    """Public DTO for the optional PTV-shaped Groth16 envelope."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    method: str
+    proof: str = ""
+    model_hash: str
+    input_hash: str
+    output_hash: str
+
+
+class TEEAttestationDTO(BaseModel):
+    """Public DTO for the optional TEE attestation binding."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    format: str
+    nras_jwt: str | None = None
+    nras_jwt_sha256: str
+    nonce: str
+    gpu_measurement_sha256: str | None = None
+    issuer: str
+    test_mode: bool = False
+
+
+class ConformalPredictionSetDTO(BaseModel):
+    """Public DTO for the optional conformal prediction set.
+
+    Per arxiv 2605.06788 (Feng et al., May 7, 2026). Identifies a
+    contiguous range of trajectory indices guaranteed (under CP
+    exchangeability) to contain the decisive error with confidence
+    ``1 - alpha``.
+
+    Empty set: ``start_index == end_index == -1`` and ``set_size ==
+    0``. Auditors should treat empty sets as "CP could not localize"
+    rather than "no error" (the verdict already settled that).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    algorithm: str
+    start_index: int
+    end_index: int
+    set_size: int
+    trace_length: int
+    alpha: float
+    target_coverage: float
+    threshold: float
+    score_source: str
+    coverage_mode: str
+    step_ids_in_set: tuple[str, ...]
+
+
+class SignedAttributionStatementDTO(BaseModel):
+    """The COSE_Sign1 signed statement carrying the attribution claim set.
+
+    ``envelope_cose_hex`` is the full COSE_Sign1_Tagged envelope as hex.
+    ``claim_set`` is the same claim set as JSON for caller inspection.
+    Verifiers should use ``envelope_cose_hex`` as the cryptographic source
+    of truth.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    envelope_cose_hex: str
+    cose_algorithm_label: int
+    claim_set: dict[str, Any]
+
+
+class CausalAttributionRequestDTO(BaseModel):
+    """Request body for ``POST /v1/incidents/{decision_id}/attribute``.
+
+    All fields are optional. Default behaviour is graph + prefill
+    attribution with no ZK envelope and no TEE binding. Setting
+    ``include_zk_envelope=True`` adds a PTV-shaped envelope (in
+    proof_pending mode until a real NanoZK prover is wired). Setting
+    ``include_tee_attestation=True`` requires either ``tee_jwt`` to be
+    supplied or ``TEX_TEE_ATTESTATION_MODE=test`` to be set on the
+    server. Setting ``include_conformal=True`` adds a conformal
+    prediction set (arxiv 2605.06788) bounding the decisive error to
+    a contiguous range of trajectory indices with confidence
+    ``1 - conformal_alpha``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    include_zk_envelope: bool = False
+    include_tee_attestation: bool = False
+
+    tee_jwt: str | None = Field(default=None, max_length=16_000)
+    """Caller-supplied NRAS EAT JWT. Used as-is when present. When
+    absent and ``include_tee_attestation=True``, the server attempts
+    test-mode JWT generation (if ``TEX_TEE_ATTESTATION_MODE=test``)."""
+
+    tee_nonce: str | None = Field(default=None, min_length=8, max_length=128)
+    """Caller-supplied attestation nonce. Required when ``tee_jwt``
+    is provided. Auto-generated in test mode."""
+
+    include_conformal: bool = False
+    """If True, compute a conformal prediction set per arxiv
+    2605.06788 (Feng et al., May 7, 2026). Adds the ``conformal_set``
+    field to the response."""
+
+    conformal_alpha: float = Field(default=0.1, ge=0.001, le=0.999)
+    """Miscoverage rate for the conformal prediction set. Target
+    coverage is ``1 - conformal_alpha``. Default 0.1 (90% coverage),
+    matching the paper's primary experimental setting."""
+
+    conformal_algorithm: str = Field(default="two_way_filtration", max_length=64)
+    """Which conformal algorithm to apply. One of ``vanilla``,
+    ``left_filtration``, ``right_filtration``, ``two_way_filtration``
+    (default, the paper's recommended choice)."""
+
+
+class CausalAttributionResponseDTO(BaseModel):
+    """Public DTO for the attribution endpoint response."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    decision_id: UUID
+    candidates: tuple[CausalCandidateDTO, ...]
+    primary_root_cause_index: int
+    blame_distribution: dict[str, float]
+    causality_laundering_suspected: bool
+    confidence_signals: dict[str, float]
+    signals_available: bool
+    slm_model_id: str
+    slm_model_weight_sha256: str
+    attribution_method: str
+    attribution_latency_ms: float
+
+    signed_statement: SignedAttributionStatementDTO
+    ptv_envelope: PTVEnvelopeDTO | None = None
+    tee_attestation: TEEAttestationDTO | None = None
+    conformal_set: ConformalPredictionSetDTO | None = None
+
+    evidence_chain_index: int
+    """Position of this attribution record in the hash-chained evidence
+    log. Verifiers can fetch the record by index and re-verify the
+    hash chain back to the decision record."""

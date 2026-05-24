@@ -109,10 +109,11 @@ class HybridMlDsaEd25519Provider:
         self._ml_dsa = MlDsaProvider(SignatureAlgorithm.ML_DSA_65)
 
     def sign(self, message: bytes, key: SignatureKeyPair) -> bytes:
-        """
-        Produce ``concat(u32_be(len(ml_dsa_sig)), ml_dsa_sig, ed25519_sig)``.
+        """Produce ``concat(u32_be(len(ml_dsa_sig)), ml_dsa_sig, ed25519_sig)``.
 
-        TODO(P0): produce concat(ml_dsa_signature, ed25519_signature)
+        Both halves independently sign ``message``; the verifier requires
+        both to validate. ML-DSA-65 is dispatched through the native pyca
+        backend when available, falling back to liboqs.
         """
         if key.algorithm is not SignatureAlgorithm.HYBRID_ML_DSA_ED25519:
             raise ValueError(
@@ -153,10 +154,10 @@ class HybridMlDsaEd25519Provider:
         return signature
 
     def verify(self, message: bytes, signature: bytes, public_key: bytes) -> bool:
-        """
-        Verify both halves. Returns ``False`` if EITHER half fails.
+        """Verify both halves. Returns ``False`` if EITHER half fails.
 
-        TODO(P0): split signature, require BOTH verifications to pass
+        This is the non-separability property of a true PQ/T Hybrid: an
+        attacker must break ML-DSA-65 AND Ed25519 simultaneously to forge.
         """
         try:
             ml_dsa_sig, ed_sig = _split_length_prefixed(
@@ -198,11 +199,11 @@ class HybridMlDsaEd25519Provider:
         return ok
 
     def generate_keypair(self, key_id: str | None = None) -> SignatureKeyPair:
-        """
-        Generate a fresh hybrid keypair (ML-DSA-65 + Ed25519).
+        """Generate a fresh hybrid keypair (ML-DSA-65 + Ed25519).
 
-        TODO(P0): produce concat-layout keypair where each component is
-        independently algorithm-agile via algorithm_agility.
+        Both halves use the concat-layout: ``u32_be(len(ml_dsa)) || ml_dsa
+        || ed25519_pem``. Each component is independently algorithm-agile
+        via ``algorithm_agility.get_signature_provider``.
         """
         ml_dsa_kp = self._ml_dsa.generate_keypair(key_id=f"{key_id or 'hybrid'}/ml-dsa")
 

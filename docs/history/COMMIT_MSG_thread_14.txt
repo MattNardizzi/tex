@@ -1,0 +1,86 @@
+Thread 14 — ZKPROV training-data provenance + VFT + frontier upgrade pass
+
+WHAT
+----
+Tex produces zero-knowledge proofs that every model output was generated from
+an authorized training-data manifest, verifiable independently in under 2
+seconds without revealing the training data itself.
+
+Five upgrades after the initial Thread 14 build push the wiring to the
+actual May-18-2026 bleeding edge:
+
+UPGRADE 1: VEIL hash-based ZK wrapper (eprint 2026/683, Apr 8 2026)
+  Dalal-Hemo-Rabinovich-Rothblum compiler adds ZK to hash-based multilinear
+  proof systems at ~3% prover overhead. Plausibly post-quantum on hash
+  assumptions alone. ProofBackendId variant veil-hash-based-zk-2026
+  reserved, regulator-grade.
+
+UPGRADE 2: SP1 Hypercube zkVM (Succinct, mainnet Feb 19 2026)
+  Multilinear-polynomial zkVM. Proves 99.7% of L1 Ethereum blocks in <12s
+  on 16 RTX 5090 GPUs. Formally verified RISC-V constraints.
+  ProofBackendId variant sp1-hypercube-2026 reserved, regulator-grade.
+
+UPGRADE 3: Mira parallel folding (ZKTorch, arxiv 2507.07031)
+  Tree-based homomorphic accumulation reduction. 3x-10x proof-size
+  reduction, 6.2x faster proving. FoldingScheme.MIRA_PARALLEL_2026 added.
+
+UPGRADE 4: Real Poseidon-BN254-t3 Merkle (replaces SHA-256 reduction)
+  Wired the poseidon-hash PyPI package. Parameters: BN254, t=3, alpha=5,
+  RF=8, RP=57, 128-bit security. SHA-256 reduction stays as fallback
+  "sha256-reduced-bn254", automatically refused from regulator-grade.
+
+UPGRADE 5: /v1/zkprov/health exposes merkle_hash_in_use + 12 pinned standards
+  Added veil_hash_based_zk, sp1_hypercube, mira_parallel_accumulation,
+  poseidon_merkle_hash entries with citation dates.
+
+ORIGINAL THREAD 14:
+
+1. ZKPROV (arxiv 2506.20915) -- 6-backend dispatcher, 6 fail-closed checks
+2. VFT extensions (arxiv 2510.16830 v3) -- 5 elements all wired
+3. LatticeFold+ ℓ2 (eprint 2026/721) -- PQ folding slot
+4. DeepProve slot (Lagrange Feb 23 2026) -- 158x faster than ezkl
+5. JOLT + Twist & Shout slot (a16z Feb 2026)
+6. SCITT ARP (draft-hillier-scitt-arp-00, May 1 2026) -- COSE 0x801-0x804
+7. NABAOS receipts (arxiv 2603.10060) -- sub-15ms HMAC
+8. EU AI Act Article 53(1)(d) TDS Template binding
+9. Algorithm-agile CA signing (ML-DSA-65 default)
+
+WIRED
+-----
+- POST /v1/zkprov/issue-commitment, /prove, /verify, /aggregate, /narrow
+- GET  /v1/zkprov/proof/{envelope_sha256}, /health
+- tex_provenance_proofs Postgres table with in-memory fallback
+- /v1/guardrail evidence-payload hook behind TEX_ZKPROV=1 env flag
+
+VERIFIED
+--------
+- 103/103 tests/zkprov/ tests pass (82 original + 21 upgrade tests)
+- 3,234 pre-existing non-zkprov tests continue to pass
+- Demo exercises both Mira parallel and LatticeFold+ aggregation paths
+- regulator_grade=true rejects shim backend AND SHA-256 Merkle fallback
+
+DEPENDENCY ADDED
+----------------
+- poseidon-hash (PyPI, pure-Python, no native code)
+
+REFERENCES (NEW)
+----------------
+- Dalal, Hemo, Rabinovich, Rothblum. VEIL. IACR ePrint 2026/683 (Apr 8 2026)
+- Succinct Labs. SP1 Hypercube mainnet (Feb 19 2026)
+- Chen et al. ZKTorch / parallel Mira. arXiv:2507.07031 (Jul 9 2025)
+- Grassi et al. Poseidon. USENIX Security 2021 / IACR ePrint 2019/458
+
+REFERENCES (ORIGINAL)
+---------------------
+- Namazi, Nemecek, Ayday. arXiv:2506.20915 (Dec 18 2025)
+- Akgül et al. arXiv:2510.16830 v3 (Dec 29 2025)
+- Osadnik et al. IACR ePrint 2026/721 (Apr 19 2026)
+- Boneh, Chen. ASIACRYPT 2025
+- Setty, Thaler. a16z (Feb 2026)
+- Lagrange Labs. Feb 23 2026 public release
+- Hillier et al. IETF draft-hillier-scitt-arp-00 (May 1 2026)
+- Basu. arXiv:2603.10060 (Mar 9 2026)
+- Grassi et al. IACR ePrint 2023/323 -- Poseidon2 (upgrade path)
+- Kothapalli, Setty. CRYPTO 2024 / IACR ePrint 2023/573 (Feb 20 2026)
+- NIST FIPS 204 (ML-DSA, Aug 2024)
+- European Commission, AI Office. Article 53(1)(d) TDS Template

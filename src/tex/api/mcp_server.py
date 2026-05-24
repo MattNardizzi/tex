@@ -8,7 +8,7 @@ register Tex as a guardrail tool with one config line:
 
     {
       "mcpServers": {
-        "tex": { "url": "https://api.tex.io/mcp" }
+        "tex": { "url": "https://api.texaegis.com/mcp" }
       }
     }
 

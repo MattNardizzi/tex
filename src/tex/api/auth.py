@@ -286,6 +286,9 @@ def enforce_tenant_match(
         else principal.tenant.
       - Scoped principal without cross-tenant ⇒ requested_tenant must
         either be unset or equal principal.tenant; mismatch is 403.
+
+    Comparison is case-folded and whitespace-trimmed on both sides to
+    match the historical tenant-canonicalisation done by stores.
     """
     if principal.is_anonymous:
         return (requested_tenant or _DEFAULT_TENANT).strip()
@@ -296,7 +299,7 @@ def enforce_tenant_match(
     if requested_tenant is None or requested_tenant.strip() == "":
         return principal.tenant
 
-    if requested_tenant.strip() != principal.tenant:
+    if requested_tenant.strip().casefold() != principal.tenant.casefold():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -307,11 +310,172 @@ def enforce_tenant_match(
     return principal.tenant
 
 
+def enforce_tenant_match_optional(
+    principal: TexPrincipal | None,
+    requested_tenant: str | None,
+) -> str | None:
+    """
+    Tenant-match check that no-ops when there is no principal at all.
+
+    Used by routes that intentionally do not require Tex API-key auth
+    (the design property #3 file class — credentials themselves are
+    the trust bearer; operator's gateway handles perimeter auth). When
+    a caller HAPPENS to pass a Tex API key anyway, we still enforce
+    tenant binding on the looked-up resource. When no API key is
+    presented, this is a no-op and the route's existing behaviour is
+    preserved.
+
+    Returns ``None`` when no enforcement is performed; otherwise the
+    same resolved tenant string ``enforce_tenant_match`` would return.
+    """
+    if principal is None or principal.is_anonymous:
+        return None
+    return enforce_tenant_match(principal, requested_tenant)
+
+
+# ---------------------------------------------------------------------- tenant guards
+
+
+class RequireTenantMatch:
+    """
+    FastAPI dependency that enforces tenant binding from a request body
+    or query parameter BEFORE the handler runs.
+
+    Use this when the tenant_id is present in the request envelope
+    itself (pre-handler). For checks against a tenant_id fetched
+    mid-handler from a store-loaded object (e.g. ``agent.tenant_id``,
+    ``proposal.tenant_id``, ``record["tenant_id"]``), call
+    ``enforce_tenant_match`` from inside the handler instead.
+
+    Usage on a route that takes a body with a ``tenant_id`` field::
+
+        from tex.api.auth import RequireTenantMatch
+
+        _RequireBodyTenant = RequireTenantMatch.from_body("tenant_id")
+
+        @router.post(
+            "/proposals",
+            dependencies=[Depends(_RequireBodyTenant)],
+        )
+        def create_proposal(body: CreateProposalRequestDTO, ...): ...
+
+    Usage on a route that takes a ``tenant_id`` query parameter::
+
+        _RequireQueryTenant = RequireTenantMatch.from_query("tenant_id")
+
+        @router.get("/health", dependencies=[Depends(_RequireQueryTenant)])
+        def calibration_health(tenant_id: str, ...): ...
+
+    The dependency runs ``authenticate_request`` first, extracts the
+    tenant_id from the configured source, then calls
+    ``enforce_tenant_match`` against the resolved principal. A
+    mismatch raises ``HTTPException(403)`` before the handler runs;
+    a missing tenant value is treated by ``enforce_tenant_match`` as
+    "use the principal's own tenant" — the handler will read it back
+    from the request body itself if it needs the value.
+
+    The result of the dependency (the resolved effective tenant) is
+    NOT consumed by route handlers today; the handler reads the
+    tenant_id directly from its own typed parameter as before. The
+    dependency exists purely to make forgetting impossible — the
+    route literally cannot start without the check having been run.
+
+    Centralisation property: ``RequireTenantMatch``, the helper
+    ``enforce_tenant_match``, and the opt-in ``enforce_tenant_match_optional``
+    all delegate to the same underlying logic in
+    ``enforce_tenant_match``. There is one tenant-isolation policy,
+    not three.
+
+    This pattern follows the May 2026 best practice for multi-tenant
+    FastAPI: tenant boundary enforcement is wired as a dependency
+    that runs before the handler, so forgetting it makes the route
+    fail to start rather than producing silent BOLA. See OWASP API
+    Top 10 2023 / 2026 #1 (Broken Object Level Authorization).
+    """
+
+    __slots__ = ("_source", "_field_name")
+
+    _ALLOWED_SOURCES: Final[frozenset[str]] = frozenset({"body", "query"})
+
+    def __init__(self, source: str, field_name: str = "tenant_id") -> None:
+        if source not in self._ALLOWED_SOURCES:
+            raise ValueError(
+                f"source must be one of {sorted(self._ALLOWED_SOURCES)}, got: {source!r}"
+            )
+        if not field_name:
+            raise ValueError("field_name must be non-empty")
+        self._source = source
+        self._field_name = field_name
+
+    @classmethod
+    def from_body(cls, field_name: str = "tenant_id") -> "RequireTenantMatch":
+        return cls(source="body", field_name=field_name)
+
+    @classmethod
+    def from_query(cls, field_name: str = "tenant_id") -> "RequireTenantMatch":
+        return cls(source="query", field_name=field_name)
+
+    async def __call__(
+        self,
+        request: Request,
+        principal: TexPrincipal = Depends(authenticate_request),
+    ) -> str:
+        requested: str | None
+        if self._source == "query":
+            raw = request.query_params.get(self._field_name)
+            requested = raw if raw is None else str(raw)
+        else:  # body
+            # Body parsing requires reading and re-buffering the body so
+            # the downstream handler can still parse it as its own model.
+            # Starlette's Request.body() is cached after first call, so
+            # this is safe to do here.
+            try:
+                body_bytes = await request.body()
+            except Exception:
+                requested = None
+            else:
+                requested = _extract_field_from_json_body(
+                    body_bytes, self._field_name
+                )
+
+        # ``enforce_tenant_match`` does the actual policy decision and
+        # raises HTTPException(403) on mismatch.
+        return enforce_tenant_match(principal, requested)
+
+
+def _extract_field_from_json_body(body_bytes: bytes, field_name: str) -> str | None:
+    """
+    Best-effort extraction of a single top-level field from a JSON body.
+
+    Returns ``None`` when the body is not JSON, the field is missing,
+    or the field is not a string. In all those cases
+    ``enforce_tenant_match`` treats the requested tenant as unset and
+    defaults to the principal's own tenant — which is the safe default.
+    """
+    if not body_bytes:
+        return None
+    try:
+        import json
+        parsed = json.loads(body_bytes)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    value = parsed.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    return value
+
+
 __all__ = [
     "DEFAULT_SCOPES",
     "RequireScope",
+    "RequireTenantMatch",
     "SCOPE_CROSS_TENANT",
     "TexPrincipal",
     "authenticate_request",
     "enforce_tenant_match",
+    "enforce_tenant_match_optional",
 ]

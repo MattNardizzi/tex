@@ -27,13 +27,69 @@ Priority
 P2 (full); skeleton in P1.
 """
 
-from tex.intervention.engine import InterventionEngine
-from tex.intervention.bounded_compromise import BoundedCompromiseCalculator
-from tex.intervention.kinds import InterventionKind, Intervention
+from tex.intervention.engine import (
+    InterventionApplyError,
+    InterventionEngine,
+    InterventionSelectionError,
+    air_phase_for,
+)
+from tex.intervention.bounded_compromise import (
+    BoundedCompromiseCalculator,
+    CompromiseCertificate,
+    DEFAULT_FALSE_ALARM_BUDGET,
+    DEFAULT_STRICT_DOMINANCE_EPSILON,
+    DEFAULT_TARGET_COMPROMISE_CEILING,
+    DEFAULT_WINDOW_LENGTH,
+)
+from tex.intervention.eradication import (
+    DEFAULT_MAX_LTLF_DEPTH,
+    DEFAULT_MAX_PREDICATE_COUNT,
+    EradicationRuleSynthesizer,
+    IncidentContext,
+    InMemoryRuleRegistry,
+    LLMClient,
+    RuleRegistry,
+    RuleSynthesisError,
+    SynthesizedRule,
+)
+from tex.intervention.kinds import Intervention, InterventionKind
+from tex.intervention.neyman_pearson import (
+    DEFAULT_LAGRANGIAN_LAMBDA,
+    MonitorCandidateSource,
+    MonitorPortfolio,
+    NeymanPearsonSelector,
+    PortfolioSelection,
+    compose_intervention_pool,
+)
+from tex.intervention.restorative import RestorativePathExecutor
 
 __all__ = [
-    "InterventionEngine",
     "BoundedCompromiseCalculator",
-    "InterventionKind",
+    "CompromiseCertificate",
+    "DEFAULT_FALSE_ALARM_BUDGET",
+    "DEFAULT_LAGRANGIAN_LAMBDA",
+    "DEFAULT_MAX_LTLF_DEPTH",
+    "DEFAULT_MAX_PREDICATE_COUNT",
+    "DEFAULT_STRICT_DOMINANCE_EPSILON",
+    "DEFAULT_TARGET_COMPROMISE_CEILING",
+    "DEFAULT_WINDOW_LENGTH",
+    "EradicationRuleSynthesizer",
+    "InMemoryRuleRegistry",
+    "IncidentContext",
     "Intervention",
+    "InterventionApplyError",
+    "InterventionEngine",
+    "InterventionKind",
+    "InterventionSelectionError",
+    "LLMClient",
+    "MonitorCandidateSource",
+    "MonitorPortfolio",
+    "NeymanPearsonSelector",
+    "PortfolioSelection",
+    "RestorativePathExecutor",
+    "RuleRegistry",
+    "RuleSynthesisError",
+    "SynthesizedRule",
+    "air_phase_for",
+    "compose_intervention_pool",
 ]

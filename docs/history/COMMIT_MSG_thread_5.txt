@@ -1,0 +1,136 @@
+Thread 5 — C2PA Content Credentials → Evidence Emission (wired)
+
+Wires the previously built-but-unwired ``tex.c2pa`` package into the
+``EvidenceRecorder.record_decision`` path so every PERMIT verdict on
+an outbound AI-generated artifact emits a C2PA 2.4 Content Credential
+with a Tex post-quantum evidence cosign. FORBID verdicts with a
+refusal reason emit a SCITT-shaped refusal event per
+``draft-kamimura-scitt-refusal-events-02``.
+
+What this thread implements
+---------------------------
+
+* ``tex.c2pa.evidence_emission`` — ``build_signed_manifest_with_cosign``
+  produces the outer COSE_Sign1 (ES256 / Ed25519, C2PA 2.4 §13.2
+  allow-list compliant) plus a ``tex.evidence_cosign`` extension
+  assertion signed under ``tex.pqcrypto.algorithm_agility`` with
+  ML-DSA-65 by default (NIST FIPS 204, NIST Security Level 3).
+  Ed25519 fallback for environments without liboqs.
+* ``tex.c2pa.cosign_verifier`` — verifies the cosign and reports
+  per-attack defense status for the five attack classes from
+  arxiv 2604.24890.
+* ``tex.evidence.c2pa_emitter`` — thin facade so the recorder does
+  not pay the c2pa import cost when not in use.
+* ``tex.evidence.manifest_mirror`` — ``PostgresManifestMirror``
+  backing the new ``tex_evidence_manifests`` table.
+* ``tex.evidence.recorder`` — ``record_decision`` takes optional
+  ``outbound_artifact`` and ``c2pa_context``; pre-Thread-5 callers
+  see zero change.
+* ``tex.api.c2pa_routes`` — ``GET /v1/evidence/{record_id}/c2pa``
+  and ``POST /v1/c2pa/verify``.
+
+Frontier delta against Section 1.4 of the build prompt
+------------------------------------------------------
+
+Section 1.4 named: "C2PA 2.2 production, 2.3 in progress."
+Reality as of May 18, 2026 (see FRONTIER_DELTA_thread_5.md for the
+30+ search-result citations):
+
+  * C2PA 2.3 shipped Jan 5, 2026. C2PA 2.4 is the current
+    published spec at ``spec.c2pa.org/specifications/specifications/2.4/``.
+  * C2PA Interim Trust List (ITL) frozen Jan 1, 2026.
+  * arxiv 2604.24890 (Sherman/Krawetz/NSA, Apr 27 2026) —
+    first formal-methods analysis of C2PA. Identifies six
+    systemic vulnerabilities in 2.2–2.4 and explicitly states
+    that v2.4 fixes none.
+  * arxiv 2603.02378 (Mar 2 2026) — authenticated contradictions
+    from desynchronised C2PA + watermark layers.
+  * arxiv 2605.12456 (May 12 2026, 6 days ago) — TextSeal
+    distortion-free LLM text watermark; documented as future
+    soft-binding companion.
+  * arxiv 2605.13471 (May 14 2026) — Sleeper Channels and
+    Provenance Gates; informs the canonical-action-instance-
+    digest pattern in the cosign signing input.
+  * EU AI Act Article 50 Draft Guidelines (May 8 2026, AI
+    Office) — agentic-AI default flipped to "self-disclose where
+    interaction is plausible" (para 28); every generative tool
+    reaching an external counterparty is in scope (para 54).
+  * EU agreement May 7 2026 grandfathering rule: legacy systems
+    Dec 2 2026; new systems Aug 2 2026.
+  * Microsoft Agent Governance Toolkit (Apr 2 2026): ships
+    Ed25519 hash-chained receipts. Zero C2PA. Same for Zenity,
+    Noma, Lakera, Pillar, F5/CalypsoAI, CrowdStrike/Pangea,
+    Palo Alto/Protect AI. Confirmed via search May 18 2026.
+  * draft-ietf-cose-dilithium-11 (Nov 15 2025): COSE codepoint
+    for ML-DSA still TBD. X.509 OID ``2.16.840.1.101.3.4.3.18``
+    final. AWS Private CA (Nov 2025) and Microsoft AD CS
+    (May 18 2026, today) both ship ML-DSA-65 X.509 support.
+
+Six-attack-defense semantics
+----------------------------
+
+The ``tex.evidence_cosign`` assertion closes the six attack classes
+in arxiv 2604.24890 §"Key Findings":
+
+  1. timestamp_swap                — bound_timestamp in signed cosign input
+  2. revocation_skipped            — revocation_proof field (CRL hash pin)
+  3. cross_validator_contradiction — canonicalization_version field
+  4. exclusion_range_tamper        — full_file_sha256 over entire asset
+  5. cert_expiry_before_retention  — retention_anchor into hash chain
+  6. conformance self-reporting    — addressed operationally
+
+Test coverage
+-------------
+
+Before: 2,269 passing.
+After:  2,300 passing (+31). Zero regressions.
+
+New tests:
+  * tests/frontier/test_c2pa_evidence_cosign.py    (18 tests)
+  * tests/test_thread5_integration.py              (5 tests)
+  * tests/test_c2pa_http_routes.py                 (8 tests)
+
+The pre-existing 53 ``tests/frontier/test_c2pa.py`` continue to
+pass — the cosign is strictly additive (trailing extension
+assertion).
+
+Caveats
+-------
+
+  * COSE codepoint for ML-DSA is still draft, so the outer
+    COSE_Sign1 is ES256/Ed25519 (spec-conformant). PQ coverage is
+    supplied by the cosign assertion under the outer signature.
+  * Vanilla C2PA validators (Adobe Inspect, CAI Verify,
+    c2patool, Microsoft Edge) treat the cosign as an unknown
+    extension assertion — spec-defined behaviour. Tex-aware
+    validators (or the ``POST /v1/c2pa/verify`` endpoint) report
+    the six-attack-defense status explicitly.
+  * The pre-existing ``tex.events.crypto_provenance`` ↔
+    ``tex.ecosystem.engine`` circular import surfaces during test
+    collection. ``tests/conftest.py`` now preloads
+    ``tex.ecosystem`` to resolve the order. Out of Thread 5 scope
+    to refactor.
+
+Demo
+----
+
+``scripts/demo_thread_5_c2pa.sh`` — boots Tex on 127.0.0.1:8765,
+posts a real signed manifest to ``/v1/c2pa/verify``, prints the
+full structured verification result including all five attack-
+defense flags.
+
+Source-paper anchors
+--------------------
+
+  - C2PA 2.4 (Jan 5 2026, current spec)
+  - arxiv 2604.24890 (Apr 27 2026) — the six attack classes
+  - NIST FIPS 204 (Aug 2024) — ML-DSA
+  - draft-ietf-cose-dilithium-11 (Nov 15 2025)
+  - draft-kamimura-scitt-refusal-events-02 (Jan 10 2026)
+  - EU AI Act Article 50 Draft Guidelines (May 8 2026)
+  - EU agreement May 7 2026 on Article 50(2) grandfathering
+  - arxiv 2603.02378 — provenance/watermark desync
+  - arxiv 2605.12456 (May 12 2026) — TextSeal
+  - arxiv 2605.13471 (May 14 2026) — Sleeper Channels
+
+CLAIMS.md updated. FRONTIER_DELTA_thread_5.md committed.

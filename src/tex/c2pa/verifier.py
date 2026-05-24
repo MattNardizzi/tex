@@ -93,15 +93,18 @@ def _signature_algorithm_for_cose_alg(cose_alg: int) -> SignatureAlgorithm | Non
     return None
 
 
-def _decode_envelope(signature_b64: str) -> tuple[bytes, dict, bytes]:
-    """Decode the base64'd COSE_Sign1_Tagged into (protected_bytes,
-    decoded_protected_map, signature_bytes).
+def _decode_envelope(signature_b64: str) -> tuple[bytes, dict, dict, bytes]:
+    """Decode the base64'd COSE_Sign1_Tagged.
+
+    Returns ``(protected_bytes, decoded_protected_map, unprotected_map,
+    signature_bytes)``. The unprotected map is where C2PA 2.4 places
+    OCSP staples (``ocsp_vals``) and TSA v2 tokens (``sigTst2``).
 
     Raises ``ValueError`` on any structural problem.
     """
     try:
         envelope_bytes = base64.b64decode(signature_b64.encode("ascii"))
-    except Exception as exc:  # noqa: BLE001 — base64 raises a varied set
+    except Exception as exc:  # noqa: BLE001
         raise ValueError(f"signature_b64 is not valid base64: {exc}") from exc
 
     decoded = _cbor.decode(envelope_bytes)
@@ -111,14 +114,12 @@ def _decode_envelope(signature_b64: str) -> tuple[bytes, dict, bytes]:
             "COSE_Sign1 must be a 4-element array [protected, "
             "unprotected, payload, signature]"
         )
-    protected_bytes, _unprotected, payload, signature = decoded
+    protected_bytes, unprotected, payload, signature = decoded
     if not isinstance(protected_bytes, (bytes, bytearray)):
         raise ValueError("protected header must be a byte string")
     if payload is not None:
         # C2PA 2.1 §13.2 mandates detached content (payload == nil).
-        # Tolerate non-detached on read for ecosystem interop, but flag
-        # by ignoring the inline payload — we always recompute Sig_structure
-        # from the manifest's claim.
+        # Tolerate non-detached on read for ecosystem interop.
         pass
     if not isinstance(signature, (bytes, bytearray)):
         raise ValueError("signature field must be a byte string")
@@ -128,7 +129,9 @@ def _decode_envelope(signature_b64: str) -> tuple[bytes, dict, bytes]:
         protected_map = _cbor.decode(bytes(protected_bytes))
         if not isinstance(protected_map, dict):
             raise ValueError("protected header did not decode to a CBOR map")
-    return bytes(protected_bytes), protected_map, bytes(signature)
+    if not isinstance(unprotected, dict):
+        unprotected = {}
+    return bytes(protected_bytes), protected_map, unprotected, bytes(signature)
 
 
 def _extract_x5chain(protected_map: dict) -> list[bytes]:
@@ -182,6 +185,84 @@ def _is_within_validity(cert: x509.Certificate, now: datetime) -> bool:
     not_before = cert.not_valid_before_utc
     not_after = cert.not_valid_after_utc
     return not_before <= now <= not_after
+
+
+def _extract_ocsp_staples(unprotected_map: dict) -> list[bytes]:
+    """Extract C2PA 2.4 ``ocsp_vals`` from the unprotected COSE header.
+
+    The header key is the CBOR text string ``"ocsp_vals"`` per C2PA 2.4
+    §14. Tolerates both the canonical (list of byte strings) and a
+    single-staple-as-bytes layout for legacy interop.
+    """
+    raw = unprotected_map.get("ocsp_vals") or unprotected_map.get(b"ocsp_vals")
+    if raw is None:
+        return []
+    if isinstance(raw, (bytes, bytearray)):
+        return [bytes(raw)]
+    if isinstance(raw, list):
+        return [bytes(x) for x in raw if isinstance(x, (bytes, bytearray))]
+    return []
+
+
+def _extract_tsa_tokens(unprotected_map: dict) -> list[bytes]:
+    """Extract C2PA 2.4 ``sigTst2`` v2 TSA tokens from the unprotected header."""
+    raw = unprotected_map.get("sigTst2") or unprotected_map.get(b"sigTst2")
+    if raw is None:
+        return []
+    if isinstance(raw, (bytes, bytearray)):
+        return [bytes(raw)]
+    if isinstance(raw, list):
+        return [bytes(x) for x in raw if isinstance(x, (bytes, bytearray))]
+    return []
+
+
+def _v2_timestamp_digest(signature_bytes: bytes) -> bytes:
+    """Compute the C2PA 2.4 v2 timestamp messageImprint payload.
+
+    Imported lazily to avoid a circular module dependency at import time.
+    """
+    from tex.c2pa.timestamp import v2_payload_digest
+
+    return v2_payload_digest(signature_bytes)
+
+
+def _resolve_issuer_for_ocsp(
+    chain_der: list[bytes], signing_cert: x509.Certificate
+) -> x509.Certificate:
+    """Pick the cert that issued ``signing_cert`` from the chain.
+
+    Falls back to the signing cert itself (treating as self-signed) when
+    the chain has length 1 — in that degenerate case the OCSP request
+    can still be built but the validator will reject any returned response
+    that isn't directly self-signed.
+    """
+    if len(chain_der) < 2:
+        return signing_cert
+    return x509.load_der_x509_certificate(chain_der[1])
+
+
+def _validate_ocsp_staple(
+    *,
+    staple_der: bytes,
+    target: x509.Certificate,
+    issuer: x509.Certificate,
+    now: datetime,
+):
+    """Wrapper around ``tex.c2pa.ocsp.parse_and_validate_response``.
+
+    Lazy-imports the ocsp module so the verifier remains importable in
+    minimal-dep environments where the ocsp module's transitive imports
+    might be unavailable.
+    """
+    from tex.c2pa.ocsp import parse_and_validate_response
+
+    return parse_and_validate_response(
+        staple_der,
+        issuer=issuer,
+        expected_nonce=None,  # stapled responses are typically nonce-less
+        target_serial=target.serial_number,
+        now=now,
+    )
 
 
 def _is_anchored_to_trust_list(
@@ -260,20 +341,37 @@ def verify_manifest(
     *,
     trust_list_pem_paths: tuple[str, ...] | None = None,
     now: datetime | None = None,
+    require_ocsp_staple: bool = False,
+    require_timestamp: bool = False,
 ) -> C2paVerificationResult:
-    """
-    Verify a C2PA manifest end-to-end.
+    """Verify a C2PA manifest end-to-end.
 
-    Checks:
-      - signature is valid over canonicalized claim bytes
-      - certificate chain validates to a C2PA Trust List root
+    Checks (in order):
+      - COSE envelope decodes
+      - signature validates over the canonicalised claim bytes
+      - certificate chain (RFC 5280 partial path validation)
       - timestamp is within signing certificate validity window
-      - signing certificate is not revoked (OCSP / CRL — P1)
+      - OCSP staples (C2PA 2.4 §15.9) when present or required
+      - TSA v2 timestamp tokens (C2PA 2.4 §15.8) when present or required
+      - chain anchors to one of ``trust_list_pem_paths``
 
-    TODO(P0): full COSE_Sign1 verification
-    TODO(P0): trust list anchor validation
-    TODO(P1): OCSP staple validation
-    TODO(P1): ingredient chain recursive verification
+    Parameters
+    ----------
+    manifest
+        The manifest to verify.
+    trust_list_pem_paths
+        Optional tuple of file paths to PEM bundles of trust-anchor
+        CAs. When provided and the chain anchors to one of these,
+        the result is marked ``is_trust_list_anchored=True``.
+    now
+        Reference time (defaults to ``datetime.now(UTC)``).
+    require_ocsp_staple
+        When True, a missing OCSP staple emits
+        ``signingCredential.ocspMissing`` and fails the manifest.
+        When False (default), absent staples are tolerated but any
+        present staple is still validated.
+    require_timestamp
+        When True, a missing TSA v2 token emits a hard failure.
     """
     issues: list[str] = []
     signing_subject: str | None = None
@@ -297,8 +395,8 @@ def verify_manifest(
 
     # 1. Decode the COSE envelope.
     try:
-        protected_bytes, protected_map, signature_bytes = _decode_envelope(
-            manifest.signature_b64
+        protected_bytes, protected_map, unprotected_map, signature_bytes = (
+            _decode_envelope(manifest.signature_b64)
         )
     except ValueError as exc:
         issues.append(ISSUE_CLAIM_SIG_MISMATCH)
@@ -448,6 +546,107 @@ def verify_manifest(
         )
 
     is_valid = True
+
+    # 5b. OCSP staple validation (C2PA 2.4 §15.9).
+    ocsp_staples = _extract_ocsp_staples(unprotected_map)
+    if ocsp_staples:
+        issuer_cert = _resolve_issuer_for_ocsp(chain_der, signing_cert)
+        for staple_der in ocsp_staples:
+            ocsp_result = _validate_ocsp_staple(
+                staple_der=staple_der,
+                target=signing_cert,
+                issuer=issuer_cert,
+                now=resolved_now,
+            )
+            if not ocsp_result.ok:
+                issues.append(ocsp_result.failure_code.value)
+                emit_event(
+                    "c2pa.manifest.verified",
+                    outcome="ocsp_staple_invalid",
+                    failure_code=ocsp_result.failure_code.value,
+                    detail=ocsp_result.detail,
+                    signing_subject=signing_subject,
+                    is_valid=False,
+                    is_trust_list_anchored=False,
+                )
+                return C2paVerificationResult(
+                    is_valid=False,
+                    issues=tuple(issues),
+                    signing_certificate_subject=signing_subject,
+                    is_trust_list_anchored=False,
+                )
+    elif require_ocsp_staple:
+        from tex.c2pa.ocsp import OcspFailureCode
+
+        issues.append(OcspFailureCode.MISSING.value)
+        emit_event(
+            "c2pa.manifest.verified",
+            outcome="ocsp_staple_missing",
+            signing_subject=signing_subject,
+            is_valid=False,
+            is_trust_list_anchored=False,
+        )
+        return C2paVerificationResult(
+            is_valid=False,
+            issues=tuple(issues),
+            signing_certificate_subject=signing_subject,
+            is_trust_list_anchored=False,
+        )
+
+    # 5c. TSA v2 timestamp validation (C2PA 2.4 §15.8, §10.3.2.5).
+    tsa_tokens = _extract_tsa_tokens(unprotected_map)
+    if tsa_tokens:
+        from tex.c2pa.timestamp import parse_and_validate_response
+
+        digest_expected = _v2_timestamp_digest(signature_bytes)
+        any_valid = False
+        last_failure = None
+        for token_der in tsa_tokens:
+            tsa_result = parse_and_validate_response(
+                token_der,
+                expected_digest=digest_expected,
+                expected_nonce=None,  # stored tokens have no live nonce
+                signing_cert_not_before=signing_cert.not_valid_before_utc,
+                signing_cert_not_after=signing_cert.not_valid_after_utc,
+            )
+            if tsa_result.ok:
+                any_valid = True
+                break
+            last_failure = tsa_result
+        if not any_valid and last_failure is not None:
+            issues.append(last_failure.failure_code.value)
+            emit_event(
+                "c2pa.manifest.verified",
+                outcome="tsa_v2_invalid",
+                failure_code=last_failure.failure_code.value,
+                detail=last_failure.detail,
+                signing_subject=signing_subject,
+                is_valid=False,
+                is_trust_list_anchored=False,
+            )
+            return C2paVerificationResult(
+                is_valid=False,
+                issues=tuple(issues),
+                signing_certificate_subject=signing_subject,
+                is_trust_list_anchored=False,
+            )
+    elif require_timestamp:
+        from tex.c2pa.timestamp import TimestampFailureCode
+
+        issues.append(TimestampFailureCode.MALFORMED.value)
+        emit_event(
+            "c2pa.manifest.verified",
+            outcome="tsa_v2_missing",
+            signing_subject=signing_subject,
+            is_valid=False,
+            is_trust_list_anchored=False,
+        )
+        return C2paVerificationResult(
+            is_valid=False,
+            issues=tuple(issues),
+            signing_certificate_subject=signing_subject,
+            is_trust_list_anchored=False,
+        )
 
     # 6. Trust-list anchoring.
     anchors = _load_trust_anchors(trust_list_pem_paths)

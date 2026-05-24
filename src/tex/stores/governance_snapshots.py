@@ -427,7 +427,19 @@ class GovernanceSnapshotStore:
         bundle_sha256 = hashlib.sha256(
             _stable_json(bundle).encode("utf-8")
         ).hexdigest()
-        secret = os.environ.get(signing_secret_env, "dev-only-change-me")
+        # Resolve the HMAC secret. The canonical path is
+        # ``TEX_EVIDENCE_SUMMARY_SECRET`` via the centralized
+        # ``tex.config.Settings`` (fail-closed in production-like
+        # environments). The ``signing_secret_env`` parameter is
+        # preserved for the rare caller that needs a different env-var
+        # name — those callers bypass the Settings cache and read the
+        # raw environment, but the in-repo sentinel is rejected here
+        # unconditionally to prevent accidental misuse.
+        if signing_secret_env == "TEX_EVIDENCE_SUMMARY_SECRET":
+            from tex.config import get_settings  # local import: keeps store importable in isolation
+            secret = get_settings().get_evidence_summary_secret() or "dev-only-change-me"
+        else:
+            secret = os.environ.get(signing_secret_env, "dev-only-change-me")
         import hmac as _hmac
         signature = _hmac.new(
             secret.encode("utf-8"),

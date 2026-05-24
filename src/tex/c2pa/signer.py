@@ -81,6 +81,11 @@ from tex.pqcrypto.algorithm_agility import (
 _COSE_HDR_ALG: int = 1
 _COSE_HDR_X5CHAIN: int = 33
 
+# C2PA 2.4 unprotected-header labels for revocation + timestamp data.
+# These are CBOR text keys, aligned with the C2PA 2.4 spec wire format.
+_C2PA_HDR_OCSP_VALS: str = "ocsp_vals"   # C2PA 2.4 §15.9 OCSP staples
+_C2PA_HDR_SIG_TST2: str = "sigTst2"      # C2PA 2.4 §10.3.2.5 v2 TSA tokens
+
 
 # ---- Keystore plumbing ------------------------------------------------------
 
@@ -183,13 +188,15 @@ def _build_cose_sign1_tagged(
     *,
     protected_serialized: bytes,
     signature: bytes,
+    unprotected: dict | None = None,
 ) -> bytes:
     """Wrap the COSE_Sign1 array in tag 18 (COSE_Sign1_Tagged).
 
     Per C2PA 2.2 §13.2, payload is nil (None) in detached content mode.
-    Unprotected header is the empty map.
+    Unprotected header is empty unless caller supplies OCSP staples or
+    TSA tokens (C2PA 2.4 §14, §15.8, §15.9).
     """
-    cose_sign1 = [protected_serialized, {}, None, signature]
+    cose_sign1 = [protected_serialized, unprotected or {}, None, signature]
     return _cbor.encode_tag(_cbor.COSE_SIGN1_TAG, cose_sign1)
 
 
@@ -198,28 +205,39 @@ def sign_manifest(
     *,
     signing_key_id: str,
     certificate_chain_pem: str,
+    ocsp_staples_der: Iterable[bytes] | None = None,
+    tsa_tokens_der: Iterable[bytes] | None = None,
 ) -> C2paManifest:
-    """
-    Sign the manifest in place, returning a new manifest with `signature_b64`
-    and `certificate_chain_pem` populated.
+    """Sign the manifest in place.
 
-    ``signing_key_id`` is an opaque identifier — see the keystore
-    plumbing at the top of this module. The corresponding
-    ``SignatureKeyPair`` is fetched, its algorithm tag is mapped to a
-    COSE alg integer per ``_cose_alg.cose_alg_for``, and the active
-    signature provider is dispatched via
-    ``tex.pqcrypto.algorithm_agility.get_signature_provider``.
+    Produces a base64-encoded ``COSE_Sign1_Tagged`` envelope (CBOR tag
+    18) per C2PA 2.2 §13.2, with optional OCSP staples + TSA v2 tokens
+    in the unprotected header per C2PA 2.4 §14, §15.8, §15.9.
 
-    The output is a base64-encoded ``COSE_Sign1_Tagged`` envelope (CBOR
-    tag 18) per C2PA 2.2 §13.2. Stored as ``signature_b64`` on the
-    returned manifest.
+    Parameters
+    ----------
+    manifest
+        The (not-yet-signed) C2PA manifest model.
+    signing_key_id
+        Opaque keystore identifier — see ``register_signing_key``.
+    certificate_chain_pem
+        End-entity cert PEM followed by intermediates. All intermediate
+        certs MUST be included per C2PA 2.4 §13.2 (this was a hardening
+        change from 2.3 in response to chain-truncation attacks).
+    ocsp_staples_der
+        Optional iterable of DER-encoded OCSPResponse objects, fetched
+        from each cert's OCSP responder. Placed under the unprotected
+        header key ``ocsp_vals`` (C2PA 2.4 §15.9). When present, the
+        validator runs revocation checks offline rather than calling
+        out to the responder at verify-time.
+    tsa_tokens_der
+        Optional iterable of DER-encoded RFC 3161 TimeStampResp tokens
+        (v2 timestamps per C2PA 2.4 §10.3.2.5). Placed under the
+        unprotected header key ``sigTst2``. Multiple tokens are
+        supported for redundancy across TSAs.
 
-    TODO(P0): canonicalize claim bytes per C2PA 2.2 section 13
-    TODO(P0): produce COSE_Sign1 envelope per C2PA 2.2 section 14
-    TODO(P0): use HybridMlDsaEd25519Provider for transition-period dual signing
-    TODO(P0): embed signing time + revocation OCSP staple
-    TODO(P1): add timestamp-authority signature per C2PA 2.2 §14 once
-        Tex has a TSA trust-list relationship.
+    The active signer is taken from the algorithm-agile dispatcher
+    (``tex.pqcrypto.algorithm_agility.get_signature_provider``).
     """
     signing_key = _resolve_signing_key(signing_key_id)
     cose_alg = cose_alg_for(signing_key.algorithm)
@@ -234,8 +252,20 @@ def sign_manifest(
         protected_serialized=protected_serialized, payload=payload
     )
     signature = provider.sign(sig_input, signing_key)
+
+    # Unprotected header: OCSP staples + TSA v2 tokens (C2PA 2.4).
+    unprotected: dict = {}
+    ocsp_list = list(ocsp_staples_der or ())
+    tsa_list = list(tsa_tokens_der or ())
+    if ocsp_list:
+        unprotected[_C2PA_HDR_OCSP_VALS] = ocsp_list
+    if tsa_list:
+        unprotected[_C2PA_HDR_SIG_TST2] = tsa_list
+
     cose_sign1_tagged = _build_cose_sign1_tagged(
-        protected_serialized=protected_serialized, signature=signature
+        protected_serialized=protected_serialized,
+        signature=signature,
+        unprotected=unprotected or None,
     )
     encoded = base64.b64encode(cose_sign1_tagged).decode("ascii")
 
@@ -249,6 +279,8 @@ def sign_manifest(
         payload_bytes=len(payload),
         signature_bytes=len(signature),
         envelope_bytes=len(cose_sign1_tagged),
+        ocsp_staples=len(ocsp_list),
+        tsa_tokens=len(tsa_list),
     )
     return manifest.model_copy(
         update={

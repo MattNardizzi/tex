@@ -368,21 +368,33 @@ def test_evaluate_permit_pre_state_hash_matches_projection(
     assert verdict.ecosystem_state_hash_before == pre_state.state_hash
 
 
-def test_evaluate_permit_axis_scores_neutral_for_p0(
+def test_evaluate_permit_axis_scores_neutral_without_thread7_collaborators(
     engine: EcosystemEngine,
     registered_actor: str,
     registered_tool: str,
     now: datetime,
 ) -> None:
+    """An engine constructed WITHOUT Thread 7 collaborators (no
+    contracts, causal, drift, systemic) still PERMITs cleanly and
+    every axis is its neutral default.
+
+    Pre-Thread-7 this test was named "neutral_for_p0" because all of
+    steps 3/5/6/7 always returned 0.0. Thread 7 changes that: with
+    collaborators wired they emit real scores. Without collaborators
+    wired (this fixture's case — the ``engine`` fixture passes none),
+    each step honestly reports "no scorer wired → axis 0.0" and emits
+    a telemetry event saying so. The end result for this fixture is
+    unchanged, but the rationale is now per-step rather than blanket.
+    """
     proposed = _propose_tool_call(actor=registered_actor, tool=registered_tool, when=now)
     verdict = engine.evaluate(proposed)
     s = verdict.axis_scores
-    assert s.contract_violation_severity == 0.0
-    assert s.governance_graph_legality == 1.0  # legal under default LTS
-    assert s.causal_attribution_confidence == 0.0
-    assert s.drift_delta == 0.0
-    assert s.systemic_risk_under_event == 0.0
-    assert s.bounded_compromise_score == 0.0
+    assert s.contract_violation_severity == 0.0  # no contracts wired
+    assert s.governance_graph_legality == 1.0    # legal under default LTS
+    assert s.causal_attribution_confidence == 0.0  # no causal wired
+    assert s.drift_delta == 0.0                  # no drift wired
+    assert s.systemic_risk_under_event == 0.0    # flag default off
+    assert s.bounded_compromise_score == 0.0     # Thread 8 territory
 
 
 def test_evaluate_two_permits_sequence_monotonically(

@@ -6,6 +6,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
+from tex.contracts.runtime_enforcement import ContractEnforcer
 from tex.deterministic.gate import (
     DeterministicGate,
     DeterministicGateResult,
@@ -15,12 +16,21 @@ from tex.agent.behavioral_evaluator import neutral_behavioral_signal
 from tex.agent.capability_evaluator import neutral_capability_signal
 from tex.agent.identity_evaluator import neutral_identity_signal
 from tex.domain.agent_signal import AgentEvaluationBundle
+from tex.domain.asi_builder import build_asi_findings
 from tex.domain.decision import Decision
 from tex.domain.determinism import compute_determinism_fingerprint
 from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
+from tex.domain.finding import Finding
 from tex.domain.latency import LatencyBreakdown
 from tex.domain.policy import PolicySnapshot
 from tex.domain.retrieval import RetrievalContext
+from tex.domain.verdict import Verdict
+from tex.engine.contract_bridge import (
+    ContractEvaluationOutcome,
+    NEUTRAL_OUTCOME,
+    SessionEnforcerRegistry,
+    evaluate_contracts_for_request,
+)
 from tex.engine.router import RoutingResult, build_default_router
 from tex.retrieval.orchestrator import (
     RetrievalOrchestrator,
@@ -32,6 +42,7 @@ from tex.semantic.analyzer import (
 )
 from tex.semantic.schema import SemanticAnalysis
 from tex.specialists.base import SpecialistBundle
+from tex.specialists.ifc_specialist import get_ifc_labels_cache
 from tex.specialists.judges import SpecialistSuite, build_default_specialist_suite
 
 
@@ -120,6 +131,9 @@ class PolicyDecisionPoint:
         "_specialist_suite",
         "_semantic_analyzer",
         "_router",
+        "_contract_enforcer",
+        "_contract_session_registry",
+        "_contract_action_ledger",
     )
 
     def __init__(
@@ -131,6 +145,9 @@ class PolicyDecisionPoint:
         specialist_suite: SpecialistSuite | None = None,
         semantic_analyzer: SemanticAnalyzer | None = None,
         router: Router | None = None,
+        contract_enforcer: ContractEnforcer | None = None,
+        contract_session_registry: SessionEnforcerRegistry | None = None,
+        contract_action_ledger: object | None = None,
     ) -> None:
         self._deterministic_gate = (
             deterministic_gate or build_default_deterministic_gate()
@@ -142,6 +159,23 @@ class PolicyDecisionPoint:
         self._specialist_suite = specialist_suite or build_default_specialist_suite()
         self._semantic_analyzer = semantic_analyzer or build_default_semantic_analyzer()
         self._router = router or build_default_router()
+        # Contract layer wiring. Two calling modes per
+        # FRONTIER_DELTA_thread_1.md §11 (Thread 1.5):
+        #   * stateless: pass ``contract_enforcer`` only — pre-Thread-1.5
+        #     behaviour, single global enforcer, no ledger replay.
+        #   * session-scoped: pass ``contract_session_registry`` (and
+        #     optionally ``contract_action_ledger``) — ABC §3.3
+        #     (p, δ, k)-satisfaction-correct path with per-session
+        #     enforcer instances and ledger replay on session bootstrap.
+        # Passing neither preserves the original opt-out branch.
+        if contract_enforcer is not None and contract_session_registry is not None:
+            raise ValueError(
+                "PolicyDecisionPoint accepts contract_enforcer OR "
+                "contract_session_registry, not both"
+            )
+        self._contract_enforcer = contract_enforcer
+        self._contract_session_registry = contract_session_registry
+        self._contract_action_ledger = contract_action_ledger
 
     def evaluate(
         self,
@@ -197,19 +231,68 @@ class PolicyDecisionPoint:
         )
         semantic_ms = _elapsed_ms(semantic_start)
 
-        router_start = time.perf_counter()
-        routing_result = self._router.route(
-            deterministic_result=deterministic_result,
-            specialist_bundle=specialist_bundle,
-            semantic_analysis=semantic_analysis,
-            policy=policy,
-            action_type=request.action_type,
-            channel=request.channel,
-            environment=request.environment,
-            agent_bundle=agent_bundle,
+        # ── Behavioral contracts (LTLf) — wired in Thread 1 / 1.5 ──
+        # See FRONTIER_DELTA_thread_1.md §4.2, §6, and §11.
+        # Hard violations short-circuit FORBID before the router. Soft
+        # violations feed the router as findings + an uncertainty flag
+        # and promote PERMIT→ABSTAIN. When both registry and ledger are
+        # configured, session-scoped enforcement with history replay is
+        # used (ABC §3.3 (p, δ, k)-satisfaction). When only enforcer is
+        # configured, the stateless path runs. When neither is wired,
+        # this returns NEUTRAL_OUTCOME — zero-cost branch.
+        contract_outcome = evaluate_contracts_for_request(
+            enforcer=self._contract_enforcer,
+            registry=self._contract_session_registry,
+            request=request,
+            action_ledger=self._contract_action_ledger,
         )
-        router_ms = _elapsed_ms(router_start)
 
+        if contract_outcome.has_hard_violation:
+            # Short-circuit. Build a FORBID-shaped RoutingResult, fold the
+            # contract findings in, and skip the router entirely. This is
+            # the fail-closed path (Section 3 hard constraint).
+            #
+            # We still call ``build_asi_findings`` so the response carries
+            # the OWASP ASI 2026 evidence trail that the deterministic /
+            # specialist / semantic layers produced — without this the
+            # short-circuit would silently lose ASI evidence and break
+            # downstream replay consumers.
+            router_start = time.perf_counter()
+            preserved_asi = build_asi_findings(
+                deterministic_result=deterministic_result,
+                specialist_bundle=specialist_bundle,
+                semantic_analysis=semantic_analysis,
+                semantic_dominance_override_fired=False,
+            )
+            routing_result = self._build_contract_forbid_routing_result(
+                contract_outcome=contract_outcome,
+                deterministic_findings=tuple(deterministic_result.findings),
+                asi_findings=preserved_asi,
+            )
+            router_ms = _elapsed_ms(router_start)
+        else:
+            router_start = time.perf_counter()
+            base_routing_result = self._router.route(
+                deterministic_result=deterministic_result,
+                specialist_bundle=specialist_bundle,
+                semantic_analysis=semantic_analysis,
+                policy=policy,
+                action_type=request.action_type,
+                channel=request.channel,
+                environment=request.environment,
+                agent_bundle=agent_bundle,
+            )
+            # If soft violations fired, merge their findings + uncertainty
+            # flag into the router's result. We rebuild the immutable
+            # ``RoutingResult`` rather than mutate it.
+            if contract_outcome.has_soft_violation:
+                routing_result = self._merge_soft_contract_signals(
+                    base=base_routing_result,
+                    contract_outcome=contract_outcome,
+                )
+            else:
+                routing_result = base_routing_result
+            router_ms = _elapsed_ms(router_start)
         total_ms = _elapsed_ms(pipeline_start)
 
         latency = LatencyBreakdown(
@@ -244,6 +327,7 @@ class PolicyDecisionPoint:
             latency=latency,
             determinism_fingerprint=determinism_fingerprint,
             content_sha256=content_sha256,
+            contract_outcome=contract_outcome,
         )
 
         response = self._build_response(
@@ -282,6 +366,7 @@ class PolicyDecisionPoint:
         latency: LatencyBreakdown,
         determinism_fingerprint: str,
         content_sha256: str,
+        contract_outcome: ContractEvaluationOutcome = NEUTRAL_OUTCOME,
     ) -> Decision:
         metadata = self._build_decision_metadata(
             request=request,
@@ -295,6 +380,7 @@ class PolicyDecisionPoint:
             content_sha256=content_sha256,
             latency=latency,
             determinism_fingerprint=determinism_fingerprint,
+            contract_outcome=contract_outcome,
         )
 
         return Decision(
@@ -319,6 +405,122 @@ class PolicyDecisionPoint:
             latency=latency,
             retrieval_context=self._serialize_retrieval_context(retrieval_context),
             metadata=metadata,
+        )
+
+    @staticmethod
+    def _build_contract_forbid_routing_result(
+        *,
+        contract_outcome: ContractEvaluationOutcome,
+        deterministic_findings: tuple[Finding, ...] = (),
+        asi_findings: tuple = (),
+    ) -> RoutingResult:
+        """
+        Synthesise a FORBID-shaped ``RoutingResult`` for the hard-violation
+        short-circuit path.
+
+        Called only when ``contract_outcome.has_hard_violation`` is True.
+        The returned object is what the rest of the pipeline (decision
+        materialisation, evidence recorder, public response) consumes; the
+        router itself is skipped to keep the contract gate fail-closed and
+        latency-bounded.
+
+        ``deterministic_findings`` and ``asi_findings`` are preserved from
+        the upstream pipeline so consumers that filter on those (replay,
+        durability tests, the SDK's verdict deserializer) still see the
+        non-contract evidence even though the router never ran.
+
+        Score / confidence rationale:
+          * ``final_score = 1.0`` — maximum risk; contract violation is a
+            ground-truth signal, not a fused inference.
+          * ``confidence = 1.0`` — LTLf evaluation is deterministic; the
+            ABC paper's (p, δ, k) parameters do not apply to per-step
+            verdicts, only to session-level satisfaction.
+          * ``scores`` exposes a single ``contracts`` axis so dashboards
+            can attribute the FORBID to this layer specifically.
+        """
+        merged_findings = tuple(deterministic_findings) + tuple(
+            contract_outcome.findings
+        )
+        return RoutingResult(
+            verdict=Verdict.FORBID,
+            confidence=1.0,
+            final_score=1.0,
+            reasons=(
+                contract_outcome.forbid_reason
+                or "behavioral contract hard violation",
+            ),
+            findings=merged_findings,
+            scores={"contracts": 1.0},
+            uncertainty_flags=(),
+            asi_findings=asi_findings,
+            semantic_dominance_override_fired=False,
+        )
+
+    @staticmethod
+    def _merge_soft_contract_signals(
+        *,
+        base: RoutingResult,
+        contract_outcome: ContractEvaluationOutcome,
+    ) -> RoutingResult:
+        """
+        Rebuild ``base`` with contract-derived soft signals merged in.
+
+        Contract findings are appended after the router's own findings so a
+        consumer iterating in order sees the canonical pipeline findings
+        first, then the contract-layer additions. Uncertainty flags from
+        the soft-violation path are added without disturbing any
+        router-emitted flags; ``RoutingResult.normalize_string_sequences``
+        de-duplicates by validator.
+
+        Verdict adjustment
+        ------------------
+        The router's ``_should_abstain`` consults only specific named
+        uncertainty flags (e.g. ``no_retrieval_context``), not arbitrary
+        custom flags. To honor the FRONTIER_DELTA_thread_1.md §4.2 design
+        (soft violation → ABSTAIN), we promote a router-emitted PERMIT to
+        ABSTAIN whenever a soft contract violation fired. Existing FORBID
+        verdicts are preserved (a hard signal from deterministic /
+        semantic / specialist always wins over a soft contract signal).
+        Existing ABSTAIN verdicts are unchanged.
+
+        Score and confidence are preserved as-is; we are adjusting the
+        *categorical* verdict only, not the underlying risk inference.
+        """
+        merged_findings = tuple(base.findings) + tuple(contract_outcome.findings)
+        merged_flags = tuple(base.uncertainty_flags) + tuple(
+            contract_outcome.soft_uncertainty_flags
+        )
+        merged_scores = dict(base.scores)
+        # Surface a ``contracts`` axis at the soft-violation maximum so
+        # operators can see how many soft hits this evaluation took. The
+        # router does not consume it; it's purely for telemetry. Bounded
+        # to [0, 1] so the existing RoutingResult validator is happy.
+        merged_scores["contracts_soft"] = min(
+            1.0, 0.5 + 0.1 * len(contract_outcome.findings)
+        )
+
+        # Verdict promotion on soft violation. See docstring.
+        verdict = base.verdict
+        if verdict == Verdict.PERMIT:
+            verdict = Verdict.ABSTAIN
+            # Augment reasons so downstream auditors can attribute the
+            # ABSTAIN to the contract layer specifically.
+            merged_reasons: tuple[str, ...] = tuple(base.reasons) + (
+                "behavioral contract soft violation — promoted to ABSTAIN",
+            )
+        else:
+            merged_reasons = base.reasons
+
+        return RoutingResult(
+            verdict=verdict,
+            confidence=base.confidence,
+            final_score=base.final_score,
+            reasons=merged_reasons,
+            findings=merged_findings,
+            scores=merged_scores,
+            uncertainty_flags=merged_flags,
+            asi_findings=base.asi_findings,
+            semantic_dominance_override_fired=base.semantic_dominance_override_fired,
         )
 
     @staticmethod
@@ -360,6 +562,7 @@ class PolicyDecisionPoint:
         content_sha256: str,
         latency: LatencyBreakdown,
         determinism_fingerprint: str,
+        contract_outcome: ContractEvaluationOutcome = NEUTRAL_OUTCOME,
     ) -> dict[str, Any]:
         """
         Produces a compact execution summary for audit, replay, and debugging.
@@ -369,6 +572,11 @@ class PolicyDecisionPoint:
         artifacts available in PDPResult when needed in-process.
         """
         metadata = dict(request.metadata)
+        # Strip the optional contracts override out of the surfaced metadata
+        # so it doesn't pollute the durable decision record. The override is
+        # an internal hint consumed by the contract bridge, not a customer
+        # field worth preserving end-to-end.
+        metadata.pop("contract_event_kind", None)
         metadata["pdp"] = {
             "pdp_version": "v3",
             "request_id": str(request.request_id),
@@ -386,6 +594,10 @@ class PolicyDecisionPoint:
                 "semantic": latency.semantic_ms,
                 "router": latency.router_ms,
                 "total": latency.total_ms,
+                # Folded in here (not in ``LatencyBreakdown``) because that
+                # model is ``extra="forbid"`` and modifying it would ripple
+                # through every existing test. FRONTIER_DELTA_thread_1.md §4.2.
+                "contracts": contract_outcome.contracts_ms,
             },
             "evaluation_order": [
                 "deterministic_recognizers",
@@ -393,9 +605,39 @@ class PolicyDecisionPoint:
                 "agent_governance_streams",
                 "specialist_judges",
                 "semantic_judge",
+                "behavioral_contracts",
                 "routing",
                 "decision_materialization",
             ],
+            "contracts": {
+                "enforcer_present": (
+                    self._contract_enforcer is not None
+                    or self._contract_session_registry is not None
+                ),
+                "mode": (
+                    "session_scoped"
+                    if self._contract_session_registry is not None
+                    else (
+                        "stateless"
+                        if self._contract_enforcer is not None
+                        else "inert"
+                    )
+                ),
+                "has_hard_violation": contract_outcome.has_hard_violation,
+                "has_soft_violation": contract_outcome.has_soft_violation,
+                "violation_count": len(contract_outcome.raw_violations),
+                "violated_contract_ids": sorted(
+                    {v.contract_id for v in contract_outcome.raw_violations}
+                ),
+                "violated_clauses": sorted(
+                    {v.violated_clause for v in contract_outcome.raw_violations}
+                ),
+                "short_circuited_to_forbid": contract_outcome.has_hard_violation,
+                # Thread 1.5: ABC §3.3 session-scoped audit fields.
+                "session_key": contract_outcome.session_key,
+                "replayed_window_size": contract_outcome.replayed_window_size,
+                "step_index_at_check": contract_outcome.step_index_at_check,
+            },
             "policy": {
                 "policy_id": policy.policy_id,
                 "policy_version": policy.version,
@@ -426,6 +668,15 @@ class PolicyDecisionPoint:
             "semantic": self._summarize_semantic(semantic_analysis),
             "routing": self._summarize_routing(routing_result),
         }
+        # Thread 11 AC2: attach the IFC labels the IfcSpecialist
+        # produced for this request_id onto the durable Decision so
+        # audit and replay can answer "what label did Tex apply to
+        # this flow?" The cache is consume-once to avoid leaks.
+        ifc_labels = get_ifc_labels_cache().pop(
+            request_id=str(request.request_id)
+        )
+        if ifc_labels is not None:
+            metadata["ifc_labels"] = ifc_labels
         return metadata
 
     @staticmethod

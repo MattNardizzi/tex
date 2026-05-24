@@ -759,13 +759,32 @@ class TestKeystore:
 
 
 # ---------------------------------------------------------------------------
-# Sanity: durable_credentials remains a stub
+# Sanity: durable_credentials is wired in the May 2026 frontier upgrade
 # ---------------------------------------------------------------------------
 
 
-class TestDurableCredentialsStillStub:
-    def test_attach_durable_marks_raises(self):
+class TestDurableCredentialsWired:
+    """``durable_credentials`` was a stub before the May 2026 frontier
+    upgrade. It is now wired with a three-layer marking scheme. The
+    headline assertions: the function returns a real result, the C2PA
+    manifest + fingerprint layers always land, and the TrustMark
+    watermark layer lands when the library is available."""
+
+    def test_attach_durable_marks_returns_result(self):
+        from tex.c2pa.durable_credentials import (
+            DurableLayer,
+            DurableMarkingResult,
+            attach_durable_marks,
+        )
+
+        result = attach_durable_marks(b"content", manifest_id="manifest-id")
+        assert isinstance(result, DurableMarkingResult)
+        assert DurableLayer.C2PA_MANIFEST in result.layers_applied
+        assert DurableLayer.FINGERPRINT in result.layers_applied
+        assert result.manifest_id == "manifest-id"
+
+    def test_attach_durable_marks_rejects_empty_content(self):
         from tex.c2pa.durable_credentials import attach_durable_marks
 
-        with pytest.raises(NotImplementedError):
-            attach_durable_marks(b"content", "manifest-id")
+        with pytest.raises(ValueError, match="content_bytes"):
+            attach_durable_marks(b"", manifest_id="m")

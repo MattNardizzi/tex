@@ -1,0 +1,100 @@
+thread 6: durable content credentials + hardware attestation + CPSA formal verification
+
+Closes the three honest gaps documented at the end of Thread 5. Every
+PERMIT manifest now binds four cryptographic layers under one outer
+COSE_Sign1 signature:
+
+  1. tex.evidence_cosign — post-quantum ML-DSA-65 (Thread 5),
+     upgraded to Merkle-context-tree signing input v2
+     (tex.evidence_cosign/v2), formally verified under CPSA.
+  2. tex.evidence_watermark — SynthID-Text (Google DeepMind,
+     Nature Oct 2024) and TextSeal (Meta FAIR, arxiv 2605.12456,
+     May 12 2026) as the C2PA soft-binding with the cross-layer
+     audit from arxiv 2603.02378.
+  3. tex.evidence_attestation — EAT JWT (RFC 9334) under the C2PA
+     Attestation chapter, supporting NVIDIA NRAS V3 multi-GPU
+     batch attestation, Intel Trust Authority EAT Profile v1.0.1
+     doc v2.2 (Feb 16 2026) composite Intel TDX + NVIDIA GPU, and
+     Veraison EAR profile tag:github.com,2023:veraison/ear.
+  4. tex.formal_verification — CPSA v4.4.5 (MITRE, Hackage) model
+     of the cosign protocol; vendored shapes JSON confirms G1-G5
+     security goals (outer auth, cosign auth, outer-covers-cosign
+     binding, cosign-covers-every-leaf binding, no-signature-
+     reflection) all satisfied with zero unexpected shapes.
+
+Backward compatibility: Thread 5 v1 (flat-JSON) cosign signing
+input continues to verify; existing 84 Thread 5 tests pass with
+v2 as the new default.
+
+Source-paper anchors (all named in CLAIMS.md Thread 6 section):
+
+  * TextSeal — Tom Sander et al., Meta FAIR, arxiv 2605.12456
+    (May 12 2026). github.com/facebookresearch/textseal.
+  * SynthID-Text — Sumanth Dathathri et al., Google DeepMind,
+    Nature (Oct 2024). Theoretical analysis in arxiv 2603.03410
+    (Omidi/Wang, Mar 2026).
+  * Authenticated Contradictions from Desynchronised Provenance
+    and Watermarking — arxiv 2603.02378 (Mar 2 2026).
+  * C2PA Attestation chapter — spec.c2pa.org/specifications/
+    specifications/1.4/attestations/attestation.html, still
+    current in 2.4.
+  * RFC 9334 — Remote Attestation Procedures (RATS, Jan 2023).
+  * Intel Trust Authority EAT Profile v1.0.1 doc v2.2
+    (Feb 16 2026).
+  * NVIDIA NRAS V3 multi-GPU batch attestation (production,
+    Apr 2026).
+  * CPSA v4.4.5 — MITRE, Hackage; cabal install cpsa.
+  * arxiv 2604.24890 §Recommendations (Sherman / Krawetz / NSA,
+    Apr 27 2026) — the call for formal-methods analysis of
+    provenance protocols that tex.formal_verification answers.
+  * Golaszewski FIDO UAF channel binding — arxiv 2511.06028
+    (Nov 8 2025). Merkle-hash-tree context-binding methodology
+    applied to C2PA in this thread.
+  * NIST FIPS 204 (ML-DSA, Aug 2024).
+  * EU AI Act Article 50 Draft Guidelines (May 8 2026) — paras
+    28, 54, 64, 81, 140 in scope.
+  * EU Code of Practice on Transparency of AI-Generated Content
+    (2nd draft Mar 5 2026; final June 2026) — multi-layered
+    marking approach maps onto this four-layer composition.
+
+Files added (NEW):
+
+  * FRONTIER_DELTA_thread_6.md
+  * cpsa_models/tex_cosign_v2.scm
+  * cpsa_models/tex_cosign_v2_shapes.json
+  * src/tex/c2pa/watermark.py
+  * src/tex/c2pa/attestation.py
+  * src/tex/c2pa/cosign_context_tree.py
+  * src/tex/c2pa/cpsa_shapes.py
+  * tests/frontier/test_durable_credentials.py
+  * tests/frontier/test_attestation.py
+  * tests/frontier/test_cpsa_shapes.py
+  * tests/test_thread6_integration.py
+  * scripts/demo_thread_6_durable.sh
+
+Files modified:
+
+  * src/tex/c2pa/__init__.py — Thread 6 exports + __all__.
+  * src/tex/c2pa/evidence_emission.py — v1/v2 dispatch in
+    _canonical_cosign_signing_input; build_signed_manifest_with_cosign
+    accepts canonicalization_version (v2 default) and extra_assertions.
+  * src/tex/api/c2pa_routes.py — C2paVerifyResponse extended with
+    watermark/attestation/formal_verification fields;
+    POST /v1/c2pa/verify inspects all three Thread 6 assertions.
+  * tests/test_thread5_integration.py — accepts either v1 or v2
+    canonicalization version (v2 is now the default).
+  * CLAIMS.md — Thread 6 section in house style.
+
+Test impact: 2,300 → 2,350 passing, 16 skipped (unchanged), zero
+regressions. The 50 new tests break down as:
+
+  * 17 watermark + cross-layer audit
+  * 13 attestation (NRAS, Intel Trust Authority, Veraison)
+  * 14 CPSA shapes + tex.formal_verification builder
+  *  6 end-to-end Thread 6 integration
+
+As of May 18 2026, no agent-governance vendor (Microsoft AGT,
+Zenity, Noma, Lakera, Pillar, F5/CalypsoAI, CrowdStrike/Pangea,
+Palo Alto/Protect AI) ships any of these four layers; C2PA's own
+explainer names ML-DSA support as "planned, not yet" in the v2.4
+release. Tex Aegis is the first.

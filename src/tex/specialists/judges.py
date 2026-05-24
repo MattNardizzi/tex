@@ -8,8 +8,23 @@ from tex.specialists.base import (
     SpecialistJudge,
     SpecialistResult,
 )
+from tex.specialists.agentarmor_specialist import AgentArmorSpecialist
+from tex.specialists.argus_specialist import ArgusSpecialist
+from tex.specialists.attriguard_specialist import AttriGuardSpecialist
+from tex.specialists.vigil_specialist import VigilSpecialist
+from tex.specialists.clawguard_specialist import ClawGuardSpecialist
+from tex.specialists.ifc_specialist import IfcSpecialist
+from tex.specialists.mage_specialist import MageSpecialist
 from tex.specialists.mcp_injection_specialist import McpInjectionSpecialist
+from tex.specialists.mcpshield_specialist import McpShieldSpecialist
 from tex.specialists.owasp_skills_top10_specialist import OwaspSkillsTop10Specialist
+from tex.specialists.planguard_specialist import PlanGuardSpecialist
+# Thread 12: frontier additions (May 2026)
+from tex.specialists.pcas_specialist import PcasSpecialist
+from tex.specialists.camel_specialist import CamelSpecialist
+from tex.specialists.melon_specialist import MelonSpecialist
+from tex.specialists.struq_specialist import StruQSpecialist
+from tex.specialists.secalign_specialist import SecAlignSpecialist
 
 
 class SecretAndPiiSpecialist:
@@ -332,6 +347,11 @@ def default_specialist_judges() -> tuple[SpecialistJudge, ...]:
 
     Keep this small. Specialists only deserve to exist when they add a distinct,
     high-signal slice of judgment.
+
+    Thread 4 (May 2026) adds five frontier runtime-defense specialists. Their
+    ordering inside the suite places the deterministic-short-circuit class
+    (ClawGuard, MCPShield) before the voting class (PlanGuard, MAGE,
+    AgentArmor), matching the FRONTIER_DELTA_thread_4.md aggregation contract.
     """
     return (
         SecretAndPiiSpecialist(),
@@ -340,6 +360,48 @@ def default_specialist_judges() -> tuple[SpecialistJudge, ...]:
         DestructiveOrBypassSpecialist(),
         OwaspSkillsTop10Specialist(),
         McpInjectionSpecialist(),
+        # ── Thread 4: runtime defense specialists ────────────────────────
+        # Deterministic-DENY-class first (short-circuit on enforcer DENY /
+        # formal property failure).
+        ClawGuardSpecialist(),           # arxiv 2604.11790
+        McpShieldSpecialist(),           # arxiv 2604.05969
+        # Voting-class. Probabilistic / heuristic; the PDP fusion layer
+        # combines these with the deterministic signal stream.
+        PlanGuardSpecialist(),           # arxiv 2604.10134 + InjecAgent
+        MageSpecialist(),                # arxiv 2605.03228 (4 May 2026)
+        AgentArmorSpecialist(),          # arxiv 2508.01249 + ARGUS arxiv
+                                         # 2605.03378 (5 May 2026, frontier)
+        ArgusSpecialist(),               # arxiv 2605.03378 standalone IPG +
+                                         # counterfactual tests
+        AttriGuardSpecialist(),          # arxiv 2603.10749 (Mar 2026) —
+                                         # action-level causal attribution
+        VigilSpecialist(),               # arxiv 2601.05755v2 (Jan 2026) —
+                                         # verify-before-commit + SIREN signal
+        # ── Thread 11: Information-Flow Control wired-in ──────────────
+        # Deterministic IFC specialist combining ARM provenance graph
+        # + counterfactual edges (arxiv 2604.04035, Apr 2026), FIDES
+        # dual-axis lattice (arxiv 2505.23643), NeuroTaint cross-
+        # session taint (arxiv 2604.23374), CA-CI six-tuple norm
+        # matching (IEEE S&P 2026), and Rule of Two corrective check
+        # (Meta Oct 2025 + Towards AI Nov 2025 EchoLeak counter-
+        # example). Voting-class signal that fuses with the
+        # deterministic-DENY class above.
+        IfcSpecialist(),                 # Thread 11 — see CLAIMS.md
+        # ── Thread 12: frontier modules (May 2026) ────────────────────
+        # PCAS Datalog reference monitor over the IFC provenance graph.
+        # First production-grade implementation (arxiv 2602.16708 §4-§5
+        # was paper-only; Microsoft Agent Governance Toolkit ships no
+        # Datalog frontend). Deterministic FORBID on toxic-flow rules.
+        PcasSpecialist(),                # Thread 12 — arxiv 2602.16708
+        # CaMeL dual-LLM capability interpreter. First fusion with
+        # Datalog policy frontend over a shared provenance graph
+        # (arxiv 2503.18813, SentinelAI ext. arxiv 2505.22852).
+        CamelSpecialist(),               # Thread 12 — arxiv 2503.18813
+        # Model-side defense adapters. Heuristic backends ship; real
+        # SecAlign/StruQ/MELON-tuned model backends are pluggable.
+        MelonSpecialist(),               # Thread 12 — arxiv 2502.05174
+        StruQSpecialist(),               # Thread 12 — arxiv 2402.06363
+        SecAlignSpecialist(),            # Thread 12 — arxiv 2410.05451
     )
 
 

@@ -13,7 +13,7 @@ pip install tex-guardrail
 ```python
 from tex_guardrail import TexClient
 
-tex = TexClient(api_key="your-api-key", base_url="https://api.tex.io")
+tex = TexClient(api_key="your-api-key", base_url="https://api.texaegis.com")
 
 verdict = tex.evaluate(
     content="Hi Jordan, saw you're hiring for revops...",

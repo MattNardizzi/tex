@@ -43,21 +43,29 @@ from tex.pqcrypto.ml_dsa import MlDsaProvider
 # --- helpers ---
 
 
-def _liboqs_runtime_ok() -> bool:
-    """True iff liboqs is importable AND its C library loads."""
-    try:
-        import oqs
+def _ml_dsa_runtime_ok() -> bool:
+    """True iff some ML-DSA backend is available.
 
-        oqs.Signature("ML-DSA-65")
+    Tex now uses pyca/cryptography 48+ native ML-DSA as its primary backend,
+    with liboqs as a fallback. This check accepts either path so tests run
+    in any modern dev environment without forcing a 5-minute liboqs build.
+    """
+    try:
+        from tex.pqcrypto.ml_dsa import active_backend_id
+
+        return active_backend_id() is not None
     except Exception:
         return False
-    return True
 
 
-_LIBOQS_AVAILABLE = _liboqs_runtime_ok()
+# Kept under the old name for any external test files that still reference it.
+_liboqs_runtime_ok = _ml_dsa_runtime_ok
+
+
+_LIBOQS_AVAILABLE = _ml_dsa_runtime_ok()
 _requires_liboqs = pytest.mark.skipif(
     not _LIBOQS_AVAILABLE,
-    reason="liboqs not available in this environment",
+    reason="No ML-DSA backend available (need pyca/cryptography>=48 or liboqs)",
 )
 
 
@@ -157,9 +165,13 @@ def test_get_signature_provider_dispatches_ecdsa() -> None:
     assert p.algorithm is SignatureAlgorithm.ECDSA_P256
 
 
-def test_get_signature_provider_slh_dsa_remains_p1_stub() -> None:
-    with pytest.raises(NotImplementedError, match="SLH-DSA"):
-        get_signature_provider(SignatureAlgorithm.SLH_DSA_128S)
+def test_get_signature_provider_slh_dsa_now_wired() -> None:
+    """Thread 10: SLH-DSA-128S is now wired via SlhDsaProvider (was P1 stub)."""
+    from tex.pqcrypto.slh_dsa import SlhDsaProvider
+
+    p = get_signature_provider(SignatureAlgorithm.SLH_DSA_128S)
+    assert isinstance(p, SlhDsaProvider)
+    assert p.parameter_set is SignatureAlgorithm.SLH_DSA_128S
 
 
 def test_dispatched_providers_satisfy_protocol() -> None:
@@ -476,8 +488,12 @@ def test_evidence_signer_rejects_canonicalization_failure() -> None:
     assert not verify_evidence_record_signature(bad_record, sig, b"\x00" * 100)
 
 
-def test_evidence_signer_rejects_unwired_algorithm() -> None:
-    """SLH-DSA path — provider not yet wired, verifier returns False."""
+def test_evidence_signer_rejects_malformed_slh_dsa_signature() -> None:
+    """
+    Thread 10: SLH-DSA path is now wired. A bogus 100-byte signature where
+    the real SLH-DSA-128S signature is 7856 bytes must still return False
+    (the SlhDsaProvider rejects wrong-length input via liboqs).
+    """
     record = _realistic_record()
     sig = PqSignature(
         algorithm=SignatureAlgorithm.SLH_DSA_128S,
@@ -488,27 +504,33 @@ def test_evidence_signer_rejects_unwired_algorithm() -> None:
     assert not verify_evidence_record_signature(record, sig, b"\x00" * 100)
 
 
-# --- ml_kem and slh_dsa stay stub ---
+# --- ml_kem and slh_dsa now implemented (Thread 10) ---
 
 
-def test_ml_kem_remains_stub() -> None:
-    from tex.pqcrypto.ml_kem import MlKemProvider
+def test_ml_kem_now_implemented() -> None:
+    """Thread 10: MlKemProvider is now a real FIPS 203 provider (was P2 stub)."""
+    from tex.pqcrypto.ml_kem import KemAlgorithm, MlKemProvider
 
     p = MlKemProvider()
-    with pytest.raises(NotImplementedError, match="FIPS 203"):
-        p.encapsulate(b"pk")
-    with pytest.raises(NotImplementedError, match="FIPS 203"):
-        p.decapsulate(b"ct", b"sk")
+    assert p.parameter_set is KemAlgorithm.ML_KEM_768
+    # The fail-closed input-validation paths run without liboqs.
+    with pytest.raises(RuntimeError, match="public key length"):
+        p.encapsulate(b"too-short")
 
 
-def test_slh_dsa_remains_stub() -> None:
+def test_slh_dsa_now_implemented() -> None:
+    """Thread 10: SlhDsaProvider is now a real FIPS 205 provider (was P1 stub)."""
     from tex.pqcrypto.slh_dsa import SlhDsaProvider
 
     p = SlhDsaProvider()
-    with pytest.raises(NotImplementedError, match="FIPS 205"):
-        p.sign(b"msg", b"sk")
-    with pytest.raises(NotImplementedError, match="FIPS 205"):
-        p.verify(b"msg", b"sig", b"pk")
+    assert p.parameter_set is SignatureAlgorithm.SLH_DSA_128S
+    # Algorithm-mismatch precondition runs without liboqs.
+    bad_key = SignatureKeyPair(
+        algorithm=SignatureAlgorithm.ML_DSA_65,
+        public_key=b"x", private_key=b"y", key_id="bad",
+    )
+    with pytest.raises(ValueError, match="cannot sign with key for"):
+        p.sign(b"msg", bad_key)
 
 
 # --- Ed25519 provider ---

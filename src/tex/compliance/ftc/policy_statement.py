@@ -127,10 +127,12 @@ def emit_ftc_substantiation_packet(
         specific policy-statement focus area if/when the FTC actually
         publishes the EO 14365 policy statement.
 
-    TODO(P0): assemble: capability-claim audit + verdict trail + C2PA manifests
-        — DONE: claims tuple binds verdict_id + bound_manifest_id +
-        supporting_evidence_digests; packet binds an outer manifest +
-        review window.
+    Wiring notes (formerly P0 TODO, now satisfied):
+    - **Capability-claim audit + verdict trail + C2PA manifests (wired):**
+      ``claims`` tuple binds verdict_id + bound_manifest_id +
+      supporting_evidence_digests; packet binds an outer manifest +
+      review window.
+
     TODO(spec-track): if the FTC AI policy statement publishes after
         the March 11 2026 lapse, replace ``section_5_basis`` with
         a pinned reference to the named focus area

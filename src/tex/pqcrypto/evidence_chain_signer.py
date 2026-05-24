@@ -121,12 +121,13 @@ def sign_evidence_record(
     the algorithm-agility provider, so swapping ML-DSA-65 for ML-DSA-87
     or for hybrid mode requires no call-site change.
 
-    TODO(P0): canonicalize record per RFC 8785 (JSON Canonicalization Scheme)
-        - DONE: via tex.events._canonical.canonical_json.
-    TODO(P0): sign canonical bytes via MlDsaProvider
-        - DONE: dispatched via algorithm_agility.get_signature_provider.
-    TODO(P0): return PqSignature with ISO 8601 timestamp
-        - DONE: UTC ISO 8601 with timezone offset.
+    Implementation notes (formerly P0 TODOs, now wired):
+    - **RFC 8785 canonicalization** via ``tex.events._canonical.canonical_json``.
+    - **ML-DSA signing** dispatched via
+      ``algorithm_agility.get_signature_provider`` — backend selection is
+      ``pqcrypto.ml_dsa.active_backend_id()`` (pyca/cryptography 48 native or
+      liboqs fallback).
+    - **ISO 8601 timestamp** in UTC with timezone offset.
     """
     canonical = _canonical_bytes(record)
     provider = get_signature_provider(key.algorithm)
@@ -169,12 +170,11 @@ def verify_evidence_record_signature(
     tamper detection from an operational error (consistent with
     ``tex.events.ledger.verify_chain.failed`` from Thread 2).
 
-    TODO(P0): canonicalize record per RFC 8785
-        - DONE.
-    TODO(P0): verify via MlDsaProvider
-        - DONE: dispatched via algorithm_agility.get_signature_provider.
-    TODO(P0): handle hybrid signatures via HybridMlDsaEd25519Provider
-        - DONE: hybrid resolves through the same dispatcher.
+    Implementation notes (formerly P0 TODOs, now wired):
+    - **RFC 8785 canonicalization** of the stripped record bytes.
+    - **ML-DSA verify** via the algorithm-agility dispatcher.
+    - **Hybrid signatures** handled transparently via
+      ``HybridMlDsaEd25519Provider`` resolved by the same dispatcher.
     """
 
     def _fail(reason: str, **extra: Any) -> bool:

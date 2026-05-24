@@ -131,7 +131,25 @@ _SECRET_PATTERNS: dict[str, re.Pattern[str]] = {
     "github_pat": re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b"),
     "github_fine_grained": re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82,}\b"),
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
-    "stripe_live": re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{24,}\b"),
+    # Stripe key universe (per docs.stripe.com/keys, verified May 2026):
+    #   * secret keys:      sk_test_*  / sk_live_*
+    #   * restricted keys:  rk_test_*  / rk_live_*  (current best-practice
+    #                                                for least-privilege)
+    #   * publishable keys: pk_test_*  / pk_live_*  (lower sensitivity but
+    #                                                still leak-worthy for
+    #                                                tenant identification)
+    # Test- and live-mode share the same prefix grammar; we treat them as
+    # one family because the threat-model question — "did a Stripe-issued
+    # credential leak through an outbound MCP call?" — is the same for
+    # both modes. A 6-character suffix minimum keeps the canonical-form
+    # signal strong while still matching deployment placeholders like
+    # ``sk_test_example_key`` used in integration tests.
+    "stripe_key": re.compile(r"\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9_]{6,}\b"),
+    # Webhook signing secret — verifies authenticity of incoming Stripe
+    # events. Leaking it lets an attacker forge webhooks; treated as a
+    # distinct family because the remediation differs (rotate via the
+    # webhook endpoint, not the API key page).
+    "stripe_webhook_secret": re.compile(r"\bwhsec_[A-Za-z0-9]{24,}\b"),
     "openai_anthropic": re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}\b"),
     "google_api_key": re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
     "jwt": re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b"),

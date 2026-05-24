@@ -3,6 +3,24 @@ Smoke tests proving every scaffolded package is importable.
 
 Each module raises NotImplementedError on its public API; these tests
 verify only that the package structure is wired in correctly.
+
+Active vs pending packages
+--------------------------
+Packages live in one of two states:
+
+* **Active** — under ``src/tex/`` and required to import cleanly. The
+  ``test_module_importable`` parametrize over ``ACTIVE_PACKAGES``
+  enforces this hard.
+* **Pending** — under ``src/tex/_pending/`` per the policy documented
+  in ``src/tex/_pending/__init__.py``. The current Tex Aegis GTM (VP
+  Marketing at AI-SDR-using SaaS) does not require the interop
+  packages, so they were moved here. They MUST NOT import as
+  ``tex.<name>`` from the active namespace; that's the whole point of
+  ``_pending/``. A separate parametrize asserts the *correct* status
+  of each pending package (importable under ``tex._pending.<name>``
+  but not under ``tex.<name>``) so restoring a pending package later
+  is a single test signal: the module moves from one list to the
+  other.
 """
 
 from __future__ import annotations
@@ -12,7 +30,7 @@ import importlib
 import pytest
 
 
-SCAFFOLDED_PACKAGES: tuple[str, ...] = (
+ACTIVE_PACKAGES: tuple[str, ...] = (
     # P0 packages
     "tex.pqcrypto",
     "tex.pqcrypto.algorithm_agility",
@@ -64,18 +82,6 @@ SCAFFOLDED_PACKAGES: tuple[str, ...] = (
     "tex.governance.private_data_exec.sandbox",
     "tex.governance.stpa_specs",
     "tex.governance.stpa_specs.hazard_model",
-    "tex.interop",
-    "tex.interop.a2a",
-    "tex.interop.a2a.signed_agent_card",
-    "tex.interop.a2a.bus_listener",
-    "tex.interop.okta",
-    "tex.interop.okta.agent_identity_sync",
-    "tex.interop.ping",
-    "tex.interop.ping.verdict_publisher",
-    "tex.interop.microsoft",
-    "tex.interop.microsoft.policy_bundle_exporter",
-    "tex.interop.nist",
-    "tex.interop.nist.self_assessment",
     # P2 packages
     "tex.nanozk",
     "tex.nanozk.layerwise_prover",
@@ -87,6 +93,14 @@ SCAFFOLDED_PACKAGES: tuple[str, ...] = (
     "tex.vet",
     "tex.vet.agent_identity_document",
     "tex.vet.web_proofs",
+    "tex.vet.selective_disclosure",
+    "tex.vet.ptv_attestation",
+    "tex.vet.aivs_micro",
+    "tex.vet.txn_tokens",
+    "tex.vet.sd_jwt_vc",
+    "tex.vet.registry",
+    "tex.vet.integration",
+    "tex.vet.scitt",
     # Compliance
     "tex.compliance",
     "tex.compliance.eu_ai_act",
@@ -125,11 +139,57 @@ SCAFFOLDED_PACKAGES: tuple[str, ...] = (
 )
 
 
-@pytest.mark.parametrize("module_name", SCAFFOLDED_PACKAGES)
+# Pending packages — see src/tex/_pending/__init__.py for the policy.
+# Each entry maps the active name (where the package would live if
+# restored) to the suffix under tex._pending. Importing the active
+# name MUST fail; importing the pending name MUST succeed.
+PENDING_PACKAGES: tuple[tuple[str, str], ...] = (
+    ("tex.interop", "tex._pending.interop"),
+    ("tex.interop.a2a", "tex._pending.interop.a2a"),
+    ("tex.interop.a2a.signed_agent_card", "tex._pending.interop.a2a.signed_agent_card"),
+    ("tex.interop.a2a.bus_listener", "tex._pending.interop.a2a.bus_listener"),
+    ("tex.interop.okta", "tex._pending.interop.okta"),
+    ("tex.interop.okta.agent_identity_sync", "tex._pending.interop.okta.agent_identity_sync"),
+    ("tex.interop.ping", "tex._pending.interop.ping"),
+    ("tex.interop.ping.verdict_publisher", "tex._pending.interop.ping.verdict_publisher"),
+    ("tex.interop.microsoft", "tex._pending.interop.microsoft"),
+    ("tex.interop.microsoft.policy_bundle_exporter", "tex._pending.interop.microsoft.policy_bundle_exporter"),
+    ("tex.interop.nist", "tex._pending.interop.nist"),
+    ("tex.interop.nist.self_assessment", "tex._pending.interop.nist.self_assessment"),
+)
+
+
+@pytest.mark.parametrize("module_name", ACTIVE_PACKAGES)
 def test_module_importable(module_name: str) -> None:
-    """Every scaffolded module must import cleanly without side effects."""
+    """Every active scaffolded module must import cleanly without side effects."""
     module = importlib.import_module(module_name)
     assert module is not None
+
+
+@pytest.mark.parametrize("active_name,pending_name", PENDING_PACKAGES)
+def test_pending_module_in_pending_namespace(
+    active_name: str, pending_name: str
+) -> None:
+    """Each pending package must import under ``tex._pending.*`` (proving the
+    scaffolding still exists for restoration) and MUST NOT import under
+    the active ``tex.*`` name (proving the _pending/ policy is honored).
+
+    When a pending package is restored to active status:
+      1. Move the directory from ``src/tex/_pending/<name>/`` to
+         ``src/tex/<name>/``.
+      2. Move the entry from ``PENDING_PACKAGES`` to ``ACTIVE_PACKAGES``
+         (one row in this file).
+      3. Update ``src/tex/_pending/__init__.py`` "Current contents"
+         block to reflect the change.
+      4. Add tests under ``tests/<name>/``.
+    """
+    # Pending module is reachable under its _pending path.
+    module = importlib.import_module(pending_name)
+    assert module is not None
+
+    # Active name MUST NOT resolve — that's the entire _pending/ contract.
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module(active_name)
 
 
 def test_frontier_flags_default_off() -> None:

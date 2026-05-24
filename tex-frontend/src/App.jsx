@@ -7,107 +7,6 @@ import './styles.css';
 // JS arrives. CSS shows a deep base color while we wait.
 const BackdropWebGL = lazy(() => import('./BackdropWebGL.jsx'));
 
-const ECOSYSTEM_LAYERS = [
-  {
-    id: '01',
-    title: 'Discovery / Inventory',
-    desc: 'Continuously map every AI agent, tool chain, and shadow workflow.',
-  },
-  {
-    id: '02',
-    title: 'Identity / Access',
-    desc: 'Bind every agent to identity, permissions, trust, and ownership.',
-  },
-  {
-    id: '03',
-    title: 'Monitoring / Observability',
-    desc: 'Trace behavior, anomalies, telemetry, and runtime activity live.',
-  },
-  {
-    id: '04',
-    title: 'Execution Governance',
-    desc: 'Authorize, intercept, permit, abstain, or forbid actions in real time.',
-    featured: true,
-  },
-  {
-    id: '05',
-    title: 'Evidence / Recording',
-    desc: 'Cryptographically chain every decision, execution, and outcome.',
-  },
-  {
-    id: '06',
-    title: 'Learning / Evolution',
-    desc: 'Continuously calibrate governance using outcome feedback loops.',
-  },
-];
-
-function EcosystemHero() {
-  return (
-    <section className="ecosystem-hero">
-      <div className="ecosystem-stars"></div>
-
-      <div className="hero-copy">
-        <div className="hero-kicker">
-          TEX // AI AGENT ECOSYSTEM AUTHORITY
-        </div>
-
-        <h1>
-          Full-Spectrum
-          <br />
-          AI Governance
-        </h1>
-
-        <p className="hero-sub">
-          Tex unifies discovery, identity, observability, execution governance,
-          evidence, and adaptive learning into one continuous governance fabric.
-        </p>
-
-        <div className="hero-buttons">
-          <button className="primary-btn">BOOK A DEMO</button>
-          <button className="secondary-btn">SEE HOW IT WORKS</button>
-        </div>
-      </div>
-
-      <div className="ecosystem-ring-wrap">
-        <div className="ecosystem-ring"></div>
-        <div className="ecosystem-pulse"></div>
-
-        {ECOSYSTEM_LAYERS.map((layer, index) => {
-          const angle = (index / ECOSYSTEM_LAYERS.length) * Math.PI * 2;
-          const radius = 420;
-
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-
-          return (
-            <div
-              key={layer.id}
-              className={`ecosystem-node ${layer.featured ? 'featured-node' : ''}`}
-              style={{
-                transform: `translate(${x}px, ${y}px)`,
-              }}
-            >
-              <div className="node-id">{layer.id}</div>
-              <div className="node-title">{layer.title}</div>
-              <div className="node-desc">{layer.desc}</div>
-            </div>
-          );
-        })}
-
-        <div className="tex-core">
-          <img src={texAvatar} alt="Tex" />
-          <div className="tex-core-glow"></div>
-          <div className="tex-core-label">
-            <span>TEX</span>
-            <small>EXECUTION GOVERNANCE CORE</small>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-
 /* =============================================================
    CALENDLY — booking config
    ============================================================= */
@@ -743,56 +642,119 @@ function FullBleedTex({ active, setActive }) {
 /* =============================================================
    HERO — the magazine cover composition
    ============================================================= */
+
 function Hero({ active, setActive }) {
   const { openTrial } = useTrial();
 
+  const ecosystemLayers = [
+    {
+      id: '01',
+      title: 'Discovery',
+      desc: 'Continuously maps every AI agent operating inside your environment.',
+      emphasis: false,
+    },
+    {
+      id: '02',
+      title: 'Identity',
+      desc: 'Binds every agent to ownership, scope, and trust authority.',
+      emphasis: false,
+    },
+    {
+      id: '03',
+      title: 'Observability',
+      desc: 'Tracks runtime behavior, workflows, drift, and anomalies.',
+      emphasis: false,
+    },
+    {
+      id: '04',
+      title: 'Execution Governance',
+      desc: 'Adjudicates every sensitive action before the agent executes.',
+      emphasis: true,
+    },
+    {
+      id: '05',
+      title: 'Enforcement',
+      desc: 'Permits, abstains, or forbids actions in real time.',
+      emphasis: false,
+    },
+    {
+      id: '06',
+      title: 'Evidence',
+      desc: 'Cryptographically seals every decision into tamper-evident proof.',
+      emphasis: false,
+    },
+  ];
+
   return (
-    <section className="hero hero-v11" id="top">
-      {/* The full-bleed Tex */}
-      <FullBleedTex active={active} setActive={setActive} />
+    <section className="hero-ecosystem" id="top">
+      <div className="hero-noise" />
 
-      {/* Headline locked to Tex's anatomy — kicker above, italic across upper chest */}
-      <div className="hv11-headline-wrap">
-        <div className="hv11-kicker">
-          <span className="hv11-kicker-dot" />
-          <span>Tex by VortexBlack</span>
-          <span className="hv11-kicker-sep">/</span>
-          <span>Built for insurtechs and MGAs · Deployed in 4–6 weeks</span>
+      <div className="hero-copy">
+        <div className="hero-kicker">
+          <span className="hero-kicker-dot" />
+          <span>TEX / VORTEXBLACK</span>
+          <span className="hero-kicker-sep">•</span>
+          <span>Execution-Time AI Authority</span>
         </div>
-        <h1 className="hv11-headline">
-          <span className="hv11-h-line">Cryptographic evidence</span>
-          <span className="hv11-h-line hv11-h-italic">for every AI underwriting and claims decision.</span>
-        </h1>
-      </div>
 
-      {/* Bottom telemetry bar */}
-      <div className="hv11-bottom">
-        <div className="hv11-bottom-left">
-          <button type="button" onClick={openTrial} className="btn-primary hv11-cta">
+        <h1 className="hero-title">
+          AI Agent
+          <span className="hero-title-italic"> Ecosystem Authority</span>
+        </h1>
+
+        <p className="hero-subtitle">
+          The control layer between AI agents and the real world.
+          Every high-risk action routes through Tex before execution.
+        </p>
+
+        <div className="hero-actions">
+          <button type="button" onClick={openTrial} className="btn-primary hero-primary">
             <span>Book a demo</span>
             <span className="btn-arrow">→</span>
           </button>
-          <a href="#layer-01" className="btn-ghost hv11-trace">
-            <span className="hv11-trace-full">Trace the seven layers</span>
-            <span className="hv11-trace-short">Trace the layers</span>
+
+          <a href="#control-plane" className="btn-ghost hero-secondary">
+            See how it works
           </a>
         </div>
+      </div>
 
-        <div className="hv11-readout" aria-hidden="false">
-          <span className="hv11-readout-dot" />
-          <span className="hv11-readout-label">RUNTIME</span>
-          <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value">142<span className="hv11-readout-unit">ms p95</span></span>
-          <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value hv11-readout-strong">14.4<span className="hv11-readout-unit">M sealed</span></span>
-          <span className="hv11-readout-sep" />
-          <span className="hv11-readout-value hv11-readout-strong">2.41<span className="hv11-readout-unit">M / day</span></span>
+      <div className="ecosystem-ring-wrap">
+        <div className="ecosystem-ring" />
+
+        <div className="ecosystem-arc ecosystem-arc-a" />
+        <div className="ecosystem-arc ecosystem-arc-b" />
+
+        {ecosystemLayers.map((layer, index) => {
+          const angle = (360 / ecosystemLayers.length) * index - 90;
+          const radius = 39;
+
+          return (
+            <div
+              key={layer.id}
+              className={`ecosystem-node ${layer.emphasis ? 'ecosystem-node-emphasis' : ''}`}
+              style={{
+                left: `${50 + radius * Math.cos((angle * Math.PI) / 180)}%`,
+                top: `${50 + radius * Math.sin((angle * Math.PI) / 180)}%`,
+              }}
+            >
+              <div className="ecosystem-node-inner">
+                <span className="ecosystem-node-id">{layer.id}</span>
+                <h3>{layer.title}</h3>
+                <p>{layer.desc}</p>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="tex-core">
+          <div className="tex-core-glow" />
+          <img src={texAvatar} alt="Tex" className="tex-core-avatar" />
         </div>
       </div>
     </section>
   );
 }
-
 
 
 /* =============================================================

@@ -262,13 +262,14 @@ function LayerBar({ active, setActive, currentPath }) {
     <nav className={`layer-bar ${isHIW ? 'layer-bar--hiw' : 'layer-bar--home'}`} aria-label="Tex navigation">
       <div className="bar-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
         <div className="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="20" height="20">
-            <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
-            <path d="M7 9 H17 M12 9 V16" stroke="currentColor" strokeWidth="1.4" />
+          <svg viewBox="0 0 24 24" width="22" height="22">
+            <path d="M12 2 L21 7 L21 17 L12 22 L3 17 L3 7 Z" fill="rgba(127, 241, 233, 0.18)" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M7 9 H17 M12 9 V16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </div>
         <div className="brand-text">
           <span className="brand-name">TEX</span>
+          <span className="brand-by">by</span>
           <span className="brand-sub">VortexBlack</span>
         </div>
       </div>

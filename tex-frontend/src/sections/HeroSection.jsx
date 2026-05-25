@@ -112,7 +112,6 @@ export default function HeroSection({ openTrial, navigate }) {
                     alt="Tex — the AI airspace control system"
                     className="hs-figure-img"
                   />
-                  <div className="hs-eye-glow" aria-hidden="true" />
                   <div className="hs-chest-glow" aria-hidden="true" />
                 </div>
 

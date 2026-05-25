@@ -51,13 +51,9 @@ export const ECOSYSTEM_LAYERS = [
   {
     n: '04',
     key: 'execution',
-    name: 'Execution Governance',
-    /* Two-line stacked label: 'EXECUTION' on outer arc, 'GOVERNANCE'
-       on inner arc. The 60° segment becomes a double-banded
-       chamber that anchors the whole composition. */
-    nameStacked: ['Execution', 'Governance'],
+    name: 'Execution',
     bearing: 90,
-    fontSize: 28,
+    fontSize: 34,
     sentence: 'Adjudicate every action: permit, abstain, or forbid — before it runs.',
     emphasis: true,
   },
@@ -85,11 +81,15 @@ export const ECOSYSTEM_LAYERS = [
 const VB = 1000;
 const CX = VB / 2;
 const CY = VB / 2;
-const R_MAIN     = 400; // main ring — engraved with layer names
-const R_NODE     = 358; // node markers — just inside the ring
-const R_BEZEL_OUT = 460;
-const R_BEZEL_IN  = 430;
-const R_TELEM    = 490; // outermost telemetry ring (degree marks)
+/* Ring sized to fully encircle Tex's figure. Tex's chest emblem
+   sits at the SVG center; his head extends up to ~y=200, his
+   shoulders out to ~x=200/800. Ring at R_MAIN=460 means EXECUTION
+   at the bottom (y=960) clears his torso entirely. */
+const R_MAIN     = 460; // main ring — engraved with layer names
+const R_NODE     = 418; // node markers — just inside the ring
+const R_BEZEL_OUT = 520;
+const R_BEZEL_IN  = 490;
+const R_TELEM    = 555; // outermost telemetry ring; bleeds past viewBox (overflow visible)
 const R_HUB      = 56;
 
 /* Six segments, 60° each. Each segment is centered on its
@@ -210,16 +210,7 @@ export default function EcosystemRing() {
       ECOSYSTEM_LAYERS.map((layer) => {
         const p   = pointAt(R_NODE, layer.bearing);
         const seg = segmentGeometry(layer.bearing, R_MAIN);
-        const node = { ...layer, ...p, seg };
-        // For stacked labels (Execution Governance), compute a
-        // second baseline arc at a slightly smaller radius so the
-        // two words sit on parallel concentric arcs straddling
-        // the broken ring stroke.
-        if (layer.nameStacked) {
-          node.segOuter = segmentGeometry(layer.bearing, R_MAIN + 11);
-          node.segInner = segmentGeometry(layer.bearing, R_MAIN - 11);
-        }
-        return node;
+        return { ...layer, ...p, seg };
       }),
     []
   );
@@ -315,35 +306,28 @@ export default function EcosystemRing() {
           })()}
 
           {/* Per-segment text baselines — each layer's name rides
-              along this arc. The path is direction-corrected so
-              bottom-half labels read upright. Stacked labels
-              (Execution Governance) need TWO arcs at different
-              radii so the two words sit on parallel curves
-              straddling the broken ring stroke. */}
+              along this arc. Direction-corrected so bottom-half
+              labels read upright. */}
           {nodes.map((node) => (
-            <React.Fragment key={`textpath-frag-${node.key}`}>
-              {node.nameStacked ? (
-                <>
-                  <path
-                    id={`er-text-${node.key}-outer`}
-                    d={node.segOuter.textPath}
-                    fill="none"
-                  />
-                  <path
-                    id={`er-text-${node.key}-inner`}
-                    d={node.segInner.textPath}
-                    fill="none"
-                  />
-                </>
-              ) : (
-                <path
-                  id={`er-text-${node.key}`}
-                  d={node.seg.textPath}
-                  fill="none"
-                />
-              )}
-            </React.Fragment>
+            <path
+              key={`textpath-${node.key}`}
+              id={`er-text-${node.key}`}
+              d={node.seg.textPath}
+              fill="none"
+            />
           ))}
+
+          {/* Full-circle path on the main ring — particles ride this
+              clockwise to suggest continuous data flow through the
+              perimeter. Drawn as two semicircles because a single
+              full-circle path can't be expressed with one arc cmd. */}
+          <path
+            id="er-particle-orbit"
+            d={`M ${CX - R_MAIN} ${CY}
+                A ${R_MAIN} ${R_MAIN} 0 1 1 ${CX + R_MAIN} ${CY}
+                A ${R_MAIN} ${R_MAIN} 0 1 1 ${CX - R_MAIN} ${CY}`}
+            fill="none"
+          />
         </defs>
 
         {/* ============================================================
@@ -559,6 +543,35 @@ export default function EcosystemRing() {
         })}
 
         {/* ============================================================
+            PARTICLE STREAM — eight tiny luminous dots orbit the main
+            ring clockwise, each phase-shifted so they're distributed
+            evenly. Suggests continuous data flow through the
+            perimeter, separate from the discrete node pings.
+            ============================================================ */}
+        <g className="er-particles" aria-hidden="true">
+          {Array.from({ length: 8 }).map((_, i) => {
+            const offset = i / 8;
+            const dur = 14; // seconds per orbit
+            return (
+              <circle
+                key={`particle-${i}`}
+                r="2"
+                className="er-particle"
+              >
+                <animateMotion
+                  dur={`${dur}s`}
+                  repeatCount="indefinite"
+                  begin={`-${offset * dur}s`}
+                  rotate="auto"
+                >
+                  <mpath href="#er-particle-orbit" />
+                </animateMotion>
+              </circle>
+            );
+          })}
+        </g>
+
+        {/* ============================================================
             MAIN RING — drawn as six segments with engraved text gaps.
             The original continuous circle is replaced by twelve short
             arcs (two flanking arcs per layer segment), with the
@@ -716,68 +729,19 @@ export default function EcosystemRing() {
                 pointerEvents="stroke"
               />
 
-              {node.nameStacked ? (() => {
-                /* For bottom-half segments the "inner" arc (smaller
-                   radius) renders visually ABOVE the "outer" arc,
-                   because both arcs sit below the circle's center.
-                   To keep reading order correct ("EXECUTION" then
-                   "GOVERNANCE"), we put the FIRST word on the
-                   inner arc and the SECOND on the outer arc when
-                   the segment is at the bottom. */
-                const bottomHalf = node.bearing > 0 && node.bearing < 180;
-                const firstWord  = node.nameStacked[0];
-                const secondWord = node.nameStacked[1];
-                const topPath    = bottomHalf
-                  ? `#er-text-${node.key}-inner`
-                  : `#er-text-${node.key}-outer`;
-                const bottomPath = bottomHalf
-                  ? `#er-text-${node.key}-outer`
-                  : `#er-text-${node.key}-inner`;
-                return (
-                  <>
-                    <text
-                      className="er-label-name er-label-name--em"
-                      style={{ fontSize: `${fontSize}px` }}
-                      dy="0.35em"
-                    >
-                      <textPath
-                        href={topPath}
-                        startOffset="50%"
-                        textAnchor="middle"
-                      >
-                        {firstWord.toUpperCase()}
-                      </textPath>
-                    </text>
-                    <text
-                      className="er-label-name er-label-name--em"
-                      style={{ fontSize: `${fontSize}px` }}
-                      dy="0.35em"
-                    >
-                      <textPath
-                        href={bottomPath}
-                        startOffset="50%"
-                        textAnchor="middle"
-                      >
-                        {secondWord.toUpperCase()}
-                      </textPath>
-                    </text>
-                  </>
-                );
-              })() : (
-                <text
-                  className="er-label-name"
-                  style={{ fontSize: `${fontSize}px` }}
-                  dy="0.35em"
+              <text
+                className={`er-label-name ${isEm ? 'er-label-name--em' : ''}`}
+                style={{ fontSize: `${fontSize}px` }}
+                dy="0.35em"
+              >
+                <textPath
+                  href={`#er-text-${node.key}`}
+                  startOffset="50%"
+                  textAnchor="middle"
                 >
-                  <textPath
-                    href={`#er-text-${node.key}`}
-                    startOffset="50%"
-                    textAnchor="middle"
-                  >
-                    {node.name.toUpperCase()}
-                  </textPath>
-                </text>
-              )}
+                  {node.name.toUpperCase()}
+                </textPath>
+              </text>
             </g>
           );
         })}

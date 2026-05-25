@@ -110,16 +110,27 @@
   margin: 0 0 24px;
   opacity: 0;
   transform: translateY(20px);
-  animation: hs-fade-up 1s ease-out 0.55s forwards;
+  animation:
+    hs-fade-up 1s ease-out 0.55s forwards,
+    hs-headline-sheen 9s ease-in-out 2s infinite;
   background: linear-gradient(120deg,
     var(--bone-100) 0%,
-    var(--tex-bright) 55%,
+    var(--bone-100) 35%,
+    var(--tex-bright) 50%,
+    var(--bone-100) 65%,
     var(--bone-100) 100%);
+  background-size: 250% 100%;
+  background-position: 100% 0;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   padding-bottom: 0.1em;
   text-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+@keyframes hs-headline-sheen {
+  0%   { background-position: 100% 0; }
+  60%  { background-position: -20% 0; }
+  100% { background-position: -20% 0; }
 }
 
 .hs-descriptor {
@@ -199,38 +210,43 @@
    sits at ~10% from the top edge (R_TELEM=490 → ~50-49=top edge,
    but with viewBox padding the visible ring starts ~5% in).
    Z-index 5 puts it above the SVG ring but below the figure. */
+/* "360° GOVERNANCE" sits ABOVE the ring as an instrument-plate
+   header. Larger than the inside variant — this is the title card
+   for the entire instrument. */
 .hs-eyebrow--inside {
   position: absolute;
-  top: 19%;
+  top: 4%;
   left: 50%;
-  /* IMPORTANT: this transform is preserved by hs-eyebrow-inside-in
-     so the inside-variant stays horizontally centered after the
-     intro animation finishes. (The default hs-fade-up keyframe
-     uses translateY(0) which would clobber our translateX(-50%).) */
   transform: translate(-50%, -50%);
   margin: 0;
   z-index: 7;
-  font-size: 11px;
-  letter-spacing: 0.42em;
+  gap: 16px;
+  font-size: 14px;
+  letter-spacing: 0.38em;
+  font-weight: 600;
   color: var(--tex-bright);
   text-shadow:
-    0 0 16px rgba(127, 241, 233, 0.7),
-    0 0 6px rgba(0, 0, 0, 0.95);
+    0 0 22px rgba(127, 241, 233, 0.85),
+    0 0 8px rgba(0, 0, 0, 0.95);
   pointer-events: none;
-  /* Override the base hs-eyebrow animation with one that keeps
-     translate(-50%, -50%) at every keyframe. */
+  white-space: nowrap;
   animation: hs-eyebrow-inside-in 1s ease-out 0.7s both;
   opacity: 0;
 }
+.hs-eyebrow--inside .hs-eyebrow-text {
+  white-space: nowrap;
+}
 @keyframes hs-eyebrow-inside-in {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)); }
+  from { opacity: 0; transform: translate(-50%, calc(-50% - 8px)); }
   to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 .hs-eyebrow--inside .hs-eyebrow-mark {
-  width: 28px;
+  width: 56px;
+  height: 1px;
   background: linear-gradient(90deg,
     rgba(127, 241, 233, 0) 0%,
-    rgba(127, 241, 233, 0.85) 100%);
+    rgba(127, 241, 233, 1) 100%);
+  box-shadow: 0 0 8px rgba(127, 241, 233, 0.7);
 }
 .hs-eyebrow--inside .hs-eyebrow-mark:last-child {
   background: linear-gradient(90deg,
@@ -252,7 +268,14 @@
 
 .hs-ring-anchor {
   position: absolute;
-  inset: 0;
+  /* Ring shifted DOWN relative to Tex so EXECUTION at the bottom
+     sits below his torso. The whole ring slides ~9% down within
+     the scene; DISCOVERY at the top still sits cleanly above his
+     head because the ring is bigger now (R_TELEM=555 in 1000vb). */
+  top: 9%;
+  left: 0;
+  right: 0;
+  bottom: -9%;
   z-index: 4;
   pointer-events: none;
   opacity: 0;
@@ -372,7 +395,10 @@
 
 .hs-figure-img {
   display: block;
-  height: 70cqh;
+  /* Near original size — the ring sits LOWER than Tex (offset
+     downward via .hs-ring-anchor) so EXECUTION at the ring's
+     bottom clears Tex's chest without needing to shrink him. */
+  height: 68cqh;
   width: auto;
   filter:
     drop-shadow(0 0 30px rgba(86, 230, 220, 0.20))

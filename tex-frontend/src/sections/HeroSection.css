@@ -63,42 +63,70 @@
   color: var(--tex-ink);
 }
 
-/* Tex is here — center cell of the top bar */
+/* Tex is here — center cell of the top bar.
+   The dot is a small glass lens in the same cool steel family as "Quiet."
+   but lit from within. A bright cool-white core glows behind frosted glass,
+   with a real halo of light around the body. */
 .tex-presence {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   opacity: 1;
   justify-self: center;
 }
 
 .tex-presence-dot {
   position: relative;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: var(--tex-coral);
+  /* Glass body — same cool steel ramp as the word */
+  background:
+    radial-gradient(circle at 35% 30%,
+      rgba(244, 246, 250, 0.95) 0%,
+      rgba(200, 210, 222, 0.9) 30%,
+      rgba(91, 110, 132, 0.95) 70%,
+      rgba(29, 39, 51, 1) 100%);
+  /* Hairline rim + the light halo */
   box-shadow:
-    0 0 0 2px rgba(197, 72, 47, 0.18),
-    0 0 14px 2px rgba(197, 72, 47, 0.55),
-    0 0 28px 4px rgba(197, 72, 47, 0.18);
+    inset 0 0 0 0.5px rgba(91, 110, 132, 0.55),
+    0 0 0 2px rgba(180, 200, 230, 0.18),
+    0 0 14px 2px rgba(160, 190, 230, 0.7),
+    0 0 32px 6px rgba(140, 180, 230, 0.28);
   animation: tex-breath 3.4s ease-in-out infinite;
+}
+
+/* The lit core — sits inside the glass, a small bright point of cool light */
+.tex-presence-dot-core {
+  position: absolute;
+  top: 18%;
+  left: 22%;
+  width: 38%;
+  height: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    #FFFFFF 0%,
+    #E6F0FF 45%,
+    rgba(200, 218, 240, 0.3) 100%);
+  filter: blur(0.4px);
 }
 
 @keyframes tex-breath {
   0%, 100% {
     transform: scale(1);
     box-shadow:
-      0 0 0 2px rgba(197, 72, 47, 0.16),
-      0 0 12px 2px rgba(197, 72, 47, 0.45),
-      0 0 22px 4px rgba(197, 72, 47, 0.14);
+      inset 0 0 0 0.5px rgba(91, 110, 132, 0.55),
+      0 0 0 2px rgba(180, 200, 230, 0.14),
+      0 0 12px 2px rgba(160, 190, 230, 0.55),
+      0 0 26px 4px rgba(140, 180, 230, 0.18);
   }
   50% {
-    transform: scale(1.18);
+    transform: scale(1.12);
     box-shadow:
-      0 0 0 3px rgba(197, 72, 47, 0.22),
-      0 0 18px 3px rgba(197, 72, 47, 0.75),
-      0 0 36px 6px rgba(197, 72, 47, 0.28);
+      inset 0 0 0 0.5px rgba(91, 110, 132, 0.6),
+      0 0 0 3px rgba(180, 200, 230, 0.22),
+      0 0 18px 3px rgba(180, 210, 245, 0.85),
+      0 0 40px 8px rgba(150, 190, 235, 0.32);
   }
 }
 
@@ -160,7 +188,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* The visible height of the glass artwork */
   height: clamp(140px, 22vw, 280px);
 }
 
@@ -171,9 +198,7 @@
   overflow: visible;
 }
 
-/* The light sweep — one slow pass across the glyphs, then pause.
-   Travel is from -200 (offscreen left) to ~1100 (offscreen right).
-   The viewBox is 900 wide, so the sweep enters and exits cleanly. */
+/* The light sweep — one slow pass across the glyphs, then pause. */
 .tex-glass-sweep-rect {
   animation: tex-glass-light 7s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
@@ -226,14 +251,14 @@
   border: none;
   cursor: pointer;
   border-radius: 980px;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
   background: transparent;
 }
 
 .tex-btn:active { transform: scale(0.98); }
 
-/* Glass capsule — same material as the word. Hairline border in the same
-   cool-steel ink. Transparent interior. A soft light orbits the border. */
+/* Glass capsule — same material as the word. Hairline border in cool steel.
+   Transparent interior. A soft light orbits the border. */
 .tex-btn--glass {
   position: relative;
   padding: 13px 30px;
@@ -242,7 +267,6 @@
   font-size: 14px;
   letter-spacing: 0.02em;
   background: transparent;
-  /* Use a thin double-border trick: the outer ring is the glass edge. */
   box-shadow:
     inset 0 0 0 1px rgba(91, 110, 132, 0.55),
     0 1px 0 rgba(244, 246, 250, 0.6);
@@ -254,6 +278,47 @@
   box-shadow:
     inset 0 0 0 1px rgba(29, 39, 51, 0.85),
     0 1px 0 rgba(244, 246, 250, 0.6);
+}
+
+.tex-btn-label {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(180deg, #1D2733 0%, #2C394A 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* The orbit — a conic gradient that rotates around the capsule, masked
+   to only show along the border. */
+.tex-btn-orbit {
+  position: absolute;
+  inset: -1px;
+  border-radius: 980px;
+  z-index: 1;
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    transparent 300deg,
+    rgba(230, 240, 255, 0.95) 340deg,
+    rgba(200, 218, 240, 0.7) 350deg,
+    rgba(230, 240, 255, 0.95) 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  padding: 1.2px;
+  animation: tex-btn-orbit 6s linear infinite;
+  opacity: 0.9;
+}
+
+@keyframes tex-btn-orbit {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Legacy variants — used by MomentSection and other surfaces. */
@@ -274,50 +339,6 @@
 }
 
 .tex-btn--ghost:hover { color: var(--tex-ink); }
-
-.tex-btn-label {
-  position: relative;
-  z-index: 2;
-  /* Match the glass tone of the word — subtly cool */
-  background: linear-gradient(180deg, #1D2733 0%, #2C394A 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* The orbit — a conic gradient that rotates around the capsule, masked
-   to only show along the border. Single bright arc, mostly transparent,
-   so it reads as a light traveling around the edge rather than a glow. */
-.tex-btn-orbit {
-  position: absolute;
-  inset: -1px;
-  border-radius: 980px;
-  z-index: 1;
-  pointer-events: none;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    transparent 300deg,
-    rgba(230, 240, 255, 0.95) 340deg,
-    rgba(200, 218, 240, 0.7) 350deg,
-    rgba(230, 240, 255, 0.95) 360deg
-  );
-  /* Mask to only the border ring — 1.2px thick. */
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-  padding: 1.2px;
-  animation: tex-btn-orbit 6s linear infinite;
-  opacity: 0.9;
-}
-
-@keyframes tex-btn-orbit {
-  0%   { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
 
 /* ------------------------------------------------------------
    Quiet scroll cue

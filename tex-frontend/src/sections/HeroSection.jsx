@@ -35,7 +35,9 @@ export default function HeroSection({ openTrial, navigate }) {
         </a>
 
         <div className="tex-presence" role="status" aria-live="polite">
-          <span className="tex-presence-dot" />
+          <span className="tex-presence-dot">
+            <span className="tex-presence-dot-core" />
+          </span>
           <span className="tex-presence-label">Tex is here</span>
         </div>
 
@@ -93,9 +95,6 @@ export default function HeroSection({ openTrial, navigate }) {
             aria-hidden="true"
           >
             <defs>
-              {/* Glass body — cool steel with a hint of cobalt at the base.
-                  Top of each letter catches white; the body reads as smoked
-                  blue glass; the bottom carries weight. */}
               <linearGradient id="tex-glass-body" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%"   stopColor="#F4F6FA" stopOpacity="0.98" />
                 <stop offset="28%"  stopColor="#C8D2DE" stopOpacity="0.92" />
@@ -103,24 +102,18 @@ export default function HeroSection({ openTrial, navigate }) {
                 <stop offset="100%" stopColor="#1D2733" stopOpacity="1"    />
               </linearGradient>
 
-              {/* Rim light — bright catch at the very top edge of each glyph. */}
               <linearGradient id="tex-glass-rim" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%"  stopColor="#FFFFFF" stopOpacity="0.85" />
                 <stop offset="14%" stopColor="#FFFFFF" stopOpacity="0"    />
                 <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0"   />
               </linearGradient>
 
-              {/* The moving highlight is just a soft white rect animated
-                  across the masked region — cleaner than a moving gradient. */}
-
-              {/* Soft shadow under the word — displacement, not drop. */}
               <radialGradient id="tex-word-floor" cx="50%" cy="50%" r="50%">
                 <stop offset="0%"   stopColor="#0E1620" stopOpacity="0.10" />
                 <stop offset="60%"  stopColor="#0E1620" stopOpacity="0.04" />
                 <stop offset="100%" stopColor="#0E1620" stopOpacity="0"    />
               </radialGradient>
 
-              {/* Mask that clips the moving highlight to just the letterforms. */}
               <mask id="tex-glass-mask">
                 <text
                   x="450" y="178"
@@ -134,10 +127,8 @@ export default function HeroSection({ openTrial, navigate }) {
               </mask>
             </defs>
 
-            {/* Displacement — the canvas takes weight under the glass */}
             <ellipse cx="450" cy="210" rx="320" ry="14" fill="url(#tex-word-floor)" />
 
-            {/* Glass body — single piece of glass, word and period together */}
             <text
               x="450" y="178"
               textAnchor="middle"
@@ -148,7 +139,6 @@ export default function HeroSection({ openTrial, navigate }) {
               fill="url(#tex-glass-body)"
             >Quiet.</text>
 
-            {/* Rim highlight pass */}
             <text
               x="450" y="178"
               textAnchor="middle"
@@ -159,7 +149,6 @@ export default function HeroSection({ openTrial, navigate }) {
               fill="url(#tex-glass-rim)"
             >Quiet.</text>
 
-            {/* Edge — hairline that defines where the glass ends */}
             <text
               x="450" y="178"
               textAnchor="middle"
@@ -173,7 +162,6 @@ export default function HeroSection({ openTrial, navigate }) {
               strokeWidth="0.6"
             >Quiet.</text>
 
-            {/* Light pass — confined to the glyphs by the mask. Travels slowly. */}
             <g mask="url(#tex-glass-mask)">
               <rect
                 className="tex-glass-sweep-rect"

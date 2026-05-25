@@ -1,0 +1,160 @@
+/* ============================================================
+   Orb — the breathing presence.
+   Lifted from the product dashboard. The marketing site and
+   the product share this exact visual.
+   ============================================================ */
+
+.tex-orb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tex-orb--xl { width: 440px; height: 440px; }
+.tex-orb--lg { width: 360px; height: 360px; }
+.tex-orb--md { width: 260px; height: 260px; }
+.tex-orb--sm { width: 140px; height: 140px; }
+
+/* Outer atmosphere — the widest, faintest halo */
+.tex-orb-halo-outer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: tex-orb-halo 4.2s ease-in-out infinite;
+}
+
+/* Mid halo — denser, closer to the core */
+.tex-orb-halo-mid {
+  position: absolute;
+  width: 61.1%;
+  height: 61.1%;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: tex-orb-halo-mid 4.2s ease-in-out infinite;
+}
+
+/* Faint ring — a single hairline at mid radius, breathes with the rest */
+.tex-orb-ring {
+  position: absolute;
+  width: 33.3%;
+  height: 33.3%;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 150, 195, 0.18);
+  pointer-events: none;
+  animation: tex-orb-ring 4.2s ease-in-out infinite;
+}
+
+/* Inner halo — the dense cluster right around the core */
+.tex-orb-halo-inner {
+  position: absolute;
+  width: 17.8%;
+  height: 17.8%;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: tex-orb-halo-inner 4.2s ease-in-out infinite;
+}
+
+/* The core — small piece of glass, the only solid object */
+.tex-orb-core {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    var(--tex-glass-1) 0%,
+    var(--tex-glass-2) 30%,
+    var(--tex-glass-3) 70%,
+    var(--tex-glass-4) 100%
+  );
+  animation: tex-orb-core 4.2s ease-in-out infinite;
+}
+
+/* --- QUIET state: cool blue-gray ------------------------- */
+.tex-orb--quiet .tex-orb-halo-outer {
+  background: radial-gradient(
+    circle at center,
+    rgba(150, 175, 210, 0.22) 0%,
+    rgba(150, 175, 210, 0.10) 28%,
+    rgba(150, 175, 210, 0.03) 55%,
+    rgba(245, 242, 236, 0) 72%
+  );
+}
+.tex-orb--quiet .tex-orb-halo-mid {
+  background: radial-gradient(
+    circle at center,
+    rgba(120, 150, 195, 0.32) 0%,
+    rgba(120, 150, 195, 0.14) 40%,
+    rgba(120, 150, 195, 0.04) 72%,
+    rgba(245, 242, 236, 0) 90%
+  );
+}
+.tex-orb--quiet .tex-orb-halo-inner {
+  background: radial-gradient(
+    circle at center,
+    rgba(91, 110, 132, 0.5) 0%,
+    rgba(91, 110, 132, 0.22) 50%,
+    rgba(91, 110, 132, 0.06) 85%,
+    rgba(245, 242, 236, 0) 100%
+  );
+}
+.tex-orb--quiet .tex-orb-core {
+  box-shadow: 0 0 8px rgba(91, 110, 132, 0.5);
+}
+
+/* --- ASKING state: same blue-gray, slightly more weight -- */
+.tex-orb--asking .tex-orb-halo-outer {
+  background: radial-gradient(
+    circle at center,
+    rgba(150, 175, 210, 0.28) 0%,
+    rgba(150, 175, 210, 0.13) 28%,
+    rgba(150, 175, 210, 0.04) 55%,
+    rgba(245, 242, 236, 0) 72%
+  );
+}
+.tex-orb--asking .tex-orb-halo-mid {
+  background: radial-gradient(
+    circle at center,
+    rgba(120, 150, 195, 0.38) 0%,
+    rgba(120, 150, 195, 0.17) 40%,
+    rgba(120, 150, 195, 0.05) 72%,
+    rgba(245, 242, 236, 0) 90%
+  );
+}
+.tex-orb--asking .tex-orb-halo-inner {
+  background: radial-gradient(
+    circle at center,
+    rgba(91, 110, 132, 0.6) 0%,
+    rgba(91, 110, 132, 0.28) 50%,
+    rgba(91, 110, 132, 0.08) 85%,
+    rgba(245, 242, 236, 0) 100%
+  );
+}
+.tex-orb--asking .tex-orb-core {
+  box-shadow: 0 0 10px rgba(91, 110, 132, 0.6);
+}
+
+/* --- Keyframes — dramatic breath ------------------------- */
+@keyframes tex-orb-halo {
+  0%, 100% { opacity: 0.25; transform: scale(0.78); }
+  50%      { opacity: 1;    transform: scale(1.18); }
+}
+@keyframes tex-orb-halo-mid {
+  0%, 100% { opacity: 0.40; transform: scale(0.80); }
+  50%      { opacity: 1;    transform: scale(1.20); }
+}
+@keyframes tex-orb-ring {
+  0%, 100% { opacity: 0.15; transform: scale(0.82); }
+  50%      { opacity: 0.85; transform: scale(1.16); }
+}
+@keyframes tex-orb-halo-inner {
+  0%, 100% { opacity: 0.50; transform: scale(0.84); }
+  50%      { opacity: 1;    transform: scale(1.18); }
+}
+@keyframes tex-orb-core {
+  0%, 100% { opacity: 0.75; transform: scale(0.88); }
+  50%      { opacity: 1;    transform: scale(1.14); }
+}

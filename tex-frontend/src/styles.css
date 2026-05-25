@@ -20,6 +20,20 @@
   --tex-bg-1: #f6f6f8;
   --tex-bg-2: #eef0f6;
   --tex-bg-3: #e8ecf4;
+
+  /* Glass — the exact gradient lifted from "Absolute." and the dashboard Orb. */
+  --tex-glass-1: #F4F6FA;
+  --tex-glass-2: #C8D2DE;
+  --tex-glass-3: #5B6E84;
+  --tex-glass-4: #1D2733;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 *,

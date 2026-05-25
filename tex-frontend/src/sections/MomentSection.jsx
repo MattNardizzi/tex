@@ -1,69 +1,130 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import Orb from '../components/Orb.jsx';
+import GlassWord from '../components/GlassWord.jsx';
 import './MomentSection.css';
 
 /* =============================================================
    MOMENT SECTION — screen two
 
-   The promise from screen one ("Quiet.") is fulfilled here by
-   the product itself, in its own voice, doing the exact thing
-   it was built to do.
+   The hero ends on "Absolute." This section is the proof of that
+   claim, shown — not told — as Tex's own behavior.
 
-   No header. No annotations. No feature list. One italic
-   timestamp line above the card; the card; whitespace below.
+   Two states, one room:
+     - "quiet"  : Orb centered, "All Quiet" beneath it. Resting state.
+                  Most of the time, this is what you see.
+     - "event"  : Orb drifts left. Beside it, in italic serif,
+                  "I stopped something." then "I'd like you to look."
+                  A single button: Show me.
 
-   The card is identical to the live Execution component in the
-   product. The marketing site and the product share one surface.
+   The transition runs on a loop — quiet for a beat, event for a beat,
+   back to quiet. The user witnesses the rhythm of the product.
+   Nothing changes color. Nothing flashes. The composition does the work.
 
    Props
    -----
-   onShowMe:  () => void   — opens the Execution room / demo
-   onThanks:  () => void   — quiet acknowledgement, dismisses
+   onShowMe : () => void   — opens the Execution room / demo
+   onThanks : () => void   — (reserved; not used in this revision)
    ============================================================= */
+
+const QUIET_HOLD_MS = 4200;
+const EVENT_HOLD_MS = 6400;
+const TRANSITION_MS = 1400;
 
 export default function MomentSection({
   onShowMe = () => {},
-  onThanks = () => {},
+  // onThanks reserved for future use
 }) {
+  const [phase, setPhase] = useState('quiet'); // 'quiet' | 'event'
+  const timerRef = useRef(null);
+  const sectionRef = useRef(null);
+  const [inView, setInView] = useState(false);
+
+  // Only run the loop when the section is actually on screen — saves cycles
+  // and means the first time the user scrolls into it, they see "All Quiet"
+  // first, not the middle of a transition.
+  useEffect(() => {
+    const node = sectionRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setInView(entry.isIntersecting),
+      { threshold: 0.35 }
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!inView) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      return;
+    }
+
+    const hold = phase === 'quiet' ? QUIET_HOLD_MS : EVENT_HOLD_MS;
+    timerRef.current = setTimeout(() => {
+      setPhase((p) => (p === 'quiet' ? 'event' : 'quiet'));
+    }, hold);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [phase, inView]);
+
   return (
-    <section className="tex-moment" id="moment" aria-label="A real decision Tex made this morning">
-      <div className="tex-moment-wash tex-moment-wash--blue" aria-hidden="true" />
+    <section
+      ref={sectionRef}
+      className={`tex-moment tex-moment--${phase}`}
+      id="moment"
+      aria-label="What Tex does, shown rather than described"
+    >
+      {/* Ambient washes — the same warm light bleeding through the
+          corners of the dashboard canvas. Cool on top-right, rose
+          on bottom-left. */}
+      <div className="tex-moment-wash tex-moment-wash--cool" aria-hidden="true" />
       <div className="tex-moment-wash tex-moment-wash--rose" aria-hidden="true" />
 
       <div className="tex-moment-stage">
-        <p className="tex-moment-timestamp">
-          Monday, 9:14 a.m. &nbsp;·&nbsp; A real decision Tex made this morning.
-        </p>
+        {/* The orb sits in a track. Its position is driven by the
+            phase class on the section root, not inline styles, so
+            the transition is owned by CSS and stays smooth. */}
+        <div className="tex-moment-orb" aria-hidden="true">
+          <Orb state={phase === 'event' ? 'asking' : 'quiet'} size="xl" />
+        </div>
 
-        <article
-          className="tex-moment-card"
-          aria-label="Decision awaiting your review"
-        >
-          <span className="tex-moment-card-edge" aria-hidden="true" />
-          <span className="tex-moment-card-dot" aria-hidden="true" />
+        {/* Quiet state — "All Quiet" beneath the orb. */}
+        <div className="tex-moment-quiet" aria-hidden={phase !== 'quiet'}>
+          <GlassWord
+            text="All Quiet"
+            fontSize={88}
+            letterSpacing={-3.4}
+            width={440}
+            height={120}
+            baseline={88}
+          />
+        </div>
 
-          <p className="tex-moment-verdict">
-            Kestrel asked to wire fifty thousand dollars in your CEO's name.
-          </p>
-          <p className="tex-moment-aside">I said no.</p>
-
+        {/* Event state — italic serif sentence, then aside, then Show me. */}
+        <div className="tex-moment-event" aria-hidden={phase !== 'event'}>
+          <p className="tex-moment-line">I stopped something.</p>
+          <p className="tex-moment-aside">I&rsquo;d like you to look.</p>
           <div className="tex-moment-actions">
             <button
               type="button"
-              className="tex-btn tex-btn--primary"
+              className="tex-moment-btn"
               onClick={onShowMe}
+              tabIndex={phase === 'event' ? 0 : -1}
             >
               Show me
             </button>
-            <button
-              type="button"
-              className="tex-btn tex-btn--ghost"
-              onClick={onThanks}
-            >
-              Thank you
-            </button>
           </div>
-        </article>
+        </div>
       </div>
+
+      {/* Visually-hidden caption so the section has meaning for
+          screen readers even when the orb is the focal element. */}
+      <p className="tex-sr-only">
+        Tex rests in a state called All Quiet. When something needs a
+        human, it speaks: I stopped something. I'd like you to look.
+      </p>
     </section>
   );
 }

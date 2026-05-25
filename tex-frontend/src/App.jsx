@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import HeroSection from './sections/HeroSection.jsx';
 import MomentSection from './sections/MomentSection.jsx';
+import LifecycleSection from './sections/LifecycleSection.jsx';
 import CalendlyModal from './components/CalendlyModal.jsx';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
     <>
       <HeroSection openTrial={openTrial} navigate={navigate} />
       <MomentSection onShowMe={onMomentShowMe} onThanks={onMomentThanks} />
+      <LifecycleSection />
       {trialOpen && <CalendlyModal onClose={closeTrial} />}
     </>
   );

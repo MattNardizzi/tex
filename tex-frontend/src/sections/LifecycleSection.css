@@ -1,0 +1,134 @@
+/* ============================================================
+   LifecycleSection — screen three
+
+   The continuation of the MomentSection canvas. We pick up
+   where bg-3 left off and let the room breathe. One sentence
+   in the middle, big enough to hold the page alone.
+
+   Height is 80vh, not 100vh. A full viewport with a single
+   sentence reads as a broken page on a first scroll-through.
+   80vh gives the silence space without making the user wonder
+   if the site ended.
+   ============================================================ */
+
+.tex-lifecycle {
+  position: relative;
+  width: 100%;
+  min-height: 80vh;
+  background: linear-gradient(
+    180deg,
+    var(--tex-bg-3) 0%,
+    var(--tex-bg-2) 55%,
+    var(--tex-bg-3) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 96px 24px;
+  font-family: var(--tex-sans);
+  color: var(--tex-ink);
+}
+
+/* --- Ambient washes — same DNA as section two -------------- */
+.tex-lifecycle-wash {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tex-lifecycle-wash--cool {
+  top: -200px;
+  right: -180px;
+  width: 760px;
+  height: 760px;
+  background: radial-gradient(
+    circle at center,
+    rgba(195, 210, 235, 0.50) 0%,
+    rgba(195, 210, 235, 0.18) 35%,
+    rgba(195, 210, 235, 0.04) 60%,
+    rgba(195, 210, 235, 0) 78%
+  );
+}
+
+.tex-lifecycle-wash--rose {
+  bottom: -240px;
+  left: -200px;
+  width: 720px;
+  height: 720px;
+  background: radial-gradient(
+    circle at center,
+    rgba(220, 195, 210, 0.38) 0%,
+    rgba(220, 195, 210, 0.13) 38%,
+    rgba(220, 195, 210, 0.04) 62%,
+    rgba(220, 195, 210, 0) 80%
+  );
+}
+
+/* --- Stage — the sentence holds the canvas alone ----------- */
+.tex-lifecycle-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.tex-lifecycle-line {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 60px;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: var(--tex-ink);
+  margin: 0;
+  text-wrap: balance;
+  /* Quiet entrance — the sentence settles in rather than
+     appearing. Same easing as the other section arrivals. */
+  opacity: 0;
+  transform: translateY(8px);
+  animation: tex-lifecycle-arrive 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) 0.3s forwards;
+}
+
+@keyframes tex-lifecycle-arrive {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Responsive -------------------------------------------- */
+@media (max-width: 880px) {
+  .tex-lifecycle {
+    padding: 72px 24px;
+    min-height: 70vh;
+  }
+  .tex-lifecycle-line {
+    font-size: 42px;
+  }
+}
+
+@media (max-width: 520px) {
+  .tex-lifecycle-line {
+    font-size: 32px;
+  }
+  .tex-lifecycle-wash--cool,
+  .tex-lifecycle-wash--rose {
+    width: 480px;
+    height: 480px;
+  }
+}
+
+/* --- Reduced motion ---------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tex-lifecycle-line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

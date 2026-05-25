@@ -197,35 +197,31 @@
 }
 
 /* ------------------------------------------------------------
-   "Tex." — small, intimate signature
+   "Tex." — refined wordmark, sits with breathing room above
+   his head so it reads as a title, not a hat
    ------------------------------------------------------------ */
 .tex-hero-name {
   font-family: var(--tex-serif);
   font-weight: 400;
-  font-size: clamp(36px, 4.5vw, 60px);
+  font-size: clamp(56px, 7.5vw, 104px);
   letter-spacing: -0.035em;
   line-height: 1;
   color: var(--tex-ink);
-  margin: 0;
-  /* Pull the figure up so the head crown reads as immediately
-     below the name. Negative margin must scale with the name size. */
-  margin-bottom: clamp(-22px, -1.4vw, -14px);
+  margin: 0 0 clamp(18px, 2.2vw, 32px);
   position: relative;
   z-index: 2;
 }
 
 /* ------------------------------------------------------------
    Figure — sized to fill the stage without overflowing.
-   The avatar's aspect ratio is ~1.054 (w:h ≈ 1100:1044).
-   We constrain by viewport height so it never overflows.
+   The avatar is now portrait: 1100:1181, aspect 0.931 (w:h).
+   We bind width by viewport height so he always fits.
    ------------------------------------------------------------ */
 .tex-figure {
   position: relative;
-  /* Width constrained by viewport width AND viewport height so it
-     never overflows. Avatar aspect 1100:901 = 1.221 (w:h). */
-  width: clamp(380px, 60vw, 720px);
-  max-height: calc(100vh - 220px);
-  aspect-ratio: 1100 / 901;
+  width: clamp(320px, 38vw, 560px);
+  max-height: calc(100vh - 280px);
+  aspect-ratio: 1100 / 1181;
   margin: 0;
   user-select: none;
   pointer-events: none;
@@ -234,11 +230,12 @@
   --tex-py: 0px;
 }
 
-/* On non-ultra-wide screens, let viewport height bind the figure
-   size so it always fits comfortably. */
+/* Viewport-height-bound sizing so the avatar always fits in frame
+   alongside the Tex. wordmark and topbar. Aspect 0.931 means
+   max-width = (available height) * 0.931. */
 @media (max-aspect-ratio: 16/9) {
   .tex-figure {
-    width: min(60vw, calc((100vh - 220px) * 1.221));
+    width: min(38vw, calc((100vh - 280px) * 0.931));
   }
 }
 
@@ -283,25 +280,23 @@
   height: 100%;
   object-fit: contain;
   z-index: 1;
-  /* Bottom dissolve — fades the lower portion deeply so the chest
-     "TEX" wordmark is fully gone, and he reads as emerging through
-     the page surface. */
+  /* Soft bottom dissolve — fades only the lowest portion (below
+     the TEX wordmark) so he reads as emerging through the page
+     surface while keeping the chest emblem and wordmark visible. */
   mask-image: linear-gradient(
     180deg,
     #000 0%,
-    #000 60%,
-    rgba(0, 0, 0, 0.78) 72%,
-    rgba(0, 0, 0, 0.40) 84%,
-    rgba(0, 0, 0, 0.12) 94%,
+    #000 88%,
+    rgba(0, 0, 0, 0.70) 94%,
+    rgba(0, 0, 0, 0.28) 98%,
     transparent 100%
   );
   -webkit-mask-image: linear-gradient(
     180deg,
     #000 0%,
-    #000 60%,
-    rgba(0, 0, 0, 0.78) 72%,
-    rgba(0, 0, 0, 0.40) 84%,
-    rgba(0, 0, 0, 0.12) 94%,
+    #000 88%,
+    rgba(0, 0, 0, 0.70) 94%,
+    rgba(0, 0, 0, 0.28) 98%,
     transparent 100%
   );
   /* Drop shadow gives weight against the page */
@@ -311,41 +306,55 @@
 }
 
 /* ------------------------------------------------------------
-   Eye glow overlays — measured against the new crop:
-     left eye  cx=41.4%, cy=38.3%
-     right eye cx=58.5%, cy=38.3%
-     each ~6.4% wide, ~2.3% tall
+   Eye treatment — the printed slits are already gorgeous cyan
+   light sources. We DON'T paint a bright blob over them (which
+   would smother the slit shape). Instead, a very subtle outer
+   halo suggests light spillover into the surrounding plating,
+   pulsing softly with his breath.
+
+   Coordinates (1100:1181 crop):
+     left eye  cx=41.3%, cy=29.2%, w=6.5%, h=2.0%
+     right eye cx=58.0%, cy=29.4%, w=6.1%, h=1.6%
    ------------------------------------------------------------ */
 .tex-eye {
   position: absolute;
-  top: 37.7%;
-  width: 6.4%;
-  height: 1.7%;
+  /* Sized slightly larger than the slit, centered on it, so the
+     glow appears as light bleeding out of the slit, not as a
+     painted disk on top of it. */
+  top: 28.4%;
+  width: 8.4%;
+  height: 2.6%;
   background: transparent;
   border-radius: 50%;
+  /* Soft, low-intensity glow only — never bright enough to
+     overpower the printed slit. */
   box-shadow:
-    0 0 6px 2px rgba(140, 210, 255, 0.50),
-    0 0 18px 6px rgba(100, 180, 240, 0.30),
-    0 0 40px 14px rgba(80, 150, 220, 0.14);
+    0 0 4px 1px rgba(140, 210, 255, 0.32),
+    0 0 14px 4px rgba(100, 180, 240, 0.18),
+    0 0 32px 10px rgba(80, 150, 220, 0.08);
   pointer-events: none;
   animation: tex-eye-breath 5.6s ease-in-out infinite;
   z-index: 3;
+  /* Multiply blend mode means the glow only ADDS to the
+     existing image where appropriate — never washes it out. */
+  mix-blend-mode: screen;
+  opacity: 0.7;
 }
 
-.tex-eye--l { left: 38.2%; }
-.tex-eye--r { left: 55.3%; }
+.tex-eye--l { left: 37.0%; }
+.tex-eye--r { left: 54.7%; }
 
-/* Blink shutters — match the slit positions */
+/* Blink shutters — match the slit positions and shape */
 .tex-blink {
   position: absolute;
-  top: 36.8%;
+  top: 28.1%;
   width: 7.2%;
-  height: 3.1%;
+  height: 2.8%;
   background: linear-gradient(
     180deg,
-    rgba(225, 226, 230, 0)   0%,
-    rgba(225, 226, 230, 0.96) 50%,
-    rgba(225, 226, 230, 0)   100%);
+    rgba(228, 229, 232, 0)   0%,
+    rgba(228, 229, 232, 0.95) 50%,
+    rgba(228, 229, 232, 0)   100%);
   border-radius: 40%;
   opacity: 0;
   transform-origin: center;
@@ -353,48 +362,49 @@
   z-index: 4;
   animation: tex-blink 7.3s ease-in-out infinite;
 }
-.tex-blink--l { left: 37.8%; }
-.tex-blink--r { left: 54.9%; }
+.tex-blink--l { left: 37.7%; }
+.tex-blink--r { left: 54.7%; }
 
 /* ------------------------------------------------------------
-   Forehead emblem — cx=50.0%, cy=28.2%, ~6.3% wide
+   Forehead emblem glow — cx=50.0%, cy=21.2% on new crop.
+   Subtle outer halo only; the printed emblem carries itself.
    ------------------------------------------------------------ */
 .tex-crown {
   position: absolute;
-  top: 26.0%;
+  top: 19.3%;
   left: 46.9%;
   width: 6.3%;
-  height: 5.3%;
+  height: 5.0%;
   border-radius: 50%;
   background: transparent;
   box-shadow:
-    0 0 8px 3px rgba(150, 220, 255, 0.42),
-    0 0 22px 8px rgba(110, 195, 245, 0.22),
-    0 0 52px 18px rgba(90, 170, 230, 0.10);
+    0 0 6px 2px rgba(150, 220, 255, 0.32),
+    0 0 18px 6px rgba(110, 195, 245, 0.16),
+    0 0 42px 14px rgba(90, 170, 230, 0.07);
   pointer-events: none;
   animation: tex-crown-pulse 5.6s ease-in-out infinite;
   z-index: 2;
   mix-blend-mode: screen;
+  opacity: 0.7;
 }
 
 /* ------------------------------------------------------------
-   Heartbeat — placed at the neck-base cyan light slit (around
-   y=87.5% on the crop). Sits in the dissolve zone so the pulse
-   appears as a soft glow rising through the haze — like a core
-   still alive even as he merges into the page.
+   Heartbeat — placed at the neck-base cyan slit
+   (cx=49.5%, cy=67%) — clearly in-frame above the dissolve.
+   Two-thump rhythm gives him a pulse.
    ------------------------------------------------------------ */
 .tex-core {
   position: absolute;
-  top: 86.0%;
-  left: 47.5%;
-  width: 5.0%;
-  height: 2.6%;
+  top: 65.8%;
+  left: 47.3%;
+  width: 5.4%;
+  height: 2.0%;
   border-radius: 50%;
   background: transparent;
   box-shadow:
-    0 0 9px 3px rgba(150, 220, 255, 0.42),
-    0 0 26px 9px rgba(110, 195, 245, 0.24),
-    0 0 56px 18px rgba(80, 160, 230, 0.10);
+    0 0 8px 2px rgba(150, 220, 255, 0.36),
+    0 0 22px 7px rgba(110, 195, 245, 0.20),
+    0 0 50px 16px rgba(80, 160, 230, 0.08);
   pointer-events: none;
   animation: tex-core-beat 1.6s ease-in-out infinite;
   z-index: 2;
@@ -462,18 +472,18 @@
 
 @keyframes tex-eye-breath {
   0%, 100% {
-    opacity: 0.82;
+    opacity: 0.5;
     box-shadow:
-      0 0 5px 2px rgba(140, 210, 255, 0.42),
-      0 0 16px 6px rgba(100, 180, 240, 0.26),
-      0 0 34px 12px rgba(80, 150, 220, 0.10);
+      0 0 3px 1px rgba(140, 210, 255, 0.28),
+      0 0 12px 4px rgba(100, 180, 240, 0.15),
+      0 0 28px 10px rgba(80, 150, 220, 0.06);
   }
   50% {
-    opacity: 1;
+    opacity: 0.85;
     box-shadow:
-      0 0 9px 3px rgba(160, 220, 255, 0.72),
-      0 0 26px 9px rgba(120, 190, 245, 0.42),
-      0 0 56px 18px rgba(90, 160, 230, 0.20);
+      0 0 5px 2px rgba(150, 215, 255, 0.45),
+      0 0 18px 6px rgba(120, 190, 245, 0.22),
+      0 0 40px 12px rgba(90, 160, 230, 0.10);
   }
 }
 
@@ -553,7 +563,7 @@
    Responsive
    ============================================================ */
 @media (max-width: 1100px) {
-  .tex-figure { width: clamp(360px, 64vw, 600px); }
+  .tex-figure { width: clamp(300px, 42vw, 480px); }
 }
 
 @media (max-width: 860px) {
@@ -570,16 +580,16 @@
   }
   .tex-nav { gap: 22px; }
   .tex-nav-link { font-size: 13px; }
-  .tex-figure { width: clamp(320px, 82vw, 540px); }
+  .tex-figure { width: clamp(280px, 58vw, 420px); }
   .tex-hero-name {
-    font-size: clamp(32px, 7vw, 44px);
-    margin-bottom: -14px;
+    font-size: clamp(48px, 10vw, 72px);
+    margin-bottom: 18px;
   }
 }
 
 @media (max-width: 560px) {
   .tex-nav { gap: 18px; }
   .tex-nav-link { font-size: 12.5px; }
-  .tex-figure { width: 88vw; max-width: 420px; }
-  .tex-hero-name { font-size: 32px; margin-bottom: -12px; }
+  .tex-figure { width: 70vw; max-width: 360px; }
+  .tex-hero-name { font-size: 52px; margin-bottom: 16px; }
 }

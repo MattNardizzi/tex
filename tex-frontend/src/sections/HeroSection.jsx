@@ -87,7 +87,7 @@ export default function HeroSection({ openTrial, navigate }) {
 
       {/* STAGE -------------------------------------------------- */}
       <div className="tex-stage">
-        <h1 className="tex-hero-word" aria-label="Quiet.">
+        <h1 className="tex-hero-word tex-arrive tex-arrive--word" aria-label="Quiet.">
           <svg
             className="tex-hero-glass"
             viewBox="0 0 900 240"
@@ -175,13 +175,15 @@ export default function HeroSection({ openTrial, navigate }) {
         </h1>
 
         <p className="tex-hero-line">
-          Every agent. Every action. Every stage of its life.
+          <span className="tex-beat tex-beat--1">Every agent.</span>{' '}
+          <span className="tex-beat tex-beat--2">Every action.</span>{' '}
+          <span className="tex-beat tex-beat--3">Every stage of its life.</span>
         </p>
-        <p className="tex-hero-aside">
+        <p className="tex-hero-aside tex-arrive tex-arrive--aside">
           Tex is the only system that governs all of it.
         </p>
 
-        <div className="tex-hero-actions">
+        <div className="tex-hero-actions tex-arrive tex-arrive--button">
           <button
             type="button"
             className="tex-btn tex-btn--glass"
@@ -196,7 +198,7 @@ export default function HeroSection({ openTrial, navigate }) {
       {/* QUIET SCROLL CUE -------------------------------------- */}
       <a
         href="#moment"
-        className="tex-scroll-cue"
+        className="tex-scroll-cue tex-arrive tex-arrive--cue"
         aria-label="Continue"
       >
         <span className="tex-scroll-arrow">↓</span>

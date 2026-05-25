@@ -179,6 +179,66 @@
   text-align: center;
 }
 
+/* ------------------------------------------------------------
+   Arrival — the page composes itself in sequence.
+   Each beat comes out of a soft blur, settles, and the next follows.
+   ------------------------------------------------------------ */
+.tex-arrive,
+.tex-beat {
+  opacity: 0;
+  filter: blur(6px);
+  transform: translateY(4px);
+  animation: tex-arrive 1.0s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+@keyframes tex-arrive {
+  0%   { opacity: 0; filter: blur(6px); transform: translateY(4px); }
+  100% { opacity: 1; filter: blur(0);   transform: translateY(0);   }
+}
+
+.tex-arrive--word   { animation-delay: 0.2s; }
+.tex-beat--1        { animation-delay: 1.4s; }
+.tex-beat--2        { animation-delay: 2.2s; }
+.tex-beat--3        { animation-delay: 3.0s; }
+.tex-arrive--aside  { animation-delay: 4.0s; animation-duration: 1.2s; }
+.tex-arrive--button { animation-delay: 5.0s; }
+
+/* Scroll cue uses its own transform for centering, so it gets a simpler
+   fade-only arrival to avoid clobbering translateX(-50%). */
+.tex-arrive--cue {
+  animation: tex-fade-in 1.0s ease forwards;
+  animation-delay: 5.8s;
+  opacity: 0;
+  filter: none;
+  transform: translateX(-50%);
+}
+
+@keyframes tex-fade-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Beats inherit the parent's display, so use inline-block to allow the blur
+   filter to operate per-span without collapsing the line. */
+.tex-beat {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tex-arrive,
+  .tex-beat {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    animation: none;
+  }
+  .tex-arrive--cue {
+    opacity: 1;
+    transform: translateX(-50%);
+    animation: none;
+  }
+}
+
 .tex-hero-word {
   font-family: var(--tex-serif);
   font-weight: 400;

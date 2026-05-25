@@ -281,7 +281,14 @@ export default function BackdropWebGL() {
     const artifact = new THREE.LineSegments(wireGeo, wireMat);
     // Offset left + slightly up so it doesn't sit directly behind Tex
     artifact.position.set(-260, 60, ARTIFACT_Z);
-    scene.add(artifact);
+    // NOTE: the wireframe icosahedron ("green bubble") is intentionally
+    // NOT added to the scene. The hero's own 360° governance ring now
+    // owns the cyan-luminance role behind Tex, and the icosahedron was
+    // visually competing with it. The object is still constructed (and
+    // disposed in cleanup) to keep the surrounding loop/dispose
+    // bookkeeping intact and to make it trivial to re-enable for
+    // experimentation by uncommenting the next line:
+    // scene.add(artifact);
 
     // ============================================================
     // 3. LIGHT STREAKS — speed-of-light style streaks behind camera

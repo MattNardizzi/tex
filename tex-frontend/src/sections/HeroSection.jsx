@@ -4,21 +4,31 @@ import EcosystemRing from './EcosystemRing.jsx';
 import './HeroSection.css';
 
 /* =============================================================
-   HERO SECTION — the first thing visitors see.
+   HERO SECTION
 
-   Vertical flow (top to bottom):
-     1. Tex wordmark            — large italic serif, above the figure
-     2. Ecosystem ring          — six layers arching above Tex's head
-     3. Tex avatar              — centered, breathing motion
-     4. Headline + descriptor   — italic gradient + lifecycle copy
-     5. CTAs                    — Book a demo + See how it works
-     6. Scroll cue
+   Composition (top → bottom)
+   --------------------------
+     [ scene ]            — Tex stands centered inside the 360°
+                            governance ring. The ring encircles
+                            him; the six layers are distributed
+                            around its circumference with Execution
+                            Governance anchored at 6 o'clock.
+     [ eyebrow ]          — "360° GOVERNANCE", mono caps, kicker
+                            that translates the ring into a claim
+                            before the headline reads
+     [ headline ]         — "The AI Airspace Control System"
+     [ descriptor ]       — full-lifecycle copy
+     [ CTA row ]          — Book a demo  •  See how it works
 
-   The duplicate brand strip (TEX | VORTEXBLACK | AIRSPACE CONTROL
-   SYSTEM) was removed in this revision because it said the same
-   thing as the wordmark + headline below. The top-level navigation
-   bar (rendered by App.jsx → LayerBar) carries the brand mark on
-   the left and is enough.
+   The old flanking-CTA layout was replaced because the ring needs
+   the horizontal real estate, and centering the CTAs under the
+   composition gives the whole hero a single vertical spine:
+     ring perimeter → Tex → Execution anchor (bottom of ring)
+                          → eyebrow → headline → CTAs.
+
+   The "Tex" italic wordmark was removed — Tex's chest emblem
+   already brands the figure, and the wordmark was colliding with
+   the avatar's head.
 
    Props
    -----
@@ -29,44 +39,23 @@ import './HeroSection.css';
 export default function HeroSection({ openTrial, navigate }) {
   return (
     <section className="hero-section" id="top">
-      {/* The stage — vertical flow:
-            ring → wordmark → figure-row → content */}
       <div className="hs-stage">
-        {/* The six-layer ecosystem ring — sequential light-up.
-            Sits at the very top of the stage. Spans the full viewport
-            width regardless of the stage's max-width container. */}
-        <div className="hs-ring-anchor">
-          <EcosystemRing />
-        </div>
-
-        {/* The "Tex" wordmark sits BETWEEN the ring and Tex's head,
-            as a brand stamp directly above the figure. Italic serif,
-            large. Its negative top margin pulls it up to overlap
-            the ring's lower portion, knitting the two together. */}
-        <div className="hs-wordmark" aria-hidden="true">Tex</div>
-
-        {/* Figure row — CTAs flank Tex horizontally.
-            Layout: [Book a demo]   [TEX FIGURE]   [See how it works]
-            Each CTA sits at Tex's chest height, evenly spaced from
-            the figure. The figure itself keeps its breathing motion,
-            chest glow, eye glow, scan line, floor disk, and pulse
-            rings — none of those are affected by the new grid. */}
-        <div className="hs-figure-row">
-          {/* LEFT CTA — primary (Book a demo → Calendly modal) */}
-          <div className="hs-figure-cta hs-figure-cta--left">
-            <button
-              type="button"
-              onClick={openTrial}
-              className="hs-cta-primary"
-            >
-              <span>Book a demo</span>
-              <span className="hs-cta-arrow">→</span>
-            </button>
+        {/* SCENE — ring + figure as one composed unit.
+            The ring is absolutely positioned over the figure stage
+            so it encircles Tex rather than sitting above him. */}
+        <div className="hs-scene">
+          {/* The 360° ring. Sits behind the figure but in front of
+              the page backdrop. */}
+          <div className="hs-ring-anchor">
+            <EcosystemRing />
           </div>
 
-          {/* CENTER — the figure itself, unchanged */}
+          {/* The figure — preserved with all its existing effects
+              (breathing, scanline, eye/chest glow, floor disk,
+              pulse rings). The veil (the green "bubble" behind
+              Tex) has been removed; the ring's own luminance does
+              that job now, more deliberately. */}
           <div className="hs-figure-stage">
-            <div className="hs-figure-veil" aria-hidden="true" />
             <div className="hs-floor-disk" aria-hidden="true" />
             <div className="hs-scanline" aria-hidden="true" />
 
@@ -80,14 +69,40 @@ export default function HeroSection({ openTrial, navigate }) {
               <div className="hs-chest-glow" aria-hidden="true" />
             </div>
 
-            {/* Pulse rings emanating from chest emblem */}
+            {/* Pulse rings emanating from chest emblem — kept,
+                they reinforce the hub-and-spoke reading. */}
             <span className="hs-pulse-ring" aria-hidden="true" />
             <span className="hs-pulse-ring" aria-hidden="true" />
             <span className="hs-pulse-ring" aria-hidden="true" />
           </div>
+        </div>
 
-          {/* RIGHT CTA — ghost (See how it works → /how-it-works route) */}
-          <div className="hs-figure-cta hs-figure-cta--right">
+        {/* Copy block — eyebrow, headline, descriptor, CTAs */}
+        <div className="hs-content">
+          <div className="hs-eyebrow" aria-hidden="false">
+            <span className="hs-eyebrow-mark" />
+            <span className="hs-eyebrow-text">360° Governance</span>
+            <span className="hs-eyebrow-mark" />
+          </div>
+
+          <h1 className="hs-headline">
+            The AI Airspace Control System
+          </h1>
+
+          <p className="hs-descriptor">
+            Full-lifecycle governance for autonomous AI systems —
+            <span className="hs-descriptor-em"> spanning discovery, identity, observability, execution control, cryptographic evidence, and continuous evolution.</span>
+          </p>
+
+          <div className="hs-cta-row">
+            <button
+              type="button"
+              onClick={openTrial}
+              className="hs-cta-primary"
+            >
+              <span>Book a demo</span>
+              <span className="hs-cta-arrow">→</span>
+            </button>
             <a
               href="/how-it-works"
               className="hs-cta-ghost"
@@ -100,20 +115,6 @@ export default function HeroSection({ openTrial, navigate }) {
               <span className="hs-cta-arrow">→</span>
             </a>
           </div>
-        </div>
-
-        {/* Copy block below the figure row.
-            The CTAs used to live here; they were promoted to flank
-            Tex above. What remains is headline + descriptor only. */}
-        <div className="hs-content">
-          <h1 className="hs-headline">
-            The AI Airspace Control System
-          </h1>
-
-          <p className="hs-descriptor">
-            Full-lifecycle governance for autonomous AI systems —
-            <span className="hs-descriptor-em"> spanning discovery, identity, observability, execution control, cryptographic evidence, and continuous evolution.</span>
-          </p>
         </div>
       </div>
 

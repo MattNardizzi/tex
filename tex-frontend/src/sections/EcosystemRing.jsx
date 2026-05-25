@@ -1,20 +1,40 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 /* =============================================================
-   ECOSYSTEM RING — six-layer authority arc that sits above Tex.
+   ECOSYSTEM RING — 360° governance perimeter that encircles Tex.
 
-   Visual model
-   ------------
-   A wide elliptical arc spans roughly one-sixth to five-sixths
-   of the viewport width and crests above the avatar. The six
-   ecosystem layers are placed evenly along the arc. A traveling
-   pulse moves layer-to-layer; each node lights up as the pulse
-   arrives, then dims as it leaves. Execution Governance (layer
-   04) is the spine of the product so it gets a stronger glow,
-   a larger node, and a longer dwell when active.
+   Design intent
+   -------------
+   This is not a process arc. It is a closed instrument ring —
+   the visual boundary of the airspace Tex controls. Six layers
+   are distributed evenly around the circumference. Execution
+   Governance is anchored at 6 o'clock so it forms a structural
+   spine with the headline below; the other five fan above and
+   to the sides, framing Tex inside the perimeter.
 
-   Each layer carries one sentence of description, derived from
-   the actual capability tier in CAPABILITY_TIERS.md.
+   Visual layers (outside → inside)
+   --------------------------------
+   1. Bearing labels      — mono-cap layer codes outside the bezel,
+                             rotated tangentially so they read like
+                             an aircraft compass rose
+   2. Outer bezel rings   — two counter-rotating dashed rings with
+                             radial graticule ticks, "instrument"
+                             texture (HUD/aviation reference)
+   3. Main ring           — single luminous stroke through all six
+                             nodes, the perimeter itself
+   4. Layer nodes         — five circular nodes + one hex anchor
+                             (Execution Governance at 6 o'clock)
+   5. Radial spokes       — faint lines from each node inward to
+                             the ring's center (Tex's chest), so
+                             the umbrella reading is explicit
+   6. Sweep arm           — slow radar sweep, one revolution every
+                             ~24s, gradient fan trailing behind
+   7. Activity pings      — random nodes emit a pulse along their
+                             spoke every few seconds (asynchronous,
+                             not sequential) to signal "all six
+                             always-on, simultaneously"
+
+   All animation respects prefers-reduced-motion.
    ============================================================= */
 
 export const ECOSYSTEM_LAYERS = [
@@ -22,28 +42,28 @@ export const ECOSYSTEM_LAYERS = [
     n: '01',
     key: 'discovery',
     name: 'Discovery',
-    short: 'Discovery',
+    bearing: 270, // top (12 o'clock)
     sentence: 'Find every AI agent, MCP server, and tool in your stack.',
   },
   {
     n: '02',
     key: 'identity',
     name: 'Identity',
-    short: 'Identity',
+    bearing: 330, // upper-right (2 o'clock)
     sentence: 'Bind every agent to a cryptographic actor and owner.',
   },
   {
     n: '03',
-    key: 'monitoring',
+    key: 'observability',
     name: 'Observability',
-    short: 'Observability',
+    bearing: 30,  // lower-right (4 o'clock)
     sentence: 'Watch behavior, drift, and systemic risk in real time.',
   },
   {
     n: '04',
     key: 'execution',
     name: 'Execution Governance',
-    short: 'Execution',
+    bearing: 90,  // bottom (6 o'clock) — anchored, structural spine
     sentence: 'Adjudicate every action: permit, abstain, or forbid — before it runs.',
     emphasis: true,
   },
@@ -51,336 +71,498 @@ export const ECOSYSTEM_LAYERS = [
     n: '05',
     key: 'evidence',
     name: 'Evidence',
-    short: 'Evidence',
+    bearing: 150, // lower-left (8 o'clock)
     sentence: 'Seal each decision into a signed, replayable evidence chain.',
   },
   {
     n: '06',
-    key: 'learning',
+    key: 'evolution',
     name: 'Evolution',
-    short: 'Evolution',
+    bearing: 210, // upper-left (10 o'clock)
     sentence: 'Calibrate from sealed outcomes — human-approved, never auto-applied.',
   },
 ];
 
-/* Sequencing constants — dwell per node, with a longer beat
-   on the emphasized Execution Governance layer. */
-const BASE_DWELL_MS = 1700;
-const EMPHASIS_DWELL_MS = 2700;
+/* Geometry. The SVG viewBox is square and the ring is centered
+   inside. Tex sits behind the SVG, so the ring's interior must
+   be visually empty enough for the avatar to read clearly. */
+const VB = 1000;                  // viewBox edge
+const CX = VB / 2;
+const CY = VB / 2;
+const R_MAIN = 400;               // main ring radius (where nodes sit)
+const R_BEZEL_OUT = 460;          // outer bezel ring
+const R_BEZEL_IN  = 430;          // inner bezel ring (counter-rotates)
+const R_LABEL = 488;              // bearing label radius (outside bezel)
+const R_HUB = 56;                 // inner hub circle (around Tex's chest emblem)
 
-function dwellFor(layer) {
-  return layer.emphasis ? EMPHASIS_DWELL_MS : BASE_DWELL_MS;
+/* Convert bearing (0° = right, 90° = down, 270° = up, clockwise)
+   to SVG (x,y) on the main ring. Standard math convention so the
+   data above can use intuitive clock-face values. */
+function pointAt(radius, bearingDeg) {
+  const rad = (bearingDeg * Math.PI) / 180;
+  return { x: CX + radius * Math.cos(rad), y: CY + radius * Math.sin(rad) };
 }
 
 export default function EcosystemRing() {
-  const [active, setActive] = useState(0);
+  /* Activity pings — every ~2.6s a random node fires a ping that
+     travels along its spoke from the perimeter inward to the hub.
+     This signals "all six layers are always-on, simultaneously,
+     and any of them can adjudicate at any moment." Asynchronous
+     (random) on purpose — sequential pulses re-create the very
+     "process arc" reading we are trying to break. */
+  const [ping, setPing] = useState({ index: 3, tick: 0 });
 
-  /* Sequential layer cycle. Each step waits dwellFor(currentLayer)
-     before advancing, so layer 04 holds longer than the rest. */
   useEffect(() => {
-    const id = setTimeout(() => {
-      setActive((i) => (i + 1) % ECOSYSTEM_LAYERS.length);
-    }, dwellFor(ECOSYSTEM_LAYERS[active]));
-    return () => clearTimeout(id);
-  }, [active]);
-
-  /* Geometry — a shallow arc that hangs across the top of the
-     hero like a wireframe halo. The arc itself spans most of the
-     viewport width but stays in the upper band, so Tex's head and
-     body never collide with it.
-
-     Math choices (locked):
-     - VB_H = 260: tall enough for arc (60-200) + label band (top 60px)
-     - cy = 380, ry = 280: gives a shallow curve where crest is at
-       y ≈ 100 and endpoints at y ≈ 200, total arc rise of only ~100px
-     - rx = 760: paired with the 100° angular span, places endpoints
-       at x ≈ 218 / 1382 in the 1600-wide viewBox, leaving ~220px
-       on each side for label text
-     - ARC 220-320: 100° span symmetric about the crest at 270°
-
-     Labels sit OUTWARD from the arc: for top nodes that's straight up,
-     for side nodes that's diagonally up-and-out. They never extend
-     downward (which would intrude into Tex's portrait area).
-  */
-  /* Geometry — a wide arc whose ENDPOINTS sit only slightly below
-     the crest, so all six labels live in a narrow vertical band
-     near the top of the hero (well above the CTA row that flanks
-     Tex). The arc itself is moderately shallow.
-
-     Goal layout:
-       Labels band:   y ≈ 30  to 110  (top of viewBox)
-       Arc band:      y ≈ 100 to 200
-       Empty:         y ≈ 200 to 280  (bottom buffer)
-
-     Math:
-       y(crest, 270°) = cy - ry         = 100
-       y(end, 200°)   = cy + ry*sin(200°) = cy - 0.342*ry = 200
-       → 100 + ry - 0.342*ry = 200 → 0.658*ry = 100 → ry = 152
-       → cy = ry + 100 = 252
-       x(200°) = 800 + rx*cos(200°) = 800 - 0.940*rx
-       Want x(200°) ≈ 160 (160px inset from viewBox-left, leaves
-       label-text room for "/01 DISCOVERY" extending leftward)
-       → rx = (800 - 160) / 0.940 = 681. Round to 680.
-  */
-  const VB_W = 1600;
-  const VB_H = 280;
-  const cx = 800;
-  const cy = 252;
-  const rx = 680;
-  const ry = 152;
-
-  /* Angular distribution. 270° = crest.
-     210° to 330° = 120° arc symmetric about the crest.
-     Pulled in from 200-340 by 10° on each side so the leftmost/
-     rightmost label text doesn't clip the viewport edge when the
-     SVG scales to fit smaller (1440px) viewports. */
-  const ARC_START = 210;
-  const ARC_END = 330;
-  const nodePoints = useMemo(() => {
-    const n = ECOSYSTEM_LAYERS.length;
-    return ECOSYSTEM_LAYERS.map((layer, i) => {
-      const t = n === 1 ? 0.5 : i / (n - 1);
-      const angleDeg = ARC_START + t * (ARC_END - ARC_START);
-      const rad = (angleDeg * Math.PI) / 180;
-      const x = cx + rx * Math.cos(rad);
-      const y = cy + ry * Math.sin(rad);
-      return { x, y, angleDeg, layer };
-    });
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) return;
+    const id = setInterval(() => {
+      setPing((p) => {
+        // Pick a different node than the last one for visual variety,
+        // with a slight bias toward Execution Governance (index 3)
+        // because that's our emphasis layer.
+        let next;
+        do {
+          const bias = Math.random() < 0.28 ? 3 : Math.floor(Math.random() * 6);
+          next = bias;
+        } while (next === p.index && Math.random() < 0.6);
+        return { index: next, tick: p.tick + 1 };
+      });
+    }, 2600);
+    return () => clearInterval(id);
   }, []);
 
-  /* Pulse position — sits on the active node. */
-  const pulse = nodePoints[active];
+  /* Pre-compute node geometry once. */
+  const nodes = useMemo(
+    () =>
+      ECOSYSTEM_LAYERS.map((layer) => {
+        const p = pointAt(R_MAIN, layer.bearing);
+        const pLabel = pointAt(R_LABEL, layer.bearing);
+        return { ...layer, ...p, lx: pLabel.x, ly: pLabel.y };
+      }),
+    []
+  );
 
   return (
     <div className="er-wrap" aria-hidden="false">
       <svg
         className="er-svg"
-        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        viewBox={`0 0 ${VB} ${VB}`}
         preserveAspectRatio="xMidYMid meet"
         role="img"
-        aria-label="Six-layer ecosystem ring with Discovery, Identity, Monitoring, Execution Governance, Evidence, and Learning"
+        aria-label="360° governance ring: Discovery, Identity, Observability, Execution Governance, Evidence, and Evolution encircling Tex."
       >
         <defs>
-          {/* Gradient for the main arc — fades in at the ends so it
-              feels like it continues off-screen rather than being
-              clipped. */}
-          <linearGradient id="er-arc-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%"   stopColor="rgba(86,230,220,0)" />
-            <stop offset="14%"  stopColor="rgba(86,230,220,0.45)" />
-            <stop offset="50%"  stopColor="rgba(127,241,233,0.85)" />
-            <stop offset="86%"  stopColor="rgba(86,230,220,0.45)" />
-            <stop offset="100%" stopColor="rgba(86,230,220,0)" />
-          </linearGradient>
-          <linearGradient id="er-arc-inner" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%"   stopColor="rgba(86,230,220,0)" />
-            <stop offset="20%"  stopColor="rgba(127,241,233,0.18)" />
-            <stop offset="50%"  stopColor="rgba(127,241,233,0.55)" />
-            <stop offset="80%"  stopColor="rgba(127,241,233,0.18)" />
-            <stop offset="100%" stopColor="rgba(86,230,220,0)" />
+          {/* --- Gradients ----------------------------------- */}
+
+          {/* Main ring gradient — luminous along the bottom (where
+              Execution Governance sits) and fading toward the top.
+              This biases the eye toward the anchor without breaking
+              the closed-ring reading. */}
+          <linearGradient id="er-main-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="rgba(86,230,220,0.55)" />
+            <stop offset="50%"  stopColor="rgba(127,241,233,0.75)" />
+            <stop offset="100%" stopColor="rgba(127,241,233,1)" />
           </linearGradient>
 
-          {/* Soft glow filter for node halos */}
-          <filter id="er-glow" x="-100%" y="-100%" width="300%" height="300%">
+          {/* Sweep arm — a cone of light trailing the radar arm.
+              Bright at the leading edge, fading to nothing. Rendered
+              as a path filled with this gradient (radial from center
+              outward, masked to a pie wedge). */}
+          <radialGradient id="er-sweep-grad" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%"   stopColor="rgba(127,241,233,0.32)" />
+            <stop offset="55%"  stopColor="rgba(86,230,220,0.16)" />
+            <stop offset="100%" stopColor="rgba(86,230,220,0)" />
+          </radialGradient>
+
+          {/* Spoke gradient — fades inward so the spokes don't
+              compete with Tex for attention near the center. */}
+          <linearGradient id="er-spoke-grad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%"   stopColor="rgba(86,230,220,0.0)" />
+            <stop offset="60%"  stopColor="rgba(86,230,220,0.18)" />
+            <stop offset="100%" stopColor="rgba(127,241,233,0.55)" />
+          </linearGradient>
+
+          {/* Glow filters */}
+          <filter id="er-glow-soft" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="6" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-
-          {/* Stronger glow filter reserved for the emphasized node */}
           <filter id="er-glow-strong" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="12" result="b" />
+            <feGaussianBlur stdDeviation="14" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-        </defs>
 
-        {/* === Arc geometry ===
-            Two layered ellipse strokes — outer is the visible arc,
-            inner is a subtle inner luminance. We render the full
-            ellipse but use stroke-dasharray to mask everything
-            outside the working arc range, giving us a clean fade. */}
-        {(() => {
-          // circumference of an ellipse is approximated by Ramanujan's
-          // formula; precise enough for visual dash math.
-          const h = Math.pow((rx - ry) / (rx + ry), 2);
-          const circumference =
-            Math.PI * (rx + ry) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
-          // Visible arc = (ARC_END - ARC_START) / 360 fraction
-          const arcFraction = (ARC_END - ARC_START) / 360;
-          const visibleLen = circumference * arcFraction;
-          // We need to rotate the start of the dash to ARC_START.
-          // The browser draws strokes starting at angle 0 (3 o'clock),
-          // going clockwise. Our ARC_START in our math system is 200°
-          // (below-left), and our angles increase clockwise too.
-          // Offset = -ARC_START fraction of circumference.
-          const startOffset = (ARC_START / 360) * circumference;
+          {/* --- Reusable paths -------------------------------- */}
 
-          return (
-            <>
-              <ellipse
-                cx={cx} cy={cy} rx={rx} ry={ry}
-                fill="none"
-                stroke="url(#er-arc-grad)"
-                strokeWidth="1.4"
-                strokeDasharray={`${visibleLen} ${circumference}`}
-                strokeDashoffset={-startOffset}
-                className="er-arc-outer"
-              />
-              <ellipse
-                cx={cx} cy={cy} rx={rx - 6} ry={ry - 6}
-                fill="none"
-                stroke="url(#er-arc-inner)"
-                strokeWidth="0.8"
-                strokeDasharray={`${visibleLen * 0.96} ${circumference}`}
-                strokeDashoffset={-startOffset}
-                className="er-arc-inner"
-              />
-            </>
-          );
-        })()}
+          {/* Curved path for the top half of the bearing-label ring,
+              used as a textPath baseline so labels along the top
+              are rendered upright but slightly arched. We don't
+              use it for the side/bottom labels (those use rotated
+              tspans for legibility). */}
+          <path
+            id="er-label-arc-top"
+            d={`M ${CX - R_LABEL},${CY} A ${R_LABEL},${R_LABEL} 0 0 1 ${CX + R_LABEL},${CY}`}
+            fill="none"
+          />
 
-        {/* Tick marks along the active arc — small subdivisions
-            between the six layer nodes, for a "control panel"
-            texture. */}
-        {(() => {
-          const ticks = 48;
-          const arcSpan = ARC_END - ARC_START;
-          return Array.from({ length: ticks }).map((_, i) => {
-            const t = i / (ticks - 1);
-            const angleDeg = ARC_START + t * arcSpan;
-            const rad = (angleDeg * Math.PI) / 180;
-            const inset = 8;
-            const x1 = cx + (rx - inset) * Math.cos(rad);
-            const y1 = cy + (ry - inset) * Math.sin(rad);
-            const x2 = cx + (rx + inset) * Math.cos(rad);
-            const y2 = cy + (ry + inset) * Math.sin(rad);
-            const isMajor = i % 8 === 0;
+          {/* The sweep-arm wedge: a pie slice from center outward
+              spanning ~55°. Drawn at 0° rotation; the parent <g>
+              spins this around. */}
+          {(() => {
+            const span = 55; // degrees of the trailing cone
+            const r = R_MAIN + 30;
+            const a0 = (-span * Math.PI) / 180;
+            const x0 = CX + r * Math.cos(a0);
+            const y0 = CY + r * Math.sin(a0);
+            const x1 = CX + r;
+            const y1 = CY;
             return (
-              <line
-                key={`tick-${i}`}
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                className={`er-tick ${isMajor ? 'er-tick-major' : ''}`}
+              <path
+                id="er-sweep-wedge"
+                d={`M ${CX},${CY} L ${x0},${y0} A ${r},${r} 0 0 1 ${x1},${y1} Z`}
               />
             );
-          });
-        })()}
+          })()}
+        </defs>
 
-        {/* Traveling pulse — a luminous halo that snaps to the
-            active node and pulses there before the next handover.
-            We animate the snap via CSS transition on cx/cy. */}
-        <g
-          className="er-pulse"
-          style={{
-            transform: `translate(${pulse.x}px, ${pulse.y}px)`,
-          }}
-        >
-          <circle r="36" className="er-pulse-outer" />
-          <circle r="20" className="er-pulse-mid" />
-          <circle r="9"  className="er-pulse-core" />
+        {/* ============================================================
+            OUTER BEZEL — two concentric rings + graticule ticks
+            ============================================================ */}
+
+        {/* Outer bezel: thin dashed circle, rotates clockwise slowly. */}
+        <g className="er-bezel er-bezel--outer">
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_BEZEL_OUT}
+            fill="none"
+            stroke="rgba(86,230,220,0.22)"
+            strokeWidth="0.8"
+            strokeDasharray="2 8"
+          />
+          {/* Major bearing ticks every 30°, minor every 6° */}
+          {Array.from({ length: 60 }).map((_, i) => {
+            const angle = i * 6;
+            const isMajor = angle % 30 === 0;
+            const rad = (angle * Math.PI) / 180;
+            const r1 = R_BEZEL_OUT - (isMajor ? 14 : 6);
+            const r2 = R_BEZEL_OUT - 1;
+            const x1 = CX + r1 * Math.cos(rad);
+            const y1 = CY + r1 * Math.sin(rad);
+            const x2 = CX + r2 * Math.cos(rad);
+            const y2 = CY + r2 * Math.sin(rad);
+            return (
+              <line
+                key={`tick-out-${i}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                className={`er-tick ${isMajor ? 'er-tick--major' : ''}`}
+              />
+            );
+          })}
         </g>
 
-        {/* Six layer nodes — each renders its glyph cluster and
-            the label group anchored above the node. */}
-        {nodePoints.map(({ x, y, angleDeg, layer }, i) => {
-          const isActive = i === active;
-          const isEmphasis = !!layer.emphasis;
-          const cls = [
-            'er-node',
-            isActive ? 'is-active' : '',
-            isEmphasis ? 'is-emphasis' : '',
-          ].filter(Boolean).join(' ');
-
-          // Compute label position.
-          // Strategy: every label sits ABOVE its node by a fixed
-          // vertical distance, plus a horizontal nudge based on which
-          // side of the arc the node lives on.
-          const rad = (angleDeg * Math.PI) / 180;
-          const cosA = Math.cos(rad);
-          // Vertical lift — pushes labels above their node. Slightly
-          // more for emphasized node (two-line label needs room).
-          const vertLift = isEmphasis ? 92 : 68;
-          // Horizontal nudge — push left-side labels left, right-side
-          // labels right, top-center labels barely move.
-          const horizNudge = cosA * 20;
-          const lx = x + horizNudge;
-          const ly = y - vertLift;
-
-          // Anchor handling — left side labels right-align (extend
-          // leftward), right side left-align (extend rightward), top
-          // labels center-align.
-          let anchor = 'middle';
-          if (cosA < -0.18) anchor = 'end';
-          else if (cosA > 0.18) anchor = 'start';
-
-          // The emphasized node uses a hexagon glyph; the rest use
-          // concentric circles. Hex echoes the Tex chest emblem and
-          // signals "this is the core."
-          return (
-            <g key={layer.key} className={cls}>
-              {/* Node halo — only renders when active, scaled up on emphasis */}
+        {/* Inner bezel: solid hairline circle, counter-rotates. */}
+        <g className="er-bezel er-bezel--inner">
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_BEZEL_IN}
+            fill="none"
+            stroke="rgba(86,230,220,0.18)"
+            strokeWidth="0.6"
+          />
+          {/* Cardinal markers — small hairline arrowheads at
+              N/E/S/W of the inner bezel. Aviation instrument
+              cue. */}
+          {[0, 90, 180, 270].map((a) => {
+            const rad = (a * Math.PI) / 180;
+            const r = R_BEZEL_IN;
+            const x = CX + r * Math.cos(rad);
+            const y = CY + r * Math.sin(rad);
+            return (
               <circle
-                cx={x} cy={y}
-                r={isEmphasis ? 32 : 22}
-                className="er-node-halo"
-                filter={isEmphasis ? 'url(#er-glow-strong)' : 'url(#er-glow)'}
+                key={`card-${a}`}
+                cx={x}
+                cy={y}
+                r="1.8"
+                fill="rgba(127,241,233,0.65)"
               />
+            );
+          })}
+        </g>
 
-              {/* Node body */}
-              {isEmphasis ? (
-                <Hexagon cx={x} cy={y} r={14} className="er-node-hex" />
+        {/* ============================================================
+            SWEEP ARM — slow radar sweep, one revolution / 24s
+            ============================================================ */}
+        <g className="er-sweep">
+          <use href="#er-sweep-wedge" fill="url(#er-sweep-grad)" />
+          {/* The leading edge — a bright thin line at the arm's
+              forward angle, with a soft glow */}
+          <line
+            x1={CX}
+            y1={CY}
+            x2={CX + R_MAIN + 28}
+            y2={CY}
+            className="er-sweep-edge"
+          />
+        </g>
+
+        {/* ============================================================
+            SPOKES — six radial lines, node → hub
+            ============================================================ */}
+        <g className="er-spokes">
+          {nodes.map((node, i) => {
+            const inner = pointAt(R_HUB, node.bearing);
+            return (
+              <line
+                key={`spoke-${node.key}`}
+                x1={node.x}
+                y1={node.y}
+                x2={inner.x}
+                y2={inner.y}
+                stroke="url(#er-spoke-grad)"
+                strokeWidth={node.emphasis ? '1.4' : '0.9'}
+                className={`er-spoke ${ping.index === i ? 'is-pinging' : ''}`}
+              />
+            );
+          })}
+        </g>
+
+        {/* ============================================================
+            PINGS — a luminous dot travels along the active spoke
+            from the perimeter inward. SMIL animateMotion keeps this
+            tight in code and frame-perfect; CSS fallback handled by
+            prefers-reduced-motion (the interval simply stops firing).
+            ============================================================ */}
+        {nodes.map((node, i) => {
+          if (ping.index !== i) return null;
+          const inner = pointAt(R_HUB, node.bearing);
+          return (
+            <g key={`ping-${ping.tick}-${node.key}`}>
+              <circle r="6" className="er-ping er-ping--halo">
+                <animateMotion
+                  dur="1.1s"
+                  fill="freeze"
+                  path={`M ${node.x},${node.y} L ${inner.x},${inner.y}`}
+                />
+                <animate
+                  attributeName="opacity"
+                  values="0;1;1;0"
+                  keyTimes="0;0.15;0.7;1"
+                  dur="1.1s"
+                  fill="freeze"
+                />
+              </circle>
+              <circle r="2.6" className="er-ping er-ping--core">
+                <animateMotion
+                  dur="1.1s"
+                  fill="freeze"
+                  path={`M ${node.x},${node.y} L ${inner.x},${inner.y}`}
+                />
+              </circle>
+            </g>
+          );
+        })}
+
+        {/* ============================================================
+            MAIN RING — the perimeter
+            Drawn AFTER spokes so it overpaints the spoke ends cleanly
+            at the join. Drawn BEFORE nodes so the nodes sit on top.
+            ============================================================ */}
+        <g className="er-main">
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_MAIN}
+            fill="none"
+            stroke="url(#er-main-grad)"
+            strokeWidth="1.6"
+            className="er-main-stroke"
+          />
+          {/* Subtle outer glow halo on the main ring */}
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_MAIN}
+            fill="none"
+            stroke="rgba(127,241,233,0.18)"
+            strokeWidth="4"
+            className="er-main-glow"
+          />
+        </g>
+
+        {/* ============================================================
+            HUB — small center medallion behind Tex's chest
+            ============================================================ */}
+        <g className="er-hub">
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_HUB}
+            fill="none"
+            stroke="rgba(86,230,220,0.22)"
+            strokeWidth="0.8"
+          />
+          <circle
+            cx={CX}
+            cy={CY}
+            r={R_HUB - 12}
+            fill="none"
+            stroke="rgba(86,230,220,0.12)"
+            strokeWidth="0.6"
+            strokeDasharray="3 5"
+            className="er-hub-inner"
+          />
+        </g>
+
+        {/* ============================================================
+            NODES — six layer markers on the main ring
+            ============================================================ */}
+        {nodes.map((node, i) => {
+          const isEm = !!node.emphasis;
+          const isActive = ping.index === i;
+          return (
+            <g
+              key={node.key}
+              className={`er-node ${isEm ? 'is-emphasis' : ''} ${isActive ? 'is-pinging' : ''}`}
+            >
+              {/* Halo */}
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={isEm ? 26 : 18}
+                className="er-node-halo"
+                filter={isEm ? 'url(#er-glow-strong)' : 'url(#er-glow-soft)'}
+              />
+              {/* Body */}
+              {isEm ? (
+                <Hexagon cx={node.x} cy={node.y} r={13} className="er-node-hex" />
               ) : (
                 <>
-                  <circle cx={x} cy={y} r="10" className="er-node-outer" />
-                  <circle cx={x} cy={y} r="4"  className="er-node-inner" />
+                  <circle cx={node.x} cy={node.y} r="8.5" className="er-node-ring" />
+                  <circle cx={node.x} cy={node.y} r="3" className="er-node-core" />
                 </>
               )}
+            </g>
+          );
+        })}
 
-              {/* Label cluster — number + name always visible.
-                  Description ONLY renders for the active node. This
-                  prevents the descriptions of adjacent layers from
-                  visually colliding when several long sentences would
-                  otherwise extend horizontally into each other.
-                  As a bonus, the sequential pulse reveal feels like
-                  a guided tour: each layer surfaces its purpose as
-                  the pulse arrives, then settles back. */}
+        {/* ============================================================
+            BEARING LABELS — outside the bezel, oriented along the
+            tangent so they read like an instrument compass rose.
+
+            Each label rotates with its bearing so the text always
+            sits radially outside its node. We use bearing+90° for
+            the rotation so the baseline is along the ring's tangent.
+            For nodes in the bottom half (90° area), we additionally
+            flip 180° so the text remains right-side-up.
+            ============================================================ */}
+        {nodes.map((node) => {
+          const isEm = !!node.emphasis;
+
+          /* Label placement strategy
+             ------------------------
+             - Cardinal nodes (Discovery at 270° top, Execution at
+               90° bottom) get a centered, upright two-line block —
+               number above name (top) or name below number-above-it
+               (bottom). No rotation; centered on the node's bearing.
+             - Side nodes (Identity, Observability, Evidence,
+               Evolution) get a single-line label rotated tangentially
+               so it reads along the outside of the ring like an
+               aircraft compass scale. We flip 180° for the bottom-half
+               side nodes so text stays right-side-up.
+
+             This is more legible than rotating every label, and the
+             vertical cardinal labels reinforce the structural spine:
+             /01 DISCOVERY at top, /04 EXECUTION GOVERNANCE at bottom.
+           */
+          const isCardinalTop    = node.bearing === 270;
+          const isCardinalBottom = node.bearing === 90;
+          const isCardinal       = isCardinalTop || isCardinalBottom;
+
+          if (isCardinal) {
+            // Vertical stack, centered on the node's bearing. For the
+            // bottom cardinal we put the name BELOW the number so the
+            // composition reads ring → hex → /04 → EXECUTION GOVERNANCE
+            // → eyebrow → headline — one clean vertical spine.
+            const yNum  = isCardinalTop ? -16 : 16;
+            const yName = isCardinalTop ? 6   : (isEm ? 40 : 36);
+            return (
+              <g
+                key={`label-${node.key}`}
+                className={`er-label ${isEm ? 'is-emphasis' : ''}`}
+                transform={`translate(${node.lx} ${node.ly})`}
+              >
+                <text
+                  x={0}
+                  y={yNum}
+                  textAnchor="middle"
+                  className="er-label-num"
+                >
+                  /{node.n}
+                </text>
+                {isEm ? (
+                  <text
+                    x={0}
+                    y={yName}
+                    textAnchor="middle"
+                    className="er-label-name er-label-name--em"
+                  >
+                    <tspan x={0} dy="0">EXECUTION</tspan>
+                    <tspan x={0} dy="1.15em">GOVERNANCE</tspan>
+                  </text>
+                ) : (
+                  <text
+                    x={0}
+                    y={yName}
+                    textAnchor="middle"
+                    className="er-label-name"
+                  >
+                    {node.name.toUpperCase()}
+                  </text>
+                )}
+              </g>
+            );
+          }
+
+          // Side nodes — tangentially-rotated single-line label.
+          let rot = node.bearing + 90;
+          const bottomHalf = node.bearing > 0 && node.bearing < 180;
+          if (bottomHalf) rot += 180;
+          // After rotation, the label's "right" is the outward radial
+          // direction; we want the text to extend OUTWARD from the
+          // node, so we anchor it at start and offset slightly.
+          return (
+            <g
+              key={`label-${node.key}`}
+              className={`er-label ${isEm ? 'is-emphasis' : ''}`}
+              transform={`translate(${node.lx} ${node.ly}) rotate(${rot})`}
+            >
               <text
-                x={lx} y={ly - 32}
-                textAnchor={anchor}
+                x={0}
+                y={-6}
+                textAnchor="middle"
                 className="er-label-num"
               >
-                /{layer.n}
+                /{node.n}
               </text>
-              {isEmphasis ? (
-                <text
-                  x={lx} y={ly - 10}
-                  textAnchor={anchor}
-                  className="er-label-name er-label-name--em"
-                >
-                  <tspan x={lx} dy="0">EXECUTION</tspan>
-                  <tspan x={lx} dy="1.1em">GOVERNANCE</tspan>
-                </text>
-              ) : (
-                <text
-                  x={lx} y={ly}
-                  textAnchor={anchor}
-                  className="er-label-name"
-                >
-                  {layer.name.toUpperCase()}
-                </text>
-              )}
-              {isActive && (
-                <text
-                  x={lx} y={ly + (isEmphasis ? 52 : 32)}
-                  textAnchor={anchor}
-                  className="er-label-desc"
-                >
-                  {layer.sentence}
-                </text>
-              )}
+              <text
+                x={0}
+                y={12}
+                textAnchor="middle"
+                className="er-label-name"
+              >
+                {node.name.toUpperCase()}
+              </text>
             </g>
           );
         })}
@@ -389,12 +571,11 @@ export default function EcosystemRing() {
   );
 }
 
-/* Small inline hex for the emphasized Execution Governance node.
-   Echoes the chest emblem on the Tex avatar. */
+/* Small point-up hexagon — echoes the chest emblem on Tex. */
 function Hexagon({ cx, cy, r, className }) {
   const points = [];
   for (let i = 0; i < 6; i++) {
-    const a = (Math.PI / 3) * i - Math.PI / 2; // point-up hex
+    const a = (Math.PI / 3) * i - Math.PI / 2;
     points.push(`${cx + r * Math.cos(a)},${cy + r * Math.sin(a)}`);
   }
   return <polygon points={points.join(' ')} className={className} />;

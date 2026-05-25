@@ -1,17 +1,16 @@
 /* =============================================================
-   HERO SECTION — scoped styles for the redesigned first section.
+   HERO SECTION — scoped styles.
 
-   Uses the global design tokens from src/styles.css (--tex,
-   --bone-100, --serif, --mono, --max-w, etc.) so typography and
-   palette stay consistent with the rest of the site.
+   Composition
+   -----------
+     .hs-stage         — vertical flex column, full viewport
+       .hs-scene       — square stage: ring + figure overlaid
+         .hs-ring-anchor   (absolute, fills .hs-scene)
+         .hs-figure-stage  (absolute, centered on .hs-scene)
+       .hs-content     — eyebrow, headline, descriptor, CTAs
 
-   Layout strategy:
-   - The section is a single full-viewport stage (100vh minus nav).
-   - Tex is centered horizontally on the stage.
-   - The ring sits as an absolutely-positioned layer occupying the
-     upper portion of the stage, arching above the avatar.
-   - The headline/CTA cluster lives in the lower-center column,
-     directly under Tex so the eye flow is: ring -> Tex -> CTA.
+   Design tokens used: --tex, --tex-bright, --tex-dim,
+   --bone-100/200/300, --void-0, --mono, --serif, --edge-strong.
    ============================================================= */
 
 .hero-section {
@@ -21,208 +20,119 @@
   overflow: hidden;
   isolation: isolate;
   z-index: 1;
-  /* Keep the WebGL backdrop fully visible — no background-color here. */
 }
 
-/* (The top kicker that used to sit at .hs-kicker was removed in this
-   revision — it duplicated the wordmark + headline copy below. The
-   layer-bar nav at the top of the page already carries the brand
-   mark and product context.) */
-
 /* ---------- STAGE ----------
-   Vertical stack in normal flex flow:
-     [wordmark]
-     [figure-stage]   ← the ring is absolutely positioned over this area
-     [content]
-   The ring band is overlaid on the figure-stage region, not at the
-   top of the section, so the wordmark can sit ABOVE the ring. */
-/* ---------- STAGE ----------
-   Vertical flex flow, top to bottom:
-     [wordmark]      ← brand stamp, large italic serif
-     [ring-anchor]   ← six-layer ring band, full viewport width
-     [figure-row]    ← [CTA]  [TEX FIGURE]  [CTA]
-     [content]       ← headline + descriptor
-
-   Everything in normal flex flow now. The ring escapes the
-   max-width container via negative-margin viewport-width trick. */
+   Vertical column. The scene gets most of the vertical real
+   estate (the ring needs height), the content block sits below. */
 .hs-stage {
   position: relative;
   z-index: 2;
   width: 100%;
   max-width: var(--max-w, 1400px);
   margin: 0 auto;
-  padding: clamp(60px, 6vh, 100px) 56px 90px;
+  padding: clamp(40px, 4vh, 72px) 56px 80px;
   min-height: calc(100vh - var(--bar-h, 56px));
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 0;
+  gap: clamp(24px, 3vh, 40px);
 }
 
-/* ---------- WORDMARK ----------
-   Large italic "Tex" stamp. Sits BETWEEN the ring band and the
-   figure — in the open space where the arc curve dips toward Tex's
-   head. Z-index above the ring so it reads cleanly even if the arc
-   passes behind it. */
-.hs-wordmark {
+/* ---------- SCENE ----------
+   The composed scene: ring encircles Tex.
+
+   The scene is a square box sized to the viewport's smaller
+   dimension (capped) so the ring always renders as a true circle.
+   The ring and figure are both absolutely positioned inside.
+
+   We don't use 100vh because the bearing labels sit OUTSIDE the
+   ring at R_LABEL=488 in a 1000-unit viewBox — i.e. labels extend
+   to 97.6% of the viewBox radius. With preserveAspectRatio=meet
+   the SVG never clips, but the labels would be tight against the
+   content block. So we cap the scene side and let the SVG breathe. */
+.hs-scene {
   position: relative;
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 300;
-  font-size: clamp(56px, 7vw, 110px);
-  line-height: 1.0;
-  letter-spacing: -0.015em;
-  color: var(--bone-100);
-  margin: 0;
-  /* Pull up so the wordmark overlaps the ring band's lower portion. */
-  margin-top: -50px;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: hs-fade-up 0.9s ease-out 0.2s forwards;
-  text-shadow: 0 0 36px rgba(0, 0, 0, 0.95), 0 0 24px rgba(86, 230, 220, 0.18);
-  z-index: 5;
-  text-align: center;
+  width: 100%;
+  /* The scene is a square sized to the smaller of:
+       - viewport width (with some inset)
+       - 64% of viewport height
+       - 720px (upper bound on huge monitors) */
+  width: min(64vh, 92vw, 720px);
+  aspect-ratio: 1;
+  margin: 0 auto;
+  z-index: 2;
 }
 
 /* ---------- RING ANCHOR ----------
-   The six-layer ring band. In flex flow under the wordmark.
-   Width breaks out of the stage's max-width container via the
-   margin-left trick so the arc reaches the actual viewport edges. */
+   Holds the SVG ring. Absolutely positioned inside .hs-scene so it
+   shares the same coordinate space as the figure.
+
+   The ring is intentionally larger than .hs-scene so its bezel ticks
+   and bearing labels can extend past the visual square — this gives
+   the composition that "instrument bigger than the frame" feeling
+   that high-end HUDs use. */
 .hs-ring-anchor {
-  position: relative;
-  width: 100vw;
-  max-width: 1800px;
-  margin-left: calc(50% - 50vw);
-  /* If we hit the 1800 max, recenter via auto margins won't work
-     with the negative margin trick. Instead, on viewports >=1800
-     we want centered. The clamp on margin-left handles both: at
-     <1800 vw the calc is negative (pulls left to viewport edge),
-     at >=1800 vw it's also negative but we use max() to clamp. */
-  /* Use a flex-shrink:0 to prevent height collapse */
-  flex-shrink: 0;
-  height: clamp(220px, 24vh, 280px);
-  z-index: 2;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   pointer-events: none;
   opacity: 0;
-  animation: hs-fade-in 1.4s ease-out 0.5s forwards;
+  animation: hs-fade-in 1.6s ease-out 0.3s forwards;
   display: flex;
+  align-items: center;
   justify-content: center;
-  align-items: stretch;
 }
 
-/* The ring's inner wrapper — caps the visual width on ultra-wide
-   monitors and centers within the anchor. */
 .er-wrap {
   width: 100%;
-  max-width: 1800px;
   height: 100%;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
   pointer-events: none;
 }
 
-/* ---------- FIGURE ROW ----------
-   Three-column horizontal layout:
-     [ left CTA column ]  [ center figure column ]  [ right CTA column ]
-   The CTAs flank Tex at chest height. On mobile we collapse this
-   row into a vertical stack (CTAs go below the figure).
-
-   The figure column is a fixed-ish width (clamp), the two CTA
-   columns flex to fill the remaining space, distributing the CTAs
-   evenly between Tex and the viewport edges. */
-.hs-figure-row {
-  position: relative;
-  z-index: 3;
+.er-svg {
   width: 100%;
-  max-width: 1400px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  justify-items: center;
-  gap: clamp(24px, 4vw, 64px);
-  /* Pull up so the top of Tex's head nests just under the arc's
-     bottom. The arc's bottom is around y=200 in viewBox coordinates
-     (out of 280-tall), which at typical render scale is ~60-80px
-     above the ring band's bottom edge. A -40px top margin gives the
-     figure a graceful overlap with the ring without crashing the
-     side labels into Tex's head. */
-  margin-top: -40px;
+  height: 100%;
+  overflow: visible; /* let bearing labels render past viewBox edges */
 }
 
-/* Each flanking CTA column. The button itself is centered in its
-   column. On left we right-align (closer to Tex), on right we
-   left-align — but only at wider widths; at narrower widths both
-   center for symmetry. */
-.hs-figure-cta {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: hs-fade-up 1s ease-out 0.95s forwards;
-}
-.hs-figure-cta--left  { justify-content: flex-end;   padding-right: 8px; }
-.hs-figure-cta--right { justify-content: flex-start; padding-left:  8px; }
-
-/* The figure column keeps its existing relative positioning so
-   absolute children (veil, scanline, pulse rings, floor disk) still
-   anchor correctly. Width is constrained so the figure doesn't
-   stretch when grid distributes space. */
+/* ---------- FIGURE STAGE ----------
+   Tex sits centered inside the ring. The figure is sized smaller
+   than before because the ring needs to read as the perimeter
+   around him — not as a tight collar. */
 .hs-figure-stage {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  margin-top: 0;
-  margin-bottom: 0;
+  justify-content: center;
   opacity: 0;
-  transform: translateY(20px);
   animation: hs-figure-arrive 1.4s ease-out 0.5s forwards;
 }
 @keyframes hs-figure-arrive {
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.hs-figure-veil {
-  position: absolute;
-  left: 50%;
-  bottom: 40px;
-  transform: translateX(-50%);
-  width: clamp(380px, 38vw, 620px);
-  aspect-ratio: 1;
-  background: radial-gradient(
-    circle,
-    rgba(86, 230, 220, 0.22) 0%,
-    rgba(86, 230, 220, 0.08) 30%,
-    transparent 60%
-  );
-  filter: blur(40px);
-  z-index: 0;
-  pointer-events: none;
-  animation: hs-veil-pulse 6s ease-in-out infinite;
-}
-@keyframes hs-veil-pulse {
-  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
-  50%      { opacity: 1;    transform: translateX(-50%) scale(1.04); }
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 20px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .hs-floor-disk {
   position: absolute;
   left: 50%;
-  bottom: -40px;
+  bottom: -16px;
   transform: translateX(-50%);
-  width: clamp(320px, 32vw, 520px);
-  height: 60px;
+  width: clamp(220px, 22vw, 360px);
+  height: 50px;
   background: radial-gradient(
     ellipse at center,
-    rgba(86, 230, 220, 0.5) 0%,
-    rgba(86, 230, 220, 0.18) 35%,
+    rgba(86, 230, 220, 0.45) 0%,
+    rgba(86, 230, 220, 0.16) 35%,
     transparent 70%
   );
   filter: blur(14px);
@@ -235,7 +145,7 @@
   left: 50%;
   top: 0;
   transform: translateX(-50%);
-  width: clamp(320px, 32vw, 520px);
+  width: clamp(220px, 22vw, 360px);
   height: 2px;
   background: linear-gradient(
     90deg,
@@ -261,18 +171,20 @@
   animation: hs-breathe 5s ease-in-out infinite;
 }
 @keyframes hs-breathe {
-  0%, 100% { transform: translateY(0)     scale(1); }
-  50%      { transform: translateY(-6px)  scale(1.005); }
+  0%, 100% { transform: translateY(0)    scale(1);     }
+  50%      { transform: translateY(-5px) scale(1.005); }
 }
 
 .hs-figure-img {
   display: block;
-  /* Capped so the headline can sit close beneath Tex without
-     pushing the CTAs below the fold on standard laptop viewports. */
-  height: clamp(280px, 38vh, 400px);
+  /* Sized to fit inside the ring with comfortable margins. The
+     ring's main radius is 40% of the scene's edge (R_MAIN=400 in
+     a 1000 viewBox); we make Tex about 55% of the scene height so
+     his shoulders sit well inside the ring without crowding it. */
+  height: clamp(220px, 52vh, 420px);
   width: auto;
   filter:
-    drop-shadow(0 0 40px rgba(86, 230, 220, 0.22))
+    drop-shadow(0 0 30px rgba(86, 230, 220, 0.20))
     drop-shadow(0 12px 50px rgba(0, 0, 0, 0.85));
 }
 
@@ -327,8 +239,8 @@
   left: 50%;
   bottom: 22%;
   transform: translate(-50%, 50%);
-  width: 200px;
-  height: 200px;
+  width: 160px;
+  height: 160px;
   border: 1px solid var(--tex);
   border-radius: 50%;
   opacity: 0;
@@ -344,47 +256,81 @@
   100% { opacity: 0;    transform: translate(-50%, 50%) scale(2.6); }
 }
 
-/* ---------- CONTENT (wordmark + headline + descriptor + CTAs) ---------- */
+/* ---------- CONTENT (eyebrow → headline → descriptor → CTAs) ---------- */
 .hs-content {
   position: relative;
   z-index: 4;
   max-width: 760px;
   width: 100%;
   text-align: center;
-  padding: 8px 0 0;
-  margin-top: 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-/* The positioning headline — single line, italic serif with the
-   gradient highlight on the final word "System" so it carries the
-   visual emphasis. */
+/* The eyebrow — small mono-cap kicker with hairlines flanking
+   the text. Sits directly above the headline; explicit translation
+   of the ring into a claim. */
+.hs-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--tex);
+  margin-bottom: 14px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: hs-fade-up 0.9s ease-out 0.85s forwards;
+  text-shadow: 0 0 18px rgba(86, 230, 220, 0.45);
+}
+.hs-eyebrow-mark {
+  width: 28px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(86, 230, 220, 0) 0%,
+    rgba(86, 230, 220, 0.7) 100%);
+}
+.hs-eyebrow-mark:last-child {
+  background: linear-gradient(90deg,
+    rgba(86, 230, 220, 0.7) 0%,
+    rgba(86, 230, 220, 0) 100%);
+}
+.hs-eyebrow-text {
+  /* tiny diamond bullets either side of the text? we keep it
+     clean — the marks above already frame it. */
+}
+
+/* Headline — italic Fraunces with the cyan gradient on the
+   final phrase. Single line on wide screens, wraps gracefully
+   below. */
 .hs-headline {
   font-family: var(--serif);
   font-weight: 300;
   font-style: italic;
-  font-size: clamp(20px, 2.2vw, 30px);
-  line-height: 1.15;
-  letter-spacing: -0.01em;
+  font-size: clamp(28px, 3.4vw, 46px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
   color: var(--bone-100);
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   text-align: center;
   opacity: 0;
   transform: translateY(20px);
   animation: hs-fade-up 1s ease-out 0.95s forwards;
-  background: linear-gradient(120deg, var(--bone-100) 0%, var(--tex-bright) 55%, var(--bone-100) 100%);
+  background: linear-gradient(120deg,
+    var(--bone-100) 0%,
+    var(--tex-bright) 55%,
+    var(--bone-100) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   padding-bottom: 0.1em;
+  text-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
 }
 
-/* The descriptor — one full sentence that names all six layers in
-   the same order they appear on the ring. The first clause is muted
-   bone-200; the layer enumeration is bone-100 so the names of the
-   six layers carry the visual weight. */
 .hs-descriptor {
   font-family: var(--sans);
   font-size: clamp(13px, 0.95vw, 15px);
@@ -392,18 +338,28 @@
   font-weight: 400;
   color: var(--bone-200);
   max-width: 680px;
-  margin: 0 0 22px;
+  margin: 0 0 28px;
   text-shadow: 0 0 24px rgba(0, 0, 0, 0.9);
   opacity: 0;
   transform: translateY(20px);
-  animation: hs-fade-up 1s ease-out 1.15s forwards;
+  animation: hs-fade-up 1s ease-out 1.1s forwards;
 }
 .hs-descriptor-em {
   color: var(--bone-100);
   font-weight: 400;
 }
 
-/* (.hs-actions removed — CTAs now flank the figure via .hs-figure-row.) */
+/* CTA row — primary + ghost, centered below the descriptor */
+.hs-cta-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 1s ease-out 1.25s forwards;
+}
 
 .hs-cta-primary {
   position: relative;
@@ -517,194 +473,214 @@
 }
 
 /* =============================================================
-   ECOSYSTEM RING — visual styles for EcosystemRing.jsx
-
-   The SVG component sits inside .hs-ring-anchor; these styles
-   control arc stroke, ticks, node glyphs, pulse, and labels.
-   (.er-wrap itself is defined above near .hs-ring-anchor.)
+   ECOSYSTEM RING — visual styles for EcosystemRing.jsx (360° version)
    ============================================================= */
-.er-svg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+
+/* Outer bezel — rotates clockwise slowly */
+.er-bezel {
+  transform-origin: 500px 500px;
+  transform-box: view-box;
+}
+.er-bezel--outer {
+  animation: er-spin-cw 60s linear infinite;
+}
+.er-bezel--inner {
+  animation: er-spin-ccw 90s linear infinite;
+}
+@keyframes er-spin-cw {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+@keyframes er-spin-ccw {
+  from { transform: rotate(0deg);    }
+  to   { transform: rotate(-360deg); }
 }
 
-/* ---- Arc strokes ---- */
-.er-arc-outer {
-  filter: drop-shadow(0 0 6px rgba(86, 230, 220, 0.45));
-}
-.er-arc-inner {
-  filter: drop-shadow(0 0 3px rgba(127, 241, 233, 0.4));
-}
-
-/* ---- Tick marks ---- */
+/* Bezel ticks */
 .er-tick {
-  stroke: rgba(86, 230, 220, 0.18);
-  stroke-width: 1;
+  stroke: rgba(86, 230, 220, 0.22);
+  stroke-width: 0.8;
 }
-.er-tick-major {
-  stroke: rgba(127, 241, 233, 0.5);
-  stroke-width: 1.4;
-}
-
-/* ---- Traveling pulse ---- */
-.er-pulse {
-  transition: transform 0.65s cubic-bezier(0.6, 0.05, 0.25, 1);
-}
-.er-pulse-outer {
-  fill: rgba(86, 230, 220, 0.16);
-  transform-origin: center;
-  transform-box: fill-box;
-  animation: er-pulse-breathe 1.4s ease-in-out infinite;
-}
-.er-pulse-mid {
-  fill: rgba(127, 241, 233, 0.35);
-}
-.er-pulse-core {
-  fill: var(--tex-bright);
-  filter: drop-shadow(0 0 8px var(--tex-bright)) drop-shadow(0 0 18px rgba(127, 241, 233, 0.6));
-}
-@keyframes er-pulse-breathe {
-  0%, 100% { opacity: 0.45; transform: scale(1);    }
-  50%      { opacity: 0.75; transform: scale(1.18); }
-}
-
-/* ---- Node glyphs ---- */
-.er-node-halo {
-  fill: rgba(86, 230, 220, 0.0);
-  transition: fill 0.4s ease;
-}
-.er-node.is-active .er-node-halo {
-  fill: rgba(86, 230, 220, 0.22);
-}
-.er-node.is-active.is-emphasis .er-node-halo {
-  fill: rgba(127, 241, 233, 0.32);
-}
-
-.er-node-outer {
-  fill: none;
-  stroke: rgba(86, 230, 220, 0.45);
+.er-tick--major {
+  stroke: rgba(127, 241, 233, 0.55);
   stroke-width: 1.2;
-  transition: stroke 0.4s ease, stroke-width 0.4s ease;
 }
-.er-node-inner {
-  fill: rgba(86, 230, 220, 0.4);
-  transition: fill 0.4s ease, r 0.4s ease;
+
+/* ---- Sweep arm ----
+   Rotates around the center one revolution per 24s. The wedge
+   trails behind a brighter leading edge so the visual reads as
+   a radar sweep, not a spinning shape. */
+.er-sweep {
+  transform-origin: 500px 500px;
+  transform-box: view-box;
+  animation: er-spin-cw 24s linear infinite;
+  opacity: 0.95;
 }
-.er-node.is-active .er-node-outer {
+.er-sweep-edge {
+  stroke: var(--tex-bright);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 0.9))
+    drop-shadow(0 0 14px rgba(86, 230, 220, 0.5));
+  opacity: 0.85;
+}
+
+/* ---- Spokes ----
+   Faint by default, brighten momentarily when their node pings. */
+.er-spoke {
+  opacity: 0.55;
+  transition: opacity 0.4s ease;
+}
+.er-spoke.is-pinging {
+  opacity: 1;
+}
+
+/* ---- Pings ----
+   Luminous dots that travel from a node along its spoke to the
+   hub. Triggered randomly by the JS interval in EcosystemRing. */
+.er-ping {
+  pointer-events: none;
+}
+.er-ping--halo {
+  fill: rgba(127, 241, 233, 0.55);
+  filter: blur(2px);
+}
+.er-ping--core {
+  fill: var(--tex-bright);
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 14px rgba(86, 230, 220, 0.7));
+}
+
+/* ---- Main ring ---- */
+.er-main-stroke {
+  filter:
+    drop-shadow(0 0 4px rgba(127, 241, 233, 0.55))
+    drop-shadow(0 0 12px rgba(86, 230, 220, 0.32));
+}
+.er-main-glow {
+  opacity: 0.65;
+  filter: blur(4px);
+  animation: er-main-pulse 6s ease-in-out infinite;
+}
+@keyframes er-main-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.85; }
+}
+
+/* ---- Hub ---- */
+.er-hub circle {
+  transform-origin: 500px 500px;
+  transform-box: view-box;
+}
+.er-hub-inner {
+  animation: er-spin-cw 30s linear infinite;
+}
+
+/* ---- Nodes ---- */
+.er-node-halo {
+  fill: rgba(86, 230, 220, 0.18);
+  transition: fill 0.4s ease;
+  animation: er-node-breathe 4s ease-in-out infinite;
+}
+.er-node.is-emphasis .er-node-halo {
+  fill: rgba(127, 241, 233, 0.28);
+  animation-duration: 3s;
+}
+.er-node.is-pinging .er-node-halo {
+  fill: rgba(127, 241, 233, 0.55);
+}
+@keyframes er-node-breathe {
+  0%, 100% { opacity: 0.65; }
+  50%      { opacity: 1;    }
+}
+
+.er-node-ring {
+  fill: none;
+  stroke: var(--tex);
+  stroke-width: 1.4;
+  filter: drop-shadow(0 0 4px rgba(127, 241, 233, 0.55));
+}
+.er-node-core {
+  fill: var(--tex-bright);
+  filter:
+    drop-shadow(0 0 4px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 10px rgba(86, 230, 220, 0.7));
+}
+
+/* Emphasis (Execution Governance) — point-up hex */
+.er-node-hex {
+  fill: rgba(127, 241, 233, 0.32);
   stroke: var(--tex-bright);
   stroke-width: 1.8;
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 0.85))
+    drop-shadow(0 0 16px rgba(86, 230, 220, 0.5));
 }
-.er-node.is-active .er-node-inner {
-  fill: var(--tex-bright);
-}
-
-/* Emphasized (Execution Governance) — hex glyph, brighter base */
-.er-node-hex {
-  fill: rgba(86, 230, 220, 0.18);
-  stroke: var(--tex);
-  stroke-width: 1.6;
-  transition: fill 0.4s ease, stroke 0.4s ease, stroke-width 0.4s ease;
-}
-.er-node.is-active.is-emphasis .er-node-hex {
-  fill: rgba(127, 241, 233, 0.5);
-  stroke: var(--tex-bright);
-  stroke-width: 2;
+.er-node.is-emphasis.is-pinging .er-node-hex {
+  fill: rgba(127, 241, 233, 0.55);
 }
 
-/* ---- Labels ----
-   Sizes are in SVG user units. The SVG scales to fit the container,
-   so these get multiplied by (container_px_width / 1600). At 1440px
-   viewport that's a 0.9× factor; at 1920px viewport, 1.2×.
-   We size up generously so the labels remain readable even at the
-   1.0× / 0.9× scale on smaller laptops. */
+/* ---- Bearing labels ----
+   Sit outside the bezel, rotated tangentially so they read like
+   an aircraft compass rose. */
+.er-label {
+  pointer-events: none;
+}
 .er-label-num {
   font-family: var(--mono);
-  font-size: 16px;
-  letter-spacing: 0.18em;
-  fill: var(--bone-300);
-  transition: fill 0.4s ease;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  fill: var(--bone-400);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
 }
 .er-label-name {
   font-family: var(--mono);
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   fill: var(--bone-100);
-  transition: fill 0.4s ease;
 }
 .er-label-name--em {
-  font-size: 22px;
-  letter-spacing: 0.12em;
+  font-size: 15px;
+  fill: var(--tex-bright);
+  letter-spacing: 0.16em;
 }
-.er-label-desc {
-  font-family: var(--sans);
-  font-size: 16px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
-  fill: var(--bone-300);
-  /* Fade in when the active node renders this label. */
-  animation: er-desc-fade 0.45s ease-out both;
-}
-@keyframes er-desc-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-.er-node.is-active .er-label-num  { fill: var(--tex); }
-.er-node.is-active .er-label-name { fill: var(--tex-bright); }
-.er-node.is-active .er-label-desc { fill: var(--bone-100); }
-
-.er-node.is-emphasis:not(.is-active) .er-label-name {
-  fill: var(--bone-100);
+.er-label.is-emphasis .er-label-num {
+  fill: var(--tex);
 }
 
 /* =============================================================
-   RESPONSIVE — tablet + mobile
+   RESPONSIVE
    ============================================================= */
 @media (max-width: 1100px) {
-  .hs-stage { padding: 80px 32px 50px; }
-  .hs-ring-anchor { top: clamp(140px, 14vh, 200px); height: clamp(200px, 26vh, 280px); }
-  .hs-figure-img { height: clamp(280px, 38vh, 380px); }
-  .hs-wordmark { font-size: clamp(44px, 6.5vw, 78px); }
-  .hs-headline { font-size: clamp(20px, 2.6vw, 28px); }
-  /* Narrow CTA columns so the figure stays prominent */
-  .hs-figure-row { gap: clamp(16px, 3vw, 32px); }
-  .er-label-name { font-size: 11px; }
-  .er-label-desc { font-size: 10px; }
+  .hs-stage { padding: 36px 32px 60px; }
+  .hs-scene { width: min(60vh, 88vw, 620px); }
+  .hs-figure-img { height: clamp(200px, 48vh, 360px); }
+  .hs-headline { font-size: clamp(24px, 3.2vw, 36px); }
+  .er-label-num { font-size: 11px; }
+  .er-label-name { font-size: 12px; }
+  .er-label-name--em { font-size: 13px; }
 }
 
 @media (max-width: 860px) {
-  /* Below 860px the three-column row gets too cramped to flank the
-     figure with buttons. Collapse: figure on its own row, CTAs stacked
-     below it. */
-  .hs-figure-row {
-    grid-template-columns: 1fr;
-    gap: 18px;
-  }
-  .hs-figure-cta--left,
-  .hs-figure-cta--right {
-    justify-content: center;
-    padding: 0;
-    order: 3;
-  }
-  .hs-figure-stage { order: 1; }
-  .hs-figure-cta--left  { order: 2; }
-  .hs-figure-cta--right { order: 3; }
+  .hs-scene { width: min(54vh, 86vw, 540px); }
+  .hs-cta-row { flex-direction: column; width: 100%; max-width: 320px; gap: 12px; }
+  .hs-cta-primary, .hs-cta-ghost { width: 100%; justify-content: center; }
+  .hs-figure-img { height: clamp(180px, 44vh, 320px); }
 }
 
 @media (max-width: 768px) {
-  .hs-stage { padding: 60px 20px 40px; }
-  .hs-ring-anchor { top: clamp(100px, 12vh, 160px); height: clamp(160px, 22vh, 220px); }
-  .hs-figure-img { height: clamp(240px, 36vh, 320px); }
-  .hs-wordmark { font-size: clamp(38px, 10vw, 56px); margin-bottom: 4px; }
-  .hs-headline { font-size: clamp(18px, 5vw, 24px); margin-bottom: 14px; }
-  .hs-descriptor { font-size: 13px; line-height: 1.5; margin-bottom: 20px; }
-  .hs-figure-cta { width: 100%; }
-  .hs-cta-primary, .hs-cta-ghost { width: 100%; justify-content: center; }
-  .er-label-name { font-size: 9px; }
-  .er-label-num  { font-size: 9px; }
-  .er-label-desc { display: none; } /* Hide descriptions on mobile — labels only */
+  .hs-stage { padding: 28px 18px 50px; gap: 20px; }
+  .hs-scene { width: min(50vh, 92vw, 460px); }
+  .hs-figure-img { height: clamp(160px, 38vh, 280px); }
+  .hs-headline { font-size: clamp(22px, 6vw, 30px); }
+  .hs-descriptor { font-size: 13px; line-height: 1.5; margin-bottom: 22px; }
+  .er-label-num { font-size: 9px; }
+  .er-label-name { font-size: 10px; }
+  .er-label-name--em { font-size: 11px; }
+  .hs-eyebrow { font-size: 10px; letter-spacing: 0.28em; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -714,10 +690,14 @@
   .hs-eye-glow,
   .hs-pulse-ring,
   .hs-floor-disk,
-  .hs-figure-veil,
-  .er-pulse-outer,
+  .er-bezel,
+  .er-bezel--outer,
+  .er-bezel--inner,
+  .er-sweep,
+  .er-hub-inner,
+  .er-main-glow,
+  .er-node-halo,
   .hs-scroll-arrow {
     animation: none !important;
   }
-  .er-pulse { transition: none; }
 }

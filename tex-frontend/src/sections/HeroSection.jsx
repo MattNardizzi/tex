@@ -3,19 +3,16 @@ import './HeroSection.css';
 
 /* =============================================================
    HERO SECTION — Tex
-   ────────────────────────────────────────────────────────────
-   The whole homepage hero in one frame:
 
-       [ Tex, standing, breathing, watching ]
+   Top bar:   T mark + "Tex"      •Tex is here
+              How it works · Evidence · Company · Sign in
 
+   Stage:
        Tex.
-
+       [ figure, emerging from the page ]
        Every agent. Every action. Every stage of its life.
-
+       Tex is the only system that governs all of it.
        [ Show me ]
-
-   No tagline above the figure. No explanation. The avatar IS
-   the product. The page introduces him by showing him.
    ============================================================= */
 
 export default function HeroSection({ openTrial, navigate }) {
@@ -36,7 +33,24 @@ export default function HeroSection({ openTrial, navigate }) {
           <span className="tex-brand-word">Tex</span>
         </a>
 
+        <div className="tex-presence" role="status" aria-live="polite">
+          <span className="tex-presence-dot">
+            <span className="tex-presence-dot-core" />
+          </span>
+          <span className="tex-presence-label">Tex is here</span>
+        </div>
+
         <nav className="tex-nav">
+          <a
+            href="/how-it-works"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+          >
+            How it works
+          </a>
           <a
             href="/evidence"
             className="tex-nav-link"
@@ -46,6 +60,16 @@ export default function HeroSection({ openTrial, navigate }) {
             }}
           >
             Evidence
+          </a>
+          <a
+            href="/company"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/company');
+            }}
+          >
+            Company
           </a>
           <a
             href="/sign-in"
@@ -62,14 +86,12 @@ export default function HeroSection({ openTrial, navigate }) {
 
       {/* STAGE -------------------------------------------------- */}
       <div className="tex-stage">
-        {/* The avatar — the product introduces itself by being itself. */}
+        <h1 className="tex-hero-name tex-arrive tex-arrive--name">Tex.</h1>
+
         <figure className="tex-figure tex-arrive tex-arrive--figure">
           <div className="tex-figure-halo" aria-hidden="true" />
           <picture>
-            <source
-              media="(min-width: 720px)"
-              srcSet="/tex-avatar.webp"
-            />
+            <source media="(min-width: 720px)" srcSet="/tex-avatar.webp" />
             <img
               src="/tex-avatar-sm.webp"
               alt="Tex"
@@ -77,17 +99,18 @@ export default function HeroSection({ openTrial, navigate }) {
               draggable="false"
             />
           </picture>
-          {/* Eye glow overlays — pulse with the breath. */}
           <span className="tex-eye tex-eye--l" aria-hidden="true" />
           <span className="tex-eye tex-eye--r" aria-hidden="true" />
         </figure>
-
-        <h1 className="tex-hero-name tex-arrive tex-arrive--name">Tex.</h1>
 
         <p className="tex-hero-line tex-arrive tex-arrive--line">
           <span className="tex-beat tex-beat--1">Every agent.</span>{' '}
           <span className="tex-beat tex-beat--2">Every action.</span>{' '}
           <span className="tex-beat tex-beat--3">Every stage of its life.</span>
+        </p>
+
+        <p className="tex-hero-aside tex-arrive tex-arrive--aside">
+          Tex is the only system that governs all of it.
         </p>
 
         <div className="tex-hero-actions tex-arrive tex-arrive--button">

@@ -1,133 +1,117 @@
 import React from 'react';
-import texAvatar from '../tex-avatar.png';
-import EcosystemRing from './EcosystemRing.jsx';
 import './HeroSection.css';
 
 /* =============================================================
-   HERO SECTION
+   HERO SECTION — Quiet
+   ────────────────────────────────────────────────────────────
+   The whole homepage hero in one sentence:
 
-   Two-column composition:
+       Quiet.
 
-     ┌───────────────────────┬───────────────────────┐
-     │                       │  ─ 360° GOVERNANCE ─  │
-     │  The AI Airspace      │                       │
-     │  Control System       │     [  RING + TEX  ]  │
-     │                       │                       │
-     │  Full-lifecycle...    │                       │
-     │                       │                       │
-     │  [ Book a demo  ]     │                       │
-     │  [ See how it… ]      │                       │
-     └───────────────────────┴───────────────────────┘
+       Every agent. Every action. Every stage of its life.
+       Tex is the only system that governs all of it.
 
-   Left column (.hs-copy):
-     - Headline (italic Fraunces, left-aligned)
-     - Descriptor
-     - CTA stack (primary + ghost, stacked vertically)
-   Right column (.hs-scene-col):
-     - 360° GOVERNANCE eyebrow
-     - Ring + Tex inside the ring
+       [ Show me ]
 
-   At <980px the two columns collapse to vertical: eyebrow + ring
-   first, then headline/descriptor/CTAs below.
-
-   Props
-   -----
-   openTrial:   () => void   — opens the Calendly modal
-   navigate:    (path) => void — pushes a client-side route
+   Top bar:  T mark + "Tex"        •Tex is here        nav        Sign in
    ============================================================= */
 
 export default function HeroSection({ openTrial, navigate }) {
   return (
-    <section className="hero-section" id="top">
-      <div className="hs-stage">
-        {/* LEFT COLUMN — copy + CTAs */}
-        <div className="hs-copy">
-          {/* Editorial eyebrow — a small mono "system identifier"
-              that balances the instrumental complexity on the right
-              and gives the headline a document/dossier gravitas. */}
-          <div className="hs-copy-eyebrow" aria-hidden="true">
-            <span className="hs-copy-eyebrow-mark" />
-            <span className="hs-copy-eyebrow-code">H-001</span>
-            <span className="hs-copy-eyebrow-sep">/</span>
-            <span className="hs-copy-eyebrow-name">Airspace Control</span>
-          </div>
+    <section className="tex-hero" id="top">
+      {/* TOP BAR ------------------------------------------------ */}
+      <header className="tex-topbar">
+        <a
+          href="/"
+          className="tex-brand"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/');
+          }}
+          aria-label="Tex — home"
+        >
+          <span className="tex-brand-mark">T</span>
+          <span className="tex-brand-word">Tex</span>
+        </a>
 
-          <h1 className="hs-headline">
-            The AI Airspace Control System
-          </h1>
-
-          <p className="hs-descriptor">
-            Full-lifecycle governance for autonomous AI systems —
-            <span className="hs-descriptor-em"> spanning discovery, identity, observability, execution control, cryptographic evidence, and continuous evolution.</span>
-          </p>
-
-          <div className="hs-cta-stack">
-            <button
-              type="button"
-              onClick={openTrial}
-              className="hs-cta-primary"
-            >
-              <span>Book a demo</span>
-              <span className="hs-cta-arrow">→</span>
-            </button>
-            <a
-              href="/how-it-works"
-              className="hs-cta-ghost"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/how-it-works');
-              }}
-            >
-              <span>See how it works</span>
-              <span className="hs-cta-arrow">→</span>
-            </a>
-          </div>
+        <div className="tex-presence" role="status" aria-live="polite">
+          <span className="tex-presence-dot" />
+          <span className="tex-presence-label">Tex is here</span>
         </div>
 
-        {/* RIGHT COLUMN — ring + Tex; eyebrow lives INSIDE the scene */}
-        <div className="hs-scene-col">
-          <div className="hs-scene">
-            {/* 360° GOVERNANCE eyebrow — floats inside the ring,
-                between the top of the ring perimeter and Tex's head.
-                Positioned absolutely so it visually anchors the
-                ring's interior rather than the column above it. */}
-            <div className="hs-eyebrow hs-eyebrow--inside" aria-hidden="false">
-              <span className="hs-eyebrow-mark" />
-              <span className="hs-eyebrow-text">360° Governance</span>
-              <span className="hs-eyebrow-mark" />
-            </div>
+        <nav className="tex-nav">
+          <a
+            href="/how-it-works"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+          >
+            How it works
+          </a>
+          <a
+            href="/evidence"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/evidence');
+            }}
+          >
+            Evidence
+          </a>
+          <a
+            href="/company"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/company');
+            }}
+          >
+            Company
+          </a>
+          <a
+            href="/sign-in"
+            className="tex-nav-link tex-nav-link--strong"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/sign-in');
+            }}
+          >
+            Sign in
+          </a>
+        </nav>
+      </header>
 
-            <div className="hs-ring-anchor">
-              <EcosystemRing />
-            </div>
+      {/* STAGE -------------------------------------------------- */}
+      <div className="tex-stage">
+        <h1 className="tex-hero-word">Quiet.</h1>
 
-            <div className="hs-figure-stage">
-              <div className="hs-floor-disk" aria-hidden="true" />
-              <div className="hs-scanline" aria-hidden="true" />
+        <p className="tex-hero-line">
+          Every agent. Every action. Every stage of its life.
+        </p>
+        <p className="tex-hero-aside">
+          Tex is the only system that governs all of it.
+        </p>
 
-              <div className="hs-figure-position">
-                <div className="hs-figure-breathe">
-                  <img
-                    src={texAvatar}
-                    alt="Tex — the AI airspace control system"
-                    className="hs-figure-img"
-                  />
-                  <div className="hs-chest-glow" aria-hidden="true" />
-                </div>
-
-                <span className="hs-pulse-ring" aria-hidden="true" />
-                <span className="hs-pulse-ring" aria-hidden="true" />
-                <span className="hs-pulse-ring" aria-hidden="true" />
-              </div>
-            </div>
-          </div>
+        <div className="tex-hero-actions">
+          <button
+            type="button"
+            className="tex-btn tex-btn--primary"
+            onClick={openTrial}
+          >
+            Show me
+          </button>
         </div>
       </div>
 
-      {/* Scroll cue */}
-      <a href="#how-it-works" className="hs-scroll-cue" aria-label="Scroll to how it works">
-        <span>Scroll</span>
-        <span className="hs-scroll-arrow">↓</span>
+      {/* QUIET SCROLL CUE -------------------------------------- */}
+      <a
+        href="#what-tex-does"
+        className="tex-scroll-cue"
+        aria-label="Continue"
+      >
+        <span className="tex-scroll-arrow">↓</span>
       </a>
     </section>
   );

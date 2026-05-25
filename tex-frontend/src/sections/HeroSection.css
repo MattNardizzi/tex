@@ -1,15 +1,13 @@
 /* =============================================================
    HERO SECTION — scoped styles.
 
-   Vertical composition (top → bottom):
-     .hs-top-copy       — eyebrow + headline (ABOVE Tex)
-     .hs-scene-row      — [ CTA-left ]  [ ring+figure ]  [ CTA-right ]
-     .hs-bottom-copy    — descriptor (BELOW Tex)
+   Two-column composition at desktop:
+     .hs-stage   → grid: [ .hs-copy ] [ .hs-scene-col ]
+                  Left column: headline, descriptor, CTA stack
+                  Right column: eyebrow, then ring+Tex
 
-   The ring is the dominant element. It encircles Tex AND the
-   headline above him visually reads as occupying the ring's
-   upper arc; the descriptor below him sits in the ring's lower
-   arc. The ring frames the entire copy column, not just Tex.
+   Below 980px the columns collapse to vertical (ring on top,
+   copy below) and CTAs go side-by-side again.
 
    Design tokens used: --tex, --tex-bright, --tex-dim,
    --bone-100/200/300/400, --void-0, --mono, --serif, --edge-strong.
@@ -25,33 +23,104 @@
 }
 
 /* ---------- STAGE ----------
-   Tight vertical stack. The scene row is the largest band; copy
-   bands above and below are compact. */
+   Two-column CSS grid. Left column is editorial copy + CTAs;
+   right column is the scene (eyebrow stacked above ring+Tex).
+   Both columns vertically centered relative to each other so
+   the headline's vertical midpoint roughly aligns with Tex's
+   chest emblem. */
 .hs-stage {
   position: relative;
   z-index: 2;
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: clamp(20px, 2.5vh, 36px) 40px clamp(28px, 3vh, 48px);
+  padding: clamp(20px, 2.5vh, 36px) 56px clamp(28px, 3vh, 48px);
   min-height: calc(100vh - var(--bar-h, 56px));
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
   align-items: center;
-  justify-content: center;
-  gap: clamp(10px, 1.5vh, 22px);
+  gap: clamp(32px, 4vw, 80px);
 }
 
-/* ---------- TOP COPY (eyebrow + headline) ---------- */
-.hs-top-copy {
+/* ---------- LEFT COLUMN (copy + CTAs) ----------
+   Left-aligned. The headline runs to about 12-13 words on a
+   single line at desktop ("The AI Airspace Control System"
+   wraps naturally on narrower viewports). Below it: descriptor,
+   then the CTA stack. */
+.hs-copy {
   position: relative;
   z-index: 5;
-  width: 100%;
-  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  max-width: 560px;
+  justify-self: end;
+}
+
+.hs-headline {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-style: italic;
+  font-size: clamp(32px, 4.2vw, 64px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--bone-100);
+  margin: 0 0 24px;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: hs-fade-up 1s ease-out 0.55s forwards;
+  background: linear-gradient(120deg,
+    var(--bone-100) 0%,
+    var(--tex-bright) 55%,
+    var(--bone-100) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding-bottom: 0.1em;
+  text-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+.hs-descriptor {
+  font-family: var(--sans);
+  font-size: clamp(14px, 1.05vw, 17px);
+  line-height: 1.6;
+  font-weight: 400;
+  color: var(--bone-200);
+  max-width: 520px;
+  margin: 0 0 32px;
+  text-shadow: 0 0 24px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transform: translateY(20px);
+  animation: hs-fade-up 1s ease-out 0.75s forwards;
+}
+.hs-descriptor-em {
+  color: var(--bone-100);
+  font-weight: 400;
+}
+
+/* CTA stack — primary above ghost, both left-aligned with the
+   copy. Each button keeps its own width (auto), they don't
+   stretch to fill the column. */
+.hs-cta-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 1s ease-out 0.95s forwards;
+}
+
+/* ---------- RIGHT COLUMN (eyebrow + scene) ----------
+   Eyebrow sits ABOVE the ring on this side, centered over the
+   scene's horizontal midpoint. */
+.hs-scene-col {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
+  justify-self: start;
 }
 
 .hs-eyebrow {
@@ -64,7 +133,7 @@
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--tex);
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   opacity: 0;
   transform: translateY(8px);
   animation: hs-fade-up 0.9s ease-out 0.4s forwards;
@@ -83,70 +152,12 @@
     rgba(86, 230, 220, 0) 100%);
 }
 
-.hs-headline {
-  font-family: var(--serif);
-  font-weight: 300;
-  font-style: italic;
-  font-size: clamp(30px, 3.6vw, 52px);
-  line-height: 1.1;
-  letter-spacing: -0.015em;
-  color: var(--bone-100);
-  margin: 0;
-  text-align: center;
-  opacity: 0;
-  transform: translateY(20px);
-  animation: hs-fade-up 1s ease-out 0.55s forwards;
-  background: linear-gradient(120deg,
-    var(--bone-100) 0%,
-    var(--tex-bright) 55%,
-    var(--bone-100) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  padding-bottom: 0.1em;
-  text-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
-}
-
-/* ---------- SCENE ROW ----------
-   3-column grid: flank | ring+figure | flank. The center column
-   takes its natural square size; flanking columns flex around it.
-   On narrower screens the row collapses to vertical (CTAs stack
-   below the scene). */
-.hs-scene-row {
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  justify-items: center;
-  gap: clamp(12px, 2vw, 32px);
-}
-
-.hs-flank {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: hs-fade-up 1s ease-out 1.1s forwards;
-}
-.hs-flank--left  { justify-content: flex-end;   }
-.hs-flank--right { justify-content: flex-start; }
-
 /* ---------- SCENE (ring + figure overlaid) ----------
-   The scene is a square sized to be the dominant element.
-   Generous: most of the available height and a healthy slice of
-   width. Capped at 900px on huge monitors so the ring doesn't
-   become absurdly large.
-
-   container-type: size lets children size with `cqh`/`cqw` units
-   against the scene's actual rendered size — critical for the
-   figure inside, which needs a stable reference. */
+   Sized to fit comfortably in the right column. container-type
+   lets the figure use cqh units for stable sizing. */
 .hs-scene {
   position: relative;
-  width: min(78vh, 56vw, 900px);
+  width: min(72vh, 50vw, 760px);
   aspect-ratio: 1;
   z-index: 2;
   container-type: size;
@@ -181,26 +192,8 @@
 }
 
 /* ---------- FIGURE STAGE ----------
-   Tex sits INSIDE the ring. He is positioned so his head is near
-   the top of the ring (under Discovery at 12 o'clock) and his
-   chest emblem sits near the ring's center (hub). His body
-   continues downward and is softly masked at the bottom so he
-   doesn't bleed below the perimeter.
-
-   We size everything against the scene's container, NOT against
-   the figure-stage itself — that avoids the feedback loop where
-   "height: X% of parent" with no parent height made Tex render
-   at his natural image size (way too big).
-
-   Position math:
-     - Container is the .hs-scene (1:1 aspect ratio).
-     - Figure-stage spans the full scene (inset: 0).
-     - Tex's image is sized at ~62% of scene HEIGHT (cqh), so
-       independent of any parent's content height.
-     - Inside figure-stage, Tex is positioned so his vertical
-       center sits at ~58% from the top of the scene. His head
-       lands at roughly the ring's 20% mark (just below Discovery),
-       his chest emblem sits at ~60% (near the hub). */
+   Same approach as before: positioner pulls Tex up so head lives
+   at the top of the ring, mask fades bottom of Tex's torso. */
 .hs-figure-stage {
   position: absolute;
   inset: 0;
@@ -208,13 +201,6 @@
   pointer-events: none;
   opacity: 0;
   animation: hs-figure-arrive 1.4s ease-out 0.5s forwards;
-  /* Soft fade at the bottom so Tex doesn't render past the ring's
-     lower perimeter. The mask spans the full scene; the top 80%
-     is fully opaque, the bottom 20% fades to transparent.
-
-     Note: the mask must NOT clip the floor disk (which extends a
-     bit below the scene) — we keep it in .hs-figure-stage but
-     allow overflow on the disk by setting it as a sibling. */
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0%,
@@ -235,15 +221,9 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Inner positioner: pushes Tex up so his head lives at the top
-   of the ring, not centered. Without this he'd center in the
-   figure-stage and his head would be at scene-center. */
 .hs-figure-position {
   position: absolute;
   left: 50%;
-  /* `top` is the y-coordinate of Tex's VERTICAL CENTER.
-     At 56% the chest emblem lands very close to the hub center,
-     head sits near the top of the ring. */
   top: 56%;
   transform: translate(-50%, -50%);
   display: flex;
@@ -254,7 +234,6 @@
 .hs-floor-disk {
   position: absolute;
   left: 50%;
-  /* Sit at the bottom of the visible Tex (about 88% of scene) */
   top: 88%;
   transform: translate(-50%, -50%);
   width: 36cqh;
@@ -307,11 +286,6 @@
 
 .hs-figure-img {
   display: block;
-  /* Sized against the SCENE's height via container query units.
-     The image's natural aspect ratio carries width along. 70cqh
-     means 70% of the scene's height — at a 900px scene that's
-     ~630px tall, which leaves the head clear of the ring's top
-     edge while filling the perimeter generously. */
   height: 70cqh;
   width: auto;
   filter:
@@ -385,36 +359,6 @@
   0%   { opacity: 0;    transform: translate(-50%, 50%) scale(0.4); }
   20%  { opacity: 0.55; }
   100% { opacity: 0;    transform: translate(-50%, 50%) scale(2.6); }
-}
-
-/* ---------- BOTTOM COPY (descriptor) ---------- */
-.hs-bottom-copy {
-  position: relative;
-  z-index: 5;
-  width: 100%;
-  max-width: 760px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.hs-descriptor {
-  font-family: var(--sans);
-  font-size: clamp(13px, 0.95vw, 15px);
-  line-height: 1.55;
-  font-weight: 400;
-  color: var(--bone-200);
-  max-width: 720px;
-  margin: 0;
-  text-shadow: 0 0 24px rgba(0, 0, 0, 0.9);
-  opacity: 0;
-  transform: translateY(20px);
-  animation: hs-fade-up 1s ease-out 1.25s forwards;
-}
-.hs-descriptor-em {
-  color: var(--bone-100);
-  font-weight: 400;
 }
 
 /* ---------- CTA BUTTONS ---------- */
@@ -523,7 +467,7 @@
   50%      { transform: translateY(4px); }
 }
 
-/* ---------- ANIMATION KEYFRAMES ---------- */
+/* ---------- KEYFRAMES ---------- */
 @keyframes hs-fade-in {
   to { opacity: 1; }
 }
@@ -535,7 +479,6 @@
    ECOSYSTEM RING — visual styles for EcosystemRing.jsx
    ============================================================= */
 
-/* Outer bezel — counter-rotating concentric rings */
 .er-bezel {
   transform-origin: 500px 500px;
   transform-box: view-box;
@@ -554,7 +497,6 @@
   stroke-width: 1.2;
 }
 
-/* Sweep arm — radar sweep one revolution per 24s */
 .er-sweep {
   transform-origin: 500px 500px;
   transform-box: view-box;
@@ -571,7 +513,6 @@
   opacity: 0.85;
 }
 
-/* Spokes — node → hub */
 .er-spoke {
   opacity: 0.55;
   transition: opacity 0.4s ease;
@@ -580,7 +521,6 @@
   opacity: 1;
 }
 
-/* Pings */
 .er-ping { pointer-events: none; }
 .er-ping--halo {
   fill: rgba(127, 241, 233, 0.55);
@@ -593,7 +533,6 @@
     drop-shadow(0 0 14px rgba(86, 230, 220, 0.7));
 }
 
-/* Main ring */
 .er-main-stroke {
   filter:
     drop-shadow(0 0 4px rgba(127, 241, 233, 0.55))
@@ -609,14 +548,12 @@
   50%      { opacity: 0.85; }
 }
 
-/* Hub */
 .er-hub circle {
   transform-origin: 500px 500px;
   transform-box: view-box;
 }
 .er-hub-inner { animation: er-spin-cw 30s linear infinite; }
 
-/* Nodes */
 .er-node-halo {
   fill: rgba(86, 230, 220, 0.18);
   transition: fill 0.4s ease;
@@ -659,7 +596,6 @@
   fill: rgba(127, 241, 233, 0.55);
 }
 
-/* Bearing labels — larger so they read at the new ring scale */
 .er-label { pointer-events: none; }
 .er-label-num {
   font-family: var(--mono);
@@ -688,37 +624,53 @@
    RESPONSIVE
    ============================================================= */
 
-/* Below ~1100px the 3-column flank layout starts to crowd. We
-   keep flanking until it stops working, then collapse to a single
-   column with CTAs below the scene. */
-@media (max-width: 1100px) {
-  .hs-stage { padding: 16px 24px 60px; }
-  .hs-scene { width: min(70vh, 70vw, 720px); }
-  .hs-headline { font-size: clamp(26px, 3.2vw, 40px); }
-  .hs-scene-row { gap: clamp(8px, 1.5vw, 20px); }
+/* Below ~1200px the columns get tight. Shrink gap + ring slightly. */
+@media (max-width: 1200px) {
+  .hs-stage { padding: 16px 32px 60px; gap: clamp(20px, 3vw, 48px); }
+  .hs-scene { width: min(68vh, 52vw, 680px); }
+  .hs-headline { font-size: clamp(28px, 3.8vw, 50px); }
 }
 
-@media (max-width: 900px) {
-  /* Collapse the 3-column row: flanks move below the scene. */
-  .hs-scene-row {
-    grid-template-columns: 1fr;
-    gap: 18px;
+/* Below 980px collapse to single column: scene on top, copy below.
+   CTAs go side-by-side again since they have horizontal room. */
+@media (max-width: 980px) {
+  .hs-stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    padding: 14px 24px 60px;
   }
-  .hs-flank--left, .hs-flank--right {
+  .hs-copy {
+    align-items: center;
+    text-align: center;
+    justify-self: center;
+    max-width: 640px;
+  }
+  .hs-cta-stack {
+    flex-direction: row;
+    align-items: center;
     justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hs-scene-col {
+    justify-self: center;
   }
   .hs-scene { width: min(70vw, 560px); }
+  /* Reorder so scene is FIRST visually */
+  .hs-scene-col { order: 1; }
+  .hs-copy      { order: 2; }
 }
 
 @media (max-width: 768px) {
-  .hs-stage { padding: 14px 16px 48px; gap: 14px; }
+  .hs-stage { padding: 14px 18px 48px; gap: 22px; }
   .hs-scene { width: min(86vw, 460px); }
-  .hs-headline { font-size: clamp(24px, 6vw, 32px); }
-  .hs-descriptor { font-size: 13px; line-height: 1.5; }
+  .hs-headline { font-size: clamp(26px, 6.2vw, 36px); }
+  .hs-descriptor { font-size: 14px; line-height: 1.55; }
   .er-label-num { font-size: 14px; }
   .er-label-name { font-size: 16px; }
   .er-label-name--em { font-size: 18px; }
   .hs-cta-primary, .hs-cta-ghost { padding: 14px 22px; font-size: 11px; }
+  .hs-cta-stack { flex-direction: column; width: 100%; max-width: 320px; gap: 12px; margin: 0 auto; }
+  .hs-cta-primary, .hs-cta-ghost { width: 100%; justify-content: center; }
   .hs-eyebrow { font-size: 10px; letter-spacing: 0.28em; }
 }
 

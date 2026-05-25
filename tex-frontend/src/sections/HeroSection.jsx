@@ -6,24 +6,29 @@ import './HeroSection.css';
 /* =============================================================
    HERO SECTION
 
-   Composition
-   -----------
-     [ scene row ]
-        [  CTA-left  ]   [  TEX inside RING  ]   [  CTA-right  ]
-     [ content ]
-        [ 360° GOVERNANCE eyebrow ]
-        [ The AI Airspace Control System ]
-        [ descriptor ]
+   Two-column composition:
 
-   The ring + Tex sit in the center column of a 3-column grid;
-   the CTAs flank the ring at left and right so they can't push
-   below the fold. Below the scene row, the eyebrow → headline →
-   descriptor form the vertical spine that the ring's bottom
-   anchor (Execution Governance at 6 o'clock) terminates into.
+     ┌───────────────────────┬───────────────────────┐
+     │                       │  ─ 360° GOVERNANCE ─  │
+     │  The AI Airspace      │                       │
+     │  Control System       │     [  RING + TEX  ]  │
+     │                       │                       │
+     │  Full-lifecycle...    │                       │
+     │                       │                       │
+     │  [ Book a demo  ]     │                       │
+     │  [ See how it… ]      │                       │
+     └───────────────────────┴───────────────────────┘
 
-   The "Tex" italic wordmark was removed — the chest emblem brands
-   the figure, and the wordmark was colliding with the avatar's
-   head. The 360° eyebrow does the brand-stamp job better.
+   Left column (.hs-copy):
+     - Headline (italic Fraunces, left-aligned)
+     - Descriptor
+     - CTA stack (primary + ghost, stacked vertically)
+   Right column (.hs-scene-col):
+     - 360° GOVERNANCE eyebrow
+     - Ring + Tex inside the ring
+
+   At <980px the two columns collapse to vertical: eyebrow + ring
+   first, then headline/descriptor/CTAs below.
 
    Props
    -----
@@ -35,23 +40,18 @@ export default function HeroSection({ openTrial, navigate }) {
   return (
     <section className="hero-section" id="top">
       <div className="hs-stage">
-        {/* TOP COPY — eyebrow + headline, sitting above Tex */}
-        <div className="hs-top-copy">
-          <div className="hs-eyebrow" aria-hidden="false">
-            <span className="hs-eyebrow-mark" />
-            <span className="hs-eyebrow-text">360° Governance</span>
-            <span className="hs-eyebrow-mark" />
-          </div>
-
+        {/* LEFT COLUMN — copy + CTAs */}
+        <div className="hs-copy">
           <h1 className="hs-headline">
             The AI Airspace Control System
           </h1>
-        </div>
 
-        {/* SCENE ROW — three columns: left CTA, ring+figure, right CTA */}
-        <div className="hs-scene-row">
-          {/* LEFT CTA — primary (Book a demo) */}
-          <div className="hs-flank hs-flank--left">
+          <p className="hs-descriptor">
+            Full-lifecycle governance for autonomous AI systems —
+            <span className="hs-descriptor-em"> spanning discovery, identity, observability, execution control, cryptographic evidence, and continuous evolution.</span>
+          </p>
+
+          <div className="hs-cta-stack">
             <button
               type="button"
               onClick={openTrial}
@@ -60,9 +60,28 @@ export default function HeroSection({ openTrial, navigate }) {
               <span>Book a demo</span>
               <span className="hs-cta-arrow">→</span>
             </button>
+            <a
+              href="/how-it-works"
+              className="hs-cta-ghost"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('/how-it-works');
+              }}
+            >
+              <span>See how it works</span>
+              <span className="hs-cta-arrow">→</span>
+            </a>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN — eyebrow above, ring + Tex below */}
+        <div className="hs-scene-col">
+          <div className="hs-eyebrow" aria-hidden="false">
+            <span className="hs-eyebrow-mark" />
+            <span className="hs-eyebrow-text">360° Governance</span>
+            <span className="hs-eyebrow-mark" />
           </div>
 
-          {/* CENTER — ring encircles Tex */}
           <div className="hs-scene">
             <div className="hs-ring-anchor">
               <EcosystemRing />
@@ -72,9 +91,6 @@ export default function HeroSection({ openTrial, navigate }) {
               <div className="hs-floor-disk" aria-hidden="true" />
               <div className="hs-scanline" aria-hidden="true" />
 
-              {/* Inner positioner — places Tex with his head near
-                  the top of the ring and his chest emblem near
-                  the ring's center hub. */}
               <div className="hs-figure-position">
                 <div className="hs-figure-breathe">
                   <img
@@ -92,29 +108,6 @@ export default function HeroSection({ openTrial, navigate }) {
               </div>
             </div>
           </div>
-
-          {/* RIGHT CTA — ghost (See how it works) */}
-          <div className="hs-flank hs-flank--right">
-            <a
-              href="/how-it-works"
-              className="hs-cta-ghost"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate('/how-it-works');
-              }}
-            >
-              <span>See how it works</span>
-              <span className="hs-cta-arrow">→</span>
-            </a>
-          </div>
-        </div>
-
-        {/* BOTTOM COPY — descriptor below Tex */}
-        <div className="hs-bottom-copy">
-          <p className="hs-descriptor">
-            Full-lifecycle governance for autonomous AI systems —
-            <span className="hs-descriptor-em"> spanning discovery, identity, observability, execution control, cryptographic evidence, and continuous evolution.</span>
-          </p>
         </div>
       </div>
 

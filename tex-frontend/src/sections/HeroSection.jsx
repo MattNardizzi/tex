@@ -107,7 +107,7 @@ export default function HeroSection({ openTrial, navigate }) {
 
       {/* QUIET SCROLL CUE -------------------------------------- */}
       <a
-        href="#what-tex-does"
+        href="#moment"
         className="tex-scroll-cue"
         aria-label="Continue"
       >

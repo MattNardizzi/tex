@@ -1,0 +1,178 @@
+/* ============================================================
+   MomentSection.css
+
+   Screen two. The background picks up where screen one's flat
+   warm canvas leaves off — same starting color (--tex-bg-1),
+   then drifts diagonally into the cool blue-rose room the
+   Execution card was designed to live in. The transition is
+   continuous: no seam, no hard edge.
+   ============================================================ */
+
+.tex-moment {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  background: linear-gradient(
+    135deg,
+    var(--tex-bg-1) 0%,
+    var(--tex-bg-2) 55%,
+    var(--tex-bg-3) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 96px 24px;
+}
+
+/* --- Ambient washes — the light coming through the window -- */
+.tex-moment-wash {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tex-moment-wash--blue {
+  top: 10%;
+  right: 8%;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(
+    circle,
+    rgba(195, 210, 235, 0.5) 0%,
+    rgba(195, 210, 235, 0) 70%
+  );
+}
+
+.tex-moment-wash--rose {
+  bottom: 14%;
+  left: 12%;
+  width: 340px;
+  height: 340px;
+  background: radial-gradient(
+    circle,
+    rgba(220, 200, 210, 0.4) 0%,
+    rgba(220, 200, 210, 0) 70%
+  );
+}
+
+/* --- Stage ------------------------------------------------- */
+.tex-moment-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --- Timestamp line — the only marketing voice on the page - */
+.tex-moment-timestamp {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--tex-ink-mute);
+  letter-spacing: 0.01em;
+  margin: 0 0 56px;
+  text-align: center;
+}
+
+/* --- The card — pixel-identical to ExecutionRoom card ------ */
+.tex-moment-card {
+  position: relative;
+  width: 100%;
+  max-width: 820px;
+  padding: 60px 64px 52px;
+  border-radius: 22px;
+  background: var(--tex-paper);
+  border: 0.5px solid rgba(0, 0, 0, 0.04);
+  box-shadow:
+    0 1px 2px rgba(40, 30, 20, 0.03),
+    0 24px 60px -16px rgba(60, 55, 75, 0.14),
+    0 50px 100px -30px rgba(80, 75, 95, 0.12);
+}
+
+.tex-moment-card-edge {
+  position: absolute;
+  top: 0;
+  left: 18%;
+  right: 18%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95),
+    transparent
+  );
+}
+
+.tex-moment-card-dot {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tex-coral);
+}
+
+.tex-moment-verdict {
+  font-family: var(--tex-serif);
+  font-size: 40px;
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+  color: var(--tex-ink);
+  font-weight: 400;
+  margin: 0 0 16px;
+  text-wrap: balance;
+  max-width: 720px;
+}
+
+.tex-moment-aside {
+  font-family: var(--tex-serif);
+  font-size: 36px;
+  line-height: 1.22;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink-soft);
+  font-weight: 400;
+  font-style: italic;
+  margin: 0 0 52px;
+}
+
+/* --- Actions — reuse hero button tokens -------------------- */
+.tex-moment-actions {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+/* --- Responsive -------------------------------------------- */
+@media (max-width: 720px) {
+  .tex-moment {
+    padding: 64px 18px;
+  }
+  .tex-moment-timestamp {
+    font-size: 15px;
+    margin-bottom: 36px;
+  }
+  .tex-moment-card {
+    padding: 40px 28px 36px;
+  }
+  .tex-moment-verdict {
+    font-size: 26px;
+  }
+  .tex-moment-aside {
+    font-size: 24px;
+    margin-bottom: 36px;
+  }
+  .tex-moment-wash--blue {
+    width: 240px;
+    height: 240px;
+  }
+  .tex-moment-wash--rose {
+    width: 220px;
+    height: 220px;
+  }
+}

@@ -10,44 +10,48 @@ import './MomentSection.css';
    claim, shown — not told — as Tex's own behavior.
 
    Two states, one room:
-     - "quiet"  : Orb centered, "All Quiet" beneath it. Resting state.
-                  Most of the time, this is what you see.
+     - "quiet"  : Orb centered, "All Quiet" beneath it. The state
+                  you land on. Held briefly.
      - "event"  : Orb drifts left. Beside it, in italic serif,
                   "I stopped something." then "I'd like you to look."
-                  A single button: Show me.
+                  A single button: Show me. This state is terminal —
+                  the section holds here until the user acts or
+                  scrolls on. Tex does not undo what it said.
 
-   The transition runs on a loop — quiet for a beat, event for a beat,
-   back to quiet. The user witnesses the rhythm of the product.
-   Nothing changes color. Nothing flashes. The composition does the work.
+   The transition runs once, when the section enters view. The
+   user witnesses Tex notice something, then sees the message hold.
+   Nothing loops. Nothing changes color. The composition does the work.
 
    Props
    -----
    onShowMe : () => void   — opens the Execution room / demo
-   onThanks : () => void   — (reserved; not used in this revision)
    ============================================================= */
 
-const QUIET_HOLD_MS = 4200;
-const EVENT_HOLD_MS = 6400;
-const TRANSITION_MS = 1400;
+/* Timing — the first quiet beat is short (~1.8s) so the transition
+   feels prompt when the user first scrolls in. After Tex speaks, the
+   section holds on "I stopped something" indefinitely. No loop back. */
+const QUIET_FIRST_HOLD_MS = 1800;
+const QUIET_HOLD_MS = 1800; // currently same; kept named for future tuning
 
 export default function MomentSection({
   onShowMe = () => {},
   // onThanks reserved for future use
 }) {
   const [phase, setPhase] = useState('quiet'); // 'quiet' | 'event'
+  const [hasFiredFirst, setHasFiredFirst] = useState(false);
   const timerRef = useRef(null);
   const sectionRef = useRef(null);
   const [inView, setInView] = useState(false);
 
-  // Only run the loop when the section is actually on screen — saves cycles
-  // and means the first time the user scrolls into it, they see "All Quiet"
-  // first, not the middle of a transition.
+  // Arm the loop as soon as the section starts entering the viewport.
+  // 20% is early enough that the first transition feels responsive on
+  // a normal scroll, but late enough that we're not animating off-screen.
   useEffect(() => {
     const node = sectionRef.current;
     if (!node) return;
     const io = new IntersectionObserver(
       ([entry]) => setInView(entry.isIntersecting),
-      { threshold: 0.35 }
+      { threshold: 0.2 }
     );
     io.observe(node);
     return () => io.disconnect();
@@ -59,15 +63,24 @@ export default function MomentSection({
       return;
     }
 
-    const hold = phase === 'quiet' ? QUIET_HOLD_MS : EVENT_HOLD_MS;
+    // Once Tex has spoken, the section holds on "I stopped something"
+    // permanently. The message has weight; we don't undo it. The user
+    // either clicks Show me or scrolls on.
+    if (phase === 'event') return;
+
+    // First quiet → event uses a shorter hold (~1.8s) so the user
+    // sees "All Quiet" land, register, then watch Tex speak.
+    const hold = hasFiredFirst ? QUIET_HOLD_MS : QUIET_FIRST_HOLD_MS;
+
     timerRef.current = setTimeout(() => {
-      setPhase((p) => (p === 'quiet' ? 'event' : 'quiet'));
+      setHasFiredFirst(true);
+      setPhase('event');
     }, hold);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [phase, inView]);
+  }, [phase, inView, hasFiredFirst]);
 
   return (
     <section

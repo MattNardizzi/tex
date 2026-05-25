@@ -1,0 +1,198 @@
+/* ============================================================
+   SelfSection — screen two
+
+   The hero canvas is bg-1. MomentSection opens on a diagonal
+   bg-1 → bg-3 drift. This section sits between them, so it
+   begins on bg-1 and lands on bg-2 — a gentle handoff that
+   keeps the room continuous. No seam between the hero, this
+   section, and the moment that follows.
+
+   Layout philosophy: the page is mostly empty. The six lines
+   are left-aligned inside a column capped at ~720px so the
+   eye can scan them as a single sentence broken across breaths.
+   Nothing is centered horizontally except the column itself.
+
+   Arrival: the section watches itself with an IntersectionObserver
+   in the JSX. When it crosses the threshold, the .tex-self--armed
+   class lands on the root, and each line transitions in on its
+   own delay. The transitions are owned here, in CSS, so the JS
+   stays a hair-thin trigger.
+   ============================================================ */
+
+.tex-self {
+  position: relative;
+  width: 100%;
+  /* Tall enough that the six lines fully resolve before the
+     user reaches the bottom. Not 100vh — a section that's
+     exactly one viewport feels like a discrete slide. We want
+     the page to feel continuous. */
+  min-height: 110vh;
+  background: linear-gradient(
+    180deg,
+    var(--tex-bg-1) 0%,
+    var(--tex-bg-1) 35%,
+    var(--tex-bg-2) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 140px 24px;
+  font-family: var(--tex-sans);
+  color: var(--tex-ink);
+}
+
+/* --- Ambient washes — same DNA as the moment that follows -- */
+.tex-self-wash {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tex-self-wash--cool {
+  top: -220px;
+  right: -240px;
+  width: 880px;
+  height: 880px;
+  background: radial-gradient(
+    circle at center,
+    rgba(195, 210, 235, 0.50) 0%,
+    rgba(195, 210, 235, 0.18) 35%,
+    rgba(195, 210, 235, 0.04) 60%,
+    rgba(195, 210, 235, 0) 78%
+  );
+}
+
+.tex-self-wash--rose {
+  bottom: -260px;
+  left: -220px;
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(
+    circle at center,
+    rgba(220, 195, 210, 0.36) 0%,
+    rgba(220, 195, 210, 0.12) 38%,
+    rgba(220, 195, 210, 0.04) 62%,
+    rgba(220, 195, 210, 0) 80%
+  );
+}
+
+/* --- Stage — the column the lines live inside ------------- */
+.tex-self-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 880px;
+}
+
+/* --- The lines --------------------------------------------- */
+.tex-self-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* The column for the sentences. Left-aligned so the eye
+     traces a single vertical line down their left edges — that
+     alignment is what makes six independent statements read as
+     one voice. */
+  max-width: 720px;
+}
+
+.tex-self-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-style: normal;
+  /* Big enough to feel like a statement, small enough that the
+     six lines fit comfortably on a laptop without reflowing in
+     a way that breaks the rhythm. */
+  font-size: clamp(34px, 4.2vw, 56px);
+  line-height: 1.22;
+  letter-spacing: -0.018em;
+  color: var(--tex-ink);
+  margin: 0;
+  padding: 22px 0;
+  text-wrap: balance;
+
+  /* Pre-arrival state. The line waits with a small upward
+     translation and a touch of blur, the same vocabulary the
+     hero uses for its arrival beats. */
+  opacity: 0;
+  transform: translateY(14px);
+  filter: blur(4px);
+  transition:
+    opacity 1.4s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 1.4s cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 1.4s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* The pivot — "I act, or I don't." — earns its weight from
+   the silence around it, not from a different typeface or
+   color. A little more vertical breathing room above and
+   below is the entire treatment. Resist the urge to do more. */
+.tex-self-line--pivot {
+  padding: 44px 0;
+}
+
+/* When the section enters view, the .tex-self--armed class
+   lands on the root and the lines transition in on their own
+   per-element delays (set inline from the JSX). */
+.tex-self--armed .tex-self-line {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* --- Screen-reader-only caption --------------------------- */
+.tex-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Responsive ------------------------------------------- */
+@media (max-width: 880px) {
+  .tex-self {
+    padding: 100px 24px;
+    min-height: 100vh;
+  }
+  .tex-self-line {
+    padding: 18px 0;
+  }
+  .tex-self-line--pivot {
+    padding: 32px 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .tex-self {
+    padding: 80px 22px;
+  }
+  .tex-self-line {
+    font-size: clamp(26px, 7vw, 34px);
+    padding: 14px 0;
+  }
+  .tex-self-line--pivot {
+    padding: 24px 0;
+  }
+  .tex-self-wash--cool,
+  .tex-self-wash--rose {
+    width: 520px;
+    height: 520px;
+  }
+}
+
+/* --- Reduced motion --------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tex-self-line {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+}

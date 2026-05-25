@@ -16,8 +16,8 @@
   min-height: 100vh;
   background: linear-gradient(
     160deg,
-    var(--tex-bg-1) 0%,
-    var(--tex-bg-2) 55%,
+    var(--tex-bg-2) 0%,
+    var(--tex-bg-2) 35%,
     var(--tex-bg-3) 100%
   );
   display: flex;

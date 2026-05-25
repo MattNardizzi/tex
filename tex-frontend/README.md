@@ -1,6 +1,8 @@
-# Tex frontend — v3.1
+# Tex frontend — v4.0
 
-Homepage: hero → moment. One word, then one decision.
+Homepage: hero → self → moment → lifecycle. The hero declares.
+The self section is Tex's own reply. The moment proves it. The
+lifecycle holds.
 
 ## What's here
 
@@ -15,10 +17,14 @@ tex-frontend/
     ├── App.jsx
     ├── styles.css                 ← global tokens (shared with the product)
     ├── sections/
-    │   ├── HeroSection.jsx        ← screen 1 — "Quiet."
+    │   ├── HeroSection.jsx        ← screen 1 — "Absolute."
     │   ├── HeroSection.css
-    │   ├── MomentSection.jsx      ← screen 2 — the Kestrel card
-    │   └── MomentSection.css
+    │   ├── SelfSection.jsx        ← screen 2 — Tex, on what it does
+    │   ├── SelfSection.css
+    │   ├── MomentSection.jsx      ← screen 3 — "I stopped something."
+    │   ├── MomentSection.css
+    │   ├── LifecycleSection.jsx   ← screen 4 — "Before. During. After."
+    │   └── LifecycleSection.css
     └── components/
         ├── CalendlyModal.jsx      ← Show me → Calendly
         └── CalendlyModal.css
@@ -41,30 +47,64 @@ src/components/CalendlyModal.jsx
 
 at the constant `CALENDLY_URL`.
 
-## The two screens
+## The four screens
 
 ### Screen 1 — Hero
 Flat warm canvas (`--tex-bg-1`). The whole pitch in one frame:
 
-- **Quiet.** — Source Serif 4, up to 240px
+- **Absolute.** — Source Serif 4, up to 280px
 - Every agent. Every action. Every stage of its life.
 - *Tex is the only system that governs all of it.*
 - **Show me** → Calendly
 - Quiet down-arrow → scrolls to screen 2
 
-### Screen 2 — Moment
-Diagonal cool drift (`--tex-bg-1` → `--tex-bg-2` → `--tex-bg-3`) plus
-two ambient washes — the light coming through the window. Pixel-identical
-to the Execution card in the product.
+### Screen 2 — Self
+Tex's own reply. Six plain sentences, arriving one beat at a
+time on scroll. No grid. No numbers. No icons. No subheads. A
+poem, not a feature list.
 
-- *Monday, 9:14 a.m. · A real decision Tex made this morning.*
-- **The Kestrel card.** Same component, same voice, same buttons.
+> I find every agent.
+> I verify who they are.
+> I watch behavior over time.
+>
+> I act, or I don't.
+>
+> I show my work.
+> I get sharper.
+
+The fourth line is the pivot. The three above it describe what
+Tex does to the world. The two below describe what Tex owes the
+human. The line earns its weight from the silence around it,
+not from a different typeface or color. Ma is the entire
+treatment.
+
+### Screen 3 — Moment
+Diagonal cool drift (`--tex-bg-1` → `--tex-bg-2` → `--tex-bg-3`)
+plus two ambient washes — the light coming through the window.
+Pixel-identical to the Execution card in the product.
+
+The previous section's promise — *"I act, or I don't"* — is paid
+off here, in the *don't*:
+
+- **I stopped something.**
+- *I'd like you to look.*
 - `Show me` → `/execution` (the live room)
-- `Thank you` → quiet acknowledgement
 
-The marketing site and the product share one design system. Nothing
-is a screenshot. The card on the homepage is the same component the
-customer sees the first time Tex needs them.
+The marketing site and the product share one design system.
+Nothing is a screenshot. The card on the homepage is the same
+component the customer sees the first time Tex needs them.
+
+### Screen 4 — Lifecycle
+The room is the same. The orb is gone. One italic sentence,
+centered, big enough to hold the page alone:
+
+> *I'm there before the action. During it. After.*
+
+The triple beat names the six rooms — Discovery, Identity,
+Observability sit in the *before*; Execution in the *during*;
+Evidence and Evolution in the *after* — without ever naming
+a system. The user hears the sentence; the architecture is
+the subtext.
 
 ## Tokens — single source of truth
 
@@ -84,7 +124,8 @@ All colors, type, and radii come from `:root` in `src/styles.css`.
 
 ## What's not on the homepage (intentionally)
 
-- No feature grid of the six rooms
+- No feature grid of the six rooms — the self section is a
+  poem, not tiles
 - No customer logos / press bar
 - No "how it works" diagram
 - No annotations pointing at parts of the card
@@ -92,5 +133,8 @@ All colors, type, and radii come from `:root` in `src/styles.css`.
 - No avatar in the hero
 - No "Book a demo" / "See how it works" two-button stack
 - No throughput brag ("4,827 decisions this hour")
+- No numbered steps, icons, or subheads on the self section
+- No operator vocabulary anywhere — Tex speaks; the user ratifies
 
-The hero promises. The moment proves. That's the whole page.
+The hero declares. The self section answers. The moment proves.
+The lifecycle holds. That's the whole page.

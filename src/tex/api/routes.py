@@ -189,30 +189,37 @@ def evidence_bundle_for_decision(
     Return the hash-chained evidence bundle containing every record
     associated with a decision_id.
 
-    The bundle includes chain verification, so consumers can
-    independently confirm that no record has been tampered with.
+    The bundle is a *slice* of the global chain. To enable
+    inclusion-proof verification against the parent chain, the bundle
+    envelope carries ``prior_link_witness`` — the ``record_hash`` of
+    the record immediately preceding the first record of the slice in
+    the global JSONL chain (``None`` if the slice begins at the chain
+    genesis). External verifiers reproduce this witness against their
+    own copy of the chain to confirm continuity, the same way
+    Certificate Transparency clients and Sigstore Rekor verifiers
+    consume audit proofs.
+
+    Until Thread 6 landed, this endpoint reported
+    ``is_chain_valid: False`` on every single-record bundle that was
+    not the global genesis, with the issue text "first record must
+    not contain a previous_hash" (KNOWN_BUGS #5). The verifier was
+    treating the slice's first record as if it were the chain genesis.
+    The fix is the witness pattern below.
     """
     exporter = _require_app_state_attr(request, "evidence_exporter")
     exporter_obj = cast(Any, exporter)
 
-    records = exporter_obj.filter_records(decision_id=decision_id)
-    if not records:
+    bundle = exporter_obj.build_slice_bundle(
+        export_name=f"decision-{decision_id}",
+        decision_id=decision_id,
+    )
+
+    if bundle.record_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"no evidence records for decision: {decision_id}",
         )
 
-    from tex.evidence.chain import verify_evidence_chain
-    from tex.evidence.exporter import EvidenceExportBundle
-
-    verification = verify_evidence_chain(records)
-    bundle = EvidenceExportBundle(
-        export_name=f"decision-{decision_id}",
-        record_count=len(records),
-        is_chain_valid=verification.is_valid,
-        verification=verification,
-        records=records,
-    )
     return bundle.to_dict()
 
 

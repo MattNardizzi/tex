@@ -58,6 +58,19 @@ from tex.evidence.recorder import EvidenceRecorder
 from tex.evidence.c2pa_emitter import C2paEmitter
 from tex.evidence.manifest_mirror import PostgresManifestMirror
 from tex.ecosystem.state import EcosystemState
+# Thread 7: EcosystemEngine integration. Collaborators are imported here
+# at module load so the construction graph is explicit. None of these
+# imports trigger the historical ``tex.events.crypto_provenance`` cycle
+# because Thread 4 already broke that cycle in ``tex.ecosystem.engine``
+# (the ``CryptoProvenance`` reference there is deferred to TYPE_CHECKING).
+from tex.ecosystem.bridge import EcosystemBridge
+from tex.ecosystem.engine import EcosystemEngine
+from tex.events.crypto_provenance import CryptoProvenance
+from tex.events._ecdsa_provider import default_signature_provider
+from tex.events.ledger import InMemoryLedger
+from tex.graph.projection import StateProjection
+from tex.graph.temporal_kg import InMemoryTemporalKG
+from tex.ontology import EntityTypeRegistry, EventTypeRegistry, OntologyValidator
 from tex.systemic.digital_twin import EcosystemDigitalTwin
 from tex.learning.calibrator import ThresholdCalibrator, build_default_calibrator
 from tex.learning.calibration_safety import CalibrationSafetyGuard
@@ -209,6 +222,25 @@ class TexRuntime:
     # discovery + drift loops keep current).
     ecosystem_twin: Any = None
     ecosystem_state_factory: Any = None
+
+    # Thread 7: EcosystemEngine integration.
+    # ----------------------------------------------------------------------
+    # ``ecosystem_engine`` is the long-lived ``EcosystemEngine`` instance.
+    # Its own ``_enabled`` attribute reads ``TEX_ECOSYSTEM`` at construction
+    # time; if the flag is off, ``engine.evaluate()`` short-circuits to an
+    # inert PERMIT in O(1) with no graph or ledger mutation. The engine is
+    # therefore safe to construct unconditionally and pass to every
+    # ``EvaluateActionCommand``.
+    #
+    # ``ecosystem_bridge`` wraps the engine and exposes
+    # ``emit_verdict(routing_result=..., actor_entity_id=..., ...)`` so the
+    # evaluate command can forward a six-layer ``RoutingResult`` without
+    # knowing anything about ``ProposedEvent`` schema. When
+    # ``TEX_ECOSYSTEM=0`` (the default), the engine's short-circuit
+    # guarantees bit-for-bit identical behavior with the pre-Thread-7
+    # response shape.
+    ecosystem_engine: Any = None
+    ecosystem_bridge: Any = None
 
 
 class InMemoryPolicyClauseStoreAdapter:
@@ -723,6 +755,82 @@ def build_runtime(
     )
     calibrator = build_default_calibrator()
 
+    # ----- Thread 7: EcosystemEngine integration --------------------------
+    #
+    # Build the eight-step EcosystemEngine and its bridge. The engine itself
+    # reads ``TEX_ECOSYSTEM`` at construction time (via
+    # ``_read_flag_from_env``). When the flag is unset or != "1" — the
+    # default — the engine's ``evaluate()`` short-circuits to an inert
+    # PERMIT in O(1) with zero graph or ledger mutation. This is the
+    # backward-compat guarantee: pre-Thread-7 deployments see byte-for-byte
+    # identical responses regardless of whether the engine is constructed.
+    #
+    # When ``TEX_ECOSYSTEM=1``, the engine runs the full eight-step
+    # pipeline (steps 1-7 wired; step 8 pending Thread 8) and the bridge
+    # forwards every PDP ``RoutingResult`` through it. Axis scores are
+    # folded into the ``EvaluationResponse.scores`` dict under the
+    # ``ecosystem.*`` namespace (see ``EvaluateActionCommand`` for the
+    # exact projection).
+    #
+    # Collaborator wiring decisions:
+    #
+    #   * ``InMemoryTemporalKG``: fresh instance per process. The graph
+    #     accumulates events across the lifetime of the process — this is
+    #     intentional and matches the canonical ``docs/ecosystem.md``
+    #     constructor surface. Postgres-backed graph state is a Thread-9+
+    #     concern.
+    #   * ``InMemoryLedger``: signed with the same ECDSA-P256 keypair
+    #     used by ``CryptoProvenance``, so the engine's ledger writes
+    #     and the provenance signature verify against the same public
+    #     key. Production deployments override the signing provider via
+    #     ``TEX_SIGNATURE_DEFAULT`` (Thread 9+).
+    #   * ``CryptoProvenance``: receives the same keypair so the signed
+    #     ``Event`` records that flow into the ledger are verifiable by
+    #     the ledger's own ``verifying_public_key``.
+    #   * The engine accepts ``enabled=None`` so it reads the env flag
+    #     directly. We do NOT pass ``enabled=True`` here — that would
+    #     override operator intent.
+    #
+    # The bridge is always constructed. Its ``emit_verdict()`` is the
+    # only entry the evaluate command knows about; the engine's
+    # short-circuit on the disabled path makes the bridge a no-op-with-
+    # telemetry when the flag is off.
+    _ecosystem_signing_provider = default_signature_provider()
+    _ecosystem_signing_keypair = _ecosystem_signing_provider.generate_keypair(
+        "tex-ecosystem-engine"
+    )
+    _ecosystem_graph = InMemoryTemporalKG()
+    _ecosystem_projection = StateProjection(graph=_ecosystem_graph)
+    _ecosystem_ledger = InMemoryLedger(
+        verifying_public_key=_ecosystem_signing_keypair.public_key,
+        signing_provider=_ecosystem_signing_provider,
+    )
+    _ecosystem_provenance = CryptoProvenance(
+        signing_key=_ecosystem_signing_keypair,
+        signing_provider=_ecosystem_signing_provider,
+    )
+    _ecosystem_ontology = OntologyValidator(
+        entity_registry=EntityTypeRegistry(),
+        event_registry=EventTypeRegistry(),
+        event_lookup=_ecosystem_ledger,
+    )
+    # ``enabled=None`` → engine reads TEX_ECOSYSTEM from env. Default off.
+    ecosystem_engine = EcosystemEngine(
+        ontology=_ecosystem_ontology,
+        graph=_ecosystem_graph,
+        projection=_ecosystem_projection,
+        events=_ecosystem_ledger,
+        provenance=_ecosystem_provenance,
+        # Step-3 contract axis: reuse the stateless enforcer when one
+        # was constructed; otherwise the session registry's enforcer
+        # snapshot is not yet available at engine-construction time
+        # (sessions are per-request), so we pass the stateless one or
+        # ``None``. When ``None``, the engine reports
+        # ``contract_violation_severity=0.0`` (no contracts evaluated).
+        contracts=contract_enforcer,
+    )
+    ecosystem_bridge = EcosystemBridge(engine=ecosystem_engine)
+
     evaluate_action_command = EvaluateActionCommand(
         pdp=pdp,
         policy_store=policy_store,
@@ -733,6 +841,13 @@ def build_runtime(
         agent_registry=agent_registry,
         tenant_baseline=tenant_baseline,
         memory_system=memory,
+        # Thread 7: ecosystem bridge for the optional eight-step pass.
+        # The command calls ``bridge.emit_verdict(...)`` after PDP runs
+        # and folds axis scores into the response only when
+        # ``TEX_ECOSYSTEM=1``. With the flag off, the engine inside the
+        # bridge short-circuits and the command path is bit-for-bit
+        # identical to its pre-Thread-7 shape.
+        ecosystem_bridge=ecosystem_bridge,
     )
 
     # ── V17: Learning/Drift layer ─────────────────────────────────────────
@@ -952,6 +1067,9 @@ def build_runtime(
         manifest_mirror=manifest_mirror,
         ecosystem_twin=ecosystem_twin,
         ecosystem_state_factory=_build_ecosystem_state,
+        # Thread 7
+        ecosystem_engine=ecosystem_engine,
+        ecosystem_bridge=ecosystem_bridge,
     )
 
 
@@ -1216,6 +1334,16 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # trajectory on every call.
     app.state.ecosystem_twin = runtime.ecosystem_twin
     app.state.ecosystem_state_factory = runtime.ecosystem_state_factory
+
+    # Thread 7: ecosystem engine + bridge.
+    # ------------------------------------------------------------------
+    # Published on app.state so future routes (incident attribution that
+    # wants to consult the engine's graph, admin endpoints for the floor
+    # store, etc.) can read them without dependency-injecting through
+    # the runtime. The evaluate command already holds its own bridge
+    # reference via constructor wiring; this is for additional consumers.
+    app.state.ecosystem_engine = runtime.ecosystem_engine
+    app.state.ecosystem_bridge = runtime.ecosystem_bridge
 
 
 def _seed_default_policies(policy_store: InMemoryPolicyStore) -> None:

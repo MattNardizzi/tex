@@ -2,6 +2,11 @@ import React, { useEffect, useRef, useState, useCallback, useContext, createCont
 import texAvatar from './tex-avatar.png';
 import './styles.css';
 
+// Section components (modular — each section in its own file).
+// We started this migration with the hero. Later sections will follow
+// the same pattern: one .jsx + one .css per section in src/sections/.
+import HeroSection from './sections/HeroSection.jsx';
+
 // WebGL backdrop is heavy (Three.js ~600KB). Lazy-load it so the
 // initial page shell paints fast; the backdrop fades in once chunked
 // JS arrives. CSS shows a deep base color while we wait.
@@ -642,119 +647,56 @@ function FullBleedTex({ active, setActive }) {
 /* =============================================================
    HERO — the magazine cover composition
    ============================================================= */
-
 function Hero({ active, setActive }) {
   const { openTrial } = useTrial();
 
-  const ecosystemLayers = [
-    {
-      id: '01',
-      title: 'Discovery',
-      desc: 'Continuously maps every AI agent operating inside your environment.',
-      emphasis: false,
-    },
-    {
-      id: '02',
-      title: 'Identity',
-      desc: 'Binds every agent to ownership, scope, and trust authority.',
-      emphasis: false,
-    },
-    {
-      id: '03',
-      title: 'Observability',
-      desc: 'Tracks runtime behavior, workflows, drift, and anomalies.',
-      emphasis: false,
-    },
-    {
-      id: '04',
-      title: 'Execution Governance',
-      desc: 'Adjudicates every sensitive action before the agent executes.',
-      emphasis: true,
-    },
-    {
-      id: '05',
-      title: 'Enforcement',
-      desc: 'Permits, abstains, or forbids actions in real time.',
-      emphasis: false,
-    },
-    {
-      id: '06',
-      title: 'Evidence',
-      desc: 'Cryptographically seals every decision into tamper-evident proof.',
-      emphasis: false,
-    },
-  ];
-
   return (
-    <section className="hero-ecosystem" id="top">
-      <div className="hero-noise" />
+    <section className="hero hero-v11" id="top">
+      {/* The full-bleed Tex */}
+      <FullBleedTex active={active} setActive={setActive} />
 
-      <div className="hero-copy">
-        <div className="hero-kicker">
-          <span className="hero-kicker-dot" />
-          <span>TEX / VORTEXBLACK</span>
-          <span className="hero-kicker-sep">•</span>
-          <span>Execution-Time AI Authority</span>
+      {/* Headline locked to Tex's anatomy — kicker above, italic across upper chest */}
+      <div className="hv11-headline-wrap">
+        <div className="hv11-kicker">
+          <span className="hv11-kicker-dot" />
+          <span>Tex by VortexBlack</span>
+          <span className="hv11-kicker-sep">/</span>
+          <span>Built for insurtechs and MGAs · Deployed in 4–6 weeks</span>
         </div>
-
-        <h1 className="hero-title">
-          AI Agent
-          <span className="hero-title-italic"> Ecosystem Authority</span>
+        <h1 className="hv11-headline">
+          <span className="hv11-h-line">Cryptographic evidence</span>
+          <span className="hv11-h-line hv11-h-italic">for every AI underwriting and claims decision.</span>
         </h1>
+      </div>
 
-        <p className="hero-subtitle">
-          The control layer between AI agents and the real world.
-          Every high-risk action routes through Tex before execution.
-        </p>
-
-        <div className="hero-actions">
-          <button type="button" onClick={openTrial} className="btn-primary hero-primary">
+      {/* Bottom telemetry bar */}
+      <div className="hv11-bottom">
+        <div className="hv11-bottom-left">
+          <button type="button" onClick={openTrial} className="btn-primary hv11-cta">
             <span>Book a demo</span>
             <span className="btn-arrow">→</span>
           </button>
-
-          <a href="#control-plane" className="btn-ghost hero-secondary">
-            See how it works
+          <a href="#layer-01" className="btn-ghost hv11-trace">
+            <span className="hv11-trace-full">Trace the seven layers</span>
+            <span className="hv11-trace-short">Trace the layers</span>
           </a>
         </div>
-      </div>
 
-      <div className="ecosystem-ring-wrap">
-        <div className="ecosystem-ring" />
-
-        <div className="ecosystem-arc ecosystem-arc-a" />
-        <div className="ecosystem-arc ecosystem-arc-b" />
-
-        {ecosystemLayers.map((layer, index) => {
-          const angle = (360 / ecosystemLayers.length) * index - 90;
-          const radius = 39;
-
-          return (
-            <div
-              key={layer.id}
-              className={`ecosystem-node ${layer.emphasis ? 'ecosystem-node-emphasis' : ''}`}
-              style={{
-                left: `${50 + radius * Math.cos((angle * Math.PI) / 180)}%`,
-                top: `${50 + radius * Math.sin((angle * Math.PI) / 180)}%`,
-              }}
-            >
-              <div className="ecosystem-node-inner">
-                <span className="ecosystem-node-id">{layer.id}</span>
-                <h3>{layer.title}</h3>
-                <p>{layer.desc}</p>
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="tex-core">
-          <div className="tex-core-glow" />
-          <img src={texAvatar} alt="Tex" className="tex-core-avatar" />
+        <div className="hv11-readout" aria-hidden="false">
+          <span className="hv11-readout-dot" />
+          <span className="hv11-readout-label">RUNTIME</span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value">142<span className="hv11-readout-unit">ms p95</span></span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value hv11-readout-strong">14.4<span className="hv11-readout-unit">M sealed</span></span>
+          <span className="hv11-readout-sep" />
+          <span className="hv11-readout-value hv11-readout-strong">2.41<span className="hv11-readout-unit">M / day</span></span>
         </div>
       </div>
     </section>
   );
 }
+
 
 
 /* =============================================================
@@ -3248,9 +3190,12 @@ function HomeFooterV13() {
 }
 
 function HomePage({ active, setActive }) {
+  const { openTrial } = useTrial();
   return (
     <main className="page page--home-v13">
-      <HeroV14 />
+      {/* New modular hero — six-layer ecosystem ring above Tex.
+          Calendly + routing wired through context + module-scope helper. */}
+      <HeroSection openTrial={openTrial} navigate={navigate} />
       <VerbChainV13 />
       <BuiltForProofV13 />
       <RegulatoryAnchorsV13 />

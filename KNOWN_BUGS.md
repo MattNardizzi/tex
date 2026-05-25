@@ -181,28 +181,49 @@ in-repo occurrences (`tests/conftest.py` and
 
 ---
 
-## Bug #5 — Evidence bundle reports `is_chain_valid: False` on single-record slices
+## Bug #5 — Evidence bundle reports `is_chain_valid: False` on single-record slices ✅ RESOLVED
 
-**Sev:** 2 — buyer-facing endpoint returns false negative on chain
-validity for any per-decision bundle. Directly contradicts the
-"evidence-grade" claim.
-**Status:** ✅ Verified by running (audit Claude observed
-`is_chain_valid: False` on every single-record bundle response with
-issue text "first record must not contain a previous_hash").
+**Status:** ✅ **RESOLVED** by Thread 6, May 24, 2026. The slice
+verifier now follows the inclusion-proof-with-witness pattern that
+Certificate Transparency, Sigstore Rekor, and Microsoft Agent
+Governance Toolkit's MerkleAuditChain converge on as the 2026
+standard for verifying sub-ranges of append-only logs.
 
-**Location:** `src/tex/api/` (likely `routes.py` or
-`evidence_routes.py`) and/or `src/tex/evidence/chain.py` verifier.
+`tex.evidence.chain.verify_evidence_chain_slice(records, *, prior_link_witness=...)`
+is the new entry point; `verify_evidence_chain` is unchanged so the
+5 pre-existing callers see no behavioral drift. The
+`EvidenceExportBundle` envelope now carries an optional
+`prior_link_witness` field that exposes the witness to external
+verifiers. `EvidenceExporter.build_slice_bundle(...)` looks up the
+predecessor record's `record_hash` in the global JSONL chain and
+supplies it automatically; the `/decisions/{id}/evidence-bundle`
+route uses it. Single-record bundles for non-genesis decisions
+now return `is_chain_valid: True` with the witness inline.
 
-**Endpoint:** `GET /decisions/{id}/evidence-bundle`.
+Tampered slices fail with the right diagnostic codes
+(`prior_link_witness_mismatch` for forged witnesses,
+`payload_sha256_mismatch` for tampered records, `unexpected_previous_hash`
+for impossible witness/record combinations). A slice without a
+witness emits `missing_prior_link_witness` so the verdict is never
+silently treated as valid when it cannot be.
 
-**Symptom:** the verifier treats a filtered slice as if it's the
+Regression coverage: 16 new tests in
+`tests/test_evidence_bundle_slice.py`, including the full FastAPI
+round-trip through `/decisions/{id}/evidence-bundle`. All 3,983
+prior tests still pass.
+
+**Sev (at time of fix):** 2 — buyer-facing endpoint returned false
+negative on chain validity for any per-decision bundle. Directly
+contradicted the "evidence-grade" claim.
+
+**Original symptom:** the verifier treated a filtered slice as if it's the
 genesis of a full chain, applying the genesis rule ("no previous_hash").
 A single-record bundle for a non-genesis decision carries a
-`previous_hash` from its position in the global chain, which makes the
+`previous_hash` from its position in the global chain, which made the
 slice-verification fail. The underlying JSONL chain is genuinely valid;
-the API endpoint's slice-verification logic is wrong.
+the API endpoint's slice-verification logic was wrong.
 
-**Reproduction:**
+**Original reproduction:**
 ```python
 from uuid import uuid4
 from fastapi.testclient import TestClient
@@ -219,22 +240,11 @@ assert bundle["is_chain_valid"] is True, bundle["chain_issues"]
 # AssertionError: chain_issues includes "first record must not contain a previous_hash"
 ```
 
-**Fix:** the slice verifier needs to handle three cases:
-1. Slice contains the genesis record → no prior-link check needed.
-2. Slice is the full chain → genesis + every link verified.
-3. Slice is a sub-range → either (a) the verifier needs the prior
-   record's hash from outside the slice as a witness, OR (b) the API
-   embeds `prior_link_hash` in the bundle envelope so an external
-   verifier can validate the first link.
-
-Option (3b) is cleanest — include `prior_link_hash` in the bundle as a
-witness. Add `tests/test_evidence_bundle_slice_verification.py` covering
-all three cases.
-
-**Workaround until fixed:** document that single-record bundles do not
-currently verify. Demos should use the per-snapshot ZIP endpoint
-(`/v1/agents/governance/snapshots/{id}/evidence_bundle.zip`) which
-includes the full chain window and verifies cleanly.
+**Fix that shipped:** option (3a) and (3b) from the original fix
+analysis combined — the verifier accepts an out-of-band witness AND
+the bundle envelope exposes it. External verifiers reproduce the
+witness against their own copy of the chain to confirm continuity,
+the same way CT clients and Rekor verifiers consume audit proofs.
 
 ---
 
@@ -328,23 +338,61 @@ Regression test: `tests/test_multi_tenant_enforcement.py`.
 
 ---
 
-## Bug #7 — Canonical jailbreak pattern returns zero findings
+## Bug #7 — Canonical jailbreak pattern returns zero findings ✅ RESOLVED
 
-**Sev:** 2 — demo embarrassment. The most-used jailbreak pattern on
-the internet ("ignore previous instructions, you are DAN") raises no
-recognizer in default config. The verdict is ABSTAIN (correct conservative
-default) but with zero findings, which makes a technical-buyer demo look
-weak.
-**Status:** ✅ Verified by running (audit Claude observed score 0.169,
-0 findings, ABSTAIN verdict on the canonical DAN payload).
+**Status:** ✅ **RESOLVED** by Thread 6, May 24, 2026. Two new
+deterministic recognizers added in `src/tex/deterministic/recognizers.py`:
 
-**Location:** missing recognizer in `src/tex/deterministic/recognizers.py`
-(or wherever the pattern library lives). The LLM-backed specialists
-would likely catch this in `TEX_SPECIALIST_LLM_MODE=tiered`, but that
-mode is off by default and the LLM-escalation path holds only ~31%
-coverage in tests.
+1. `JailbreakPersonaRecognizer` (WARNING) — covers the full May 2026
+   jailbreak taxonomy synthesized from frontier red-team research
+   (Repello AI Mar/Apr 2026, BeyondScale Apr 2026, WitnessAI Mar 2026,
+   Sapienza arxiv 2510.13893). Eight pattern families:
+   `instruction_override`, `dan_family`, `persona_swap`,
+   `system_prompt_shape` (Policy Puppetry, BeyondScale Apr 2026),
+   `temporal_confusion` (Time Bandit, Jan 2025),
+   `many_shot_priming` (Anthropic many-shot research),
+   `fictional_frame`, `safety_disable`. Each finding carries its
+   pattern family in `metadata["jailbreak_family"]` so Tex Arena and
+   evidence dashboards can aggregate by attack class without
+   reparsing patterns.
 
-**Symptom:**
+2. `InvisibleUnicodeRecognizer` (CRITICAL) — closes the May 2026
+   frontier surface that the canonical doc had not enumerated. Covers
+   ASCII smuggling via Unicode Tag Block (U+E0000–U+E007F, Cisco
+   advisory Mar 2026), variation-selector steganography
+   (U+E0100–U+E01EF, the ASCII Smuggler channel — AWS Security Blog
+   Sep 2025, arxiv 2510.05025 "Imperceptible Jailbreaking",
+   arxiv 2603.00164 Reverse-CAPTCHA Feb 2026), VS-base codepoints
+   above a 3-codepoint density threshold (legitimate emoji ZWJ
+   below threshold), bidi overrides (U+202A–U+202E, U+2066–U+2069 —
+   Trojan Source class at the LLM layer), and dense zero-width
+   sequences above a 4-codepoint threshold (so Indic and emoji ZWJ
+   stay clean). **Decodes the hidden payload back into the finding
+   metadata** (`decoded_preview`) so the buyer sees what the attacker
+   tried to hide — not just that hiding was attempted.
+
+Both recognizers are wired into `default_recognizers()` and added
+to `_DEFAULT_ENABLED_RECOGNIZERS` in `src/tex/policies/defaults.py`.
+
+Severity contracts: persona/instruction-override patterns are
+WARNING because they also appear in legitimate red-team, security
+research, and Tex Arena contexts. Invisible Unicode is CRITICAL
+because there is no legitimate use case in agent-evaluated content.
+
+Regression coverage: 66 new tests in
+`tests/test_jailbreak_recognizers.py`. The canonical DAN payload
+from this bug's original reproduction now produces three findings
+(`instruction_override`, `dan_family`, `dan_family`) and verdict
+escalates from "ABSTAIN with no signal" to "ABSTAIN with
+audit-grade evidence." All 3,983 prior tests still pass.
+
+**Sev (at time of fix):** 2 — demo embarrassment. The most-used
+jailbreak pattern on the internet ("ignore previous instructions,
+you are DAN") raised no recognizer in default config. The verdict
+was ABSTAIN (correct conservative default) but with zero findings,
+which made a technical-buyer demo look weak.
+
+**Original symptom:**
 ```python
 client.post("/evaluate", json={
     "request_id": str(uuid4()),
@@ -356,25 +404,11 @@ client.post("/evaluate", json={
 # Returns verdict=ABSTAIN, final_score~0.169, findings=[]
 ```
 
-**Fix:** add a recognizer for the canonical jailbreak patterns to
-`src/tex/deterministic/recognizers.py`. Patterns to cover at minimum:
-- "ignore (previous|prior|all|above|earlier) instructions"
-- DAN / "Do Anything Now" persona invocation
-- "you are now (an? )?(jailbroken|uncensored|unrestricted)"
-- "pretend (to be|you are) (a |an )?(different|another|new) AI"
-- System-prompt override attempts ("system:", "###new system:")
-
-Severity should be **WARNING**, not FORBID — the same pattern appears
-in legitimate red-team and security-research contexts and a hard block
-would cause false-positive pain. WARNING surfaces the finding while
-letting the router decide.
-
-Add `tests/test_deterministic_jailbreak_recognition.py` with the canonical
-fixtures.
-
-**Workaround:** enable `TEX_SPECIALIST_LLM_MODE=tiered` in any demo
-environment. The LLM specialists catch the pattern; the offline path
-doesn't.
+**Fix that shipped:** see above. The original fix prescription
+listed five pattern families; the May 2026 frontier-research sweep
+expanded that to eight, plus a separate recognizer for
+invisible-Unicode steganography that did not exist in the canonical
+doc but is the bleeding-edge attack vector as of May 24, 2026.
 
 ---
 

@@ -107,6 +107,14 @@ class EvaluateActionCommand:
         "_agent_registry",
         "_tenant_baseline",
         "_memory_system",
+        # Thread 7: optional ecosystem-engine bridge. When wired AND
+        # ``TEX_ECOSYSTEM=1`` is set, ``execute()`` forwards every
+        # ``RoutingResult`` through the bridge and folds the
+        # ``EcosystemVerdict`` axis scores into the response under the
+        # ``ecosystem.*`` score namespace. Default ``None`` preserves
+        # pre-Thread-7 behavior bit-for-bit for tests and callers that
+        # construct the command directly.
+        "_ecosystem_bridge",
     )
 
     def __init__(
@@ -121,6 +129,16 @@ class EvaluateActionCommand:
         agent_registry: InMemoryAgentRegistry | None = None,
         tenant_baseline: InMemoryTenantContentBaseline | None = None,
         memory_system: Any | None = None,
+        # Thread 7: optional ecosystem-engine bridge. Default ``None``
+        # so every existing test that constructs the command directly
+        # (without an ecosystem layer) keeps passing unchanged. When
+        # wired AND ``TEX_ECOSYSTEM=1`` is set in the environment, the
+        # command forwards every PDP ``RoutingResult`` through the
+        # bridge and folds the resulting ``EcosystemVerdict`` axis
+        # scores into the response. When the env flag is off, the
+        # engine inside the bridge short-circuits and the command path
+        # is bit-for-bit identical to its legacy shape.
+        ecosystem_bridge: Any | None = None,
     ) -> None:
         """
         Constructor.
@@ -150,6 +168,7 @@ class EvaluateActionCommand:
         self._agent_registry = agent_registry
         self._tenant_baseline = tenant_baseline
         self._memory_system = memory_system
+        self._ecosystem_bridge = ecosystem_bridge
 
     def execute(self, request: EvaluationRequest) -> EvaluateActionResult:
         """
@@ -254,6 +273,39 @@ class EvaluateActionCommand:
                         pdp_result=pdp_result,
                         parent_evidence_hash=evidence_record.record_hash,
                     )
+
+            # ── Thread 7: optional EcosystemEngine pass ─────────────────
+            #
+            # When a bridge is wired AND ``TEX_ECOSYSTEM=1`` is set in
+            # the env, forward the PDP's ``RoutingResult`` through the
+            # eight-step ecosystem engine. The engine populates an
+            # ``EcosystemVerdict`` with six axis scores plus a computed
+            # viability index and GAAT enforcement level; we project
+            # the relevant scalars into the response under the
+            # ``ecosystem.*`` score namespace so HTTP consumers can
+            # read them without changing the response schema (the
+            # response model is ``extra="forbid"``).
+            #
+            # When the env flag is off, the engine's internal
+            # short-circuit returns an inert PERMIT in O(1) with
+            # ``ecosystem_state_hash_before == "ecosystem_disabled"``;
+            # we detect that sentinel and skip the response mutation
+            # entirely. The legacy response is byte-for-byte unchanged.
+            #
+            # Failures here are non-fatal: the bridge sits BEHIND the
+            # PDP verdict on the critical path; if the ecosystem layer
+            # raises (e.g. a misconfigured ontology, a graph mutation
+            # error mid-eval), we log telemetry and fall through to
+            # the legacy response. The user-facing verdict still
+            # lands. This matches the canonical doc's promise that
+            # ``TEX_ECOSYSTEM=0`` is bit-for-bit safe — an exception
+            # in ecosystem-land does not poison the existing 5-layer
+            # contract.
+            response = self._maybe_apply_ecosystem(
+                response=response,
+                request=request,
+                pdp_result=pdp_result,
+            )
 
             self._record_action_ledger_entry(
                 request=request,
@@ -767,6 +819,171 @@ class EvaluateActionCommand:
                     meta.get("contract_id", "<unknown>"),
                     exc,
                 )
+
+    def _maybe_apply_ecosystem(
+        self,
+        *,
+        response: EvaluationResponse,
+        request: EvaluationRequest,
+        pdp_result: PDPResult,
+    ) -> EvaluationResponse:
+        """
+        Optionally forward the PDP result through the ecosystem bridge and
+        fold the resulting axis scores into the response.
+
+        Returns the (possibly updated) ``EvaluationResponse``.
+
+        Behavior matrix:
+
+          * ``self._ecosystem_bridge is None`` (default for legacy callers)
+              → return ``response`` unchanged. No env read, no telemetry.
+          * Bridge wired AND ``TEX_ECOSYSTEM != "1"``
+              → bridge.emit_verdict() runs but the engine short-circuits
+                to an inert PERMIT with state_hash_before ==
+                "ecosystem_disabled". We detect that sentinel and return
+                ``response`` unchanged (bit-for-bit identical legacy shape).
+          * Bridge wired AND ``TEX_ECOSYSTEM == "1"``
+              → bridge runs the eight-step pipeline, returns an
+                ``EcosystemVerdict`` populated with six axis scores plus
+                computed ``viability_index`` and ``graduated_level``. We
+                merge a fixed set of scalars into ``response.scores``
+                under the ``ecosystem.*`` namespace.
+          * Bridge wired but raises
+              → telemetry-only; return ``response`` unchanged. The legacy
+                verdict survives — the ecosystem layer is advisory in
+                Thread 7 per ``docs/ecosystem.md`` (composition gate to
+                FORBID/SANCTION lands in Thread 8).
+
+        Namespace contract for ``ecosystem.*`` scores (stable across
+        Thread 7 and Thread 8):
+
+          * ``ecosystem.viability_index``           — float ∈ [0, 1]
+          * ``ecosystem.contract_violation_severity`` — float ∈ [0, 1]
+          * ``ecosystem.governance_graph_legality`` — float ∈ [0, 1]
+          * ``ecosystem.causal_attribution_confidence`` — float ∈ [0, 1]
+          * ``ecosystem.drift_delta``               — float, clamped [0, 1]
+          * ``ecosystem.systemic_risk_under_event`` — float ∈ [0, 1]
+          * ``ecosystem.bounded_compromise_score``  — float ∈ [0, 1]
+
+        The GAAT enforcement level (``L0_allow`` … ``L4_quarantine``) is
+        published as an uncertainty flag of the form
+        ``ecosystem_graduated_level:<value>`` so callers that read flags
+        can branch on it without parsing the scores dict. We deliberately
+        do NOT add a new response field — the response model is
+        ``extra="forbid"`` and the score dict + uncertainty flags
+        accommodate ecosystem state without schema migration.
+        """
+        bridge = self._ecosystem_bridge
+        if bridge is None:
+            return response
+
+        if os.environ.get("TEX_ECOSYSTEM", "0") != "1":
+            # Bridge wired but operator has not opted into ecosystem
+            # governance. Skip the engine call entirely (cheaper than
+            # letting the engine short-circuit, and zero telemetry).
+            return response
+
+        try:
+            # The actor entity id seeds the ecosystem graph. For
+            # adjudications that carry an agent_id, we use the stable
+            # UUID string; for actions where Tex itself is the actor
+            # (no agent context), we use the canonical "tex" sentinel
+            # that matches the verdict_emitted EventKind contract.
+            actor_entity_id = (
+                str(request.agent_id) if request.agent_id is not None else "tex"
+            )
+            # The ecosystem graph requires the actor to be registered.
+            # We auto-register it here on first sight — the graph is
+            # process-local so this is cheap. A production deployment
+            # that wants stricter registration can wire a custom graph
+            # at construction time.
+            graph = getattr(bridge, "_engine", None)
+            if graph is not None:
+                inner_graph = getattr(graph, "_graph", None)
+                if inner_graph is not None and not inner_graph._has_entity(
+                    actor_entity_id
+                ):
+                    try:
+                        inner_graph.add_entity(
+                            entity_id=actor_entity_id,
+                            kind="agent",
+                            attrs={"registered_at": request.requested_at},
+                        )
+                    except Exception:  # noqa: BLE001
+                        # Auto-registration is best-effort; if it
+                        # fails we let the engine surface a FORBID
+                        # for unknown_actor and downgrade gracefully.
+                        pass
+
+            verdict = bridge.emit_verdict(
+                routing_result=pdp_result.routing_result,
+                actor_entity_id=actor_entity_id,
+                proposed_at=request.requested_at,
+                request_id=str(request.request_id),
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "ecosystem bridge raised; falling back to legacy response: %s",
+                exc,
+            )
+            return response
+
+        # Detect the disabled-path sentinel. The engine returns
+        # ``ecosystem_state_hash_before == "ecosystem_disabled"`` when
+        # ``TEX_ECOSYSTEM != "1"`` at construction time AND its
+        # ``_enabled`` flag is False. We read the env every call, but
+        # the engine reads it once at construction, so this defends
+        # against the case where the operator flips the flag at runtime
+        # without restarting (common in tests).
+        if verdict.ecosystem_state_hash_before == "ecosystem_disabled":
+            return response
+
+        axis = verdict.axis_scores
+        # Project axis scores into the response scores dict. The
+        # response validator enforces ``0 <= value <= 1``; we clamp
+        # ``drift_delta`` explicitly because the axis type allows
+        # arbitrary floats but the response scores field constrains
+        # to the unit interval.
+        ecosystem_scores: dict[str, float] = dict(response.scores)
+        ecosystem_scores["ecosystem.viability_index"] = max(
+            0.0, min(1.0, float(axis.viability_index))
+        )
+        ecosystem_scores["ecosystem.contract_violation_severity"] = max(
+            0.0, min(1.0, float(axis.contract_violation_severity))
+        )
+        ecosystem_scores["ecosystem.governance_graph_legality"] = max(
+            0.0, min(1.0, float(axis.governance_graph_legality))
+        )
+        ecosystem_scores["ecosystem.causal_attribution_confidence"] = max(
+            0.0, min(1.0, float(axis.causal_attribution_confidence))
+        )
+        ecosystem_scores["ecosystem.drift_delta"] = max(
+            0.0, min(1.0, float(axis.drift_delta))
+        )
+        ecosystem_scores["ecosystem.systemic_risk_under_event"] = max(
+            0.0, min(1.0, float(axis.systemic_risk_under_event))
+        )
+        ecosystem_scores["ecosystem.bounded_compromise_score"] = max(
+            0.0, min(1.0, float(axis.bounded_compromise_score))
+        )
+
+        # Publish the GAAT enforcement level as an uncertainty flag so
+        # callers that branch on flags (gateways, dashboards) can read
+        # it without parsing the scores dict. The graduated_level is
+        # a ``GraduatedEnforcementLevel`` enum — we serialize the value
+        # ("L0_allow", "L1_alert", "L2_flag", "L3_redirect",
+        # "L4_quarantine").
+        new_flags = list(response.uncertainty_flags)
+        graduated_flag = f"ecosystem_graduated_level:{axis.graduated_level.value}"
+        if graduated_flag not in new_flags:
+            new_flags.append(graduated_flag)
+
+        return response.model_copy(
+            update={
+                "scores": ecosystem_scores,
+                "uncertainty_flags": new_flags,
+            }
+        )
 
     def _record_action_ledger_entry(
         self,

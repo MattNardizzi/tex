@@ -1,0 +1,689 @@
+/* =============================================================
+   HERO SECTION — scoped styles for the redesigned first section.
+
+   Uses the global design tokens from src/styles.css (--tex,
+   --bone-100, --serif, --mono, --max-w, etc.) so typography and
+   palette stay consistent with the rest of the site.
+
+   Layout strategy:
+   - The section is a single full-viewport stage (100vh minus nav).
+   - Tex is centered horizontally on the stage.
+   - The ring sits as an absolutely-positioned layer occupying the
+     upper portion of the stage, arching above the avatar.
+   - The headline/CTA cluster lives in the lower-center column,
+     directly under Tex so the eye flow is: ring -> Tex -> CTA.
+   ============================================================= */
+
+.hero-section {
+  position: relative;
+  width: 100%;
+  min-height: calc(100vh - var(--bar-h, 56px));
+  overflow: hidden;
+  isolation: isolate;
+  z-index: 1;
+  /* Keep the WebGL backdrop fully visible — no background-color here. */
+}
+
+/* ---------- TOP KICKER ---------- */
+.hs-kicker {
+  position: absolute;
+  top: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--bone-200);
+  text-shadow: 0 0 18px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  animation: hs-fade-in 0.9s ease-out 0.1s forwards;
+}
+.hs-kicker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tex);
+  box-shadow: 0 0 12px var(--tex);
+  animation: hs-blink 2s ease-in-out infinite;
+}
+@keyframes hs-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+.hs-kicker-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--bone-400);
+}
+.hs-kicker-tex {
+  color: var(--bone-100);
+  font-weight: 600;
+}
+.hs-kicker-dim {
+  color: var(--bone-200);
+}
+
+/* ---------- STAGE ----------
+   The stage is a vertical stack: ring band -> Tex figure -> copy.
+   The ring is absolutely positioned at the top of the stage (so it
+   can span full viewport width), and the stage's top padding
+   reserves the space below the ring for the figure + copy. */
+.hs-stage {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: var(--max-w, 1400px);
+  margin: 0 auto;
+  /* Top padding = kicker gap + ring band height + breathing room.
+     Tightened to fit "Tex" wordmark + headline + descriptor + both
+     CTAs above the fold on standard 900-1080px tall viewports. */
+  padding: clamp(250px, 28vh, 320px) 56px 90px;
+  min-height: calc(100vh - var(--bar-h, 56px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+}
+
+/* ---------- RING ANCHOR ----------
+   Fixed band at the top of the stage. The ring SVG fills this band
+   with its shallow arc. We use absolute positioning at the top of
+   .hs-stage so the ring breaks out of the flex flow and spans the
+   full viewport width regardless of the stage's max-width container.
+
+   The stage itself adds top padding equal to the band height so
+   downstream content (figure, copy) starts BELOW the ring. */
+.hs-ring-anchor {
+  position: absolute;
+  top: 76px; /* below the kicker */
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: clamp(170px, 22vh, 240px);
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  animation: hs-fade-in 1.4s ease-out 0.4s forwards;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+}
+
+/* The ring's wrapper inside the anchor — caps the visual width so
+   the arc doesn't stretch absurdly wide on ultra-wide monitors. */
+.er-wrap {
+  width: 100%;
+  max-width: 1600px;
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* ---------- FIGURE STAGE ----------
+   Tex sits centered, just below the ring band. A small negative
+   top margin lets the very top of Tex's halo overlap the bottom
+   edge of the ring band, knitting the two visually together. */
+.hs-figure-stage {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: -20px;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: hs-figure-arrive 1.4s ease-out 0.5s forwards;
+}
+@keyframes hs-figure-arrive {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hs-figure-veil {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  width: clamp(380px, 38vw, 620px);
+  aspect-ratio: 1;
+  background: radial-gradient(
+    circle,
+    rgba(86, 230, 220, 0.22) 0%,
+    rgba(86, 230, 220, 0.08) 30%,
+    transparent 60%
+  );
+  filter: blur(40px);
+  z-index: 0;
+  pointer-events: none;
+  animation: hs-veil-pulse 6s ease-in-out infinite;
+}
+@keyframes hs-veil-pulse {
+  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1); }
+  50%      { opacity: 1;    transform: translateX(-50%) scale(1.04); }
+}
+
+.hs-floor-disk {
+  position: absolute;
+  left: 50%;
+  bottom: -40px;
+  transform: translateX(-50%);
+  width: clamp(320px, 32vw, 520px);
+  height: 60px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(86, 230, 220, 0.5) 0%,
+    rgba(86, 230, 220, 0.18) 35%,
+    transparent 70%
+  );
+  filter: blur(14px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hs-scanline {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: clamp(320px, 32vw, 520px);
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(86, 230, 220, 0.6) 50%,
+    transparent 100%
+  );
+  box-shadow: 0 0 12px rgba(86, 230, 220, 0.5);
+  z-index: 4;
+  pointer-events: none;
+  animation: hs-scan 5.5s ease-in-out infinite;
+}
+@keyframes hs-scan {
+  0%, 100% { top: 18%; opacity: 0; }
+  10%      { opacity: 1; }
+  50%      { top: 78%; opacity: 1; }
+  90%      { opacity: 1; }
+}
+
+.hs-figure-breathe {
+  position: relative;
+  z-index: 2;
+  animation: hs-breathe 5s ease-in-out infinite;
+}
+@keyframes hs-breathe {
+  0%, 100% { transform: translateY(0)     scale(1); }
+  50%      { transform: translateY(-6px)  scale(1.005); }
+}
+
+.hs-figure-img {
+  display: block;
+  /* Capped so the headline can sit close beneath Tex without
+     pushing the CTAs below the fold on standard laptop viewports. */
+  height: clamp(280px, 38vh, 400px);
+  width: auto;
+  filter:
+    drop-shadow(0 0 40px rgba(86, 230, 220, 0.22))
+    drop-shadow(0 12px 50px rgba(0, 0, 0, 0.85));
+}
+
+.hs-eye-glow {
+  position: absolute;
+  top: 32%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18%;
+  height: 4%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(180, 245, 255, 0.85) 0%,
+    rgba(86, 230, 220, 0.4) 40%,
+    transparent 70%
+  );
+  filter: blur(2px);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: hs-eye-pulse 3s ease-in-out infinite;
+}
+@keyframes hs-eye-pulse {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1;    }
+}
+
+.hs-chest-glow {
+  position: absolute;
+  top: 70%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22%;
+  height: 12%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(127, 241, 233, 0.55) 0%,
+    rgba(86, 230, 220, 0.18) 50%,
+    transparent 80%
+  );
+  filter: blur(3px);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  animation: hs-chest-pulse 3.4s ease-in-out infinite;
+}
+@keyframes hs-chest-pulse {
+  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(1);    }
+  50%      { opacity: 1;    transform: translateX(-50%) scale(1.06); }
+}
+
+.hs-pulse-ring {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translate(-50%, 50%);
+  width: 200px;
+  height: 200px;
+  border: 1px solid var(--tex);
+  border-radius: 50%;
+  opacity: 0;
+  z-index: 1;
+  pointer-events: none;
+  animation: hs-pulse-ring 3.5s ease-out infinite;
+}
+.hs-pulse-ring:nth-child(2) { animation-delay: 1.16s; }
+.hs-pulse-ring:nth-child(3) { animation-delay: 2.33s; }
+@keyframes hs-pulse-ring {
+  0%   { opacity: 0;    transform: translate(-50%, 50%) scale(0.4); }
+  20%  { opacity: 0.55; }
+  100% { opacity: 0;    transform: translate(-50%, 50%) scale(2.6); }
+}
+
+/* ---------- CONTENT (wordmark + headline + descriptor + CTAs) ---------- */
+.hs-content {
+  position: relative;
+  z-index: 4;
+  max-width: 760px;
+  width: 100%;
+  text-align: center;
+  padding: 8px 0 0;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* The "Tex" wordmark — large serif, sits like a brand stamp
+   directly under the figure. Italic to echo the headline below
+   and the avatar's chest emblem typography. */
+.hs-wordmark {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(38px, 4.2vw, 64px);
+  line-height: 1.0;
+  letter-spacing: -0.015em;
+  color: var(--bone-100);
+  margin: 0 0 6px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 0.9s ease-out 0.7s forwards;
+  text-shadow: 0 0 30px rgba(86, 230, 220, 0.15);
+}
+
+/* The positioning headline — single line, italic serif with the
+   gradient highlight on the final word "System" so it carries the
+   visual emphasis. */
+.hs-headline {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-style: italic;
+  font-size: clamp(20px, 2.2vw, 30px);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--bone-100);
+  margin: 0 0 14px;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: hs-fade-up 1s ease-out 0.95s forwards;
+  background: linear-gradient(120deg, var(--bone-100) 0%, var(--tex-bright) 55%, var(--bone-100) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  padding-bottom: 0.1em;
+}
+
+/* The descriptor — one full sentence that names all six layers in
+   the same order they appear on the ring. The first clause is muted
+   bone-200; the layer enumeration is bone-100 so the names of the
+   six layers carry the visual weight. */
+.hs-descriptor {
+  font-family: var(--sans);
+  font-size: clamp(13px, 0.95vw, 15px);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--bone-200);
+  max-width: 680px;
+  margin: 0 0 22px;
+  text-shadow: 0 0 24px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transform: translateY(20px);
+  animation: hs-fade-up 1s ease-out 1.15s forwards;
+}
+.hs-descriptor-em {
+  color: var(--bone-100);
+  font-weight: 400;
+}
+
+.hs-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 1s ease-out 1.35s forwards;
+}
+
+.hs-cta-primary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 28px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--void-0);
+  background: var(--tex);
+  border: 1px solid var(--tex);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+.hs-cta-primary:hover {
+  background: var(--tex-bright);
+  box-shadow: 0 0 0 1px var(--tex-bright), 0 0 50px rgba(86, 230, 220, 0.55);
+  transform: translateY(-1px);
+}
+.hs-cta-primary::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  transition: left 0.6s ease;
+}
+.hs-cta-primary:hover::after { left: 100%; }
+
+.hs-cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-100);
+  background: transparent;
+  border: 1px solid var(--edge-strong);
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+.hs-cta-ghost:hover {
+  border-color: var(--tex);
+  color: var(--tex);
+  background: rgba(86, 230, 220, 0.04);
+}
+.hs-cta-arrow {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+.hs-cta-primary:hover .hs-cta-arrow,
+.hs-cta-ghost:hover  .hs-cta-arrow {
+  transform: translateX(4px);
+}
+
+/* ---------- SCROLL CUE ---------- */
+.hs-scroll-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--bone-300);
+  text-decoration: none;
+  transition: color 0.3s ease;
+  opacity: 0;
+  animation: hs-fade-in 1s ease-out 1.7s forwards;
+}
+.hs-scroll-cue:hover { color: var(--tex); }
+.hs-scroll-arrow {
+  display: inline-block;
+  font-size: 14px;
+  animation: hs-bob 2s ease-in-out infinite;
+}
+@keyframes hs-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(4px); }
+}
+
+/* ---------- ANIMATION KEYFRAMES ---------- */
+@keyframes hs-fade-in {
+  to { opacity: 1; }
+}
+@keyframes hs-fade-up {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* =============================================================
+   ECOSYSTEM RING — visual styles for EcosystemRing.jsx
+
+   The SVG component sits inside .hs-ring-anchor; these styles
+   control arc stroke, ticks, node glyphs, pulse, and labels.
+   (.er-wrap itself is defined above near .hs-ring-anchor.)
+   ============================================================= */
+.er-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* ---- Arc strokes ---- */
+.er-arc-outer {
+  filter: drop-shadow(0 0 6px rgba(86, 230, 220, 0.45));
+}
+.er-arc-inner {
+  filter: drop-shadow(0 0 3px rgba(127, 241, 233, 0.4));
+}
+
+/* ---- Tick marks ---- */
+.er-tick {
+  stroke: rgba(86, 230, 220, 0.18);
+  stroke-width: 1;
+}
+.er-tick-major {
+  stroke: rgba(127, 241, 233, 0.5);
+  stroke-width: 1.4;
+}
+
+/* ---- Traveling pulse ---- */
+.er-pulse {
+  transition: transform 0.65s cubic-bezier(0.6, 0.05, 0.25, 1);
+}
+.er-pulse-outer {
+  fill: rgba(86, 230, 220, 0.16);
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: er-pulse-breathe 1.4s ease-in-out infinite;
+}
+.er-pulse-mid {
+  fill: rgba(127, 241, 233, 0.35);
+}
+.er-pulse-core {
+  fill: var(--tex-bright);
+  filter: drop-shadow(0 0 8px var(--tex-bright)) drop-shadow(0 0 18px rgba(127, 241, 233, 0.6));
+}
+@keyframes er-pulse-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(1);    }
+  50%      { opacity: 0.75; transform: scale(1.18); }
+}
+
+/* ---- Node glyphs ---- */
+.er-node-halo {
+  fill: rgba(86, 230, 220, 0.0);
+  transition: fill 0.4s ease;
+}
+.er-node.is-active .er-node-halo {
+  fill: rgba(86, 230, 220, 0.22);
+}
+.er-node.is-active.is-emphasis .er-node-halo {
+  fill: rgba(127, 241, 233, 0.32);
+}
+
+.er-node-outer {
+  fill: none;
+  stroke: rgba(86, 230, 220, 0.45);
+  stroke-width: 1.2;
+  transition: stroke 0.4s ease, stroke-width 0.4s ease;
+}
+.er-node-inner {
+  fill: rgba(86, 230, 220, 0.4);
+  transition: fill 0.4s ease, r 0.4s ease;
+}
+.er-node.is-active .er-node-outer {
+  stroke: var(--tex-bright);
+  stroke-width: 1.8;
+}
+.er-node.is-active .er-node-inner {
+  fill: var(--tex-bright);
+}
+
+/* Emphasized (Execution Governance) — hex glyph, brighter base */
+.er-node-hex {
+  fill: rgba(86, 230, 220, 0.18);
+  stroke: var(--tex);
+  stroke-width: 1.6;
+  transition: fill 0.4s ease, stroke 0.4s ease, stroke-width 0.4s ease;
+}
+.er-node.is-active.is-emphasis .er-node-hex {
+  fill: rgba(127, 241, 233, 0.5);
+  stroke: var(--tex-bright);
+  stroke-width: 2;
+}
+
+/* ---- Labels ---- */
+.er-label-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  fill: var(--bone-300);
+  transition: fill 0.4s ease;
+}
+.er-label-name {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  fill: var(--bone-100);
+  transition: fill 0.4s ease;
+}
+.er-label-name--em {
+  font-size: 14px;
+  letter-spacing: 0.14em;
+}
+.er-label-desc {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  fill: var(--bone-300);
+  /* Fade in when the active node renders this label. */
+  animation: er-desc-fade 0.45s ease-out both;
+}
+@keyframes er-desc-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.er-node.is-active .er-label-num  { fill: var(--tex); }
+.er-node.is-active .er-label-name { fill: var(--tex-bright); }
+.er-node.is-active .er-label-desc { fill: var(--bone-100); }
+
+.er-node.is-emphasis:not(.is-active) .er-label-name {
+  fill: var(--bone-100);
+}
+
+/* =============================================================
+   RESPONSIVE — tablet + mobile
+   ============================================================= */
+@media (max-width: 1100px) {
+  .hs-stage { padding: 80px 32px 50px; }
+  .hs-ring-anchor { height: clamp(150px, 20vh, 200px); }
+  .hs-figure-img { height: clamp(280px, 38vh, 380px); }
+  .hs-wordmark { font-size: clamp(38px, 5.5vw, 56px); }
+  .hs-headline { font-size: clamp(20px, 2.6vw, 28px); }
+  .er-label-name { font-size: 11px; }
+  .er-label-desc { font-size: 10px; }
+}
+
+@media (max-width: 768px) {
+  .hs-stage { padding: 72px 20px 40px; }
+  .hs-ring-anchor { height: clamp(120px, 18vh, 160px); }
+  .hs-figure-stage { margin-top: -20px; }
+  .hs-figure-img { height: clamp(240px, 36vh, 320px); }
+  .hs-wordmark { font-size: clamp(32px, 9vw, 44px); margin-bottom: 6px; }
+  .hs-headline { font-size: clamp(18px, 5vw, 24px); margin-bottom: 14px; }
+  .hs-descriptor { font-size: 13px; line-height: 1.5; margin-bottom: 20px; }
+  .hs-actions { flex-direction: column; width: 100%; }
+  .hs-cta-primary, .hs-cta-ghost { width: 100%; justify-content: center; }
+  .hs-kicker { font-size: 9px; gap: 8px; top: 24px; }
+  .hs-kicker-sep--collapse,
+  .hs-kicker-dim--collapse { display: none; }
+  .er-label-name { font-size: 9px; }
+  .er-label-num  { font-size: 9px; }
+  .er-label-desc { display: none; } /* Hide descriptions on mobile — labels only */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-figure-breathe,
+  .hs-scanline,
+  .hs-chest-glow,
+  .hs-eye-glow,
+  .hs-pulse-ring,
+  .hs-floor-disk,
+  .hs-figure-veil,
+  .hs-kicker-dot,
+  .er-pulse-outer,
+  .hs-scroll-arrow {
+    animation: none !important;
+  }
+  .er-pulse { transition: none; }
+}

@@ -259,7 +259,11 @@
    lets the figure use cqh units for stable sizing. */
 .hs-scene {
   position: relative;
-  width: min(78vh, 54vw, 820px);
+  /* Reduced ~20% from previous min(78vh, 54vw, 820px) so the
+     ring + Tex + labels don't overpower the left column. Tex's
+     figure (cqh-sized) scales down automatically with the
+     container; SVG ring (viewBox-based) scales proportionally. */
+  width: min(62vh, 43vw, 656px);
   aspect-ratio: 1;
   z-index: 2;
   container-type: size;

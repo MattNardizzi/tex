@@ -29,7 +29,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'discovery',
     name: 'Discovery',
     bearing: 270,
-    fontSize: 34,
+    fontSize: 30,
     sentence: 'Find every AI agent, MCP server, and tool in your stack.',
   },
   {
@@ -37,7 +37,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'identity',
     name: 'Identity',
     bearing: 330,
-    fontSize: 34,
+    fontSize: 30,
     sentence: 'Bind every agent to a cryptographic actor and owner.',
   },
   {
@@ -45,7 +45,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'observability',
     name: 'Observability',
     bearing: 30,
-    fontSize: 26,
+    fontSize: 23,
     sentence: 'Watch behavior, drift, and systemic risk in real time.',
   },
   {
@@ -53,7 +53,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'execution',
     name: 'Execution',
     bearing: 90,
-    fontSize: 34,
+    fontSize: 30,
     sentence: 'Adjudicate every action: permit, abstain, or forbid — before it runs.',
     emphasis: true,
   },
@@ -62,7 +62,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'evidence',
     name: 'Evidence',
     bearing: 150,
-    fontSize: 34,
+    fontSize: 30,
     sentence: 'Seal each decision into a signed, replayable evidence chain.',
   },
   {
@@ -70,7 +70,7 @@ export const ECOSYSTEM_LAYERS = [
     key: 'evolution',
     name: 'Evolution',
     bearing: 210,
-    fontSize: 34,
+    fontSize: 30,
     sentence: 'Calibrate from sealed outcomes — human-approved, never auto-applied.',
   },
 ];

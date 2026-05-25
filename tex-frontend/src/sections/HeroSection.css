@@ -1,8 +1,15 @@
 /* ============================================================
    HeroSection.css
-   Pixel-matches the approved mockup. Uses the same tokens as
-   the Execution demo so the marketing site and the product
-   feel like one continuous surface.
+
+   Tex emerges from the page. Warm light surface (the brand
+   color, shared with the rest of the site). He stands at the
+   center, breathing, watching. His name below him. One line
+   that labels what you are looking at. One button.
+
+   The figure is a transparent PNG/WebP — no black background.
+   His shoulders fade off the bottom of the frame via a CSS
+   mask, so he reads as "coming up through the screen" rather
+   than as a cut-out portrait.
    ============================================================ */
 
 .tex-hero {
@@ -17,16 +24,32 @@
   overflow: hidden;
 }
 
+/* A very soft cool wash behind the figure — atmosphere, never effect.
+   Sits low and centered so the page reads as warm at the edges and
+   subtly cool around Tex. */
+.tex-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 58%,
+      rgba(200, 220, 240, 0.45) 0%,
+      rgba(220, 228, 240, 0.18) 35%,
+      rgba(246, 246, 248, 0) 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
 /* ------------------------------------------------------------
    Top bar
    ------------------------------------------------------------ */
 .tex-topbar {
   position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  z-index: 3;
+  display: flex;
   align-items: center;
-  padding: 22px 40px;
+  justify-content: space-between;
+  padding: 26px 40px;
   width: 100%;
 }
 
@@ -36,20 +59,19 @@
   gap: 12px;
   text-decoration: none;
   color: var(--tex-ink);
-  justify-self: start;
 }
 
 .tex-brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   background: var(--tex-ink);
   color: #faf8f3;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-family: var(--tex-serif);
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1;
@@ -57,92 +79,16 @@
 
 .tex-brand-word {
   font-family: var(--tex-serif);
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 400;
   letter-spacing: -0.01em;
   color: var(--tex-ink);
 }
 
-/* Tex is here — center cell of the top bar.
-   The dot is a small glass lens in the same cool steel family as "Quiet."
-   but lit from within. A bright cool-white core glows behind frosted glass,
-   with a real halo of light around the body. */
-.tex-presence {
-  display: inline-flex;
-  align-items: center;
-  gap: 11px;
-  opacity: 1;
-  justify-self: center;
-}
-
-.tex-presence-dot {
-  position: relative;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  /* Glass body — same cool steel ramp as the word */
-  background:
-    radial-gradient(circle at 35% 30%,
-      rgba(244, 246, 250, 0.95) 0%,
-      rgba(200, 210, 222, 0.9) 30%,
-      rgba(91, 110, 132, 0.95) 70%,
-      rgba(29, 39, 51, 1) 100%);
-  /* Hairline rim + the light halo */
-  box-shadow:
-    inset 0 0 0 0.5px rgba(91, 110, 132, 0.55),
-    0 0 0 2px rgba(180, 200, 230, 0.18),
-    0 0 14px 2px rgba(160, 190, 230, 0.7),
-    0 0 32px 6px rgba(140, 180, 230, 0.28);
-  animation: tex-breath 3.4s ease-in-out infinite;
-}
-
-/* The lit core — sits inside the glass, a small bright point of cool light */
-.tex-presence-dot-core {
-  position: absolute;
-  top: 18%;
-  left: 22%;
-  width: 38%;
-  height: 38%;
-  border-radius: 50%;
-  background: radial-gradient(circle,
-    #FFFFFF 0%,
-    #E6F0FF 45%,
-    rgba(200, 218, 240, 0.3) 100%);
-  filter: blur(0.4px);
-}
-
-@keyframes tex-breath {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow:
-      inset 0 0 0 0.5px rgba(91, 110, 132, 0.55),
-      0 0 0 2px rgba(180, 200, 230, 0.14),
-      0 0 12px 2px rgba(160, 190, 230, 0.55),
-      0 0 26px 4px rgba(140, 180, 230, 0.18);
-  }
-  50% {
-    transform: scale(1.12);
-    box-shadow:
-      inset 0 0 0 0.5px rgba(91, 110, 132, 0.6),
-      0 0 0 3px rgba(180, 200, 230, 0.22),
-      0 0 18px 3px rgba(180, 210, 245, 0.85),
-      0 0 40px 8px rgba(150, 190, 235, 0.32);
-  }
-}
-
-.tex-presence-label {
-  font-size: 12px;
-  color: var(--tex-ink);
-  letter-spacing: 0.04em;
-  font-weight: 500;
-}
-
-/* Nav cluster */
 .tex-nav {
-  justify-self: end;
   display: inline-flex;
   align-items: center;
-  gap: 36px;
+  gap: 32px;
 }
 
 .tex-nav-link {
@@ -152,241 +98,181 @@
   color: var(--tex-ink-soft);
   text-decoration: none;
   letter-spacing: -0.003em;
-  transition: color 0.18s ease;
+  transition: color 0.2s ease;
 }
 
-.tex-nav-link:hover {
-  color: var(--tex-ink);
-}
-
-.tex-nav-link--strong {
-  color: var(--tex-ink);
-  font-weight: 500;
-}
+.tex-nav-link:hover { color: var(--tex-ink); }
+.tex-nav-link--strong { color: var(--tex-ink); font-weight: 500; }
 
 /* ------------------------------------------------------------
-   Stage — the whole pitch in one frame
+   Stage
    ------------------------------------------------------------ */
 .tex-stage {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 0 24px;
+  justify-content: flex-end;
+  padding: 0 24px 0;
   text-align: center;
 }
 
 /* ------------------------------------------------------------
-   Arrival — the page composes itself in sequence.
-   Each beat comes out of a soft blur, settles, and the next follows.
+   The figure — Tex emerging from the page
    ------------------------------------------------------------ */
-.tex-arrive,
-.tex-beat {
-  opacity: 0;
-  filter: blur(6px);
-  transform: translateY(4px);
-  animation: tex-arrive 1.0s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+.tex-figure {
+  position: relative;
+  width: clamp(320px, 38vw, 520px);
+  margin: 0 0 -2px;     /* sit flush against the name */
+  user-select: none;
+  pointer-events: none;
 }
 
-@keyframes tex-arrive {
-  0%   { opacity: 0; filter: blur(6px); transform: translateY(4px); }
-  100% { opacity: 1; filter: blur(0);   transform: translateY(0);   }
+/* The halo behind him — cool, soft, breathes. Reads as presence. */
+.tex-figure-halo {
+  position: absolute;
+  inset: 4% -14% -8% -14%;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 42%,
+      rgba(140, 195, 240, 0.32) 0%,
+      rgba(120, 170, 220, 0.16) 35%,
+      rgba(246, 246, 248, 0) 70%);
+  filter: blur(28px);
+  pointer-events: none;
+  animation: tex-figure-breath 5.6s ease-in-out infinite;
+  z-index: 0;
 }
 
-.tex-arrive--word   { animation-delay: 0.2s; }
-.tex-beat--1        { animation-delay: 1.4s; }
-.tex-beat--2        { animation-delay: 2.2s; }
-.tex-beat--3        { animation-delay: 3.0s; }
-.tex-arrive--aside  { animation-delay: 4.0s; animation-duration: 1.2s; }
-.tex-arrive--button { animation-delay: 5.0s; }
-
-/* Scroll cue uses its own transform for centering, so it gets a simpler
-   fade-only arrival to avoid clobbering translateX(-50%). */
-.tex-arrive--cue {
-  animation: tex-fade-in 1.0s ease forwards;
-  animation-delay: 5.8s;
-  opacity: 0;
-  filter: none;
-  transform: translateX(-50%);
-}
-
-@keyframes tex-fade-in {
-  0%   { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-/* Beats inherit the parent's display, so use inline-block to allow the blur
-   filter to operate per-span without collapsing the line. */
-.tex-beat {
-  display: inline-block;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tex-arrive,
-  .tex-beat {
-    opacity: 1;
-    filter: none;
-    transform: none;
-    animation: none;
-  }
-  .tex-arrive--cue {
-    opacity: 1;
-    transform: translateX(-50%);
-    animation: none;
-  }
-}
-
-.tex-hero-word {
-  font-family: var(--tex-serif);
-  font-weight: 400;
-  margin: 0 0 56px;
-  width: 100%;
-  max-width: 1100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: clamp(140px, 22vw, 280px);
-}
-
-.tex-hero-glass {
-  width: 100%;
-  height: 100%;
+.tex-figure-img {
+  position: relative;
   display: block;
-  overflow: visible;
+  width: 100%;
+  height: auto;
+  z-index: 1;
+  /* Bottom dissolve — his shoulders fade into the page surface so he
+     reads as emerging, not as a portrait sitting on the page. */
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 62%,
+    rgba(0, 0, 0, 0.85) 80%,
+    rgba(0, 0, 0, 0.4) 92%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 62%,
+    rgba(0, 0, 0, 0.85) 80%,
+    rgba(0, 0, 0, 0.4) 92%,
+    transparent 100%
+  );
 }
 
-/* The light sweep — one slow pass across the glyphs, then pause. */
-.tex-glass-sweep-rect {
-  animation: tex-glass-light 7s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+/* Eye glow — overlaid precisely on the visor slits. Pulses with the
+   breath. The figure is a still image but feels alive because the
+   eyes do. Coordinates measured against the source. */
+.tex-eye {
+  position: absolute;
+  top: 21.0%;
+  width: 7.6%;
+  height: 1.6%;
+  background: transparent;
+  border-radius: 50%;
+  box-shadow:
+    0 0 8px 2px rgba(140, 210, 255, 0.55),
+    0 0 22px 8px rgba(100, 180, 240, 0.35),
+    0 0 48px 16px rgba(80, 150, 220, 0.16);
+  pointer-events: none;
+  animation: tex-eye-breath 5.6s ease-in-out infinite;
+  z-index: 2;
 }
 
-@keyframes tex-glass-light {
-  0%   { transform: translateX(-280px); opacity: 0; }
-  8%   { opacity: 0.85; }
-  60%  { transform: translateX(1100px); opacity: 0.85; }
-  68%  { transform: translateX(1100px); opacity: 0; }
-  100% { transform: translateX(1100px); opacity: 0; }
+.tex-eye--l { left: 38.9%; }
+.tex-eye--r { left: 53.5%; }
+
+@keyframes tex-figure-breath {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
 }
 
-.tex-hero-line {
-  font-family: var(--tex-serif);
-  font-size: clamp(20px, 2.2vw, 26px);
-  font-weight: 400;
-  line-height: 1.45;
-  letter-spacing: -0.012em;
-  color: var(--tex-ink);
-  margin: 0 0 10px;
-  max-width: 720px;
-}
-
-.tex-hero-aside {
-  font-family: var(--tex-serif);
-  font-style: italic;
-  font-size: clamp(19px, 2.05vw, 24px);
-  font-weight: 400;
-  line-height: 1.45;
-  letter-spacing: -0.008em;
-  color: var(--tex-ink-soft);
-  margin: 0 0 56px;
-  max-width: 720px;
+@keyframes tex-eye-breath {
+  0%, 100% {
+    opacity: 0.85;
+    box-shadow:
+      0 0 6px 2px rgba(140, 210, 255, 0.45),
+      0 0 18px 6px rgba(100, 180, 240, 0.28),
+      0 0 36px 12px rgba(80, 150, 220, 0.12);
+  }
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 10px 3px rgba(160, 220, 255, 0.7),
+      0 0 26px 9px rgba(120, 190, 245, 0.4),
+      0 0 52px 18px rgba(90, 160, 230, 0.2);
+  }
 }
 
 /* ------------------------------------------------------------
-   Actions — token-matched to ExecutionRoom
+   His name — directly under the figure, large but quiet.
+   ------------------------------------------------------------ */
+.tex-hero-name {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: clamp(56px, 8vw, 104px);
+  letter-spacing: -0.035em;
+  line-height: 1;
+  color: var(--tex-ink);
+  margin: 0 0 22px;
+}
+
+/* ------------------------------------------------------------
+   The one line — labels what you are looking at.
+   ------------------------------------------------------------ */
+.tex-hero-line {
+  font-family: var(--tex-serif);
+  font-size: clamp(17px, 1.8vw, 21px);
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.5;
+  letter-spacing: -0.008em;
+  color: var(--tex-ink-soft);
+  margin: 0 0 40px;
+  max-width: 640px;
+}
+
+.tex-beat { display: inline-block; }
+
+/* ------------------------------------------------------------
+   Actions
    ------------------------------------------------------------ */
 .tex-hero-actions {
   display: flex;
-  gap: 20px;
+  gap: 16px;
   align-items: center;
+  margin-bottom: 64px;
 }
 
 .tex-btn {
-  position: relative;
   font-family: inherit;
-  font-size: 15px;
-  letter-spacing: -0.005em;
+  font-size: 14px;
+  letter-spacing: 0.01em;
   border: none;
   cursor: pointer;
   border-radius: 980px;
-  transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease;
   background: transparent;
 }
 
 .tex-btn:active { transform: scale(0.98); }
 
-/* Glass capsule — same material as the word. Hairline border in cool steel.
-   Transparent interior. A soft light orbits the border. */
-.tex-btn--glass {
-  position: relative;
-  padding: 13px 30px;
-  color: #1D2733;
-  font-weight: 500;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  background: transparent;
-  box-shadow:
-    inset 0 0 0 1px rgba(91, 110, 132, 0.55),
-    0 1px 0 rgba(244, 246, 250, 0.6);
-  overflow: hidden;
-  isolation: isolate;
-}
-
-.tex-btn--glass:hover {
-  box-shadow:
-    inset 0 0 0 1px rgba(29, 39, 51, 0.85),
-    0 1px 0 rgba(244, 246, 250, 0.6);
-}
-
-.tex-btn-label {
-  position: relative;
-  z-index: 2;
-  background: linear-gradient(180deg, #1D2733 0%, #2C394A 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* The orbit — a conic gradient that rotates around the capsule, masked
-   to only show along the border. */
-.tex-btn-orbit {
-  position: absolute;
-  inset: -1px;
-  border-radius: 980px;
-  z-index: 1;
-  pointer-events: none;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    transparent 300deg,
-    rgba(230, 240, 255, 0.95) 340deg,
-    rgba(200, 218, 240, 0.7) 350deg,
-    rgba(230, 240, 255, 0.95) 360deg
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
-  padding: 1.2px;
-  animation: tex-btn-orbit 6s linear infinite;
-  opacity: 0.9;
-}
-
-@keyframes tex-btn-orbit {
-  0%   { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* Legacy variants — used by MomentSection and other surfaces. */
 .tex-btn--primary {
   background: var(--tex-ink);
   color: #faf8f3;
   font-weight: 500;
-  padding: 14px 30px;
+  padding: 13px 30px;
 }
 
 .tex-btn--primary:hover { background: #2c2825; }
@@ -397,78 +283,56 @@
   font-weight: 400;
   padding: 14px 22px;
 }
-
 .tex-btn--ghost:hover { color: var(--tex-ink); }
 
 /* ------------------------------------------------------------
-   Quiet scroll cue
+   Arrival — the page composes itself in sequence.
+   Figure first, slowly. Then name. Then line, beat by beat.
+   Then button.
    ------------------------------------------------------------ */
-.tex-scroll-cue {
-  position: absolute;
-  bottom: 28px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  color: var(--tex-ink-mute);
-  text-decoration: none;
-  transition: color 0.2s ease, transform 0.2s ease;
+.tex-arrive,
+.tex-beat {
+  opacity: 0;
+  filter: blur(8px);
+  transform: translateY(6px);
+  animation: tex-arrive 1.2s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
-.tex-scroll-cue:hover {
-  color: var(--tex-ink-soft);
-  transform: translateX(-50%) translateY(2px);
+@keyframes tex-arrive {
+  0%   { opacity: 0; filter: blur(8px); transform: translateY(6px); }
+  100% { opacity: 1; filter: blur(0);   transform: translateY(0);   }
 }
 
-.tex-scroll-arrow {
-  font-size: 18px;
-  line-height: 1;
-  animation: tex-drift 3.6s ease-in-out infinite;
-}
+.tex-arrive--figure { animation-delay: 0.3s;  animation-duration: 1.8s; }
+.tex-arrive--name   { animation-delay: 1.8s; }
+.tex-arrive--line   { animation-delay: 2.6s; }
+.tex-beat--1        { animation-delay: 2.8s; }
+.tex-beat--2        { animation-delay: 3.4s; }
+.tex-beat--3        { animation-delay: 4.0s; }
+.tex-arrive--button { animation-delay: 5.0s; }
 
-@keyframes tex-drift {
-  0%, 100% { transform: translateY(0); opacity: 0.55; }
-  50%      { transform: translateY(4px); opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .tex-arrive,
+  .tex-beat {
+    opacity: 1;
+    filter: none;
+    transform: none;
+    animation: none;
+  }
+  .tex-figure-halo,
+  .tex-eye {
+    animation: none;
+  }
 }
 
 /* ------------------------------------------------------------
    Responsive
    ------------------------------------------------------------ */
-@media (max-width: 860px) {
-  .tex-topbar {
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-    row-gap: 14px;
-    padding: 18px 22px;
-  }
-  .tex-presence {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: center;
-  }
-  .tex-nav {
-    gap: 22px;
-  }
-  .tex-nav-link {
-    font-size: 13px;
-  }
-}
-
-@media (max-width: 560px) {
-  .tex-nav {
-    gap: 18px;
-  }
-  .tex-nav-link {
-    font-size: 12.5px;
-  }
-  .tex-hero-word {
-    margin-bottom: 40px;
-  }
-  .tex-hero-aside {
-    margin-bottom: 40px;
-  }
+@media (max-width: 720px) {
+  .tex-topbar { padding: 20px 22px; }
+  .tex-nav    { gap: 22px; }
+  .tex-nav-link { font-size: 13px; }
+  .tex-figure { width: 78vw; max-width: 380px; }
+  .tex-hero-line { margin-bottom: 32px; }
+  .tex-hero-actions { margin-bottom: 48px; }
 }

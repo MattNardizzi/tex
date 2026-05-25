@@ -87,7 +87,7 @@ export default function HeroSection({ openTrial, navigate }) {
 
       {/* STAGE -------------------------------------------------- */}
       <div className="tex-stage">
-        <h1 className="tex-hero-word tex-arrive tex-arrive--word" aria-label="Quiet.">
+        <h1 className="tex-hero-word tex-arrive tex-arrive--word" aria-label="Absolute.">
           <svg
             className="tex-hero-glass"
             viewBox="0 0 900 240"
@@ -123,7 +123,7 @@ export default function HeroSection({ openTrial, navigate }) {
                   fontWeight="400"
                   letterSpacing="-11"
                   fill="#FFFFFF"
-                >Quiet.</text>
+                >Absolute.</text>
               </mask>
             </defs>
 
@@ -137,7 +137,7 @@ export default function HeroSection({ openTrial, navigate }) {
               fontWeight="400"
               letterSpacing="-11"
               fill="url(#tex-glass-body)"
-            >Quiet.</text>
+            >Absolute.</text>
 
             <text
               x="450" y="178"
@@ -147,7 +147,7 @@ export default function HeroSection({ openTrial, navigate }) {
               fontWeight="400"
               letterSpacing="-11"
               fill="url(#tex-glass-rim)"
-            >Quiet.</text>
+            >Absolute.</text>
 
             <text
               x="450" y="178"
@@ -160,7 +160,7 @@ export default function HeroSection({ openTrial, navigate }) {
               stroke="#5B6E84"
               strokeOpacity="0.35"
               strokeWidth="0.6"
-            >Quiet.</text>
+            >Absolute.</text>
 
             <g mask="url(#tex-glass-mask)">
               <rect

@@ -1,61 +1,22 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import './HeroSection.css';
 
 /* =============================================================
-   HERO SECTION — Tex
+   HERO SECTION — Quiet
+   ────────────────────────────────────────────────────────────
+   The whole homepage hero in one sentence:
 
-   A single, decisive statement:
-     • A small wordmark: "Tex."
-     • The avatar, emerging from the page, alive.
-     • Nothing else.
+       Quiet.
 
-   The avatar carries the moment. He breathes, blinks, his core
-   pulses, his eyes hold a steady glow, and a soft scan of light
-   periodically passes across him. He gently tracks the cursor.
+       Every agent. Every action. Every stage of its life.
+       Tex is the only system that governs all of it.
+
+       [ Show me ]
+
+   Top bar:  T mark + "Tex"        •Tex is here        nav        Sign in
    ============================================================= */
 
 export default function HeroSection({ openTrial, navigate }) {
-  const stageRef = useRef(null);
-  const figureRef = useRef(null);
-
-  // Cursor-aware parallax — Tex very subtly turns toward the visitor.
-  useEffect(() => {
-    const stage = stageRef.current;
-    const figure = figureRef.current;
-    if (!stage || !figure) return;
-
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
-    let raf = 0;
-    let tx = 0, ty = 0;   // target translation in px
-    let cx = 0, cy = 0;   // current translation in px
-
-    const onMove = (e) => {
-      const rect = stage.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width  - 0.5;
-      const y = (e.clientY - rect.top)  / rect.height - 0.5;
-      // Clamp to [-1, 1], then scale: max ~7px horizontal, ~3.5px vertical
-      tx = Math.max(-1, Math.min(1, x)) * 7;
-      ty = Math.max(-1, Math.min(1, y)) * 3.5;
-    };
-
-    const tick = () => {
-      cx += (tx - cx) * 0.06;
-      cy += (ty - cy) * 0.06;
-      figure.style.setProperty('--tex-px', `${cx.toFixed(2)}px`);
-      figure.style.setProperty('--tex-py', `${cy.toFixed(2)}px`);
-      raf = requestAnimationFrame(tick);
-    };
-
-    window.addEventListener('mousemove', onMove, { passive: true });
-    raf = requestAnimationFrame(tick);
-
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      cancelAnimationFrame(raf);
-    };
-  }, []);
-
   return (
     <section className="tex-hero" id="top">
       {/* TOP BAR ------------------------------------------------ */}
@@ -63,7 +24,10 @@ export default function HeroSection({ openTrial, navigate }) {
         <a
           href="/"
           className="tex-brand"
-          onClick={(e) => { e.preventDefault(); navigate('/'); }}
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/');
+          }}
           aria-label="Tex — home"
         >
           <span className="tex-brand-mark">T</span>
@@ -78,79 +42,167 @@ export default function HeroSection({ openTrial, navigate }) {
         </div>
 
         <nav className="tex-nav">
-          <a href="/how-it-works" className="tex-nav-link"
-             onClick={(e) => { e.preventDefault(); navigate('/how-it-works'); }}>
+          <a
+            href="/how-it-works"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+          >
             How it works
           </a>
-          <a href="/evidence" className="tex-nav-link"
-             onClick={(e) => { e.preventDefault(); navigate('/evidence'); }}>
+          <a
+            href="/evidence"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/evidence');
+            }}
+          >
             Evidence
           </a>
-          <a href="/company" className="tex-nav-link"
-             onClick={(e) => { e.preventDefault(); navigate('/company'); }}>
+          <a
+            href="/company"
+            className="tex-nav-link"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/company');
+            }}
+          >
             Company
           </a>
-          <a href="/sign-in" className="tex-nav-link tex-nav-link--strong"
-             onClick={(e) => { e.preventDefault(); navigate('/sign-in'); }}>
+          <a
+            href="/sign-in"
+            className="tex-nav-link tex-nav-link--strong"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/sign-in');
+            }}
+          >
             Sign in
           </a>
         </nav>
       </header>
 
       {/* STAGE -------------------------------------------------- */}
-      <div className="tex-stage" ref={stageRef}>
-        <div className="tex-atmosphere" aria-hidden="true" />
-
-        <div className="tex-figure-column">
-          <h1 className="tex-hero-name tex-arrive tex-arrive--name">Tex.</h1>
-
-          <figure
-            ref={figureRef}
-            className="tex-figure tex-arrive tex-arrive--figure"
+      <div className="tex-stage">
+        <h1 className="tex-hero-word tex-arrive tex-arrive--word" aria-label="Quiet.">
+          <svg
+            className="tex-hero-glass"
+            viewBox="0 0 900 240"
+            preserveAspectRatio="xMidYMid meet"
+            aria-hidden="true"
           >
-            {/* Back atmospheric glow */}
-            <div className="tex-figure-halo" aria-hidden="true" />
+            <defs>
+              <linearGradient id="tex-glass-body" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%"   stopColor="#F4F6FA" stopOpacity="0.98" />
+                <stop offset="28%"  stopColor="#C8D2DE" stopOpacity="0.92" />
+                <stop offset="58%"  stopColor="#5B6E84" stopOpacity="0.95" />
+                <stop offset="100%" stopColor="#1D2733" stopOpacity="1"    />
+              </linearGradient>
 
-            {/* Breath layer — gentle vertical rise/fall */}
-            <div className="tex-figure-breath">
-              {/* Parallax layer — cursor-driven translation */}
-              <div className="tex-figure-track">
-                <picture>
-                  <source media="(min-width: 720px)" srcSet="/tex-avatar.webp" />
-                  <img
-                    src="/tex-avatar-sm.webp"
-                    alt="Tex"
-                    className="tex-figure-img"
-                    draggable="false"
-                  />
-                </picture>
+              <linearGradient id="tex-glass-rim" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%"  stopColor="#FFFFFF" stopOpacity="0.85" />
+                <stop offset="14%" stopColor="#FFFFFF" stopOpacity="0"    />
+                <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0"   />
+              </linearGradient>
 
-                {/* Eye glow overlays — sit precisely over the avatar's
-                    printed eye slits, brightening them */}
-                <span className="tex-eye tex-eye--l" aria-hidden="true" />
-                <span className="tex-eye tex-eye--r" aria-hidden="true" />
+              <radialGradient id="tex-word-floor" cx="50%" cy="50%" r="50%">
+                <stop offset="0%"   stopColor="#0E1620" stopOpacity="0.10" />
+                <stop offset="60%"  stopColor="#0E1620" stopOpacity="0.04" />
+                <stop offset="100%" stopColor="#0E1620" stopOpacity="0"    />
+              </radialGradient>
 
-                {/* Blink shutters — periodically dim the eyes */}
-                <span className="tex-blink tex-blink--l" aria-hidden="true" />
-                <span className="tex-blink tex-blink--r" aria-hidden="true" />
+              <mask id="tex-glass-mask">
+                <text
+                  x="450" y="178"
+                  textAnchor="middle"
+                  fontFamily="var(--tex-serif)"
+                  fontSize="232"
+                  fontWeight="400"
+                  letterSpacing="-11"
+                  fill="#FFFFFF"
+                >Quiet.</text>
+              </mask>
+            </defs>
 
-                {/* Forehead emblem glow — softer pulse, in sync with breath */}
-                <span className="tex-crown" aria-hidden="true" />
+            <ellipse cx="450" cy="210" rx="320" ry="14" fill="url(#tex-word-floor)" />
 
-                {/* Chest core — heartbeat rhythm */}
-                <span className="tex-core" aria-hidden="true" />
+            <text
+              x="450" y="178"
+              textAnchor="middle"
+              fontFamily="var(--tex-serif)"
+              fontSize="232"
+              fontWeight="400"
+              letterSpacing="-11"
+              fill="url(#tex-glass-body)"
+            >Quiet.</text>
 
-                {/* Scan sheet — periodic processing pass */}
-                <span className="tex-scan" aria-hidden="true" />
-              </div>
-            </div>
+            <text
+              x="450" y="178"
+              textAnchor="middle"
+              fontFamily="var(--tex-serif)"
+              fontSize="232"
+              fontWeight="400"
+              letterSpacing="-11"
+              fill="url(#tex-glass-rim)"
+            >Quiet.</text>
 
-            {/* Floor / contact glow — beneath the dissolve, anchors
-                him to the surface he's emerging through */}
-            <div className="tex-floor" aria-hidden="true" />
-          </figure>
+            <text
+              x="450" y="178"
+              textAnchor="middle"
+              fontFamily="var(--tex-serif)"
+              fontSize="232"
+              fontWeight="400"
+              letterSpacing="-11"
+              fill="none"
+              stroke="#5B6E84"
+              strokeOpacity="0.35"
+              strokeWidth="0.6"
+            >Quiet.</text>
+
+            <g mask="url(#tex-glass-mask)">
+              <rect
+                className="tex-glass-sweep-rect"
+                x="-200" y="0"
+                width="280" height="240"
+                fill="#E6F0FF"
+                opacity="0.85"
+              />
+            </g>
+          </svg>
+        </h1>
+
+        <p className="tex-hero-line">
+          <span className="tex-beat tex-beat--1">Every agent.</span>{' '}
+          <span className="tex-beat tex-beat--2">Every action.</span>{' '}
+          <span className="tex-beat tex-beat--3">Every stage of its life.</span>
+        </p>
+        <p className="tex-hero-aside tex-arrive tex-arrive--aside">
+          Tex is the only system that governs all of it.
+        </p>
+
+        <div className="tex-hero-actions tex-arrive tex-arrive--button">
+          <button
+            type="button"
+            className="tex-btn tex-btn--glass"
+            onClick={openTrial}
+          >
+            <span className="tex-btn-orbit" aria-hidden="true" />
+            <span className="tex-btn-label">Show me</span>
+          </button>
         </div>
       </div>
+
+      {/* QUIET SCROLL CUE -------------------------------------- */}
+      <a
+        href="#moment"
+        className="tex-scroll-cue tex-arrive tex-arrive--cue"
+        aria-label="Continue"
+      >
+        <span className="tex-scroll-arrow">↓</span>
+      </a>
     </section>
   );
 }

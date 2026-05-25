@@ -139,12 +139,18 @@
    The scene is a square sized to be the dominant element.
    Generous: most of the available height and a healthy slice of
    width. Capped at 900px on huge monitors so the ring doesn't
-   become absurdly large. */
+   become absurdly large.
+
+   container-type: size lets children size with `cqh`/`cqw` units
+   against the scene's actual rendered size — critical for the
+   figure inside, which needs a stable reference. */
 .hs-scene {
   position: relative;
   width: min(78vh, 56vw, 900px);
   aspect-ratio: 1;
   z-index: 2;
+  container-type: size;
+  container-name: hs-scene;
 }
 
 .hs-ring-anchor {
@@ -175,33 +181,84 @@
 }
 
 /* ---------- FIGURE STAGE ----------
-   Tex sits centered inside the ring. Sized to fit comfortably
-   inside the perimeter without crowding it. */
+   Tex sits INSIDE the ring. He is positioned so his head is near
+   the top of the ring (under Discovery at 12 o'clock) and his
+   chest emblem sits near the ring's center (hub). His body
+   continues downward and is softly masked at the bottom so he
+   doesn't bleed below the perimeter.
+
+   We size everything against the scene's container, NOT against
+   the figure-stage itself — that avoids the feedback loop where
+   "height: X% of parent" with no parent height made Tex render
+   at his natural image size (way too big).
+
+   Position math:
+     - Container is the .hs-scene (1:1 aspect ratio).
+     - Figure-stage spans the full scene (inset: 0).
+     - Tex's image is sized at ~62% of scene HEIGHT (cqh), so
+       independent of any parent's content height.
+     - Inside figure-stage, Tex is positioned so his vertical
+       center sits at ~58% from the top of the scene. His head
+       lands at roughly the ring's 20% mark (just below Discovery),
+       his chest emblem sits at ~60% (near the hub). */
 .hs-figure-stage {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
   z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  animation: hs-figure-arrive 1.4s ease-out 0.5s forwards;
+  /* Soft fade at the bottom so Tex doesn't render past the ring's
+     lower perimeter. The mask spans the full scene; the top 80%
+     is fully opaque, the bottom 20% fades to transparent.
+
+     Note: the mask must NOT clip the floor disk (which extends a
+     bit below the scene) — we keep it in .hs-figure-stage but
+     allow overflow on the disk by setting it as a sibling. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 78%,
+    rgba(0,0,0,0.6) 92%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 78%,
+    rgba(0,0,0,0.6) 92%,
+    transparent 100%
+  );
+}
+@keyframes hs-figure-arrive {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Inner positioner: pushes Tex up so his head lives at the top
+   of the ring, not centered. Without this he'd center in the
+   figure-stage and his head would be at scene-center. */
+.hs-figure-position {
+  position: absolute;
+  left: 50%;
+  /* `top` is the y-coordinate of Tex's VERTICAL CENTER.
+     At 56% the chest emblem lands very close to the hub center,
+     head sits near the top of the ring. */
+  top: 56%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  opacity: 0;
-  animation: hs-figure-arrive 1.4s ease-out 0.5s forwards;
-}
-@keyframes hs-figure-arrive {
-  from { opacity: 0; transform: translate(-50%, calc(-50% + 20px)); }
-  to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .hs-floor-disk {
   position: absolute;
   left: 50%;
-  bottom: -16px;
-  transform: translateX(-50%);
-  width: clamp(260px, 26vw, 420px);
-  height: 50px;
+  /* Sit at the bottom of the visible Tex (about 88% of scene) */
+  top: 88%;
+  transform: translate(-50%, -50%);
+  width: 36cqh;
+  height: 8cqh;
   background: radial-gradient(
     ellipse at center,
     rgba(86, 230, 220, 0.45) 0%,
@@ -216,9 +273,9 @@
 .hs-scanline {
   position: absolute;
   left: 50%;
-  top: 0;
+  top: 20%;
   transform: translateX(-50%);
-  width: clamp(260px, 26vw, 420px);
+  width: 36cqh;
   height: 2px;
   background: linear-gradient(
     90deg,
@@ -232,7 +289,7 @@
   animation: hs-scan 5.5s ease-in-out infinite;
 }
 @keyframes hs-scan {
-  0%, 100% { top: 18%; opacity: 0; }
+  0%, 100% { top: 28%; opacity: 0; }
   10%      { opacity: 1; }
   50%      { top: 78%; opacity: 1; }
   90%      { opacity: 1; }
@@ -250,11 +307,12 @@
 
 .hs-figure-img {
   display: block;
-  /* Sized to fit inside the ring. The ring's main radius is 40%
-     of the scene edge (R_MAIN=400 / VB=1000); we make Tex about
-     62% of the scene height so his shoulders are well inside the
-     perimeter but he reads as a dominant figure, not a tiny one. */
-  height: clamp(280px, 62%, 560px);
+  /* Sized against the SCENE's height via container query units.
+     The image's natural aspect ratio carries width along. 70cqh
+     means 70% of the scene's height — at a 900px scene that's
+     ~630px tall, which leaves the head clear of the ring's top
+     edge while filling the perimeter generously. */
+  height: 70cqh;
   width: auto;
   filter:
     drop-shadow(0 0 30px rgba(86, 230, 220, 0.20))

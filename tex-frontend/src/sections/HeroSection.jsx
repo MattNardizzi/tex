@@ -72,19 +72,24 @@ export default function HeroSection({ openTrial, navigate }) {
               <div className="hs-floor-disk" aria-hidden="true" />
               <div className="hs-scanline" aria-hidden="true" />
 
-              <div className="hs-figure-breathe">
-                <img
-                  src={texAvatar}
-                  alt="Tex — the AI airspace control system"
-                  className="hs-figure-img"
-                />
-                <div className="hs-eye-glow" aria-hidden="true" />
-                <div className="hs-chest-glow" aria-hidden="true" />
-              </div>
+              {/* Inner positioner — places Tex with his head near
+                  the top of the ring and his chest emblem near
+                  the ring's center hub. */}
+              <div className="hs-figure-position">
+                <div className="hs-figure-breathe">
+                  <img
+                    src={texAvatar}
+                    alt="Tex — the AI airspace control system"
+                    className="hs-figure-img"
+                  />
+                  <div className="hs-eye-glow" aria-hidden="true" />
+                  <div className="hs-chest-glow" aria-hidden="true" />
+                </div>
 
-              <span className="hs-pulse-ring" aria-hidden="true" />
-              <span className="hs-pulse-ring" aria-hidden="true" />
-              <span className="hs-pulse-ring" aria-hidden="true" />
+                <span className="hs-pulse-ring" aria-hidden="true" />
+                <span className="hs-pulse-ring" aria-hidden="true" />
+                <span className="hs-pulse-ring" aria-hidden="true" />
+              </div>
             </div>
           </div>
 

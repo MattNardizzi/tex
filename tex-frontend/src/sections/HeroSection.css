@@ -24,65 +24,34 @@
   /* Keep the WebGL backdrop fully visible — no background-color here. */
 }
 
-/* ---------- TOP KICKER ---------- */
-.hs-kicker {
-  position: absolute;
-  top: 32px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--bone-200);
-  text-shadow: 0 0 18px rgba(0, 0, 0, 0.9);
-  opacity: 0;
-  animation: hs-fade-in 0.9s ease-out 0.1s forwards;
-}
-.hs-kicker-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--tex);
-  box-shadow: 0 0 12px var(--tex);
-  animation: hs-blink 2s ease-in-out infinite;
-}
-@keyframes hs-blink {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.3; }
-}
-.hs-kicker-sep {
-  width: 1px;
-  height: 12px;
-  background: var(--bone-400);
-}
-.hs-kicker-tex {
-  color: var(--bone-100);
-  font-weight: 600;
-}
-.hs-kicker-dim {
-  color: var(--bone-200);
-}
+/* (The top kicker that used to sit at .hs-kicker was removed in this
+   revision — it duplicated the wordmark + headline copy below. The
+   layer-bar nav at the top of the page already carries the brand
+   mark and product context.) */
 
 /* ---------- STAGE ----------
-   The stage is a vertical stack: ring band -> Tex figure -> copy.
-   The ring is absolutely positioned at the top of the stage (so it
-   can span full viewport width), and the stage's top padding
-   reserves the space below the ring for the figure + copy. */
+   Vertical stack in normal flex flow:
+     [wordmark]
+     [figure-stage]   ← the ring is absolutely positioned over this area
+     [content]
+   The ring band is overlaid on the figure-stage region, not at the
+   top of the section, so the wordmark can sit ABOVE the ring. */
+/* ---------- STAGE ----------
+   Vertical flex flow, top to bottom:
+     [wordmark]      ← brand stamp, large italic serif
+     [ring-anchor]   ← six-layer ring band, full viewport width
+     [figure-row]    ← [CTA]  [TEX FIGURE]  [CTA]
+     [content]       ← headline + descriptor
+
+   Everything in normal flex flow now. The ring escapes the
+   max-width container via negative-margin viewport-width trick. */
 .hs-stage {
   position: relative;
   z-index: 2;
   width: 100%;
   max-width: var(--max-w, 1400px);
   margin: 0 auto;
-  /* Top padding = kicker gap + ring band height + breathing room.
-     Tightened to fit "Tex" wordmark + headline + descriptor + both
-     CTAs above the fold on standard 900-1080px tall viewports. */
-  padding: clamp(250px, 28vh, 320px) 56px 90px;
+  padding: clamp(60px, 6vh, 100px) 56px 90px;
   min-height: calc(100vh - var(--bar-h, 56px));
   display: flex;
   flex-direction: column;
@@ -91,35 +60,62 @@
   gap: 0;
 }
 
-/* ---------- RING ANCHOR ----------
-   Fixed band at the top of the stage. The ring SVG fills this band
-   with its shallow arc. We use absolute positioning at the top of
-   .hs-stage so the ring breaks out of the flex flow and spans the
-   full viewport width regardless of the stage's max-width container.
+/* ---------- WORDMARK ----------
+   Large italic "Tex" stamp. Sits BETWEEN the ring band and the
+   figure — in the open space where the arc curve dips toward Tex's
+   head. Z-index above the ring so it reads cleanly even if the arc
+   passes behind it. */
+.hs-wordmark {
+  position: relative;
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(56px, 7vw, 110px);
+  line-height: 1.0;
+  letter-spacing: -0.015em;
+  color: var(--bone-100);
+  margin: 0;
+  /* Pull up so the wordmark overlaps the ring band's lower portion. */
+  margin-top: -50px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 0.9s ease-out 0.2s forwards;
+  text-shadow: 0 0 36px rgba(0, 0, 0, 0.95), 0 0 24px rgba(86, 230, 220, 0.18);
+  z-index: 5;
+  text-align: center;
+}
 
-   The stage itself adds top padding equal to the band height so
-   downstream content (figure, copy) starts BELOW the ring. */
+/* ---------- RING ANCHOR ----------
+   The six-layer ring band. In flex flow under the wordmark.
+   Width breaks out of the stage's max-width container via the
+   margin-left trick so the arc reaches the actual viewport edges. */
 .hs-ring-anchor {
-  position: absolute;
-  top: 76px; /* below the kicker */
-  left: 0;
-  right: 0;
-  width: 100%;
-  height: clamp(170px, 22vh, 240px);
+  position: relative;
+  width: 100vw;
+  max-width: 1800px;
+  margin-left: calc(50% - 50vw);
+  /* If we hit the 1800 max, recenter via auto margins won't work
+     with the negative margin trick. Instead, on viewports >=1800
+     we want centered. The clamp on margin-left handles both: at
+     <1800 vw the calc is negative (pulls left to viewport edge),
+     at >=1800 vw it's also negative but we use max() to clamp. */
+  /* Use a flex-shrink:0 to prevent height collapse */
+  flex-shrink: 0;
+  height: clamp(220px, 24vh, 280px);
   z-index: 2;
   pointer-events: none;
   opacity: 0;
-  animation: hs-fade-in 1.4s ease-out 0.4s forwards;
+  animation: hs-fade-in 1.4s ease-out 0.5s forwards;
   display: flex;
   justify-content: center;
   align-items: stretch;
 }
 
-/* The ring's wrapper inside the anchor — caps the visual width so
-   the arc doesn't stretch absurdly wide on ultra-wide monitors. */
+/* The ring's inner wrapper — caps the visual width on ultra-wide
+   monitors and centers within the anchor. */
 .er-wrap {
   width: 100%;
-  max-width: 1600px;
+  max-width: 1800px;
   height: 100%;
   display: flex;
   align-items: stretch;
@@ -127,19 +123,63 @@
   pointer-events: none;
 }
 
-/* ---------- FIGURE STAGE ----------
-   Tex sits centered, just below the ring band. A small negative
-   top margin lets the very top of Tex's halo overlap the bottom
-   edge of the ring band, knitting the two visually together. */
-.hs-figure-stage {
+/* ---------- FIGURE ROW ----------
+   Three-column horizontal layout:
+     [ left CTA column ]  [ center figure column ]  [ right CTA column ]
+   The CTAs flank Tex at chest height. On mobile we collapse this
+   row into a vertical stack (CTAs go below the figure).
+
+   The figure column is a fixed-ish width (clamp), the two CTA
+   columns flex to fill the remaining space, distributing the CTAs
+   evenly between Tex and the viewport edges. */
+.hs-figure-row {
   position: relative;
   z-index: 3;
   width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: clamp(24px, 4vw, 64px);
+  /* Pull up so the top of Tex's head nests just under the arc's
+     bottom. The arc's bottom is around y=200 in viewBox coordinates
+     (out of 280-tall), which at typical render scale is ~60-80px
+     above the ring band's bottom edge. A -40px top margin gives the
+     figure a graceful overlap with the ring without crashing the
+     side labels into Tex's head. */
+  margin-top: -40px;
+}
+
+/* Each flanking CTA column. The button itself is centered in its
+   column. On left we right-align (closer to Tex), on right we
+   left-align — but only at wider widths; at narrower widths both
+   center for symmetry. */
+.hs-figure-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: hs-fade-up 1s ease-out 0.95s forwards;
+}
+.hs-figure-cta--left  { justify-content: flex-end;   padding-right: 8px; }
+.hs-figure-cta--right { justify-content: flex-start; padding-left:  8px; }
+
+/* The figure column keeps its existing relative positioning so
+   absolute children (veil, scanline, pulse rings, floor disk) still
+   anchor correctly. Width is constrained so the figure doesn't
+   stretch when grid distributes space. */
+.hs-figure-stage {
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  margin-top: -20px;
+  margin-top: 0;
   margin-bottom: 0;
   opacity: 0;
   transform: translateY(20px);
@@ -318,24 +358,6 @@
   align-items: center;
 }
 
-/* The "Tex" wordmark — large serif, sits like a brand stamp
-   directly under the figure. Italic to echo the headline below
-   and the avatar's chest emblem typography. */
-.hs-wordmark {
-  font-family: var(--serif);
-  font-style: italic;
-  font-weight: 300;
-  font-size: clamp(38px, 4.2vw, 64px);
-  line-height: 1.0;
-  letter-spacing: -0.015em;
-  color: var(--bone-100);
-  margin: 0 0 6px;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: hs-fade-up 0.9s ease-out 0.7s forwards;
-  text-shadow: 0 0 30px rgba(86, 230, 220, 0.15);
-}
-
 /* The positioning headline — single line, italic serif with the
    gradient highlight on the final word "System" so it carries the
    visual emphasis. */
@@ -381,16 +403,7 @@
   font-weight: 400;
 }
 
-.hs-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  opacity: 0;
-  transform: translateY(16px);
-  animation: hs-fade-up 1s ease-out 1.35s forwards;
-}
+/* (.hs-actions removed — CTAs now flank the figure via .hs-figure-row.) */
 
 .hs-cta-primary {
   position: relative;
@@ -599,29 +612,34 @@
   stroke-width: 2;
 }
 
-/* ---- Labels ---- */
+/* ---- Labels ----
+   Sizes are in SVG user units. The SVG scales to fit the container,
+   so these get multiplied by (container_px_width / 1600). At 1440px
+   viewport that's a 0.9× factor; at 1920px viewport, 1.2×.
+   We size up generously so the labels remain readable even at the
+   1.0× / 0.9× scale on smaller laptops. */
 .er-label-num {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 16px;
   letter-spacing: 0.18em;
   fill: var(--bone-300);
   transition: fill 0.4s ease;
 }
 .er-label-name {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 20px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   fill: var(--bone-100);
   transition: fill 0.4s ease;
 }
 .er-label-name--em {
-  font-size: 14px;
-  letter-spacing: 0.14em;
+  font-size: 22px;
+  letter-spacing: 0.12em;
 }
 .er-label-desc {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 400;
   letter-spacing: 0.01em;
   fill: var(--bone-300);
@@ -646,27 +664,44 @@
    ============================================================= */
 @media (max-width: 1100px) {
   .hs-stage { padding: 80px 32px 50px; }
-  .hs-ring-anchor { height: clamp(150px, 20vh, 200px); }
+  .hs-ring-anchor { top: clamp(140px, 14vh, 200px); height: clamp(200px, 26vh, 280px); }
   .hs-figure-img { height: clamp(280px, 38vh, 380px); }
-  .hs-wordmark { font-size: clamp(38px, 5.5vw, 56px); }
+  .hs-wordmark { font-size: clamp(44px, 6.5vw, 78px); }
   .hs-headline { font-size: clamp(20px, 2.6vw, 28px); }
+  /* Narrow CTA columns so the figure stays prominent */
+  .hs-figure-row { gap: clamp(16px, 3vw, 32px); }
   .er-label-name { font-size: 11px; }
   .er-label-desc { font-size: 10px; }
 }
 
+@media (max-width: 860px) {
+  /* Below 860px the three-column row gets too cramped to flank the
+     figure with buttons. Collapse: figure on its own row, CTAs stacked
+     below it. */
+  .hs-figure-row {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .hs-figure-cta--left,
+  .hs-figure-cta--right {
+    justify-content: center;
+    padding: 0;
+    order: 3;
+  }
+  .hs-figure-stage { order: 1; }
+  .hs-figure-cta--left  { order: 2; }
+  .hs-figure-cta--right { order: 3; }
+}
+
 @media (max-width: 768px) {
-  .hs-stage { padding: 72px 20px 40px; }
-  .hs-ring-anchor { height: clamp(120px, 18vh, 160px); }
-  .hs-figure-stage { margin-top: -20px; }
+  .hs-stage { padding: 60px 20px 40px; }
+  .hs-ring-anchor { top: clamp(100px, 12vh, 160px); height: clamp(160px, 22vh, 220px); }
   .hs-figure-img { height: clamp(240px, 36vh, 320px); }
-  .hs-wordmark { font-size: clamp(32px, 9vw, 44px); margin-bottom: 6px; }
+  .hs-wordmark { font-size: clamp(38px, 10vw, 56px); margin-bottom: 4px; }
   .hs-headline { font-size: clamp(18px, 5vw, 24px); margin-bottom: 14px; }
   .hs-descriptor { font-size: 13px; line-height: 1.5; margin-bottom: 20px; }
-  .hs-actions { flex-direction: column; width: 100%; }
+  .hs-figure-cta { width: 100%; }
   .hs-cta-primary, .hs-cta-ghost { width: 100%; justify-content: center; }
-  .hs-kicker { font-size: 9px; gap: 8px; top: 24px; }
-  .hs-kicker-sep--collapse,
-  .hs-kicker-dim--collapse { display: none; }
   .er-label-name { font-size: 9px; }
   .er-label-num  { font-size: 9px; }
   .er-label-desc { display: none; } /* Hide descriptions on mobile — labels only */
@@ -680,7 +715,6 @@
   .hs-pulse-ring,
   .hs-floor-disk,
   .hs-figure-veil,
-  .hs-kicker-dot,
   .er-pulse-outer,
   .hs-scroll-arrow {
     animation: none !important;

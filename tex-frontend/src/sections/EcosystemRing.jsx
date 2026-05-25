@@ -102,23 +102,40 @@ export default function EcosystemRing() {
      for side nodes that's diagonally up-and-out. They never extend
      downward (which would intrude into Tex's portrait area).
   */
-  const VB_W = 1600;
-  const VB_H = 260;
-  const cx = 800;
-  const cy = 380;
-  const rx = 760;
-  const ry = 280;
+  /* Geometry — a wide arc whose ENDPOINTS sit only slightly below
+     the crest, so all six labels live in a narrow vertical band
+     near the top of the hero (well above the CTA row that flanks
+     Tex). The arc itself is moderately shallow.
 
-  /* Angular distribution.
-     270° = top of ellipse (= crest of visible arc).
-     228° to 312° gives an 84° span symmetric around the crest.
-     Tighter than a full 100° because the leftmost and rightmost
-     nodes carry descriptions that extend horizontally into the
-     margin — pulling the endpoints inward keeps those descriptions
-     inside the viewport even at 1440px viewport widths where the
-     SVG scales down to ~90% of its native viewBox size. */
-  const ARC_START = 232;
-  const ARC_END = 308;
+     Goal layout:
+       Labels band:   y ≈ 30  to 110  (top of viewBox)
+       Arc band:      y ≈ 100 to 200
+       Empty:         y ≈ 200 to 280  (bottom buffer)
+
+     Math:
+       y(crest, 270°) = cy - ry         = 100
+       y(end, 200°)   = cy + ry*sin(200°) = cy - 0.342*ry = 200
+       → 100 + ry - 0.342*ry = 200 → 0.658*ry = 100 → ry = 152
+       → cy = ry + 100 = 252
+       x(200°) = 800 + rx*cos(200°) = 800 - 0.940*rx
+       Want x(200°) ≈ 160 (160px inset from viewBox-left, leaves
+       label-text room for "/01 DISCOVERY" extending leftward)
+       → rx = (800 - 160) / 0.940 = 681. Round to 680.
+  */
+  const VB_W = 1600;
+  const VB_H = 280;
+  const cx = 800;
+  const cy = 252;
+  const rx = 680;
+  const ry = 152;
+
+  /* Angular distribution. 270° = crest.
+     210° to 330° = 120° arc symmetric about the crest.
+     Pulled in from 200-340 by 10° on each side so the leftmost/
+     rightmost label text doesn't clip the viewport edge when the
+     SVG scales to fit smaller (1440px) viewports. */
+  const ARC_START = 210;
+  const ARC_END = 330;
   const nodePoints = useMemo(() => {
     const n = ECOSYSTEM_LAYERS.length;
     return ECOSYSTEM_LAYERS.map((layer, i) => {
@@ -280,21 +297,15 @@ export default function EcosystemRing() {
           // Compute label position.
           // Strategy: every label sits ABOVE its node by a fixed
           // vertical distance, plus a horizontal nudge based on which
-          // side of the arc the node lives on. This guarantees:
-          //  - labels never sit below their node (would intrude on Tex)
-          //  - labels never overlap the arc curve itself (the lift
-          //    clears the arc thickness easily)
-          //  - top nodes get the same lift as side nodes for visual
-          //    consistency
+          // side of the arc the node lives on.
           const rad = (angleDeg * Math.PI) / 180;
           const cosA = Math.cos(rad);
-          // Vertical lift — slightly more for the emphasized node so
-          // the two-line label and larger glyph all read cleanly.
-          const vertLift = isEmphasis ? 68 : 52;
+          // Vertical lift — pushes labels above their node. Slightly
+          // more for emphasized node (two-line label needs room).
+          const vertLift = isEmphasis ? 92 : 68;
           // Horizontal nudge — push left-side labels left, right-side
-          // labels right, top-center labels barely move. The nudge is
-          // small (12-18px) because we rely on text-anchor for direction.
-          const horizNudge = cosA * (isEmphasis ? 20 : 16);
+          // labels right, top-center labels barely move.
+          const horizNudge = cosA * 20;
           const lx = x + horizNudge;
           const ly = y - vertLift;
 
@@ -337,7 +348,7 @@ export default function EcosystemRing() {
                   a guided tour: each layer surfaces its purpose as
                   the pulse arrives, then settles back. */}
               <text
-                x={lx} y={ly - 26}
+                x={lx} y={ly - 32}
                 textAnchor={anchor}
                 className="er-label-num"
               >
@@ -345,7 +356,7 @@ export default function EcosystemRing() {
               </text>
               {isEmphasis ? (
                 <text
-                  x={lx} y={ly - 6}
+                  x={lx} y={ly - 10}
                   textAnchor={anchor}
                   className="er-label-name er-label-name--em"
                 >
@@ -363,7 +374,7 @@ export default function EcosystemRing() {
               )}
               {isActive && (
                 <text
-                  x={lx} y={ly + (isEmphasis ? 36 : 22)}
+                  x={lx} y={ly + (isEmphasis ? 52 : 32)}
                   textAnchor={anchor}
                   className="er-label-desc"
                 >

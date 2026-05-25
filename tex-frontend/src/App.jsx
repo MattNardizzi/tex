@@ -294,24 +294,26 @@ function LayerBar({ active, setActive, currentPath }) {
           ))}
         </ol>
       ) : (
-        /* Homepage — minimal verb nav: jumps within the page. */
+        /* Homepage — six-layer nav matching the hero ecosystem ring.
+           Each item is a section anchor in the page so clicking
+           scrolls to the corresponding layer story. */
         <ol className="bar-verbs" role="tablist">
-          {VERBS.map((v) => (
+          {[
+            { n: '01', word: 'Discovery'    },
+            { n: '02', word: 'Identity'     },
+            { n: '03', word: 'Observability'},
+            { n: '04', word: 'Execution'    },
+            { n: '05', word: 'Evidence'     },
+            { n: '06', word: 'Evolution'    },
+          ].map((v) => (
             <li key={v.n}>
-              <a className="bar-verb" href={`#verb-${v.n}`}>
+              <a className="bar-verb" href={`#layer-${v.n}`}>
                 <span className="bar-verb-num">/{v.n}</span>
                 <span className="bar-verb-word">{v.word}</span>
                 <span className="bar-verb-rule" aria-hidden="true" />
               </a>
             </li>
           ))}
-          <li>
-            <a className="bar-verb bar-verb--proof" href="#proof">
-              <span className="bar-verb-num">§</span>
-              <span className="bar-verb-word">Proof</span>
-              <span className="bar-verb-rule" aria-hidden="true" />
-            </a>
-          </li>
         </ol>
       )}
 

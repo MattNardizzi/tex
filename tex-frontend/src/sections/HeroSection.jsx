@@ -42,6 +42,16 @@ export default function HeroSection({ openTrial, navigate }) {
       <div className="hs-stage">
         {/* LEFT COLUMN — copy + CTAs */}
         <div className="hs-copy">
+          {/* Editorial eyebrow — a small mono "system identifier"
+              that balances the instrumental complexity on the right
+              and gives the headline a document/dossier gravitas. */}
+          <div className="hs-copy-eyebrow" aria-hidden="true">
+            <span className="hs-copy-eyebrow-mark" />
+            <span className="hs-copy-eyebrow-code">H-001</span>
+            <span className="hs-copy-eyebrow-sep">/</span>
+            <span className="hs-copy-eyebrow-name">Airspace Control</span>
+          </div>
+
           <h1 className="hs-headline">
             The AI Airspace Control System
           </h1>
@@ -74,15 +84,19 @@ export default function HeroSection({ openTrial, navigate }) {
           </div>
         </div>
 
-        {/* RIGHT COLUMN — eyebrow above, ring + Tex below */}
+        {/* RIGHT COLUMN — ring + Tex; eyebrow lives INSIDE the scene */}
         <div className="hs-scene-col">
-          <div className="hs-eyebrow" aria-hidden="false">
-            <span className="hs-eyebrow-mark" />
-            <span className="hs-eyebrow-text">360° Governance</span>
-            <span className="hs-eyebrow-mark" />
-          </div>
-
           <div className="hs-scene">
+            {/* 360° GOVERNANCE eyebrow — floats inside the ring,
+                between the top of the ring perimeter and Tex's head.
+                Positioned absolutely so it visually anchors the
+                ring's interior rather than the column above it. */}
+            <div className="hs-eyebrow hs-eyebrow--inside" aria-hidden="false">
+              <span className="hs-eyebrow-mark" />
+              <span className="hs-eyebrow-text">360° Governance</span>
+              <span className="hs-eyebrow-mark" />
+            </div>
+
             <div className="hs-ring-anchor">
               <EcosystemRing />
             </div>

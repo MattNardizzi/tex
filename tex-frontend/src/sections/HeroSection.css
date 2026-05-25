@@ -34,12 +34,12 @@
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: clamp(20px, 2.5vh, 36px) 56px clamp(28px, 3vh, 48px);
+  padding: clamp(20px, 2.5vh, 36px) 48px clamp(28px, 3vh, 48px);
   min-height: calc(100vh - var(--bar-h, 56px));
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   align-items: center;
-  gap: clamp(32px, 4vw, 80px);
+  gap: clamp(12px, 1.6vw, 28px);
 }
 
 /* ---------- LEFT COLUMN (copy + CTAs) ----------
@@ -56,6 +56,47 @@
   text-align: left;
   max-width: 560px;
   justify-self: end;
+}
+
+/* Editorial eyebrow above the headline — small mono system-id
+   strip that mirrors the instrument vocabulary on the right
+   column. Reads like a document header on a classified dossier. */
+.hs-copy-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 22px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--tex);
+  text-shadow: 0 0 14px rgba(86, 230, 220, 0.4);
+  opacity: 0;
+  animation: hs-fade-up 0.9s ease-out 0.35s forwards;
+}
+.hs-copy-eyebrow-mark {
+  width: 44px;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(86, 230, 220, 0) 0%,
+    rgba(127, 241, 233, 0.85) 100%);
+  box-shadow: 0 0 6px rgba(127, 241, 233, 0.5);
+}
+.hs-copy-eyebrow-code {
+  color: var(--tex-bright);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+}
+.hs-copy-eyebrow-sep {
+  color: var(--bone-500);
+  letter-spacing: 0;
+  font-weight: 300;
+}
+.hs-copy-eyebrow-name {
+  color: var(--bone-200);
+  font-weight: 400;
+  letter-spacing: 0.24em;
 }
 
 .hs-headline {
@@ -152,12 +193,57 @@
     rgba(86, 230, 220, 0) 100%);
 }
 
+/* Eyebrow positioned INSIDE the scene — floats between the top
+   of the ring perimeter and Tex's head. The scene is square so
+   top:24% lands in the ring's upper interior; the ring perimeter
+   sits at ~10% from the top edge (R_TELEM=490 → ~50-49=top edge,
+   but with viewBox padding the visible ring starts ~5% in).
+   Z-index 5 puts it above the SVG ring but below the figure. */
+.hs-eyebrow--inside {
+  position: absolute;
+  top: 19%;
+  left: 50%;
+  /* IMPORTANT: this transform is preserved by hs-eyebrow-inside-in
+     so the inside-variant stays horizontally centered after the
+     intro animation finishes. (The default hs-fade-up keyframe
+     uses translateY(0) which would clobber our translateX(-50%).) */
+  transform: translate(-50%, -50%);
+  margin: 0;
+  z-index: 7;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  color: var(--tex-bright);
+  text-shadow:
+    0 0 16px rgba(127, 241, 233, 0.7),
+    0 0 6px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+  /* Override the base hs-eyebrow animation with one that keeps
+     translate(-50%, -50%) at every keyframe. */
+  animation: hs-eyebrow-inside-in 1s ease-out 0.7s both;
+  opacity: 0;
+}
+@keyframes hs-eyebrow-inside-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+.hs-eyebrow--inside .hs-eyebrow-mark {
+  width: 28px;
+  background: linear-gradient(90deg,
+    rgba(127, 241, 233, 0) 0%,
+    rgba(127, 241, 233, 0.85) 100%);
+}
+.hs-eyebrow--inside .hs-eyebrow-mark:last-child {
+  background: linear-gradient(90deg,
+    rgba(127, 241, 233, 0.85) 0%,
+    rgba(127, 241, 233, 0) 100%);
+}
+
 /* ---------- SCENE (ring + figure overlaid) ----------
    Sized to fit comfortably in the right column. container-type
    lets the figure use cqh units for stable sizing. */
 .hs-scene {
   position: relative;
-  width: min(72vh, 50vw, 760px);
+  width: min(78vh, 54vw, 820px);
   aspect-ratio: 1;
   z-index: 2;
   container-type: size;
@@ -167,7 +253,7 @@
 .hs-ring-anchor {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 4;
   pointer-events: none;
   opacity: 0;
   animation: hs-fade-in 1.6s ease-out 0.3s forwards;
@@ -298,22 +384,23 @@
   top: 32%;
   left: 50%;
   transform: translateX(-50%);
-  width: 18%;
-  height: 4%;
+  width: 20%;
+  height: 5%;
   background: radial-gradient(
     ellipse at center,
-    rgba(180, 245, 255, 0.85) 0%,
-    rgba(86, 230, 220, 0.4) 40%,
-    transparent 70%
+    rgba(200, 250, 255, 1) 0%,
+    rgba(127, 241, 233, 0.7) 35%,
+    rgba(86, 230, 220, 0.3) 65%,
+    transparent 80%
   );
   filter: blur(2px);
   mix-blend-mode: screen;
   pointer-events: none;
-  animation: hs-eye-pulse 3s ease-in-out infinite;
+  animation: hs-eye-pulse 2.4s ease-in-out infinite;
 }
 @keyframes hs-eye-pulse {
-  0%, 100% { opacity: 0.85; }
-  50%      { opacity: 1;    }
+  0%, 100% { opacity: 0.85; transform: translateX(-50%) scale(0.96); }
+  50%      { opacity: 1;    transform: translateX(-50%) scale(1.05); }
 }
 
 .hs-chest-glow {
@@ -404,6 +491,7 @@
 .hs-cta-primary:hover::after { left: 100%; }
 
 .hs-cta-ghost {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -414,17 +502,40 @@
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--bone-100);
-  background: transparent;
+  background: rgba(86, 230, 220, 0.02);
   border: 1px solid var(--edge-strong);
   cursor: pointer;
   text-decoration: none;
   transition: all 0.3s ease;
   white-space: nowrap;
 }
+/* Subtle cyan corner ticks — top-left + bottom-right.
+   Tiny instrument-panel detail that signals "active control". */
+.hs-cta-ghost::before,
+.hs-cta-ghost::after {
+  content: '';
+  position: absolute;
+  width: 8px; height: 8px;
+  border: 1px solid var(--tex);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.hs-cta-ghost::before {
+  top: -1px; left: -1px;
+  border-right: 0; border-bottom: 0;
+}
+.hs-cta-ghost::after {
+  bottom: -1px; right: -1px;
+  border-left: 0; border-top: 0;
+}
 .hs-cta-ghost:hover {
   border-color: var(--tex);
-  color: var(--tex);
-  background: rgba(86, 230, 220, 0.04);
+  color: var(--tex-bright);
+  background: rgba(86, 230, 220, 0.06);
+}
+.hs-cta-ghost:hover::before,
+.hs-cta-ghost:hover::after {
+  border-color: var(--tex-bright);
+  box-shadow: 0 0 8px rgba(127, 241, 233, 0.7);
 }
 .hs-cta-arrow {
   display: inline-block;
@@ -500,17 +611,18 @@
 .er-sweep {
   transform-origin: 500px 500px;
   transform-box: view-box;
-  animation: er-spin-cw 24s linear infinite;
-  opacity: 0.95;
+  animation: er-spin-cw 18s linear infinite;
+  opacity: 1;
+  mix-blend-mode: screen;
 }
 .er-sweep-edge {
   stroke: var(--tex-bright);
-  stroke-width: 1.4;
+  stroke-width: 1.8;
   stroke-linecap: round;
   filter:
-    drop-shadow(0 0 6px rgba(127, 241, 233, 0.9))
-    drop-shadow(0 0 14px rgba(86, 230, 220, 0.5));
-  opacity: 0.85;
+    drop-shadow(0 0 8px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 18px rgba(86, 230, 220, 0.65));
+  opacity: 0.95;
 }
 
 .er-spoke {
@@ -535,17 +647,60 @@
 
 .er-main-stroke {
   filter:
-    drop-shadow(0 0 4px rgba(127, 241, 233, 0.55))
-    drop-shadow(0 0 12px rgba(86, 230, 220, 0.32));
+    drop-shadow(0 0 4px rgba(127, 241, 233, 0.65))
+    drop-shadow(0 0 14px rgba(86, 230, 220, 0.38));
+  transition: filter 0.4s ease, opacity 0.4s ease;
+}
+.er-main-seg.is-lit .er-main-stroke {
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 22px rgba(86, 230, 220, 0.7));
+}
+.er-main-seg.is-emphasis .er-main-stroke {
+  filter:
+    drop-shadow(0 0 5px rgba(127, 241, 233, 0.85))
+    drop-shadow(0 0 18px rgba(86, 230, 220, 0.55));
 }
 .er-main-glow {
-  opacity: 0.65;
-  filter: blur(4px);
+  opacity: 0.6;
+  filter: blur(5px);
   animation: er-main-pulse 6s ease-in-out infinite;
 }
 @keyframes er-main-pulse {
-  0%, 100% { opacity: 0.55; }
+  0%, 100% { opacity: 0.5; }
   50%      { opacity: 0.85; }
+}
+
+/* Segment boundary dividers — tiny ticks that mark the six
+   chambers. Pulse very subtly so the ring feels alive without
+   competing with the engraved names. */
+.er-seg-divider {
+  opacity: 0.55;
+  filter: drop-shadow(0 0 3px rgba(127, 241, 233, 0.6));
+  animation: er-divider-blink 5s ease-in-out infinite;
+}
+@keyframes er-divider-blink {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.75; }
+}
+
+/* Perimeter arc pulse — bright cyan ribbon that sweeps along
+   the ring's outer edge when a node activates */
+.er-arc-pulse {
+  stroke: var(--tex-bright);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 16px rgba(86, 230, 220, 0.7));
+  pointer-events: none;
+}
+
+.er-shimmer {
+  transform-origin: 500px 500px;
+  transform-box: view-box;
+  animation: er-spin-cw 28s linear infinite;
+  mix-blend-mode: screen;
 }
 
 .er-hub circle {
@@ -563,7 +718,8 @@
   fill: rgba(127, 241, 233, 0.28);
   animation-duration: 3s;
 }
-.er-node.is-pinging .er-node-halo {
+.er-node.is-pinging .er-node-halo,
+.er-node.is-hover   .er-node-halo {
   fill: rgba(127, 241, 233, 0.55);
 }
 @keyframes er-node-breathe {
@@ -574,7 +730,7 @@
 .er-node-ring {
   fill: none;
   stroke: var(--tex);
-  stroke-width: 1.4;
+  stroke-width: 1.2;
   filter: drop-shadow(0 0 4px rgba(127, 241, 233, 0.55));
 }
 .er-node-core {
@@ -587,7 +743,7 @@
 .er-node-hex {
   fill: rgba(127, 241, 233, 0.32);
   stroke: var(--tex-bright);
-  stroke-width: 1.8;
+  stroke-width: 1.6;
   filter:
     drop-shadow(0 0 6px rgba(127, 241, 233, 0.85))
     drop-shadow(0 0 16px rgba(86, 230, 220, 0.5));
@@ -596,28 +752,62 @@
   fill: rgba(127, 241, 233, 0.55);
 }
 
-.er-label { pointer-events: none; }
-.er-label-num {
-  font-family: var(--mono);
-  font-size: 18px;
-  letter-spacing: 0.24em;
-  fill: var(--bone-400);
-  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+/* ---------- ENGRAVED LABELS ----------
+   Each layer name rides curved along its segment's text arc.
+   Sized to feel monumental — these ARE the ring at each layer's
+   position. Subtle glow gives the engraved-in-metal quality. */
+.er-label {
+  pointer-events: auto;
+  transition: opacity 0.35s ease;
 }
+
 .er-label-name {
   font-family: var(--mono);
-  font-size: 22px;
+  font-size: 34px;
   font-weight: 600;
-  letter-spacing: 0.20em;
+  letter-spacing: 0.22em;
   fill: var(--bone-100);
+  filter:
+    drop-shadow(0 0 6px rgba(127, 241, 233, 0.55))
+    drop-shadow(0 0 14px rgba(0, 0, 0, 0.9));
+  transition: fill 0.35s ease, filter 0.35s ease;
+  /* Stagger-in shimmer wave on first paint */
+  animation: er-label-arrive 1.2s cubic-bezier(0.16, 1, 0.3, 1) var(--er-label-delay, 0s) both;
 }
 .er-label-name--em {
-  font-size: 24px;
+  font-size: 30px;
   fill: var(--tex-bright);
-  letter-spacing: 0.18em;
+  letter-spacing: 0.20em;
+  filter:
+    drop-shadow(0 0 8px rgba(127, 241, 233, 0.9))
+    drop-shadow(0 0 20px rgba(86, 230, 220, 0.55))
+    drop-shadow(0 0 14px rgba(0, 0, 0, 0.9));
 }
-.er-label.is-emphasis .er-label-num {
-  fill: var(--tex);
+
+/* Hover/active state — label brightens to full cyan */
+.er-label.is-hover .er-label-name {
+  fill: var(--tex-bright);
+  filter:
+    drop-shadow(0 0 10px rgba(127, 241, 233, 1))
+    drop-shadow(0 0 22px rgba(86, 230, 220, 0.75))
+    drop-shadow(0 0 14px rgba(0, 0, 0, 0.9));
+}
+
+@keyframes er-label-arrive {
+  from {
+    opacity: 0;
+    fill: rgba(127, 241, 233, 0);
+    filter:
+      drop-shadow(0 0 16px rgba(127, 241, 233, 0.9))
+      drop-shadow(0 0 14px rgba(0, 0, 0, 0.9));
+  }
+  60% {
+    opacity: 1;
+    fill: rgba(127, 241, 233, 0.95);
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* =============================================================

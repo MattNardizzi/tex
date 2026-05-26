@@ -193,3 +193,24 @@
   0%, 100% { opacity: 0.82; transform: scale(0.92); }
   50%      { opacity: 1;    transform: scale(1.10); }
 }
+
+/* Responsive sizes ───────────────────────────────────────────
+   On phones the orb's halo cannot exceed the viewport, or it
+   gets clipped against the section padding and stops feeling
+   like a presence in space. Cap each size to something the
+   phone can hold while preserving the relative hierarchy
+   (xs < sm < md < lg < xl). The breath math is unchanged. */
+
+@media (max-width: 720px) {
+  .tex-orb--xs { width: 80px;  height: 80px;  }
+  .tex-orb--sm { width: 120px; height: 120px; }
+  .tex-orb--md { width: 180px; height: 180px; }
+  .tex-orb--lg { width: 240px; height: 240px; }
+  .tex-orb--xl { width: 300px; height: 300px; }
+}
+
+@media (max-width: 420px) {
+  .tex-orb--md { width: 160px; height: 160px; }
+  .tex-orb--lg { width: 220px; height: 220px; }
+  .tex-orb--xl { width: 260px; height: 260px; }
+}

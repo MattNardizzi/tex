@@ -114,24 +114,135 @@
   transform: translateY(0);
 }
 
+/* MOBILE COMPOSITION ────────────────────────────────────────
+   The beam stands up on mobile. The desktop horizontal SVG is
+   hidden; this vertical DOM/SVG composition takes its place.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-foresight-mobile {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .tex-foresight {
     padding: var(--tex-section-pad) 20px;
     min-height: 0;
   }
   .tex-foresight-stage {
-    gap: 40px;
+    gap: 48px;
   }
+
+  /* Hide the desktop composition entirely. Its math does not work
+     at phone width — the cone compresses into a sliver and the orb
+     drops outside the visible band. */
   .tex-foresight-composition {
-    aspect-ratio: 1 / 1;
-    max-width: 100%;
+    display: none;
   }
+
+  /* Mobile composition. */
+  .tex-foresight-mobile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  .tex-foresight-mobile-now {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 2;
+  }
+
+  .tex-foresight-mobile-now-label {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--tex-ink-mute);
+    margin-top: -6px;
+  }
+
+  .tex-foresight-mobile-svg {
+    width: 100%;
+    height: 280px;
+    margin-top: -40px;
+    display: block;
+  }
+
+  /* The timeline draws downward. */
+  .tex-foresight-mobile-timeline {
+    stroke-dasharray: 280;
+    stroke-dashoffset: 280;
+    transition: stroke-dashoffset 1.4s ease;
+    transition-delay: 350ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-timeline {
+    stroke-dashoffset: 0;
+  }
+
+  /* The cone fades in once the timeline is drawn. */
+  .tex-foresight-mobile-cone,
+  .tex-foresight-mobile-cone-bound {
+    opacity: 0;
+    transition: opacity 1.4s ease;
+    transition-delay: 1700ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-cone,
+  .tex-foresight--armed .tex-foresight-mobile-cone-bound {
+    opacity: 1;
+  }
+
+  /* The shadow orb travels down the beam. */
+  .tex-foresight-mobile-shadow {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    transition-delay: 1850ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-shadow {
+    opacity: 1;
+    animation: tex-foresight-mobile-travel 4.2s ease-in-out infinite;
+    animation-delay: 1850ms;
+  }
+
+  @keyframes tex-foresight-mobile-travel {
+    0%   { transform: translateY(0);   opacity: 0.7; }
+    40%  { transform: translateY(220px); opacity: 0.55; }
+    70%  { transform: translateY(248px); opacity: 0.3;  }
+    100% { transform: translateY(260px); opacity: 0;    }
+  }
+
+  /* CONFORMAL label sits below the beam, anchored to its width. */
+  .tex-foresight-mobile-conformal {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: -8px;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    transition-delay: 2500ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-conformal {
+    opacity: 1;
+  }
+  .tex-foresight-mobile-conformal-rule {
+    width: 28px;
+    height: 1px;
+    background: var(--tex-glass-3);
+    opacity: 0.46;
+  }
+  .tex-foresight-mobile-conformal-label {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--tex-ink-mute);
+  }
+
   .tex-foresight-line {
     font-size: 24px;
     line-height: 1.3;
-  }
-  /* SVG text needs a much larger font-size to be readable on a phone. */
-  .tex-foresight-tick-label {
-    font-size: 26px;
   }
 }

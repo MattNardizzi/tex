@@ -162,13 +162,13 @@
     min-height: 0;
   }
   .tex-moment-stage {
-    min-height: 520px;
+    min-height: 480px;
   }
   .tex-moment--event .tex-moment-orb {
-    top: 22%;
+    top: 18%;
   }
   .tex-moment-quiet {
-    top: calc(50% + 130px);
+    top: calc(50% + 110px);
   }
   .tex-moment-quiet-word {
     font-size: 24px;
@@ -185,6 +185,10 @@
   .tex-moment-event {
     max-width: 88%;
     bottom: 6%;
+    text-align: center;
+  }
+  .tex-moment-actions {
+    justify-content: center;
   }
   .tex-moment-btn {
     padding: 12px 24px;

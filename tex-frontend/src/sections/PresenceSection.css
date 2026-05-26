@@ -104,24 +104,94 @@
   transform: translateY(0);
 }
 
+/* MOBILE COMPOSITION ────────────────────────────────────────
+   The arc becomes a list on mobile. The semicircle of eight
+   agents around the orb cannot exist at 380px width; this
+   vertical arrangement says the same thing.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-presence-mobile {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .tex-presence-section {
     padding: var(--tex-section-pad) 20px;
     min-height: 0;
   }
   .tex-presence-stage {
-    gap: 48px;
+    gap: 56px;
   }
+
+  /* Hide the desktop arc composition entirely. */
   .tex-presence-composition {
-    aspect-ratio: 1 / 1;
-    max-width: 100%;
+    display: none;
   }
+
+  /* Show the mobile composition. */
+  .tex-presence-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  .tex-presence-mobile-orb {
+    margin-bottom: 16px;
+  }
+
+  .tex-presence-mobile-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .tex-presence-mobile-agent {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 700ms ease, transform 700ms ease;
+  }
+
+  .tex-presence-section--armed .tex-presence-mobile-agent {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .tex-presence-mobile-rule {
+    width: 24px;
+    height: 1px;
+    background: var(--tex-glass-3);
+    opacity: 0.46;
+    flex-shrink: 0;
+  }
+
+  .tex-presence-mobile-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tex-glass-3);
+    flex-shrink: 0;
+  }
+
+  .tex-presence-mobile-name {
+    font-family: var(--tex-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--tex-ink-soft);
+    line-height: 1;
+  }
+
   .tex-presence-line-text {
     font-size: 24px;
     line-height: 1.3;
-  }
-  /* Bump the SVG agent name labels so they don't render at 4px. */
-  .tex-presence-agent-label {
-    font-size: 22px;
   }
 }

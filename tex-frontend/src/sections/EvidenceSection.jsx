@@ -105,6 +105,59 @@ export default function EvidenceSection() {
           <Orb state="proof" size="sm" />
         </div>
 
+        {/* MOBILE COMPOSITION — vertical chain. The desktop SVG cannot fit
+            ten 8-char hashes across a 380px viewport; the math is impossible.
+            Instead, on mobile, the chain rotates 90°: ten links stacked top
+            to bottom, hashes to the right of each dot, hairline spine on the
+            left. The highlighted link still branches off — sideways — to
+            BUNDLE.ZIP. The sentence beneath is the same.
+
+            This composition is hidden on desktop via CSS. The SVG below is
+            hidden on mobile. Both tell the same story; each is native to
+            its medium. */}
+        <div className="tex-evidence-mobile" aria-hidden="true">
+          <ol className="tex-evidence-mobile-chain">
+            {CHAIN.map((hash, i) => {
+              const isHighlighted = i === HIGHLIGHTED_INDEX;
+              const delay = ENTRY_DELAY_MS + i * PER_LINK_MS;
+              return (
+                <li
+                  key={`m-${i}`}
+                  className={`tex-evidence-mobile-link${isHighlighted ? ' tex-evidence-mobile-link--highlighted' : ''}`}
+                  style={{ transitionDelay: `${delay}ms` }}
+                >
+                  <span className="tex-evidence-mobile-dot" />
+                  <span className="tex-evidence-mobile-hash">{hash}</span>
+                  {isHighlighted && (
+                    <span
+                      className="tex-evidence-mobile-branch"
+                      style={{ transitionDelay: `${EXPORT_LINE_MS}ms` }}
+                      aria-hidden="true"
+                    >
+                      <span className="tex-evidence-mobile-branch-line" />
+                      <span
+                        className="tex-evidence-mobile-bundle"
+                        style={{ transitionDelay: `${FOLDER_MS}ms` }}
+                      >
+                        <svg width="36" height="22" viewBox="0 0 36 22" fill="none" aria-hidden="true">
+                          <path
+                            d="M 2 4 L 14 4 L 18 8 L 34 8 L 34 20 L 2 20 Z"
+                            fill="none"
+                            stroke="#14110d"
+                            strokeWidth="1"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        <span className="tex-evidence-mobile-bundle-label">BUNDLE.ZIP</span>
+                      </span>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+
         <div className="tex-evidence-composition">
           <svg
             className="tex-evidence-svg"

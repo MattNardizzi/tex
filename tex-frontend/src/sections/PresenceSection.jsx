@@ -78,6 +78,39 @@ export default function PresenceSection() {
       aria-label="Discovery and identity — Tex sees every agent and knows what each one is"
     >
       <div className="tex-presence-stage">
+        {/* MOBILE COMPOSITION — the arc unfurls into a list. The desktop
+            arrangement is a semicircle of eight identified agents around
+            the orb, which is impossible at phone width: even at 22px SVG
+            font the longest connector names ("openai.assistants") collide
+            with their neighbours.
+
+            On mobile, the same idea is rendered top-down: the orb at the
+            top with a soft hairline descending; each agent name resolves
+            in sequence beneath it, with a tiny dot and mono label. Same
+            story — Tex sees them all, knows who they are — drawn for the
+            phone. */}
+        <div className="tex-presence-mobile" aria-hidden="true">
+          <div className="tex-presence-mobile-orb">
+            <Orb state="quiet" size="sm" />
+          </div>
+          <ul className="tex-presence-mobile-list">
+            {AGENTS.map((agent, i) => {
+              const delay = ENTRY_DELAY_MS + i * PER_AGENT_MS;
+              return (
+                <li
+                  key={`m-${agent.name}`}
+                  className="tex-presence-mobile-agent"
+                  style={{ transitionDelay: `${delay}ms` }}
+                >
+                  <span className="tex-presence-mobile-rule" />
+                  <span className="tex-presence-mobile-dot" />
+                  <span className="tex-presence-mobile-name">{agent.name}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
         {/* The composition — orb + arc + hairlines. */}
         <div className="tex-presence-composition">
           <svg

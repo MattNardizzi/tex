@@ -1,0 +1,120 @@
+/* ============================================================
+   Closer Card — The weight is mine now.
+   ============================================================ */
+
+.tex-closer-m {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--tex-paper);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* The stage centers itself in the available space; the footer
+     anchors to the bottom safe area. */
+  justify-content: space-between;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 56px)
+    20px
+    calc(env(safe-area-inset-bottom, 0px) + 20px)
+    20px;
+  overflow: hidden;
+}
+
+.tex-closer-m-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Same paired-thought rhythm as Bridge: orb + line tight. */
+  gap: 18px;
+  width: 100%;
+}
+
+.tex-closer-m-orb {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 1.6s ease 0.2s, transform 1.6s ease 0.2s;
+}
+
+.tex-closer-m--armed .tex-closer-m-orb {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tex-closer-m-line {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: 320px;
+  text-wrap: balance;
+  padding: 0 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.6s ease 1.4s, transform 1.6s ease 1.4s;
+}
+
+.tex-closer-m--armed .tex-closer-m-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* THE FOOTER ─────────────────────────────────────────────
+   Anchored at the bottom. Three soft links + wordmark.
+   Arrives last, after the orb and the line have settled,
+   so the closer breathes out as one motion. */
+.tex-closer-m-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 1.6s ease 3s;
+  flex-shrink: 0;
+}
+
+.tex-closer-m--armed .tex-closer-m-foot {
+  opacity: 1;
+}
+
+.tex-closer-m-foot-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tex-closer-m-foot-link {
+  font-family: var(--tex-sans);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--tex-ink-mute);
+  transition: color 0.2s ease;
+}
+
+.tex-closer-m-foot-link:hover {
+  color: var(--tex-ink);
+}
+
+.tex-closer-m-foot-sep {
+  font-size: 11px;
+  color: var(--tex-ink-hair);
+}
+
+.tex-closer-m-foot-mark {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--tex-ink-mute);
+  margin: 0;
+}
+
+@media (max-width: 360px) {
+  .tex-closer-m-line { font-size: 28px; }
+}

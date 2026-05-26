@@ -52,11 +52,18 @@
 @media (max-width: 720px) {
   .tex-bridge {
     padding: var(--tex-section-pad) 20px;
+    min-height: 100svh;
+    min-height: 100dvh;
   }
+  /* Orb halo is wide; the gap to "Watch." was too big — they read as
+     two unrelated objects. Tighten to 16px so the orb and the word
+     register as one paired thought, with the word sitting at the
+     halo's lower edge. */
   .tex-bridge-stage {
-    gap: 48px;
+    gap: 16px;
   }
   .tex-bridge-word {
-    font-size: 48px;
+    font-size: 44px;
+    letter-spacing: -0.025em;
   }
 }

@@ -105,6 +105,92 @@ export default function EvidenceSection() {
           <Orb state="proof" size="sm" />
         </div>
 
+        {/* MOBILE COMPOSITION — a representative chain, not the full one.
+            The desktop drawing shows ten links because density IS the
+            point: many decisions, all signed. On a phone, ten dots make
+            a tall stripe that crowds the sentence. Instead, five visible
+            links — the first two, the highlighted middle, and the last
+            two — plus a small "+ N more" indicator suggest the chain
+            extends beyond what the eye is given. The chain feels longer
+            because the user can't see the end of it.
+
+            The highlighted link still branches sideways to BUNDLE.ZIP.
+            The sentence beneath is the same. */}
+        <div className="tex-evidence-mobile" aria-hidden="true">
+          {(() => {
+            // Show the first two links, the highlighted link, and the
+            // last two — five visible total. The remaining five are
+            // implied by a small counter between the highlighted link
+            // and the tail.
+            const visible = [
+              { hash: CHAIN[0], originalIndex: 0,                          isHighlighted: false },
+              { hash: CHAIN[1], originalIndex: 1,                          isHighlighted: false },
+              { hash: CHAIN[HIGHLIGHTED_INDEX], originalIndex: HIGHLIGHTED_INDEX, isHighlighted: true  },
+              { hash: CHAIN[CHAIN.length - 2], originalIndex: CHAIN.length - 2,   isHighlighted: false },
+              { hash: CHAIN[CHAIN.length - 1], originalIndex: CHAIN.length - 1,   isHighlighted: false },
+            ];
+            const remainingBefore = HIGHLIGHTED_INDEX - 2; // links between visible #2 and highlighted
+            const remainingAfter  = CHAIN.length - 1 - HIGHLIGHTED_INDEX - 2; // between highlighted and last two
+            return (
+              <ol className="tex-evidence-mobile-chain">
+                {visible.map((link, i) => {
+                  const delay = ENTRY_DELAY_MS + i * PER_LINK_MS;
+                  const showGapBefore =
+                    (i === 2 && remainingBefore > 0) ||
+                    (i === 3 && remainingAfter > 0);
+                  const gapCount =
+                    i === 2 ? remainingBefore :
+                    i === 3 ? remainingAfter  : 0;
+                  return (
+                    <React.Fragment key={`m-${link.originalIndex}`}>
+                      {showGapBefore && (
+                        <li
+                          className="tex-evidence-mobile-gap"
+                          style={{ transitionDelay: `${delay - 100}ms` }}
+                          aria-hidden="true"
+                        >
+                          <span className="tex-evidence-mobile-gap-mark">+ {gapCount}</span>
+                        </li>
+                      )}
+                      <li
+                        className={`tex-evidence-mobile-link${link.isHighlighted ? ' tex-evidence-mobile-link--highlighted' : ''}`}
+                        style={{ transitionDelay: `${delay}ms` }}
+                      >
+                        <span className="tex-evidence-mobile-dot" />
+                        <span className="tex-evidence-mobile-hash">{link.hash}</span>
+                        {link.isHighlighted && (
+                          <span
+                            className="tex-evidence-mobile-branch"
+                            style={{ transitionDelay: `${EXPORT_LINE_MS}ms` }}
+                            aria-hidden="true"
+                          >
+                            <span className="tex-evidence-mobile-branch-line" />
+                            <span
+                              className="tex-evidence-mobile-bundle"
+                              style={{ transitionDelay: `${FOLDER_MS}ms` }}
+                            >
+                              <svg width="32" height="20" viewBox="0 0 32 20" fill="none" aria-hidden="true">
+                                <path
+                                  d="M 2 4 L 12 4 L 16 8 L 30 8 L 30 18 L 2 18 Z"
+                                  fill="none"
+                                  stroke="#14110d"
+                                  strokeWidth="1"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                              <span className="tex-evidence-mobile-bundle-label">BUNDLE.ZIP</span>
+                            </span>
+                          </span>
+                        )}
+                      </li>
+                    </React.Fragment>
+                  );
+                })}
+              </ol>
+            );
+          })()}
+        </div>
+
         <div className="tex-evidence-composition">
           <svg
             className="tex-evidence-svg"
@@ -162,6 +248,7 @@ export default function EvidenceSection() {
                     fill="#14110d"
                   />
                   <text
+                    className="tex-evidence-hash"
                     x={x} y={CHAIN_Y + 26}
                     textAnchor="middle"
                     fontFamily="var(--tex-mono)"
@@ -212,6 +299,7 @@ export default function EvidenceSection() {
                 strokeLinejoin="round"
               />
               <text
+                className="tex-evidence-folder-label"
                 x={HIGHLIGHTED_X} y={FOLDER_Y + 32}
                 textAnchor="middle"
                 fontFamily="var(--tex-mono)"

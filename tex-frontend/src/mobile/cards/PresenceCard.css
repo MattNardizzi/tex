@@ -1,0 +1,183 @@
+/* ============================================================
+   Presence Card — I see them all.
+   ============================================================ */
+
+.tex-presence-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 56px)
+    20px
+    calc(env(safe-area-inset-bottom, 0px) + 24px)
+    20px;
+  overflow: hidden;
+}
+
+.tex-presence-card-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.tex-presence-card-orb {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 1.4s ease 0.1s, transform 1.4s ease 0.1s;
+}
+
+.tex-presence-card--armed .tex-presence-card-orb {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* THE NAME SLOT ─────────────────────────────────────────
+   A fixed-height row. Each name is absolutely positioned
+   inside it so they can stack without taking flow space. */
+.tex-presence-card-slot {
+  position: relative;
+  height: 28px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.tex-presence-card-name {
+  position: absolute;
+  font-family: var(--tex-mono);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: var(--tex-ink);
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(4px);
+  animation: tex-presence-card-name-pass forwards;
+  animation-iteration-count: 1;
+  animation-timing-function: ease;
+  animation-play-state: paused;
+}
+
+.tex-presence-card--armed .tex-presence-card-name {
+  animation-play-state: running;
+}
+
+@keyframes tex-presence-card-name-pass {
+  0%   { opacity: 0; transform: translateY(6px); }
+  10%  { opacity: 1; transform: translateY(0);   }
+  90%  { opacity: 1; transform: translateY(0);   }
+  100% { opacity: 0; transform: translateY(-6px); }
+}
+
+/* THE TALLY ─────────────────────────────────────────────
+   A row of eight 8px hairlines, plus the count number.
+   Each tick lights up one at a time as a name passes. */
+.tex-presence-card-tally {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.tex-presence-card-ticks {
+  display: flex;
+  gap: 8px;
+}
+
+.tex-presence-card-tick {
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tex-ink-hair);
+  transition: background 600ms ease, opacity 600ms ease;
+  opacity: 0.5;
+}
+
+.tex-presence-card--armed .tex-presence-card-tick {
+  background: var(--tex-ink);
+  opacity: 1;
+}
+
+.tex-presence-card-count {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  opacity: 0;
+  /* Count appears only after the sequence completes. */
+  transition: opacity 1s ease;
+}
+
+.tex-presence-card--armed .tex-presence-card-count-num,
+.tex-presence-card--armed .tex-presence-card-count-label {
+  opacity: 1;
+}
+
+.tex-presence-card-count {
+  opacity: 1;
+}
+
+.tex-presence-card-count-num {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-style: italic;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--tex-ink);
+  letter-spacing: -0.01em;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+.tex-presence-card-count-label {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--tex-ink-mute);
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+/* THE CLOSING SENTENCE ─────────────────────────────────── */
+.tex-presence-card-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-style: normal;
+  font-size: 22px;
+  line-height: 1.32;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 12px 0 0 0;
+  max-width: 320px;
+  text-wrap: balance;
+  padding: 0 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.2s ease, transform 1.2s ease;
+}
+
+.tex-presence-card-line em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-presence-card--armed .tex-presence-card-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 360px) {
+  .tex-presence-card-name { font-size: 14px; }
+  .tex-presence-card-line { font-size: 20px; }
+  .tex-presence-card-tick { width: 10px; }
+}

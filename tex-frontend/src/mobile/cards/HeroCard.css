@@ -1,0 +1,210 @@
+/* ============================================================
+   Hero Card — Absolute.
+   ============================================================ */
+
+.tex-hero-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--tex-paper);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 56px)   /* top: clear of the progress notches */
+    20px
+    calc(env(safe-area-inset-bottom, 0px) + 24px)
+    20px;
+  overflow: hidden;
+}
+
+/* TOP BAR ─────────────────────────────────────────────────── */
+
+.tex-hero-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.tex-hero-card-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tex-hero-card-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2a2520 0%, #14110d 100%);
+  color: #ffffff;
+  font-family: var(--tex-serif);
+  font-weight: 500;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 1px 2px rgba(20, 17, 13, 0.18);
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+
+.tex-hero-card-brand-word {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink);
+}
+
+.tex-hero-card-signin {
+  font-family: var(--tex-sans);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  color: var(--tex-paper);
+  background: var(--tex-ink);
+  padding: 9px 16px;
+  border-radius: 999px;
+}
+
+/* STAGE ───────────────────────────────────────────────────
+   The stage is the middle of the card, vertically centered
+   between the top bar and the bottom cue. The glass word and
+   three beats together form the composition. */
+
+.tex-hero-card-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  gap: 28px;
+}
+
+/* THE GLASS WORD ──────────────────────────────────────────
+   The mobile glass word is sized to fill most of the screen
+   width — the word IS the hero, the rest is supporting.
+   width: 92vw caps at any extreme so a 320px iPhone SE still
+   gets a properly-proportioned word. */
+.tex-hero-card-word {
+  margin: 0;
+  width: 92vw;
+  max-width: 480px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 1.4s ease 0.4s, transform 1.4s ease 0.4s;
+}
+
+.tex-hero-card--armed .tex-hero-card-word {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tex-hero-card-glass {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.tex-hero-card-sweep {
+  animation: tex-hero-card-sweep 7s ease-in-out infinite;
+  animation-delay: 1.8s;
+}
+
+@keyframes tex-hero-card-sweep {
+  0%   { transform: translateX(0);   opacity: 0;    }
+  10%  { opacity: 0.55;                              }
+  35%  { transform: translateX(820px); opacity: 0.55; }
+  45%  { opacity: 0;                                 }
+  100% { transform: translateX(820px); opacity: 0;   }
+}
+
+/* THE THREE BEATS ─────────────────────────────────────────
+   Each beat arrives one breath after the last. The line is
+   centered, allowed to wrap so "Every stage of its life."
+   sits as its own line on a 375px viewport. */
+.tex-hero-card-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-style: normal;
+  font-size: 19px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink);
+  margin: 0;
+  max-width: 320px;
+  text-wrap: balance;
+  padding: 0 4px;
+}
+
+.tex-hero-card-beat {
+  opacity: 0;
+  transform: translateY(4px);
+  display: inline-block;
+  transition: opacity 0.9s ease, transform 0.9s ease;
+}
+
+.tex-hero-card--armed .tex-hero-card-beat--1 { opacity: 1; transform: translateY(0); transition-delay: 1.4s; }
+.tex-hero-card--armed .tex-hero-card-beat--2 { opacity: 1; transform: translateY(0); transition-delay: 1.75s; }
+.tex-hero-card--armed .tex-hero-card-beat--3 { opacity: 1; transform: translateY(0); transition-delay: 2.10s; }
+
+.tex-hero-card-aside {
+  font-family: var(--tex-serif);
+  font-weight: 300;
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink-soft);
+  margin: 0;
+  max-width: 320px;
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 1.4s ease 2.7s, transform 1.4s ease 2.7s;
+}
+
+.tex-hero-card--armed .tex-hero-card-aside {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* BOTTOM CUE ─────────────────────────────────────────────
+   A small button with a chevron, centered above the safe area.
+   Soft float so the eye finds it without ever screaming. */
+.tex-hero-card-cue {
+  align-self: center;
+  color: var(--tex-ink-mute);
+  opacity: 0;
+  transition: opacity 1.2s ease 3.2s, color 0.2s ease;
+  display: inline-flex;
+  padding: 14px;
+  border-radius: 999px;
+  animation: tex-hero-card-cue-float 3.2s ease-in-out infinite;
+  animation-delay: 4s;
+  flex-shrink: 0;
+}
+
+.tex-hero-card--armed .tex-hero-card-cue { opacity: 1; }
+
+.tex-hero-card-cue:hover { color: var(--tex-ink); }
+
+@keyframes tex-hero-card-cue-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(4px); }
+}
+
+/* Phones narrower than 360 — the iPhone SE 1st gen is 320 wide.
+   Cap the word so it still fits with comfortable margins. */
+@media (max-width: 360px) {
+  .tex-hero-card-word { width: 94vw; }
+  .tex-hero-card-line { font-size: 18px; }
+  .tex-hero-card-aside { font-size: 15px; }
+}

@@ -105,9 +105,9 @@
 }
 
 /* MOBILE COMPOSITION ────────────────────────────────────────
-   The arc becomes a list on mobile. The semicircle of eight
-   agents around the orb cannot exist at 380px width; this
-   vertical arrangement says the same thing.
+   Agents arrive through time, not space. One name slot. Eight
+   names fade through it in sequence. A counter underneath
+   confirms the count when the sequence ends.
    ──────────────────────────────────────────────────────────── */
 
 .tex-presence-mobile {
@@ -117,7 +117,8 @@
 @media (max-width: 720px) {
   .tex-presence-section {
     padding: var(--tex-section-pad) 20px;
-    min-height: 0;
+    min-height: 100svh;
+    min-height: 100dvh;
   }
   .tex-presence-stage {
     gap: 56px;
@@ -128,66 +129,95 @@
     display: none;
   }
 
-  /* Show the mobile composition. */
+  /* The mobile composition lives where the desktop composition would. */
   .tex-presence-mobile {
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 36px;
     width: 100%;
-    max-width: 320px;
-    margin: 0 auto;
   }
 
   .tex-presence-mobile-orb {
-    margin-bottom: 16px;
+    margin: 0;
   }
 
-  .tex-presence-mobile-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
+  /* The name slot — a single fixed-height row where names appear
+     one at a time. Min-height keeps the layout from jumping as
+     names swap. */
+  .tex-presence-mobile-slot {
+    position: relative;
+    height: 24px;
     width: 100%;
     display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .tex-presence-mobile-agent {
-    display: flex;
     align-items: center;
-    gap: 12px;
-    opacity: 0;
-    transform: translateX(-6px);
-    transition: opacity 700ms ease, transform 700ms ease;
-  }
-
-  .tex-presence-section--armed .tex-presence-mobile-agent {
-    opacity: 1;
-    transform: translateX(0);
-  }
-
-  .tex-presence-mobile-rule {
-    width: 24px;
-    height: 1px;
-    background: var(--tex-glass-3);
-    opacity: 0.46;
-    flex-shrink: 0;
-  }
-
-  .tex-presence-mobile-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--tex-glass-3);
-    flex-shrink: 0;
+    justify-content: center;
   }
 
   .tex-presence-mobile-name {
+    position: absolute;
     font-family: var(--tex-mono);
-    font-size: 12px;
+    font-size: 15px;
     letter-spacing: 0.04em;
-    color: var(--tex-ink-soft);
+    color: var(--tex-ink);
     line-height: 1;
+    opacity: 0;
+    transform: translateY(4px);
+    /* Each name fades in, holds, fades out. The opacity timeline:
+       0% hidden, 18% visible, 82% visible, 100% hidden — so the
+       holding band sits centered in the animation window. */
+    animation: tex-presence-name-pass forwards;
+    animation-iteration-count: 1;
+    animation-timing-function: ease;
+    animation-play-state: paused;
+  }
+
+  .tex-presence-section--armed .tex-presence-mobile-name {
+    animation-play-state: running;
+  }
+
+  @keyframes tex-presence-name-pass {
+    0%   { opacity: 0; transform: translateY(4px); }
+    18%  { opacity: 1; transform: translateY(0);   }
+    82%  { opacity: 1; transform: translateY(0);   }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+
+  /* The counter — a soft tally beneath the slot. Reads as "8 identified"
+     once the sequence completes. */
+  .tex-presence-mobile-counter {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    /* This counter is filled in dynamically — but the simple version
+       fades the final count in after the last name passes. Delay set
+       inline on the JSX via the entry timing. */
+  }
+
+  .tex-presence-section--armed .tex-presence-mobile-counter {
+    opacity: 1;
+    /* Resolve after the last agent has passed through the slot. */
+    transition-delay: calc(350ms + 8 * 380ms);
+  }
+
+  .tex-presence-mobile-counter-number {
+    font-family: var(--tex-serif);
+    font-weight: 400;
+    font-style: italic;
+    font-size: 28px;
+    line-height: 1;
+    color: var(--tex-ink);
+    letter-spacing: -0.01em;
+  }
+
+  .tex-presence-mobile-counter-label {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--tex-ink-mute);
+    text-transform: uppercase;
   }
 
   .tex-presence-line-text {

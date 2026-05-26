@@ -52,7 +52,8 @@
 @media (max-width: 720px) {
   .tex-bridge {
     padding: var(--tex-section-pad) 20px;
-    min-height: 0;
+    min-height: 100svh;
+    min-height: 100dvh;
   }
   .tex-bridge-stage {
     gap: 48px;

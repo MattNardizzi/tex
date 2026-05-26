@@ -159,39 +159,74 @@
 @media (max-width: 720px) {
   .tex-moment {
     padding: var(--tex-section-pad) 20px;
-    min-height: 0;
+    min-height: 100svh;
+    min-height: 100dvh;
   }
+
+  /* On mobile we abandon the absolute-positioning layout entirely and
+     use a flex column. The desktop choreography (orb drifts left, copy
+     resolves to its right) doesn't translate to a 380px viewport — there
+     is no "right." Instead, on mobile the orb sits on top, the quiet/event
+     copy resolves below it. Same beats, vertical stack. */
   .tex-moment-stage {
-    min-height: 480px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+  }
+
+  .tex-moment-orb {
+    position: static;
+    transform: none;
+    transition: none;
   }
   .tex-moment--event .tex-moment-orb {
-    top: 18%;
+    left: auto;
+    top: auto;
   }
+
   .tex-moment-quiet {
-    top: calc(50% + 110px);
+    position: static;
+    transform: none;
+    top: auto;
+    left: auto;
   }
   .tex-moment-quiet-word {
     font-size: 24px;
   }
+
+  .tex-moment-event {
+    position: static;
+    transform: none;
+    top: auto;
+    left: auto;
+    bottom: auto;
+    max-width: 100%;
+    text-align: center;
+  }
   .tex-moment-line {
-    font-size: 30px;
+    font-size: 32px;
     line-height: 1.15;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
   }
   .tex-moment-aside {
-    font-size: 16px;
-    margin-bottom: 24px;
-  }
-  .tex-moment-event {
-    max-width: 88%;
-    bottom: 6%;
-    text-align: center;
+    font-size: 17px;
+    margin-bottom: 28px;
   }
   .tex-moment-actions {
     justify-content: center;
   }
   .tex-moment-btn {
-    padding: 12px 24px;
-    font-size: 14px;
+    padding: 14px 28px;
+    font-size: 15px;
   }
+
+  /* When the quiet phase is active the event block is removed from the
+     flex flow entirely, and vice versa. No crossfade needed — there's
+     no concurrent orb drift to mask, and the 2-second hold makes the
+     swap read as a deliberate beat: Tex was quiet, now Tex speaks. */
+  .tex-moment--quiet .tex-moment-event { display: none; }
+  .tex-moment--event .tex-moment-quiet { display: none; }
 }

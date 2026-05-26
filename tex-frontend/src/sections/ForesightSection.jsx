@@ -77,7 +77,7 @@ export default function ForesightSection() {
 
           <svg
             className="tex-foresight-mobile-svg"
-            viewBox="0 0 200 280"
+            viewBox="0 0 200 230"
             preserveAspectRatio="xMidYMin meet"
             aria-hidden="true"
           >
@@ -97,21 +97,23 @@ export default function ForesightSection() {
             <line
               className="tex-foresight-mobile-timeline"
               x1="100" y1="0"
-              x2="100" y2="260"
+              x2="100" y2="220"
               stroke="#d8d4cc"
               strokeWidth="1"
             />
 
-            {/* Conformal cone — widens as it descends. */}
+            {/* Conformal cone — widens as it descends. The lateral spread
+                is 48 units of 200 (24% half-width) which reads as an
+                elegant taper rather than a chunky triangle. */}
             <path
               className="tex-foresight-mobile-cone"
-              d="M 100 0 L 30 260 L 170 260 Z"
+              d="M 100 0 L 52 220 L 148 220 Z"
               fill="url(#tex-cone-fill-mobile)"
               stroke="none"
             />
             <path
               className="tex-foresight-mobile-cone-bound"
-              d="M 100 0 L 30 260"
+              d="M 100 0 L 52 220"
               fill="none"
               stroke="url(#tex-cone-stroke-mobile)"
               strokeWidth="0.6"
@@ -119,7 +121,7 @@ export default function ForesightSection() {
             />
             <path
               className="tex-foresight-mobile-cone-bound"
-              d="M 100 0 L 170 260"
+              d="M 100 0 L 148 220"
               fill="none"
               stroke="url(#tex-cone-stroke-mobile)"
               strokeWidth="0.6"

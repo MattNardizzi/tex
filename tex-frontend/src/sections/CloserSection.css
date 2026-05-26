@@ -103,7 +103,8 @@
 @media (max-width: 720px) {
   .tex-closer {
     padding: var(--tex-section-pad) 20px;
-    min-height: 0;
+    min-height: 90svh;
+    min-height: 90dvh;
   }
   .tex-closer-stage {
     gap: 40px;

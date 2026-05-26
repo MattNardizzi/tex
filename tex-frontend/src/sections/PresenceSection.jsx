@@ -78,61 +78,6 @@ export default function PresenceSection() {
       aria-label="Discovery and identity — Tex sees every agent and knows what each one is"
     >
       <div className="tex-presence-stage">
-        {/* MOBILE COMPOSITION — agents arrive through time, not space.
-            The desktop composition is a fan of identification in space.
-            That doesn't translate to a phone: a fan compresses to a
-            column, and a column of mono labels reads as a Word document,
-            not a demonstration.
-
-            On mobile, the same idea becomes temporal. The orb breathes
-            at top. Beneath it, a single name slot. Eight agent names
-            arrive through that slot, one at a time, each held for a
-            beat then dissolving into the next. A small counter ticks
-            from 1 to 8 to show the user the chain is complete. By the
-            time the sentence resolves, the user has watched Tex identify
-            each connector in their environment. */}
-        <div className="tex-presence-mobile" aria-hidden="true">
-          <div className="tex-presence-mobile-orb">
-            <Orb state="quiet" size="md" />
-          </div>
-
-          <div className="tex-presence-mobile-slot">
-            {AGENTS.map((agent, i) => {
-              const delay = ENTRY_DELAY_MS + i * PER_AGENT_MS;
-              return (
-                <span
-                  key={`m-${agent.name}`}
-                  className="tex-presence-mobile-name"
-                  style={{
-                    animationDelay: `${delay}ms`,
-                    /* Each name lives 50% longer than the stagger between
-                       names, so adjacent names softly crossfade rather
-                       than snap. 380ms stagger × 1.5 = 570ms lifetime. */
-                    animationDuration: `${Math.round(PER_AGENT_MS * 1.5)}ms`,
-                  }}
-                >
-                  {agent.name}
-                </span>
-              );
-            })}
-          </div>
-
-          <div className="tex-presence-mobile-counter">
-            <span
-              className="tex-presence-mobile-counter-number"
-              style={{ transitionDelay: `${ENTRY_DELAY_MS}ms` }}
-            >
-              {AGENTS.length}
-            </span>
-            <span
-              className="tex-presence-mobile-counter-label"
-              style={{ transitionDelay: `${ENTRY_DELAY_MS + 200}ms` }}
-            >
-              identified
-            </span>
-          </div>
-        </div>
-
         {/* The composition — orb + arc + hairlines. */}
         <div className="tex-presence-composition">
           <svg
@@ -196,7 +141,6 @@ export default function PresenceSection() {
                     opacity="0.86"
                   />
                   <text
-                    className="tex-presence-agent-label"
                     x={dx} y="4"
                     textAnchor={anchor}
                     fontFamily="var(--tex-mono)"

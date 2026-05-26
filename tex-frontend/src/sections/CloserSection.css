@@ -103,48 +103,31 @@
 @media (max-width: 720px) {
   .tex-closer {
     padding: var(--tex-section-pad) 20px;
-    min-height: 90svh;
-    min-height: 90dvh;
   }
   .tex-closer-stage {
-    gap: 32px;
+    gap: 40px;
   }
-  /* Closing line — pad in so it doesn't touch screen edges. Tighter
-     type than desktop's 36-60px clamp because we want the sentence
-     to read as one balanced statement, not a wrap. */
   .tex-closer-line {
-    font-size: 28px;
-    line-height: 1.22;
-    padding: 0 16px;
-    max-width: 340px;
-    text-wrap: balance;
+    font-size: 32px;
+    line-height: 1.2;
   }
-  /* Footer stays inline as middot-separated links — they're short
-     enough (4-9 chars each) that one horizontal row works at 360px
-     when the type is small enough. Stacking vertically added 80+ px
-     of section height for no readability gain. */
   .tex-closer-foot {
     position: static;
     transform: none;
-    margin-top: 24px;
-    flex-direction: row;
-    gap: 10px;
-    font-size: 11px;
+    margin-top: 36px;
+    flex-direction: column;
+    gap: 14px;
   }
+  /* Middots only make sense between items on one line. When we
+     stack vertically they become punctuation floating in space. */
   .tex-closer-foot-sep {
-    display: inline;
-    font-size: 11px;
+    display: none;
   }
   .tex-closer-foot-link {
-    font-size: 11px;
+    font-size: 13px;
   }
-  /* The mark goes on its own row beneath the links, so the row stays
-     a clean three-link signature and the wordmark gets its own beat. */
   .tex-closer-foot-mark {
-    flex-basis: 100%;
-    text-align: center;
     margin-left: 0;
-    margin-top: 8px;
-    font-size: 11px;
+    margin-top: 4px;
   }
 }

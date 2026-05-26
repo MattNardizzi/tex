@@ -244,8 +244,6 @@
 @media (max-width: 720px) {
   .tex-evolution {
     padding: var(--tex-section-pad) 20px;
-    min-height: 100svh;
-    min-height: 100dvh;
   }
   .tex-evolution-stage {
     gap: 48px;
@@ -257,27 +255,16 @@
     font-size: 22px;
     margin-bottom: 24px;
   }
-  /* Bullet dots felt orphaned from their text on mobile — tighten the
-     gap so the dot reads as a soft marker against the line, not a
-     separate element. */
-  .tex-evolution-ghost {
-    gap: 10px;
-  }
   .tex-evolution-ghost-text {
     font-size: 15px;
   }
   .tex-evolution-actions {
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
   }
-  /* Closing line — pad and tighten so it never touches the screen edge.
-     text-wrap:balance evens out the line break. */
   .tex-evolution-line {
-    font-size: 22px;
-    line-height: 1.32;
-    padding: 0 16px;
-    max-width: 340px;
-    text-wrap: balance;
+    font-size: 24px;
+    line-height: 1.3;
   }
 }

@@ -62,85 +62,6 @@ export default function ForesightSection() {
       aria-label="Foresight — Tex simulates what's coming, not just what is"
     >
       <div className="tex-foresight-stage">
-        {/* MOBILE COMPOSITION — the beam rotated 90°. On desktop the
-            forecast travels left to right along a horizontal timeline.
-            On a phone that gesture has nowhere to go; the cone collapses
-            and the orb falls off the canvas. Here we draw the same idea
-            top-down: NOW at the top with the orb, the conformal envelope
-            opening as it descends, the CONFORMAL · 95% label anchored at
-            the far end. */}
-        <div className="tex-foresight-mobile" aria-hidden="true">
-          <div className="tex-foresight-mobile-now">
-            <Orb state="quiet" size="sm" />
-            <span className="tex-foresight-mobile-now-label">NOW</span>
-          </div>
-
-          <svg
-            className="tex-foresight-mobile-svg"
-            viewBox="0 0 200 230"
-            preserveAspectRatio="xMidYMin meet"
-            aria-hidden="true"
-          >
-            <defs>
-              <linearGradient id="tex-cone-fill-mobile" x1="50%" y1="0%" x2="50%" y2="100%">
-                <stop offset="0%"  stopColor="#5B6E84" stopOpacity="0.20" />
-                <stop offset="60%" stopColor="#5B6E84" stopOpacity="0.07" />
-                <stop offset="100%" stopColor="#5B6E84" stopOpacity="0"    />
-              </linearGradient>
-              <linearGradient id="tex-cone-stroke-mobile" x1="50%" y1="0%" x2="50%" y2="100%">
-                <stop offset="0%"  stopColor="#5B6E84" stopOpacity="0.5" />
-                <stop offset="100%" stopColor="#5B6E84" stopOpacity="0"  />
-              </linearGradient>
-            </defs>
-
-            {/* Center hairline timeline. */}
-            <line
-              className="tex-foresight-mobile-timeline"
-              x1="100" y1="0"
-              x2="100" y2="220"
-              stroke="#d8d4cc"
-              strokeWidth="1"
-            />
-
-            {/* Conformal cone — widens as it descends. The lateral spread
-                is 48 units of 200 (24% half-width) which reads as an
-                elegant taper rather than a chunky triangle. */}
-            <path
-              className="tex-foresight-mobile-cone"
-              d="M 100 0 L 52 220 L 148 220 Z"
-              fill="url(#tex-cone-fill-mobile)"
-              stroke="none"
-            />
-            <path
-              className="tex-foresight-mobile-cone-bound"
-              d="M 100 0 L 52 220"
-              fill="none"
-              stroke="url(#tex-cone-stroke-mobile)"
-              strokeWidth="0.6"
-              strokeDasharray="3 4"
-            />
-            <path
-              className="tex-foresight-mobile-cone-bound"
-              d="M 100 0 L 148 220"
-              fill="none"
-              stroke="url(#tex-cone-stroke-mobile)"
-              strokeWidth="0.6"
-              strokeDasharray="3 4"
-            />
-
-            {/* The shadow orb — travels down the timeline. */}
-            <g className="tex-foresight-mobile-shadow">
-              <circle cx="100" cy="0" r="5" fill="#5B6E84" fillOpacity="0.5" />
-              <circle cx="100" cy="0" r="12" fill="#5B6E84" fillOpacity="0.16" />
-            </g>
-          </svg>
-
-          <div className="tex-foresight-mobile-conformal">
-            <span className="tex-foresight-mobile-conformal-rule" />
-            <span className="tex-foresight-mobile-conformal-label">CONFORMAL · 95%</span>
-          </div>
-        </div>
-
         <div className="tex-foresight-composition">
           <svg
             className="tex-foresight-svg"
@@ -262,7 +183,7 @@ export default function ForesightSection() {
 
             {/* Tiny labels — present, near, far. */}
             <text
-              className="tex-foresight-tick-label tex-foresight-tick-now"
+              className="tex-foresight-tick-label"
               x="200" y="216"
               textAnchor="middle"
               fontFamily="var(--tex-mono)"
@@ -277,7 +198,7 @@ export default function ForesightSection() {
               NOW
             </text>
             <text
-              className="tex-foresight-tick-label tex-foresight-tick-conformal"
+              className="tex-foresight-tick-label"
               x="940" y="86"
               textAnchor="end"
               fontFamily="var(--tex-mono)"

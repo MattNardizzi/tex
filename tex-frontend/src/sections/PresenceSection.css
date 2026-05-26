@@ -105,10 +105,18 @@
 }
 
 @media (max-width: 720px) {
+  .tex-presence-section {
+    padding: var(--tex-section-pad) 20px;
+  }
   .tex-presence-stage {
     gap: 48px;
   }
   .tex-presence-composition {
     aspect-ratio: 1 / 1;
+    max-width: 100%;
+  }
+  .tex-presence-line-text {
+    font-size: 24px;
+    line-height: 1.3;
   }
 }

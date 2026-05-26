@@ -37,6 +37,23 @@
   --tex-reading-max: 720px;
 }
 
+/* On phones we tighten the section breath so content does not float
+   in a sea of padding that only made sense on desktop. We also pull
+   the reading max in so prose hits the natural line-length sweet spot
+   on a 380px screen instead of stretching edge to edge. */
+@media (max-width: 720px) {
+  :root {
+    --tex-section-pad: 64px;
+    --tex-reading-max: 92vw;
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --tex-section-pad: 48px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

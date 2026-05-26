@@ -240,3 +240,31 @@
     width: 100%;
   }
 }
+
+@media (max-width: 720px) {
+  .tex-evolution {
+    padding: var(--tex-section-pad) 20px;
+  }
+  .tex-evolution-stage {
+    gap: 48px;
+  }
+  .tex-evolution-card {
+    padding: 28px 24px;
+  }
+  .tex-evolution-card-title {
+    font-size: 22px;
+    margin-bottom: 24px;
+  }
+  .tex-evolution-ghost-text {
+    font-size: 15px;
+  }
+  .tex-evolution-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .tex-evolution-line {
+    font-size: 24px;
+    line-height: 1.3;
+  }
+}

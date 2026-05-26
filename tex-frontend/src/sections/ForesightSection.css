@@ -115,13 +115,18 @@
 }
 
 @media (max-width: 720px) {
+  .tex-foresight {
+    padding: var(--tex-section-pad) 20px;
+  }
   .tex-foresight-stage {
     gap: 40px;
   }
   .tex-foresight-composition {
-    aspect-ratio: 1 / 1.2;
+    aspect-ratio: 1 / 1;
+    max-width: 100%;
   }
-  /* On mobile the cone goes vertical — but for now we keep the
-     horizontal layout and let it scale. A future revision can
-     rotate the composition for narrow viewports. */
+  .tex-foresight-line {
+    font-size: 24px;
+    line-height: 1.3;
+  }
 }

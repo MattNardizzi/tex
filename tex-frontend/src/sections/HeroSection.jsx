@@ -43,14 +43,11 @@ export default function HeroSection({ navigate }) {
           aria-label="Tex — home"
         >
           <span className="tex-brand-mark">T</span>
-        </a>
-
-        <div className="tex-presence" role="status" aria-live="polite">
-          <span className="tex-presence-dot" aria-hidden="true">
-            <span className="tex-presence-dot-core" />
+          <span className="tex-brand-word">
+            <span className="tex-brand-word-name">Tex</span>
+            <span className="tex-brand-word-by"> by VortexBlack</span>
           </span>
-          <span className="tex-presence-label">Tex is here</span>
-        </div>
+        </a>
 
         <a
           href="/sign-in"

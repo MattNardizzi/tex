@@ -101,18 +101,33 @@
 }
 
 @media (max-width: 720px) {
+  .tex-closer {
+    padding: var(--tex-section-pad) 20px;
+  }
   .tex-closer-stage {
     gap: 40px;
+  }
+  .tex-closer-line {
+    font-size: 32px;
+    line-height: 1.2;
   }
   .tex-closer-foot {
     position: static;
     transform: none;
     margin-top: 36px;
+    flex-direction: column;
+    gap: 14px;
+  }
+  /* Middots only make sense between items on one line. When we
+     stack vertically they become punctuation floating in space. */
+  .tex-closer-foot-sep {
+    display: none;
+  }
+  .tex-closer-foot-link {
+    font-size: 13px;
   }
   .tex-closer-foot-mark {
-    width: 100%;
-    text-align: center;
     margin-left: 0;
-    margin-top: 8px;
+    margin-top: 4px;
   }
 }

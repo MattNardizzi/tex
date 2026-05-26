@@ -50,7 +50,13 @@
 }
 
 @media (max-width: 720px) {
+  .tex-bridge {
+    padding: var(--tex-section-pad) 20px;
+  }
   .tex-bridge-stage {
-    gap: 56px;
+    gap: 48px;
+  }
+  .tex-bridge-word {
+    font-size: 48px;
   }
 }

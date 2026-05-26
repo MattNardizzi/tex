@@ -155,3 +155,38 @@
     top: calc(50% + 160px);
   }
 }
+
+@media (max-width: 720px) {
+  .tex-moment {
+    padding: var(--tex-section-pad) 20px;
+  }
+  .tex-moment-stage {
+    min-height: 520px;
+  }
+  .tex-moment--event .tex-moment-orb {
+    top: 22%;
+  }
+  .tex-moment-quiet {
+    top: calc(50% + 130px);
+  }
+  .tex-moment-quiet-word {
+    font-size: 24px;
+  }
+  .tex-moment-line {
+    font-size: 30px;
+    line-height: 1.15;
+    margin-bottom: 14px;
+  }
+  .tex-moment-aside {
+    font-size: 16px;
+    margin-bottom: 24px;
+  }
+  .tex-moment-event {
+    max-width: 88%;
+    bottom: 6%;
+  }
+  .tex-moment-btn {
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+}

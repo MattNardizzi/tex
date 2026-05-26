@@ -1,7 +1,5 @@
 /* ============================================================
-   Orb — the breathing presence.
-   Lifted from the product dashboard. The marketing site and
-   the product share this exact visual.
+   Orb — the breathing presence on pure white.
    ============================================================ */
 
 .tex-orb {
@@ -12,10 +10,11 @@
   flex-shrink: 0;
 }
 
-.tex-orb--xl { width: 440px; height: 440px; }
-.tex-orb--lg { width: 360px; height: 360px; }
-.tex-orb--md { width: 260px; height: 260px; }
+.tex-orb--xs { width: 96px;  height: 96px; }
 .tex-orb--sm { width: 140px; height: 140px; }
+.tex-orb--md { width: 220px; height: 220px; }
+.tex-orb--lg { width: 320px; height: 320px; }
+.tex-orb--xl { width: 440px; height: 440px; }
 
 /* Outer atmosphere — the widest, faintest halo */
 .tex-orb-halo-outer {
@@ -26,7 +25,6 @@
   animation: tex-orb-halo 4.2s ease-in-out infinite;
 }
 
-/* Mid halo — denser, closer to the core */
 .tex-orb-halo-mid {
   position: absolute;
   width: 61.1%;
@@ -36,18 +34,16 @@
   animation: tex-orb-halo-mid 4.2s ease-in-out infinite;
 }
 
-/* Faint ring — a single hairline at mid radius, breathes with the rest */
 .tex-orb-ring {
   position: absolute;
   width: 33.3%;
   height: 33.3%;
   border-radius: 50%;
-  border: 1px solid rgba(120, 150, 195, 0.18);
+  border: 1px solid rgba(120, 150, 195, 0.14);
   pointer-events: none;
   animation: tex-orb-ring 4.2s ease-in-out infinite;
 }
 
-/* Inner halo — the dense cluster right around the core */
 .tex-orb-halo-inner {
   position: absolute;
   width: 17.8%;
@@ -57,7 +53,6 @@
   animation: tex-orb-halo-inner 4.2s ease-in-out infinite;
 }
 
-/* The core — small piece of glass, the only solid object */
 .tex-orb-core {
   position: relative;
   width: 14px;
@@ -73,88 +68,128 @@
   animation: tex-orb-core 4.2s ease-in-out infinite;
 }
 
-/* --- QUIET state: cool blue-gray ------------------------- */
+/* Smaller core for xs orb */
+.tex-orb--xs .tex-orb-core { width: 8px; height: 8px; }
+.tex-orb--sm .tex-orb-core { width: 10px; height: 10px; }
+
+/* QUIET — the default, at rest on white paper. */
 .tex-orb--quiet .tex-orb-halo-outer {
   background: radial-gradient(
     circle at center,
-    rgba(150, 175, 210, 0.22) 0%,
-    rgba(150, 175, 210, 0.10) 28%,
-    rgba(150, 175, 210, 0.03) 55%,
-    rgba(245, 242, 236, 0) 72%
+    rgba(150, 175, 210, 0.18) 0%,
+    rgba(150, 175, 210, 0.08) 30%,
+    rgba(150, 175, 210, 0.02) 58%,
+    rgba(255, 255, 255, 0) 75%
   );
 }
 .tex-orb--quiet .tex-orb-halo-mid {
   background: radial-gradient(
     circle at center,
-    rgba(120, 150, 195, 0.32) 0%,
-    rgba(120, 150, 195, 0.14) 40%,
-    rgba(120, 150, 195, 0.04) 72%,
-    rgba(245, 242, 236, 0) 90%
+    rgba(120, 150, 195, 0.26) 0%,
+    rgba(120, 150, 195, 0.11) 42%,
+    rgba(120, 150, 195, 0.03) 72%,
+    rgba(255, 255, 255, 0) 92%
   );
 }
 .tex-orb--quiet .tex-orb-halo-inner {
   background: radial-gradient(
     circle at center,
-    rgba(91, 110, 132, 0.5) 0%,
-    rgba(91, 110, 132, 0.22) 50%,
-    rgba(91, 110, 132, 0.06) 85%,
-    rgba(245, 242, 236, 0) 100%
+    rgba(91, 110, 132, 0.42) 0%,
+    rgba(91, 110, 132, 0.18) 50%,
+    rgba(91, 110, 132, 0.05) 85%,
+    rgba(255, 255, 255, 0) 100%
   );
 }
 .tex-orb--quiet .tex-orb-core {
-  box-shadow: 0 0 8px rgba(91, 110, 132, 0.5);
+  box-shadow: 0 0 8px rgba(91, 110, 132, 0.42);
 }
 
-/* --- ASKING state: same blue-gray, slightly more weight -- */
+/* ASKING — a fraction more weight, same color. */
 .tex-orb--asking .tex-orb-halo-outer {
   background: radial-gradient(
     circle at center,
-    rgba(150, 175, 210, 0.28) 0%,
-    rgba(150, 175, 210, 0.13) 28%,
-    rgba(150, 175, 210, 0.04) 55%,
-    rgba(245, 242, 236, 0) 72%
+    rgba(150, 175, 210, 0.24) 0%,
+    rgba(150, 175, 210, 0.11) 30%,
+    rgba(150, 175, 210, 0.03) 58%,
+    rgba(255, 255, 255, 0) 75%
   );
 }
 .tex-orb--asking .tex-orb-halo-mid {
   background: radial-gradient(
     circle at center,
-    rgba(120, 150, 195, 0.38) 0%,
-    rgba(120, 150, 195, 0.17) 40%,
-    rgba(120, 150, 195, 0.05) 72%,
-    rgba(245, 242, 236, 0) 90%
+    rgba(120, 150, 195, 0.32) 0%,
+    rgba(120, 150, 195, 0.14) 42%,
+    rgba(120, 150, 195, 0.04) 72%,
+    rgba(255, 255, 255, 0) 92%
   );
 }
 .tex-orb--asking .tex-orb-halo-inner {
   background: radial-gradient(
     circle at center,
-    rgba(91, 110, 132, 0.6) 0%,
-    rgba(91, 110, 132, 0.28) 50%,
-    rgba(91, 110, 132, 0.08) 85%,
-    rgba(245, 242, 236, 0) 100%
+    rgba(91, 110, 132, 0.52) 0%,
+    rgba(91, 110, 132, 0.24) 50%,
+    rgba(91, 110, 132, 0.06) 85%,
+    rgba(255, 255, 255, 0) 100%
   );
 }
 .tex-orb--asking .tex-orb-core {
-  box-shadow: 0 0 10px rgba(91, 110, 132, 0.6);
+  box-shadow: 0 0 10px rgba(91, 110, 132, 0.52);
 }
 
-/* --- Keyframes — dramatic breath ------------------------- */
+/* PROOF — held very still. The chain is doing the work. */
+.tex-orb--proof .tex-orb-halo-outer,
+.tex-orb--proof .tex-orb-halo-mid,
+.tex-orb--proof .tex-orb-ring,
+.tex-orb--proof .tex-orb-halo-inner,
+.tex-orb--proof .tex-orb-core {
+  animation-duration: 7s;
+}
+.tex-orb--proof .tex-orb-halo-outer {
+  background: radial-gradient(
+    circle at center,
+    rgba(150, 175, 210, 0.14) 0%,
+    rgba(150, 175, 210, 0.06) 30%,
+    rgba(255, 255, 255, 0) 70%
+  );
+}
+.tex-orb--proof .tex-orb-halo-mid {
+  background: radial-gradient(
+    circle at center,
+    rgba(120, 150, 195, 0.20) 0%,
+    rgba(120, 150, 195, 0.08) 42%,
+    rgba(255, 255, 255, 0) 90%
+  );
+}
+.tex-orb--proof .tex-orb-halo-inner {
+  background: radial-gradient(
+    circle at center,
+    rgba(91, 110, 132, 0.36) 0%,
+    rgba(91, 110, 132, 0.14) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+.tex-orb--proof .tex-orb-core {
+  box-shadow: 0 0 6px rgba(91, 110, 132, 0.4);
+}
+
+/* Keyframes — slow, even breath. */
 @keyframes tex-orb-halo {
-  0%, 100% { opacity: 0.25; transform: scale(0.78); }
-  50%      { opacity: 1;    transform: scale(1.18); }
+  0%, 100% { opacity: 0.32; transform: scale(0.82); }
+  50%      { opacity: 1;    transform: scale(1.14); }
 }
 @keyframes tex-orb-halo-mid {
-  0%, 100% { opacity: 0.40; transform: scale(0.80); }
-  50%      { opacity: 1;    transform: scale(1.20); }
+  0%, 100% { opacity: 0.46; transform: scale(0.84); }
+  50%      { opacity: 1;    transform: scale(1.16); }
 }
 @keyframes tex-orb-ring {
-  0%, 100% { opacity: 0.15; transform: scale(0.82); }
-  50%      { opacity: 0.85; transform: scale(1.16); }
+  0%, 100% { opacity: 0.20; transform: scale(0.86); }
+  50%      { opacity: 0.78; transform: scale(1.12); }
 }
 @keyframes tex-orb-halo-inner {
-  0%, 100% { opacity: 0.50; transform: scale(0.84); }
-  50%      { opacity: 1;    transform: scale(1.18); }
+  0%, 100% { opacity: 0.56; transform: scale(0.86); }
+  50%      { opacity: 1;    transform: scale(1.14); }
 }
 @keyframes tex-orb-core {
-  0%, 100% { opacity: 0.75; transform: scale(0.88); }
-  50%      { opacity: 1;    transform: scale(1.14); }
+  0%, 100% { opacity: 0.82; transform: scale(0.92); }
+  50%      { opacity: 1;    transform: scale(1.10); }
 }

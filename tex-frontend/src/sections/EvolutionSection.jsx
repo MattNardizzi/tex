@@ -1,56 +1,48 @@
 import React, { useEffect, useRef, useState } from 'react';
+import Orb from '../components/Orb.jsx';
 import './EvolutionSection.css';
 
 /* =============================================================
-   EVOLUTION SECTION — screen five
+   EVOLUTION — Sharper, only with your hand.
 
-   The only claim no competitor in the category can make:
+   The hardest section on the page and the most important to
+   get right. Every competitor that says "we get smarter" means
+   we ship silent updates. Tex does not. Tex proposes, shows
+   exactly what would have changed against real history, and
+   waits for a human signature. There is no auto-apply codepath
+   anywhere in src/tex/learning/ — a regression test enforces it.
 
-     "I learn your environment.
-      I evolve with your agents.
-      I get smarter every day."
+   The screen: the orb at left, breathing. A small proposal
+   card resolves to its right — a single sentence that names
+   the change, followed by three ghost-decisions ("would have
+   stopped this," "would have held this," "would have let this
+   through") in plain English. Beneath the card, a single
+   pulsing button labeled "Your signature." The button does
+   not auto-press. Tex waits.
 
-   The animation is the unifying move on the page. Each line
-   resolves from depth — beginning as a blurred cloud below
-   its resting position and sharpening into serif. Then, once
-   all three lines are present, a single horizontal light sweep
-   passes across them, left to right, the same glass material
-   that lives in the hero's "Absolute."
+   One serif italic line resolves last:
 
-   The metaphor: the marketing site behaves like one piece of
-   glass with light moving through it at the moments that
-   matter. The hero word breathes with light. Section five
-   sees that light pass over the three sentences once, tying
-   them together, and goes quiet.
-
-   No loop. No second pass. The light comes once.
+     "Sharper, only with your hand."
    ============================================================= */
 
-const LINES = [
-  'I learn your environment.',
-  'I evolve with your agents.',
-  'I get smarter every day.',
+const ENTRY_DELAY_MS = 350;
+const CARD_REVEAL_MS = ENTRY_DELAY_MS + 400;
+const PROPOSAL_TITLE_MS = CARD_REVEAL_MS + 400;
+const GHOSTS_BASE_MS = PROPOSAL_TITLE_MS + 600;
+const GHOST_STAGGER_MS = 420;
+const BUTTON_REVEAL_MS = GHOSTS_BASE_MS + 3 * GHOST_STAGGER_MS + 600;
+const LINE_REVEAL_MS = BUTTON_REVEAL_MS + 800;
+
+const GHOSTS = [
+  { from: 'PERMIT',  to: 'FORBID',  text: 'would have stopped this' },
+  { from: 'PERMIT',  to: 'ABSTAIN', text: 'would have held this' },
+  { from: 'ABSTAIN', to: 'PERMIT',  text: 'would have let this through' },
 ];
-
-// Each line waits ~1100ms after the previous one *finishes* —
-// the slowness is the point. A hurried section five would
-// betray the page.
-const ENTRY_DELAY_MS = 400;
-const STAGGER_MS = 1700;
-
-// The light sweep begins after the third line has fully
-// settled. With ENTRY_DELAY (400) + 2 * STAGGER (3400) +
-// transition duration (~1400) = ~5200ms, we start the sweep
-// at 5600ms to give the third line a moment to hold first.
-const SWEEP_DELAY_MS = 5600;
 
 export default function EvolutionSection() {
   const sectionRef = useRef(null);
   const [armed, setArmed] = useState(false);
-  const [sweep, setSweep] = useState(false);
 
-  // Arm the arrival once, when the section first enters the
-  // viewport. After that we don't re-trigger.
   useEffect(() => {
     const node = sectionRef.current;
     if (!node) return;
@@ -61,71 +53,101 @@ export default function EvolutionSection() {
           io.disconnect();
         }
       },
-      { threshold: 0.3 }
+      { threshold: 0.28 }
     );
     io.observe(node);
     return () => io.disconnect();
   }, []);
 
-  // Once armed, schedule the single light sweep across the
-  // three lines. It runs once. No loop.
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setSweep(true), SWEEP_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [armed]);
-
-  const rootClass = [
-    'tex-evolution',
-    armed ? 'tex-evolution--armed' : '',
-    sweep ? 'tex-evolution--sweep' : '',
-  ].filter(Boolean).join(' ');
-
   return (
     <section
       ref={sectionRef}
-      className={rootClass}
+      className={`tex-evolution${armed ? ' tex-evolution--armed' : ''}`}
       id="evolution"
-      aria-label="Tex evolves specifically inside your company"
+      aria-label="Evolution — Tex proposes, you approve. Sharper only with your hand."
     >
-      {/* Same warm light as the other sections in the room.
-          Cool top-right, rose bottom-left. The continuity tells
-          the user we are still in the same place. */}
-      <div className="tex-evolution-wash tex-evolution-wash--cool" aria-hidden="true" />
-      <div className="tex-evolution-wash tex-evolution-wash--rose" aria-hidden="true" />
-
       <div className="tex-evolution-stage">
-        {LINES.map((text, i) => (
-          <p
-            key={i}
-            className="tex-evolution-line"
-            style={{
-              transitionDelay: `${ENTRY_DELAY_MS + i * STAGGER_MS}ms`,
-            }}
+        <div className="tex-evolution-composition">
+          {/* The orb — left side, breathing. */}
+          <div className="tex-evolution-orb">
+            <Orb state="quiet" size="md" />
+          </div>
+
+          {/* The proposal card. */}
+          <div
+            className="tex-evolution-card"
+            style={{ transitionDelay: `${CARD_REVEAL_MS}ms` }}
           >
-            <span className="tex-evolution-line-ink">{text}</span>
-            {/* The light sweep — a single soft glass pass that
-                lights up the line once the third line has
-                settled. The same material as the hero. */}
-            <span
-              className="tex-evolution-sweep"
-              aria-hidden="true"
-              style={{
-                /* Each line's sweep starts slightly after the
-                   previous one, so the light moves diagonally
-                   across the three sentences as a group rather
-                   than hitting them in parallel. */
-                animationDelay: `${i * 220}ms`,
-              }}
-            />
-          </p>
-        ))}
+            <p
+              className="tex-evolution-card-eyebrow"
+              style={{ transitionDelay: `${CARD_REVEAL_MS + 200}ms` }}
+            >
+              PROPOSAL · PENDING YOUR REVIEW
+            </p>
+
+            <p
+              className="tex-evolution-card-title"
+              style={{ transitionDelay: `${PROPOSAL_TITLE_MS}ms` }}
+            >
+              I&rsquo;d like to be stricter
+              <br/>
+              about urgent wires.
+            </p>
+
+            <p
+              className="tex-evolution-card-history-label"
+              style={{ transitionDelay: `${PROPOSAL_TITLE_MS + 400}ms` }}
+            >
+              Against the last 90 days, this would have changed —
+            </p>
+
+            <ul className="tex-evolution-ghosts" aria-label="What would have changed">
+              {GHOSTS.map((g, i) => {
+                const delay = GHOSTS_BASE_MS + i * GHOST_STAGGER_MS;
+                return (
+                  <li
+                    key={`ghost-${i}`}
+                    className="tex-evolution-ghost"
+                    style={{ transitionDelay: `${delay}ms` }}
+                  >
+                    <span className="tex-evolution-ghost-dot" aria-hidden="true" />
+                    <span className="tex-evolution-ghost-text">{g.text}</span>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div
+              className="tex-evolution-actions"
+              style={{ transitionDelay: `${BUTTON_REVEAL_MS}ms` }}
+            >
+              <button
+                type="button"
+                className="tex-evolution-btn"
+                tabIndex={-1}
+              >
+                <span className="tex-evolution-btn-label">Your signature.</span>
+                <span className="tex-evolution-btn-halo" aria-hidden="true" />
+              </button>
+              <span className="tex-evolution-actions-aside">
+                Tex waits.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p
+          className="tex-evolution-line"
+          style={{ transitionDelay: `${LINE_REVEAL_MS}ms` }}
+        >
+          Sharper, <em>only with your hand.</em>
+        </p>
       </div>
 
-      {/* Screen-reader summary for assistive tech. */}
       <p className="tex-sr-only">
-        Tex evolves specifically: I learn your environment. I evolve
-        with your agents. I get smarter every day.
+        Tex evolves with your environment, but never on its own. Every change
+        is proposed, replayed against real history, and applied only with a
+        human signature. Sharper, only with your hand.
       </p>
     </section>
   );

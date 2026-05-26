@@ -1,0 +1,127 @@
+/* ============================================================
+   Foresight — I see what's coming.
+   ============================================================ */
+
+.tex-foresight {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tex-section-pad) 24px;
+}
+
+.tex-foresight-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 56px;
+  width: 100%;
+  max-width: var(--tex-canvas-max);
+}
+
+.tex-foresight-composition {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  aspect-ratio: 1000 / 360;
+}
+
+.tex-foresight-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Orb anchored at the left of the composition where the timeline begins.
+   The SVG's "x=200, y=180" maps to 20% from left, 50% from top. */
+.tex-foresight-orb {
+  position: absolute;
+  left: 20%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Animated SVG primitives ─────────────────────────────────── */
+
+.tex-foresight-timeline {
+  transition: stroke-dashoffset 1.4s ease;
+}
+
+.tex-foresight-now {
+  transition: opacity 0.8s ease;
+}
+
+.tex-foresight-cone,
+.tex-foresight-cone-bound {
+  transition: opacity 1.4s ease;
+}
+
+.tex-foresight-shadow {
+  transition: opacity 0.6s ease;
+}
+
+.tex-foresight-shadow-dot,
+.tex-foresight-shadow-halo {
+  animation: tex-foresight-shadow-travel 4.2s ease-in-out infinite;
+  animation-play-state: paused;
+}
+
+.tex-foresight--armed .tex-foresight-shadow-dot,
+.tex-foresight--armed .tex-foresight-shadow-halo {
+  animation-play-state: running;
+}
+
+@keyframes tex-foresight-shadow-travel {
+  0%   { transform: translateX(0);    opacity: 0.7; }
+  40%  { transform: translateX(640px); opacity: 0.55; }
+  70%  { transform: translateX(720px); opacity: 0.3;  }
+  100% { transform: translateX(740px); opacity: 0;    }
+}
+
+.tex-foresight-tick-label {
+  transition: opacity 0.8s ease;
+}
+
+/* The sentence ──────────────────────────────────────────── */
+
+.tex-foresight-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: var(--tex-reading-max);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+
+.tex-foresight-line em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-foresight--armed .tex-foresight-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 720px) {
+  .tex-foresight-stage {
+    gap: 40px;
+  }
+  .tex-foresight-composition {
+    aspect-ratio: 1 / 1.2;
+  }
+  /* On mobile the cone goes vertical — but for now we keep the
+     horizontal layout and let it scale. A future revision can
+     rotate the composition for narrow viewports. */
+}

@@ -1,126 +1,81 @@
 /* ============================================================
-   MomentSection — screen two
-
-   The hero ends on bg-1; this section opens on bg-1 and drifts
-   diagonally into the cool blue-rose room. No seam.
-
-   Layout philosophy: nothing is centered with margin. Everything
-   is positioned absolutely inside a single stage so that the orb
-   can slide from center to left without the surrounding text
-   reflowing. The phase class on .tex-moment drives every change.
+   Moment — I stopped one.
    ============================================================ */
 
 .tex-moment {
   position: relative;
   width: 100%;
   min-height: 100vh;
-  background: linear-gradient(
-    160deg,
-    var(--tex-bg-2) 0%,
-    var(--tex-bg-2) 35%,
-    var(--tex-bg-3) 100%
-  );
+  background: var(--tex-paper);
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: var(--tex-section-pad) 24px;
   overflow: hidden;
-  padding: 96px 24px;
-  font-family: var(--tex-sans);
-  color: var(--tex-ink);
 }
 
-/* --- Ambient washes — the warm light through the windows --- */
-.tex-moment-wash {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.tex-moment-wash--cool {
-  top: -180px;
-  right: -200px;
-  width: 820px;
-  height: 820px;
-  background: radial-gradient(
-    circle at center,
-    rgba(195, 210, 235, 0.55) 0%,
-    rgba(195, 210, 235, 0.20) 35%,
-    rgba(195, 210, 235, 0.05) 60%,
-    rgba(195, 210, 235, 0) 78%
-  );
-}
-
-.tex-moment-wash--rose {
-  bottom: -220px;
-  left: -180px;
-  width: 760px;
-  height: 760px;
-  background: radial-gradient(
-    circle at center,
-    rgba(220, 195, 210, 0.40) 0%,
-    rgba(220, 195, 210, 0.14) 38%,
-    rgba(220, 195, 210, 0.04) 62%,
-    rgba(220, 195, 210, 0) 80%
-  );
-}
-
-/* --- Stage — fixed-size canvas the orb and text sit inside -- */
 .tex-moment-stage {
   position: relative;
-  z-index: 1;
   width: 100%;
   max-width: 1100px;
-  height: 560px;
+  min-height: 500px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-/* --- The orb track ---------------------------------------- */
-/* Quiet: orb centered horizontally, slightly above stage mid.
-   Event: orb drifts to the left third. Same room, new position. */
+/* THE ORB ─────────────────────────────────────────────────── */
+
 .tex-moment-orb {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -54%);
-  transition: left 1.6s cubic-bezier(0.22, 0.61, 0.36, 1),
-              transform 1.6s cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform: translate(-50%, -50%);
+  transition: left 2.2s cubic-bezier(0.5, 0, 0.2, 1);
 }
 
 .tex-moment--event .tex-moment-orb {
-  left: 24%;
-  transform: translate(-50%, -50%);
+  left: 26%;
 }
 
-/* --- Quiet state copy ------------------------------------- */
+/* QUIET STATE ────────────────────────────────────────────── */
+
 .tex-moment-quiet {
   position: absolute;
-  top: 50%;
+  top: calc(50% + 220px);
   left: 50%;
-  /* "All Quiet" sits below the orb. The orb is 440px tall; we push
-     the word down so it lives in the orb's lower half, the way the
-     glass word does on the dashboard. */
-  transform: translate(-50%, 140px);
-  opacity: 1;
-  transition: opacity 0.9s ease;
+  transform: translateX(-50%);
+  text-align: center;
   pointer-events: none;
+  transition: opacity 0.9s ease;
+}
+
+.tex-moment-quiet-word {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(28px, 3vw, 40px);
+  letter-spacing: -0.005em;
+  color: var(--tex-ink-soft);
+  margin: 0;
 }
 
 .tex-moment--event .tex-moment-quiet {
   opacity: 0;
-  transition: opacity 0.5s ease;
 }
 
-/* --- Event state copy ------------------------------------- */
+/* EVENT STATE ────────────────────────────────────────────── */
+
 .tex-moment-event {
   position: absolute;
   top: 50%;
-  left: 52%;
-  transform: translate(0, -50%);
-  max-width: 460px;
-  width: 42%;
+  left: 56%;
+  transform: translateY(-50%);
   opacity: 0;
-  transition: opacity 0.9s ease 0.6s;
   pointer-events: none;
+  max-width: 440px;
+  transition:
+    opacity 1.2s ease 0.8s;
 }
 
 .tex-moment--event .tex-moment-event {
@@ -132,137 +87,71 @@
   font-family: var(--tex-serif);
   font-style: italic;
   font-weight: 400;
-  font-size: 42px;
-  line-height: 1.22;
-  letter-spacing: -0.012em;
+  font-size: clamp(40px, 4.5vw, 64px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
   color: var(--tex-ink);
-  margin: 0 0 14px;
-  text-wrap: balance;
+  margin: 0 0 18px 0;
 }
 
 .tex-moment-aside {
   font-family: var(--tex-serif);
   font-style: italic;
-  font-weight: 400;
-  font-size: 30px;
-  line-height: 1.32;
-  letter-spacing: -0.008em;
+  font-weight: 300;
+  font-size: clamp(20px, 1.9vw, 26px);
+  line-height: 1.4;
+  letter-spacing: -0.005em;
   color: var(--tex-ink-soft);
-  margin: 0 0 36px;
+  margin: 0 0 36px 0;
 }
 
 .tex-moment-actions {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
 }
 
-/* "Show me" button — colleague vocabulary, identical to the
-   primary button used on the hero and in the dashboard's AsksYou. */
 .tex-moment-btn {
   font-family: var(--tex-sans);
-  font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0;
-  border: none;
-  padding: 11px 22px;
-  border-radius: 980px;
+  font-size: 14px;
+  letter-spacing: 0.005em;
+  color: var(--tex-paper);
   background: var(--tex-ink);
-  color: #faf8f3;
-  cursor: pointer;
-  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.35);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  padding: 12px 28px;
+  border-radius: 999px;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
 .tex-moment-btn:hover {
+  background: #000000;
   transform: translateY(-1px);
-  box-shadow: 0 10px 22px -10px rgba(0, 0, 0, 0.45);
 }
 
-.tex-moment-btn:active {
-  transform: translateY(0);
+.tex-moment-btn:focus-visible {
+  outline: 2px solid var(--tex-ink);
+  outline-offset: 4px;
 }
 
-/* --- Screen-reader-only caption --------------------------- */
-.tex-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+/* Responsive ──────────────────────────────────────────────── */
 
-/* --- Responsive ------------------------------------------- */
-@media (max-width: 880px) {
-  .tex-moment {
-    padding: 72px 20px;
-  }
+@media (max-width: 1024px) {
   .tex-moment-stage {
-    height: 620px;
+    min-height: 620px;
   }
-  .tex-moment-orb .tex-orb--xl {
-    width: 320px;
-    height: 320px;
-  }
-
-  /* On narrow screens the orb stays centered in both states and the
-     text appears below it, not beside. Stacking is cleaner than a
-     cramped two-column layout. */
   .tex-moment--event .tex-moment-orb {
     left: 50%;
-    transform: translate(-50%, -120%);
+    top: 28%;
   }
-
   .tex-moment-event {
+    top: auto;
+    bottom: 8%;
     left: 50%;
-    top: 50%;
-    width: 90%;
-    max-width: 460px;
-    transform: translate(-50%, 40%);
+    transform: translateX(-50%);
     text-align: center;
-  }
-
-  .tex-moment-actions {
-    justify-content: center;
-  }
-
-  .tex-moment-quiet {
-    transform: translate(-50%, 100px);
-  }
-
-  .tex-moment-line {
-    font-size: 30px;
-  }
-  .tex-moment-aside {
-    font-size: 22px;
-  }
-}
-
-@media (max-width: 520px) {
-  .tex-moment-orb .tex-orb--xl {
-    width: 260px;
-    height: 260px;
-  }
-  .tex-moment-line {
-    font-size: 26px;
-  }
-  .tex-moment-aside {
-    font-size: 20px;
+    max-width: 80%;
   }
   .tex-moment-quiet {
-    transform: translate(-50%, 80px) scale(0.78);
-  }
-}
-
-/* --- Reduced motion preference ---------------------------- */
-@media (prefers-reduced-motion: reduce) {
-  .tex-moment-orb,
-  .tex-moment-quiet,
-  .tex-moment-event {
-    transition: none;
+    top: calc(50% + 160px);
   }
 }

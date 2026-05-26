@@ -1,52 +1,79 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import Orb from '../components/Orb.jsx';
 import './CloserSection.css';
 
 /* =============================================================
-   CLOSER SECTION — screen six
+   CLOSER — The weight is mine now.
 
-   The room is the same. The voice changes.
+   The last beat. Half the vertical room of the others. After
+   the user has watched Tex find every agent, simulate forward,
+   stop a thing, sign every decision, and refuse to change
+   itself without their hand — the page exhales.
 
-     "The weight is mine now."
-
-   Until this line, every Tex sentence on the page begins with
-   "I" and describes what Tex does. This sentence still begins
-   with "the weight," but its subject is the thing it lifts off
-   the user — what the user has been carrying without saying so.
-
-   The line doesn't tell the user how they feel. It states what
-   Tex absorbs, and lets the user recognize the weight on the
-   way past. Recognition is more powerful than being told.
-
-   This is the only section on the page where the canvas warms
-   back to bg-1 — the same warm cream the user landed on at the
-   hero. The page opens loud and ends quiet, but the light comes
-   home. Six beats. One room. One voice that, at the end, turns
-   to face the reader.
-
-   The italic line is one size larger than Lifecycle and
-   Evolution to signal that this is the closer — not by shouting,
-   but by giving the sentence the same scale the user first saw
-   "Absolute." in. The first word and the last word are at the
-   same altitude. The arc closes.
+   The orb at center, breathing. One italic line beneath it.
+   No button. The page ends.
    ============================================================= */
 
 export default function CloserSection() {
+  const sectionRef = useRef(null);
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    const node = sectionRef.current;
+    if (!node) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setArmed(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.4 }
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, []);
+
   return (
     <section
-      className="tex-closer"
+      ref={sectionRef}
+      className={`tex-closer${armed ? ' tex-closer--armed' : ''}`}
       id="closer"
-      aria-label="Tex absorbs the responsibility you have been carrying"
+      aria-label="The weight is mine now."
     >
-      {/* Same warm light as the rest of the room, slightly
-          softer than the middle sections so the page feels
-          like it's exhaling at the end. */}
-      <div className="tex-closer-wash tex-closer-wash--cool" aria-hidden="true" />
-      <div className="tex-closer-wash tex-closer-wash--rose" aria-hidden="true" />
-
       <div className="tex-closer-stage">
+        <div className="tex-closer-orb">
+          <Orb state="quiet" size="md" />
+        </div>
+
         <p className="tex-closer-line">
           The weight is mine now.
         </p>
+
+        {/* The footer mark — small, at the bottom of the world. */}
+        <footer className="tex-closer-foot">
+          <a
+            href="/how-it-works"
+            className="tex-closer-foot-link"
+          >
+            How it works
+          </a>
+          <span className="tex-closer-foot-sep" aria-hidden="true">·</span>
+          <a
+            href="/evidence"
+            className="tex-closer-foot-link"
+          >
+            Evidence
+          </a>
+          <span className="tex-closer-foot-sep" aria-hidden="true">·</span>
+          <a
+            href="/company"
+            className="tex-closer-foot-link"
+          >
+            Company
+          </a>
+          <span className="tex-closer-foot-mark">Tex — VortexBlack</span>
+        </footer>
       </div>
     </section>
   );

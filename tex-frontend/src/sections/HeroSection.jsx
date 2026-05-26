@@ -1,25 +1,37 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import './HeroSection.css';
 
 /* =============================================================
-   HERO SECTION — Quiet
-   ────────────────────────────────────────────────────────────
-   The whole homepage hero in one sentence:
+   HERO — Absolute.
 
-       Quiet.
+   The one screen the user sees first. Three things must happen
+   in three seconds:
 
-       Every agent. Every action. Every stage of its life.
-       Tex is the only system that governs all of it.
+     1. Tex is here.       (the breathing dot, top of frame)
+     2. Absolute.          (the glass word)
+     3. The promise.       (every agent, every action, every stage)
 
-       [ Show me ]
-
-   Top bar:  T mark + "Tex"        •Tex is here        nav        Sign in
+   No primary button. The arrow at the bottom of the frame is the
+   only invitation. The page itself is the demonstration.
    ============================================================= */
 
-export default function HeroSection({ openTrial, navigate }) {
+export default function HeroSection({ navigate }) {
+  const [armed, setArmed] = useState(false);
+
+  // Arm the arrival as soon as the page is ready. Single beat,
+  // no scroll dependency — the hero is the first thing.
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), 80);
+    return () => clearTimeout(t);
+  }, []);
+
   return (
-    <section className="tex-hero" id="top">
-      {/* TOP BAR ------------------------------------------------ */}
+    <section
+      className={`tex-hero${armed ? ' tex-hero--armed' : ''}`}
+      id="top"
+      aria-label="Tex"
+    >
+      {/* TOP BAR — three objects only. Logo. Presence. Sign in. */}
       <header className="tex-topbar">
         <a
           href="/"
@@ -31,63 +43,33 @@ export default function HeroSection({ openTrial, navigate }) {
           aria-label="Tex — home"
         >
           <span className="tex-brand-mark">T</span>
-          <span className="tex-brand-word">Tex</span>
         </a>
 
         <div className="tex-presence" role="status" aria-live="polite">
-          <span className="tex-presence-dot">
+          <span className="tex-presence-dot" aria-hidden="true">
             <span className="tex-presence-dot-core" />
           </span>
           <span className="tex-presence-label">Tex is here</span>
         </div>
 
-        <nav className="tex-nav">
-          <a
-            href="/how-it-works"
-            className="tex-nav-link"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/how-it-works');
-            }}
-          >
-            How it works
-          </a>
-          <a
-            href="/evidence"
-            className="tex-nav-link"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/evidence');
-            }}
-          >
-            Evidence
-          </a>
-          <a
-            href="/company"
-            className="tex-nav-link"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/company');
-            }}
-          >
-            Company
-          </a>
-          <a
-            href="/sign-in"
-            className="tex-nav-link tex-nav-link--strong"
-            onClick={(e) => {
-              e.preventDefault();
-              navigate('/sign-in');
-            }}
-          >
-            Sign in
-          </a>
-        </nav>
+        <a
+          href="/sign-in"
+          className="tex-signin"
+          onClick={(e) => {
+            e.preventDefault();
+            navigate('/sign-in');
+          }}
+        >
+          Sign in
+        </a>
       </header>
 
-      {/* STAGE -------------------------------------------------- */}
-      <div className="tex-stage">
-        <h1 className="tex-hero-word tex-arrive tex-arrive--word" aria-label="Absolute.">
+      {/* STAGE — the word, then the line. */}
+      <div className="tex-hero-stage">
+        <h1
+          className="tex-hero-word"
+          aria-label="Absolute."
+        >
           <svg
             className="tex-hero-glass"
             viewBox="0 0 900 240"
@@ -158,7 +140,7 @@ export default function HeroSection({ openTrial, navigate }) {
               letterSpacing="-11"
               fill="none"
               stroke="#5B6E84"
-              strokeOpacity="0.35"
+              strokeOpacity="0.32"
               strokeWidth="0.6"
             >Absolute.</text>
 
@@ -179,29 +161,27 @@ export default function HeroSection({ openTrial, navigate }) {
           <span className="tex-beat tex-beat--2">Every action.</span>{' '}
           <span className="tex-beat tex-beat--3">Every stage of its life.</span>
         </p>
-        <p className="tex-hero-aside tex-arrive tex-arrive--aside">
+
+        <p className="tex-hero-aside">
           Tex is the only system that governs all of it.
         </p>
-
-        <div className="tex-hero-actions tex-arrive tex-arrive--button">
-          <button
-            type="button"
-            className="tex-btn tex-btn--glass"
-            onClick={openTrial}
-          >
-            <span className="tex-btn-orbit" aria-hidden="true" />
-            <span className="tex-btn-label">Show me</span>
-          </button>
-        </div>
       </div>
 
-      {/* QUIET SCROLL CUE -------------------------------------- */}
+      {/* SCROLL CUE — the only invitation. */}
       <a
-        href="#moment"
-        className="tex-scroll-cue tex-arrive tex-arrive--cue"
+        href="#bridge"
+        className="tex-scroll-cue"
         aria-label="Continue"
       >
-        <span className="tex-scroll-arrow">↓</span>
+        <svg width="14" height="22" viewBox="0 0 14 22" fill="none" aria-hidden="true">
+          <path
+            d="M7 1 V 19 M 1 13 L 7 19 L 13 13"
+            stroke="currentColor"
+            strokeWidth="1"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </a>
     </section>
   );

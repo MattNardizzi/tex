@@ -1,19 +1,27 @@
 import './Orb.css';
 
-/**
- * Orb — the breathing presence at the center of Tex.
- *
- * Lifted directly from the product dashboard so the marketing site and the
- * product share one surface. The same component renders in both places.
- *
- * Two states:
- *   - "quiet"  : centered, slow rhythm. Nothing needs you.
- *   - "asking" : the orb is now slightly slower; positioning is the caller's job.
- *
- * Color in both states is the same cool blue-gray. We never panic-flash to red
- * or amber on the surface — the composition tells the user something changed,
- * not the temperature of the room.
- */
+/* =============================================================
+   Orb — the breathing presence.
+
+   The protagonist of every section. Five layers — outer atmosphere,
+   mid halo, hairline ring, inner halo, core. All on a 4.2s breath
+   cycle. The orb is the only soft object in the room; everything
+   else is hard-edged so the softness reads as intentional.
+
+   States:
+     quiet   — at rest. Slow, even breath.
+     asking  — slightly weighted. The same blue-gray, never red.
+     proof   — held very still, used in the Evidence section where
+               the chain is doing the talking.
+
+   Sizes:
+     xs (96px) — for inline use beside text
+     sm (140px)
+     md (220px)
+     lg (320px)
+     xl (440px) — the hero / moment surface
+   ============================================================= */
+
 export default function Orb({ state = 'quiet', size = 'lg' }) {
   return (
     <div

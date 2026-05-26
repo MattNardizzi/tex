@@ -141,6 +141,7 @@ export default function PresenceSection() {
                     opacity="0.86"
                   />
                   <text
+                    className="tex-presence-agent-label"
                     x={dx} y="4"
                     textAnchor={anchor}
                     fontFamily="var(--tex-mono)"

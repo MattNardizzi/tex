@@ -154,6 +154,7 @@
 @media (max-width: 720px) {
   .tex-evidence {
     padding: var(--tex-section-pad) 20px;
+    min-height: 0;
   }
   .tex-evidence-stage {
     gap: 32px;
@@ -165,5 +166,12 @@
   .tex-evidence-line {
     font-size: 24px;
     line-height: 1.3;
+  }
+  /* SVG text doesn't inherit CSS font-size unless we set it directly.
+     On mobile the 9-unit baseline renders at ~3px, which is unreadable.
+     Bump to 22 SVG units so labels read at roughly 8-10px on a phone. */
+  .tex-evidence-hash,
+  .tex-evidence-folder-label {
+    font-size: 22px;
   }
 }

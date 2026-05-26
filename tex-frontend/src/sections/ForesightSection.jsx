@@ -183,7 +183,7 @@ export default function ForesightSection() {
 
             {/* Tiny labels — present, near, far. */}
             <text
-              className="tex-foresight-tick-label"
+              className="tex-foresight-tick-label tex-foresight-tick-now"
               x="200" y="216"
               textAnchor="middle"
               fontFamily="var(--tex-mono)"
@@ -198,7 +198,7 @@ export default function ForesightSection() {
               NOW
             </text>
             <text
-              className="tex-foresight-tick-label"
+              className="tex-foresight-tick-label tex-foresight-tick-conformal"
               x="940" y="86"
               textAnchor="end"
               fontFamily="var(--tex-mono)"

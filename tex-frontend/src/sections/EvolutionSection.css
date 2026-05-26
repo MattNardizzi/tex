@@ -244,6 +244,7 @@
 @media (max-width: 720px) {
   .tex-evolution {
     padding: var(--tex-section-pad) 20px;
+    min-height: 0;
   }
   .tex-evolution-stage {
     gap: 48px;

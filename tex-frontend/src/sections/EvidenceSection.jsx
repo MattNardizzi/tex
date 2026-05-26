@@ -162,6 +162,7 @@ export default function EvidenceSection() {
                     fill="#14110d"
                   />
                   <text
+                    className="tex-evidence-hash"
                     x={x} y={CHAIN_Y + 26}
                     textAnchor="middle"
                     fontFamily="var(--tex-mono)"
@@ -212,6 +213,7 @@ export default function EvidenceSection() {
                 strokeLinejoin="round"
               />
               <text
+                className="tex-evidence-folder-label"
                 x={HIGHLIGHTED_X} y={FOLDER_Y + 32}
                 textAnchor="middle"
                 fontFamily="var(--tex-mono)"

@@ -159,6 +159,7 @@
 @media (max-width: 720px) {
   .tex-moment {
     padding: var(--tex-section-pad) 20px;
+    min-height: 0;
   }
   .tex-moment-stage {
     min-height: 520px;

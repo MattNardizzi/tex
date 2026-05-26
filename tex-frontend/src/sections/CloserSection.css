@@ -1,0 +1,152 @@
+/* ============================================================
+   CloserSection — screen six
+
+   The arc closes. The page opened on a warm cream canvas
+   (bg-1) and the closer returns to it — the same light the
+   user landed on at the hero, but six sections deeper into
+   trust. The gradient drifts from bg-2 (where Evolution left
+   off) back toward bg-1, so the page ends where it began.
+
+   One italic sentence, slightly larger than Lifecycle and
+   Evolution. The size says "this is the close" without ever
+   raising its voice — the user has earned this scale by
+   reading six sections to get here.
+
+   The arrival is the slowest on the page. The line resolves
+   from depth over 2.2s rather than the 1.6s used in Self and
+   Evolution. The page is exhaling.
+   ============================================================ */
+
+.tex-closer {
+  position: relative;
+  width: 100%;
+  /* A little taller than the middle sections — the page
+     deserves room to breathe at the end. */
+  min-height: 90vh;
+  background: linear-gradient(
+    180deg,
+    var(--tex-bg-2) 0%,
+    var(--tex-bg-1) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 120px 24px;
+  font-family: var(--tex-sans);
+  color: var(--tex-ink);
+}
+
+/* --- Ambient washes — softer than the middle sections.
+   The room is exhaling. ------------------------------------ */
+.tex-closer-wash {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tex-closer-wash--cool {
+  top: -240px;
+  right: -200px;
+  width: 820px;
+  height: 820px;
+  background: radial-gradient(
+    circle at center,
+    rgba(195, 210, 235, 0.40) 0%,
+    rgba(195, 210, 235, 0.14) 38%,
+    rgba(195, 210, 235, 0.03) 62%,
+    rgba(195, 210, 235, 0) 80%
+  );
+}
+
+.tex-closer-wash--rose {
+  bottom: -260px;
+  left: -220px;
+  width: 780px;
+  height: 780px;
+  background: radial-gradient(
+    circle at center,
+    rgba(220, 195, 210, 0.34) 0%,
+    rgba(220, 195, 210, 0.12) 40%,
+    rgba(220, 195, 210, 0.03) 64%,
+    rgba(220, 195, 210, 0) 80%
+  );
+}
+
+/* --- Stage ------------------------------------------------ */
+.tex-closer-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.tex-closer-line {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  /* The largest italic on the page. Bigger than Lifecycle
+     (60px) and Evolution (52px each). The user has earned
+     this scale. */
+  font-size: 72px;
+  line-height: 1.15;
+  letter-spacing: -0.022em;
+  color: var(--tex-ink);
+  margin: 0;
+  text-wrap: balance;
+
+  /* The slowest resolve on the page. The line settles in
+     over 2.2 seconds — the page is exhaling. */
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(6px);
+  animation: tex-closer-arrive 2.2s cubic-bezier(0.22, 0.61, 0.36, 1) 0.5s forwards;
+}
+
+@keyframes tex-closer-arrive {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* --- Responsive ------------------------------------------- */
+@media (max-width: 880px) {
+  .tex-closer {
+    padding: 96px 24px;
+    min-height: 80vh;
+  }
+  .tex-closer-line {
+    font-size: 48px;
+  }
+}
+
+@media (max-width: 520px) {
+  .tex-closer {
+    padding: 80px 22px;
+  }
+  .tex-closer-line {
+    font-size: 34px;
+  }
+  .tex-closer-wash--cool,
+  .tex-closer-wash--rose {
+    width: 480px;
+    height: 480px;
+  }
+}
+
+/* --- Reduced motion --------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tex-closer-line {
+    animation: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}

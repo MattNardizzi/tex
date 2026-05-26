@@ -1,0 +1,235 @@
+/* ============================================================
+   EvolutionSection — screen five
+
+   Two animation systems live here, and they don't fight:
+
+   1. The resolve. Each line begins as a blurred cloud 12px
+      below its resting position. When the section enters view,
+      the .tex-evolution--armed class lands on the root and the
+      lines transition — opacity, transform, blur — to their
+      final state. The transition is owned in CSS; the JSX
+      hands each line its own delay.
+
+   2. The sweep. Once the third line has fully settled (~5.6s
+      after entry), the .tex-evolution--sweep class lands and
+      a single horizontal light pass moves across each line's
+      text. The same glass material the hero uses on "Absolute."
+      Cool-white light masked to the text shape. Runs once.
+      No loop. The page sees the light pass and goes quiet.
+   ============================================================ */
+
+.tex-evolution {
+  position: relative;
+  width: 100%;
+  /* Tall enough that three sentences fit comfortably with the
+     long stagger. The section breathes longer than Lifecycle
+     because it's saying more. */
+  min-height: 100vh;
+  background: linear-gradient(
+    180deg,
+    var(--tex-bg-3) 0%,
+    var(--tex-bg-2) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 120px 24px;
+  font-family: var(--tex-sans);
+  color: var(--tex-ink);
+}
+
+/* --- Ambient washes — same DNA as Lifecycle --------------- */
+.tex-evolution-wash {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.tex-evolution-wash--cool {
+  top: -200px;
+  right: -180px;
+  width: 760px;
+  height: 760px;
+  background: radial-gradient(
+    circle at center,
+    rgba(195, 210, 235, 0.50) 0%,
+    rgba(195, 210, 235, 0.18) 35%,
+    rgba(195, 210, 235, 0.04) 60%,
+    rgba(195, 210, 235, 0) 78%
+  );
+}
+
+.tex-evolution-wash--rose {
+  bottom: -240px;
+  left: -200px;
+  width: 720px;
+  height: 720px;
+  background: radial-gradient(
+    circle at center,
+    rgba(220, 195, 210, 0.38) 0%,
+    rgba(220, 195, 210, 0.13) 38%,
+    rgba(220, 195, 210, 0.04) 62%,
+    rgba(220, 195, 210, 0) 80%
+  );
+}
+
+/* --- Stage — three sentences stacked vertically ----------- */
+.tex-evolution-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* --- The three lines -------------------------------------- */
+.tex-evolution-line {
+  position: relative;
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  /* Slightly smaller than the single Lifecycle line — three
+     beats need room to breathe between them, and 52px keeps
+     the whole stage readable on a laptop without scrolling
+     past any one line. */
+  font-size: 52px;
+  line-height: 1.24;
+  letter-spacing: -0.02em;
+  color: var(--tex-ink);
+  margin: 0 0 22px;
+  text-wrap: balance;
+
+  /* The resolve. Each line waits in this state until the
+     section is armed; then it transitions to settled. The
+     blur is the trick — it's what makes the line *feel* like
+     a thought arriving rather than text fading. */
+  opacity: 0;
+  transform: translateY(12px);
+  filter: blur(8px);
+  transition:
+    opacity 1.6s cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 1.6s cubic-bezier(0.22, 0.61, 0.36, 1),
+    filter 1.6s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.tex-evolution-line:last-child {
+  margin-bottom: 0;
+}
+
+.tex-evolution--armed .tex-evolution-line {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* The ink — the actual rendered text. Stays in the normal
+   document flow; the sweep is layered over it absolutely. */
+.tex-evolution-line-ink {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- The light sweep --------------------------------------- */
+/* A narrow vertical band of cool-white light, sized to the
+   line, masked to text shape via mix-blend-mode. The band
+   sits off-screen left, waits for the --sweep class, then
+   moves left-to-right across the line once. */
+.tex-evolution-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+  /* The light itself — a soft vertical band. The gradient is
+     narrow on purpose: a 220px-wide cool-white smear that
+     reads as a single beam of light. */
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 38%,
+    rgba(244, 246, 250, 0.0) 42%,
+    rgba(244, 246, 250, 0.85) 50%,
+    rgba(200, 218, 240, 0.6) 53%,
+    rgba(244, 246, 250, 0.0) 58%,
+    transparent 62%,
+    transparent 100%
+  );
+  /* The mask — the sweep only shows where the text is. This
+     is what makes the light appear to be passing through the
+     glyphs themselves rather than across the line as a slab. */
+  mix-blend-mode: overlay;
+  /* The band starts off-screen left and waits. */
+  transform: translateX(-110%);
+}
+
+.tex-evolution--sweep .tex-evolution-sweep {
+  animation: tex-evolution-sweep 2.2s cubic-bezier(0.42, 0, 0.58, 1) forwards;
+}
+
+@keyframes tex-evolution-sweep {
+  0%   { transform: translateX(-110%); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateX(110%); opacity: 0; }
+}
+
+/* --- Screen-reader-only caption --------------------------- */
+.tex-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Responsive ------------------------------------------- */
+@media (max-width: 880px) {
+  .tex-evolution {
+    padding: 96px 24px;
+    min-height: 90vh;
+  }
+  .tex-evolution-line {
+    font-size: 38px;
+    margin-bottom: 18px;
+  }
+}
+
+@media (max-width: 520px) {
+  .tex-evolution {
+    padding: 80px 22px;
+  }
+  .tex-evolution-line {
+    font-size: 28px;
+    margin-bottom: 14px;
+  }
+  .tex-evolution-wash--cool,
+  .tex-evolution-wash--rose {
+    width: 480px;
+    height: 480px;
+  }
+}
+
+/* --- Reduced motion --------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .tex-evolution-line {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+  .tex-evolution-sweep {
+    display: none;
+  }
+}

@@ -120,8 +120,13 @@
     min-height: 100svh;
     min-height: 100dvh;
   }
+  /* The stage was 56px gap between every child, which spread the orb,
+     name slot, counter, and closing line across the entire viewport
+     without any sense of grouping. Tighten so orb + name slot + counter
+     read as one composition, and the closing sentence sits as a
+     distinct beat beneath. */
   .tex-presence-stage {
-    gap: 56px;
+    gap: 40px;
   }
 
   /* Hide the desktop arc composition entirely. */
@@ -134,7 +139,10 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 36px;
+    /* Orb and slot are one paired thought (Tex looking, naming what
+       it sees), counter is the soft proof at the end. Pull them
+       closer together than the original 36px. */
+    gap: 18px;
     width: 100%;
   }
 
@@ -147,7 +155,7 @@
      names swap. */
   .tex-presence-mobile-slot {
     position: relative;
-    height: 24px;
+    height: 22px;
     width: 100%;
     display: flex;
     align-items: center;
@@ -157,15 +165,12 @@
   .tex-presence-mobile-name {
     position: absolute;
     font-family: var(--tex-mono);
-    font-size: 15px;
+    font-size: 14px;
     letter-spacing: 0.04em;
     color: var(--tex-ink);
     line-height: 1;
     opacity: 0;
     transform: translateY(4px);
-    /* Each name fades in, holds, fades out. The opacity timeline:
-       0% hidden, 18% visible, 82% visible, 100% hidden — so the
-       holding band sits centered in the animation window. */
     animation: tex-presence-name-pass forwards;
     animation-iteration-count: 1;
     animation-timing-function: ease;
@@ -184,21 +189,19 @@
   }
 
   /* The counter — a soft tally beneath the slot. Reads as "8 identified"
-     once the sequence completes. */
+     once the sequence completes. Tighter spacing so the number and label
+     sit closer together. */
   .tex-presence-mobile-counter {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: 10px;
     opacity: 0;
     transition: opacity 1.2s ease;
-    /* This counter is filled in dynamically — but the simple version
-       fades the final count in after the last name passes. Delay set
-       inline on the JSX via the entry timing. */
+    margin-top: 8px;
   }
 
   .tex-presence-section--armed .tex-presence-mobile-counter {
     opacity: 1;
-    /* Resolve after the last agent has passed through the slot. */
     transition-delay: calc(350ms + 8 * 380ms);
   }
 
@@ -206,7 +209,7 @@
     font-family: var(--tex-serif);
     font-weight: 400;
     font-style: italic;
-    font-size: 28px;
+    font-size: 32px;
     line-height: 1;
     color: var(--tex-ink);
     letter-spacing: -0.01em;
@@ -215,13 +218,19 @@
   .tex-presence-mobile-counter-label {
     font-family: var(--tex-mono);
     font-size: 10px;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.18em;
     color: var(--tex-ink-mute);
     text-transform: uppercase;
   }
 
+  /* Closing line — give it real padding so it never touches the screen
+     edge. text-wrap:balance makes the two-line break sit evenly across
+     both lines instead of orphaning "are." on its own line. */
   .tex-presence-line-text {
-    font-size: 24px;
-    line-height: 1.3;
+    font-size: 22px;
+    line-height: 1.32;
+    padding: 0 16px;
+    max-width: 340px;
+    text-wrap: balance;
   }
 }

@@ -173,14 +173,23 @@
   .tex-evidence-orb {
     margin-bottom: 0;
   }
+
+  /* Closing line and proof — both were running edge-to-edge on a
+     375px viewport. Pad them in so they sit inside the safe area
+     with the same gutter the rest of the prose gets. */
   .tex-evidence-line {
-    font-size: 24px;
-    line-height: 1.3;
+    font-size: 22px;
+    line-height: 1.32;
+    padding: 0 16px;
+    max-width: 340px;
+    text-wrap: balance;
   }
   .tex-evidence-proof {
-    font-size: 10px;
-    letter-spacing: 0.14em;
+    font-size: 9px;
+    letter-spacing: 0.12em;
     text-align: center;
+    padding: 0 16px;
+    white-space: nowrap;
   }
 
   /* Hide the desktop SVG composition. */
@@ -188,12 +197,15 @@
     display: none;
   }
 
-  /* Show the mobile vertical chain. */
+  /* Show the mobile vertical chain. The chain's SPINE must sit on the
+     page's vertical axis so the orb above and the chain below share one
+     centerline. We achieve that by giving the chain a fixed width, then
+     translating the whole block left by half a chain-row so the spine
+     (which sits at the block's left edge + 5px) lands at page center. */
   .tex-evidence-mobile {
-    display: block;
+    display: flex;
+    justify-content: center;
     width: 100%;
-    max-width: 340px;
-    margin: 0 auto;
   }
 
   .tex-evidence-mobile-chain {
@@ -201,6 +213,16 @@
     padding: 0;
     margin: 0;
     position: relative;
+    width: 200px;
+    /* Half-row offset to put the spine on page center: half of the
+       typical row width is ~100px; spine sits at left+5px; net shift
+       is +95px. So translate right by 95px to align spine with center
+       — actually, since the block is already centered, we shift LEFT
+       by 95px to undo half the row-width and put spine on center.
+       Wait: centered block puts the block's center on page center.
+       Spine is at block-left + 5 = block-center - 95. So spine is 95px
+       LEFT of center. To push spine TO center, translate right by 95px. */
+    transform: translateX(95px);
   }
 
   /* The vertical spine — a hairline that runs the full length of
@@ -290,13 +312,19 @@
     line-height: 1;
   }
 
-  /* The branch — only on the highlighted link. */
+  /* The branch — only on the highlighted link. On the centered chain
+     the bundle sits beneath the highlighted row, indented from the
+     dot, so it reads as "this one was exported." */
+  .tex-evidence-mobile-link--highlighted {
+    flex-wrap: wrap;
+  }
   .tex-evidence-mobile-branch {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-left: auto;
-    padding-left: 12px;
+    margin-left: 25px;
+    padding-top: 6px;
+    flex-basis: 100%;
     opacity: 0;
     transform: translateX(-4px);
     transition: opacity 800ms ease, transform 800ms ease;
@@ -308,11 +336,7 @@
   }
 
   .tex-evidence-mobile-branch-line {
-    width: 18px;
-    height: 1px;
-    background: var(--tex-glass-3);
-    opacity: 0.46;
-    flex-shrink: 0;
+    display: none;
   }
 
   .tex-evidence-mobile-bundle {
@@ -343,19 +367,5 @@
   }
 }
 
-/* Very narrow phones — pull the bundle below the highlighted row so
-   it always fits cleanly without truncation. */
-@media (max-width: 380px) {
-  .tex-evidence-mobile-link--highlighted {
-    flex-wrap: wrap;
-  }
-  .tex-evidence-mobile-branch {
-    margin-left: 25px;
-    padding-left: 0;
-    padding-top: 4px;
-    flex-basis: 100%;
-  }
-  .tex-evidence-mobile-branch-line {
-    display: none;
-  }
-}
+/* Very narrow phones — no separate treatment needed; the wrapped layout
+   above already handles 360px and below. */

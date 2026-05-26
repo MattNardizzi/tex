@@ -3,72 +3,84 @@ import Orb from '../../components/Orb.jsx';
 import './MomentCard.css';
 
 /* =============================================================
-   MOMENT CARD — I stopped one.
+   MOMENT CARD — I stopped one.   [MOBILE-NATIVE]
 
-   The only card where Tex hands the wheel back. Two phases,
-   one room.
+   Desktop: orb drifts left, copy resolves to its right.
+   Mobile:  silence, then THE FLASH.
 
-     quiet phase  — orb at rest, soft italic underneath:
-                    "All quiet." Held briefly.
+   The composition
+   ───────────────
+   • Phase 0 (~1.6s): the orb breathes at center on white
+     paper. "All quiet." soft italic below.
+   • Phase 1 (the flash): the screen inverts — paper → ink —
+     and the orb's halo intensifies. Haptic pulse (where
+     supported via navigator.vibrate). Held for 280ms.
+   • Phase 2: paper returns. The orb is now in 'asking'
+     posture. The line "I stopped one. I'd like you to look."
+     resolves. Below it, the only button: Show me.
 
-     event phase  — the orb shifts to its 'asking' posture
-                    (a fraction more weight in the halo).
-                    The italic line is replaced by:
-                    "I stopped one." then "I'd like you to look."
-                    A single button: Show me.
-
-   The phase change is the demonstration. Tex is the kind of
-   system that mostly waits — and when it speaks, it asks for
-   you specifically. Not an alert. A request.
+   Why this works on a phone
+   ─────────────────────────
+   • Full-screen inversion is a phone-native move — the OLED
+     and the held proximity make it visceral.
+   • Haptics. A phone can buzz; a desktop cannot.
+   • Silence → strike → speak is a rhythm only a personal
+     device can earn.
    ============================================================= */
 
-const QUIET_HOLD_MS = 2200;
+const QUIET_MS = 1600;
+const FLASH_MS = 280;
 
 export default function MomentCard({ isActive, onShowMe }) {
   const [armed, setArmed] = useState(false);
-  const [phase, setPhase] = useState('quiet');
-  const timerRef = useRef(null);
+  const [phase, setPhase] = useState('quiet'); // quiet → flash → event
+  const timersRef = useRef([]);
 
   useEffect(() => {
     if (!isActive) {
-      // Reset to quiet whenever we leave the card so the next
-      // visit replays the beat.
       setArmed(false);
       setPhase('quiet');
-      if (timerRef.current) clearTimeout(timerRef.current);
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
       return;
     }
-    const armTimer = setTimeout(() => setArmed(true), 80);
-    timerRef.current = setTimeout(() => setPhase('event'), QUIET_HOLD_MS);
-    return () => {
-      clearTimeout(armTimer);
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+    const arm = setTimeout(() => setArmed(true), 80);
+    const flash = setTimeout(() => {
+      setPhase('flash');
+      // Haptic pulse on supported devices.
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate([60, 40, 20]); } catch {}
+      }
+    }, QUIET_MS);
+    const event = setTimeout(() => setPhase('event'), QUIET_MS + FLASH_MS);
+    timersRef.current = [arm, flash, event];
+    return () => timersRef.current.forEach(clearTimeout);
   }, [isActive]);
 
   return (
     <div
-      className={`tex-moment-card tex-moment-card--${phase}${armed ? ' tex-moment-card--armed' : ''}`}
+      className={`tex-m-moment tex-m-moment--${phase}${armed ? ' tex-m-moment--armed' : ''}`}
     >
-      <div className="tex-moment-card-stage">
-        <div className="tex-moment-card-orb">
-          <Orb state={phase === 'event' ? 'asking' : 'quiet'} size="lg" />
+      <div className="tex-m-moment-stage">
+        <div className="tex-m-moment-orb">
+          <Orb
+            state={phase === 'event' ? 'asking' : 'quiet'}
+            size="lg"
+          />
         </div>
 
-        {/* QUIET phase — the soft state Tex spends most of its
-            life in. Italic, soft grey, beneath the orb. */}
-        <div className="tex-moment-card-quiet" aria-hidden={phase !== 'quiet'}>
-          <p className="tex-moment-card-quiet-word">All quiet.</p>
+        {/* QUIET copy. */}
+        <div className="tex-m-moment-quiet" aria-hidden={phase !== 'quiet'}>
+          <p className="tex-m-moment-quiet-word">All quiet.</p>
         </div>
 
-        {/* EVENT phase — the moment Tex speaks. Two italic
-            lines and the only button on the whole eight-card arc. */}
-        <div className="tex-moment-card-event" aria-hidden={phase !== 'event'}>
-          <p className="tex-moment-card-line">I stopped one.</p>
-          <p className="tex-moment-card-aside">I&rsquo;d like you to look.</p>
+        {/* EVENT copy. */}
+        <div className="tex-m-moment-event" aria-hidden={phase !== 'event'}>
+          <p className="tex-m-moment-line">I stopped one.</p>
+          <p className="tex-m-moment-aside">I&rsquo;d like you to look.</p>
           <button
             type="button"
-            className="tex-moment-card-btn"
+            className="tex-m-moment-btn"
             onClick={onShowMe}
             tabIndex={phase === 'event' ? 0 : -1}
           >

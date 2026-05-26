@@ -3,166 +3,135 @@ import Orb from '../../components/Orb.jsx';
 import './EvidenceCard.css';
 
 /* =============================================================
-   EVIDENCE CARD — Every decision, signed.
+   EVIDENCE CARD — Every decision, signed.   [MOBILE-NATIVE]
 
-   The moat made visible, redesigned for the phone.
+   Desktop: 10-link horizontal chain with branch-down to bundle.
+   Mobile:  A DECK OF EVIDENCE CARDS.
 
-   The desktop tells this beat as a horizontal chain — ten dots
-   marching across the canvas, the middle one branching down to
-   a BUNDLE.ZIP folder. That's the right composition for the
-   desktop's wide canvas.
+   The composition
+   ───────────────
+   • The orb at top in 'proof' posture, very still.
+   • Beneath it, a stack of cards FANNED slightly — each card
+     is a signed decision with a mono hash, a timestamp tick,
+     and a tiny verdict mark (PERMIT / ABSTAIN / FORBID).
+   • The cards auto-cycle: the top card slides off to reveal
+     the next one, every ~900ms. By the end, the user has
+     watched five decisions move past.
+   • Beneath the deck, the BUNDLE.ZIP mark and the proof line.
 
-   On a phone, the chain stands up. Five visible links arranged
-   vertically along a hairline spine — the first two, the
-   highlighted middle (which branches sideways to BUNDLE.ZIP),
-   and the last two. Between them, two small "+ N" elision
-   marks make the chain feel longer than what's drawn: the user
-   doesn't see the end of it.
-
-   The highlighted link pulses softly after the chain completes,
-   then branches sideways to the bundle mark. The serif sentence
-   and proof line resolve at the bottom.
-
-   Why elision works
-   ─────────────────
-   Showing ten dots on a phone makes the chain feel CRUSHED.
-   Showing five with elision marks makes the chain feel LONG.
-   Same idea, different medium.
+   Why this works on a phone
+   ─────────────────────────
+   • A deck of cards is a phone-native metaphor (Tinder, Apple
+     Wallet, Stocks). The user immediately understands "many
+     things, one at a time."
+   • Each card occupies meaningful screen real estate — the
+     mono hash is at READABLE size, not 9pt squint.
+   • The shuffle conveys "stream" and "signed and signed and
+     signed" without showing all ten at once.
    ============================================================= */
 
-const CHAIN = [
-  { hash: '7f3a9b2c' },
-  { hash: 'd84e1f06' },
-  { hash: '91bf6e5d', highlighted: true },
-  { hash: '5a7c1b40' },
-  { hash: 'f1d829ae' },
+const DECK = [
+  { hash: '7f3a9b2c…', verdict: 'PERMIT',  ts: '14:02:17.041', note: 'agent.deploy' },
+  { hash: 'd84e1f06…', verdict: 'ABSTAIN', ts: '14:02:17.118', note: 'tool.invoke' },
+  { hash: '91bf6e5d…', verdict: 'FORBID',  ts: '14:02:17.203', note: 'wire.urgent' },
+  { hash: '5a7c1b40…', verdict: 'PERMIT',  ts: '14:02:17.299', note: 'data.read'   },
+  { hash: 'f1d829ae…', verdict: 'PERMIT',  ts: '14:02:17.412', note: 'agent.spawn' },
 ];
 
-const ENTRY_DELAY_MS = 350;
-const PER_LINK_MS = 380;
-const CHAIN_DONE_MS = ENTRY_DELAY_MS + CHAIN.length * PER_LINK_MS + 200;
-const BRANCH_MS = CHAIN_DONE_MS + 300;
-const BUNDLE_MS = BRANCH_MS + 500;
-const SENTENCE_MS = BUNDLE_MS + 500;
-const PROOF_MS = SENTENCE_MS + 500;
+const CYCLE_MS = 1100;
+const ENTRY_MS = 350;
 
 export default function EvidenceCard({ isActive }) {
   const [armed, setArmed] = useState(false);
+  const [top, setTop] = useState(0);
 
   useEffect(() => {
-    if (!isActive) return;
-    setArmed(false);
-    const t = setTimeout(() => setArmed(true), 80);
-    return () => clearTimeout(t);
+    if (!isActive) {
+      setArmed(false);
+      setTop(0);
+      return;
+    }
+    const arm = setTimeout(() => setArmed(true), 80);
+    let interval;
+    const start = setTimeout(() => {
+      interval = setInterval(() => {
+        setTop((t) => (t + 1) % DECK.length);
+      }, CYCLE_MS);
+    }, ENTRY_MS + 1200);
+    return () => {
+      clearTimeout(arm);
+      clearTimeout(start);
+      if (interval) clearInterval(interval);
+    };
   }, [isActive]);
 
   return (
-    <div className={`tex-evidence-card${armed ? ' tex-evidence-card--armed' : ''}`}>
-      <div className="tex-evidence-card-stage">
-        <div className="tex-evidence-card-orb">
+    <div className={`tex-m-evidence${armed ? ' tex-m-evidence--armed' : ''}`}>
+      <div className="tex-m-evidence-stage">
+        <div className="tex-m-evidence-orb">
           <Orb state="proof" size="sm" />
         </div>
 
-        {/* THE CHAIN — vertical spine + dots + hashes + elision
-            marks. Layout is grid: column 1 is the spine and dots,
-            column 2 is the hash and any branch content. */}
-        <ol className="tex-evidence-card-chain" aria-hidden="true">
-          {/* Link 1 */}
-          <li
-            className="tex-evidence-card-link"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS}ms` }}
-          >
-            <span className="tex-evidence-card-dot" />
-            <span className="tex-evidence-card-hash">{CHAIN[0].hash}</span>
-          </li>
-
-          {/* Link 2 */}
-          <li
-            className="tex-evidence-card-link"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-dot" />
-            <span className="tex-evidence-card-hash">{CHAIN[1].hash}</span>
-          </li>
-
-          {/* Elision +3 */}
-          <li
-            className="tex-evidence-card-elide"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + 1.6 * PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-elide-mark">+ 3</span>
-          </li>
-
-          {/* Highlighted middle link with branch */}
-          <li
-            className="tex-evidence-card-link tex-evidence-card-link--highlighted"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + 2 * PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-dot" />
-            <span className="tex-evidence-card-hash">{CHAIN[2].hash}</span>
-            <span
-              className="tex-evidence-card-branch"
-              style={{ transitionDelay: `${BRANCH_MS}ms` }}
-            >
-              <span className="tex-evidence-card-branch-line" />
-              <span
-                className="tex-evidence-card-bundle"
-                style={{ transitionDelay: `${BUNDLE_MS}ms` }}
+        {/* THE DECK — five cards, fanned. The one whose
+            position in the deck array matches `top` is the
+            currently-visible one; the others sit behind,
+            slightly offset and dimmed. */}
+        <div className="tex-m-evidence-deck" aria-hidden="true">
+          {DECK.map((d, i) => {
+            // Compute distance from top in the cycle.
+            const dist = (i - top + DECK.length) % DECK.length;
+            // dist 0 = on top; 1, 2, 3, 4 = behind in order.
+            const isTop = dist === 0;
+            const depth = dist;
+            return (
+              <div
+                key={i}
+                className={`tex-m-evidence-tile${isTop ? ' tex-m-evidence-tile--top' : ''}`}
+                style={{
+                  zIndex: DECK.length - dist,
+                  transform: `
+                    translate(${depth * 6}px, ${depth * 6}px)
+                    rotate(${depth * 1.2}deg)
+                    scale(${1 - depth * 0.03})
+                  `,
+                  opacity: depth > 3 ? 0 : 1 - depth * 0.18,
+                }}
               >
-                <svg width="26" height="18" viewBox="0 0 26 18" fill="none" aria-hidden="true">
-                  <path
-                    d="M 1 3 L 9 3 L 12 6 L 25 6 L 25 17 L 1 17 Z"
-                    fill="none"
-                    stroke="#14110d"
-                    strokeWidth="1"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                <span className="tex-evidence-card-bundle-label">BUNDLE.ZIP</span>
-              </span>
-            </span>
-          </li>
-
-          {/* Elision +2 */}
-          <li
-            className="tex-evidence-card-elide"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + 2.6 * PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-elide-mark">+ 2</span>
-          </li>
-
-          {/* Link tail */}
-          <li
-            className="tex-evidence-card-link"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + 3 * PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-dot" />
-            <span className="tex-evidence-card-hash">{CHAIN[3].hash}</span>
-          </li>
-          <li
-            className="tex-evidence-card-link"
-            style={{ transitionDelay: `${ENTRY_DELAY_MS + 4 * PER_LINK_MS}ms` }}
-          >
-            <span className="tex-evidence-card-dot" />
-            <span className="tex-evidence-card-hash">{CHAIN[4].hash}</span>
-          </li>
-        </ol>
-
-        <div className="tex-evidence-card-copy">
-          <p
-            className="tex-evidence-card-line"
-            style={{ transitionDelay: `${SENTENCE_MS}ms` }}
-          >
-            Every decision, signed.{' '}
-            <em>Any one of these, verifiable without us.</em>
-          </p>
-          <p
-            className="tex-evidence-card-proof"
-            style={{ transitionDelay: `${PROOF_MS}ms` }}
-          >
-            OFFLINE · POST-QUANTUM · REGULATOR-SHAPED
-          </p>
+                <div className="tex-m-evidence-tile-head">
+                  <span className={`tex-m-evidence-verdict tex-m-evidence-verdict--${d.verdict.toLowerCase()}`}>
+                    {d.verdict}
+                  </span>
+                  <span className="tex-m-evidence-ts">{d.ts}</span>
+                </div>
+                <p className="tex-m-evidence-hash">{d.hash}</p>
+                <p className="tex-m-evidence-note">{d.note}</p>
+                <div className="tex-m-evidence-tile-foot">
+                  <span className="tex-m-evidence-sigil" />
+                  <span className="tex-m-evidence-signed">SIGNED · POST-QUANTUM</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
+
+        {/* BUNDLE mark — the deck rolls up into this. */}
+        <div className="tex-m-evidence-bundle">
+          <svg width="14" height="11" viewBox="0 0 14 11" fill="none" aria-hidden="true">
+            <path
+              d="M 1 2 L 5 2 L 7 4 L 13 4 L 13 10 L 1 10 Z"
+              fill="none"
+              stroke="#14110d"
+              strokeWidth="1"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className="tex-m-evidence-bundle-label">BUNDLE.ZIP — verifiable offline</span>
+        </div>
+
+        <p className="tex-m-evidence-line">
+          Every decision, signed.{' '}
+          <em>Any one of these, verifiable without us.</em>
+        </p>
       </div>
 
       <p className="tex-sr-only">

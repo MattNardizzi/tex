@@ -3,114 +3,100 @@ import Orb from '../../components/Orb.jsx';
 import './PresenceCard.css';
 
 /* =============================================================
-   PRESENCE CARD — I see them all.
+   PRESENCE CARD — I see them all.   [MOBILE-NATIVE COMPOSITION]
 
-   Discovery + Identity, collapsed into one demonstration that
-   matches how a phone holds attention: ONE thing at a time.
+   Desktop: eight agent names arc around the orb in a spatial fan.
+   Mobile:  eight agent names RAIN DOWN the screen vertically,
+            falling at different speeds. As each one crosses the
+            orb's horizon line at center, it LOCKS — the name
+            settles into a small constellation around the orb.
+            By the end, eight names hold position around Tex.
 
-   The desktop tells this story as a fan in space — eight agent
-   names arc around the orb. A phone has no room for that.
+   Why this works on a phone
+   ─────────────────────────
+   • Vertical motion uses the phone's portrait orientation. The
+     names use the full height as a runway.
+   • The rain reads as INPUT — Tex is taking it in. The lock
+     reads as RECOGNITION — Tex names what it has seen.
+   • Each name has a unique fall path and a unique resting
+     position around the orb. Watching it once is enough to
+     understand the demonstration; watching it twice is satisfying.
 
-   So on mobile, the same idea becomes a story in TIME. The orb
-   sits at the visual center. Below it is a single name slot.
-   Eight real connector names from src/tex/discovery/connectors/
-   pass through that slot, one at a time, each held for a beat,
-   each softly cross-fading into the next. As each name passes,
-   a tiny tick joins a row beneath — a tally of identified agents
-   accumulating in front of you.
-
-   When the eighth name dissolves, the row settles to "8 IDENTIFIED"
-   in mono, and the closing serif sentence resolves:
-
-     "I see them all. I know who they are."
-
-   The orb has not moved. That stillness is the point: Tex is
-   surveying its surroundings without ever leaving its post.
+   No desktop site does this. The composition is invented for
+   the form factor.
    ============================================================= */
 
 const AGENTS = [
-  'aws.bedrock',
-  'github',
-  'microsoft.graph',
-  'openai.assistants',
-  'openai.live',
-  'salesforce',
-  'slack',
-  'slack.live',
+  // Each agent: a name, a fall start-X (% from left), a final
+  // resting position around the orb (angle in degrees, radius in px).
+  { name: 'aws.bedrock',        x: 18,  delay: 0,    angle: -130, r: 110 },
+  { name: 'github',             x: 76,  delay: 220,  angle:  -85, r: 92  },
+  { name: 'microsoft.graph',    x: 30,  delay: 440,  angle:  -40, r: 116 },
+  { name: 'openai.assistants',  x: 62,  delay: 660,  angle:    8, r: 122 },
+  { name: 'openai.live',        x: 24,  delay: 880,  angle:   58, r: 108 },
+  { name: 'salesforce',         x: 70,  delay: 1100, angle:  102, r: 116 },
+  { name: 'slack',              x: 14,  delay: 1320, angle:  150, r: 90  },
+  { name: 'slack.live',         x: 82,  delay: 1540, angle:  195, r: 110 },
 ];
 
-const ENTRY_DELAY_MS = 350;
-const PER_NAME_MS = 540;          // stagger between name appearances
-const SENTENCE_DELAY = ENTRY_DELAY_MS + AGENTS.length * PER_NAME_MS + 600;
+const FALL_DUR = 1700;
+const SETTLE_DUR = 700;
+const ENTRY_DELAY = 350;
+const LAST_AGENT_DONE = ENTRY_DELAY + AGENTS[AGENTS.length - 1].delay + FALL_DUR + SETTLE_DUR;
+const SENTENCE_MS = LAST_AGENT_DONE - 400;
 
 export default function PresenceCard({ isActive }) {
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
-    if (!isActive) return;
-    setArmed(false);
+    if (!isActive) {
+      setArmed(false);
+      return;
+    }
     const t = setTimeout(() => setArmed(true), 80);
     return () => clearTimeout(t);
   }, [isActive]);
 
   return (
-    <div className={`tex-presence-card${armed ? ' tex-presence-card--armed' : ''}`}>
-      <div className="tex-presence-card-stage">
-        <div className="tex-presence-card-orb">
-          <Orb state="quiet" size="md" />
-        </div>
-
-        {/* The name slot — one fixed-height row where names appear
-            one at a time. Each name has its own animation-delay so
-            the sequence reads as Tex identifying each thing it sees. */}
-        <div className="tex-presence-card-slot" aria-hidden="true">
-          {AGENTS.map((agent, i) => (
+    <div className={`tex-m-presence${armed ? ' tex-m-presence--armed' : ''}`}>
+      {/* THE FIELD — falling agents. Each is absolutely
+          positioned within this field; it covers the upper
+          ~62% of the card. The orb sits at the field's
+          bottom center, where the rain lands. */}
+      <div className="tex-m-presence-field" aria-hidden="true">
+        {AGENTS.map((a, i) => {
+          const finalRad = (a.angle * Math.PI) / 180;
+          const finalX = Math.cos(finalRad) * a.r;
+          const finalY = Math.sin(finalRad) * a.r;
+          return (
             <span
-              key={agent}
-              className="tex-presence-card-name"
+              key={a.name}
+              className="tex-m-presence-name"
               style={{
-                animationDelay: `${ENTRY_DELAY_MS + i * PER_NAME_MS}ms`,
-                animationDuration: `${PER_NAME_MS}ms`,
+                '--start-x': `${a.x}%`,
+                '--final-x': `${finalX}px`,
+                '--final-y': `${finalY}px`,
+                animationDelay: `${ENTRY_DELAY + a.delay}ms`,
               }}
             >
-              {agent}
+              {a.name}
             </span>
-          ))}
-        </div>
+          );
+        })}
 
-        {/* The accumulating tally — eight tiny vertical ticks that
-            light up one by one as each name passes through the slot.
-            By the end, all eight are lit. The number to the right
-            counts up to 8 and the label settles to IDENTIFIED. */}
-        <div className="tex-presence-card-tally" aria-hidden="true">
-          <div className="tex-presence-card-ticks">
-            {AGENTS.map((_, i) => (
-              <span
-                key={i}
-                className="tex-presence-card-tick"
-                style={{ transitionDelay: `${ENTRY_DELAY_MS + i * PER_NAME_MS + 120}ms` }}
-              />
-            ))}
-          </div>
-          <div className="tex-presence-card-count">
-            <span
-              className="tex-presence-card-count-num"
-              style={{ transitionDelay: `${SENTENCE_DELAY - 400}ms` }}
-            >{AGENTS.length}</span>
-            <span
-              className="tex-presence-card-count-label"
-              style={{ transitionDelay: `${SENTENCE_DELAY - 200}ms` }}
-            >IDENTIFIED</span>
-          </div>
+        {/* The orb at the constellation's center — drawn AFTER
+            the names so it occludes them as they arrive. */}
+        <div className="tex-m-presence-orb">
+          <Orb state="quiet" size="sm" />
         </div>
-
-        <p
-          className="tex-presence-card-line"
-          style={{ transitionDelay: `${SENTENCE_DELAY}ms` }}
-        >
-          I see them all. <em>I know who they are.</em>
-        </p>
       </div>
+
+      <p
+        className="tex-m-presence-line"
+        style={{ transitionDelay: `${SENTENCE_MS}ms` }}
+      >
+        I see them all. <em>I know who they are.</em>
+      </p>
 
       <p className="tex-sr-only">
         Tex discovers every AI agent in your environment — across AWS Bedrock,

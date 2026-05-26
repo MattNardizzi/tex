@@ -1,8 +1,8 @@
 /* ============================================================
-   Hero Card — Absolute.
+   Hero Card — the bleeding-edge word.
    ============================================================ */
 
-.tex-hero-card {
+.tex-m-hero {
   position: relative;
   width: 100%;
   height: 100%;
@@ -10,32 +10,31 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: space-between;
   padding:
-    calc(env(safe-area-inset-top, 0px) + 56px)   /* top: clear of the progress notches */
+    calc(env(safe-area-inset-top, 0px) + 56px)
     20px
     calc(env(safe-area-inset-bottom, 0px) + 24px)
     20px;
   overflow: hidden;
 }
 
-/* TOP BAR ─────────────────────────────────────────────────── */
-
-.tex-hero-card-top {
+/* TOP BAR ─────────────────────────────────────────────── */
+.tex-m-hero-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
 }
 
-.tex-hero-card-brand {
+.tex-m-hero-brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 
-.tex-hero-card-brand-mark {
-  width: 30px;
-  height: 30px;
+.tex-m-hero-mark {
+  width: 30px; height: 30px;
   border-radius: 8px;
   background: linear-gradient(180deg, #2a2520 0%, #14110d 100%);
   color: #ffffff;
@@ -43,168 +42,193 @@
   font-weight: 500;
   font-size: 16px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  align-items: center; justify-content: center;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 1px 2px rgba(20, 17, 13, 0.18);
-  letter-spacing: -0.01em;
-  flex-shrink: 0;
 }
 
-.tex-hero-card-brand-word {
+.tex-m-hero-name {
   font-family: var(--tex-serif);
   font-weight: 400;
   font-size: 15px;
   line-height: 1;
-  letter-spacing: -0.005em;
   color: var(--tex-ink);
 }
 
-.tex-hero-card-signin {
+.tex-m-hero-signin {
   font-family: var(--tex-sans);
   font-weight: 500;
   font-size: 13px;
-  letter-spacing: 0.01em;
   color: var(--tex-paper);
   background: var(--tex-ink);
   padding: 9px 16px;
   border-radius: 999px;
 }
 
-/* STAGE ───────────────────────────────────────────────────
-   The stage is the middle of the card, vertically centered
-   between the top bar and the bottom cue. The glass word and
-   three beats together form the composition. */
-
-.tex-hero-card-stage {
+/* THE WORD — set massive, drifting. ─────────────────────
+   The wrap is the viewport: width 100%, overflow hidden,
+   centered vertically. Inside, the word is set in serif
+   italic at a font-size that makes it WIDER than the wrap.
+   We center it horizontally then let it drift via a slow
+   transform animation. */
+.tex-m-hero-word-wrap {
   flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
   width: 100%;
-  gap: 28px;
+  overflow: hidden;
+  position: relative;
 }
 
-/* THE GLASS WORD ──────────────────────────────────────────
-   The mobile glass word is sized to fill most of the screen
-   width — the word IS the hero, the rest is supporting.
-   width: 92vw caps at any extreme so a 320px iPhone SE still
-   gets a properly-proportioned word. */
-.tex-hero-card-word {
-  margin: 0;
-  width: 92vw;
-  max-width: 480px;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 1.4s ease 0.4s, transform 1.4s ease 0.4s;
-}
-
-.tex-hero-card--armed .tex-hero-card-word {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.tex-hero-card-glass {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.tex-hero-card-sweep {
-  animation: tex-hero-card-sweep 7s ease-in-out infinite;
-  animation-delay: 1.8s;
-}
-
-@keyframes tex-hero-card-sweep {
-  0%   { transform: translateX(0);   opacity: 0;    }
-  10%  { opacity: 0.55;                              }
-  35%  { transform: translateX(820px); opacity: 0.55; }
-  45%  { opacity: 0;                                 }
-  100% { transform: translateX(820px); opacity: 0;   }
-}
-
-/* THE THREE BEATS ─────────────────────────────────────────
-   Each beat arrives one breath after the last. The line is
-   centered, allowed to wrap so "Every stage of its life."
-   sits as its own line on a 375px viewport. */
-.tex-hero-card-line {
+.tex-m-hero-word {
   font-family: var(--tex-serif);
+  font-style: italic;
   font-weight: 400;
-  font-style: normal;
-  font-size: 19px;
-  line-height: 1.45;
-  letter-spacing: -0.005em;
+  /* This is the key. The font-size is intentionally too big.
+     ~180px on a 375px viewport means the word "Absolute." is
+     roughly 600px wide — almost 60% wider than the screen.
+     The reader sees the middle of the word. */
+  font-size: 180px;
+  line-height: 1;
+  letter-spacing: -0.04em;
   color: var(--tex-ink);
-  margin: 0;
-  max-width: 320px;
-  text-wrap: balance;
-  padding: 0 4px;
+  /* Outline-only — the body is paper, the stroke is ink.
+     Achieved via -webkit-text-stroke + transparent fill. */
+  -webkit-text-stroke: 1.2px var(--tex-ink);
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+
+  white-space: nowrap;
+  user-select: none;
+  /* Drift starts off-screen left, slowly walks right, then
+     reverses. The word is alive — the eye sees a different
+     part of it every time you glance up. */
+  transform: translateX(-80px);
+  opacity: 0;
+  transition: opacity 1.6s ease 0.2s;
 }
 
-.tex-hero-card-beat {
+.tex-m-hero--armed .tex-m-hero-word {
+  opacity: 1;
+  animation: tex-m-hero-drift 38s ease-in-out infinite;
+  animation-delay: 1.6s;
+}
+
+@keyframes tex-m-hero-drift {
+  0%, 100% { transform: translateX(-80px); }
+  50%      { transform: translateX(-220px); }
+}
+
+/* THE BEATS — mono hairline, three facts. ─────────────── */
+.tex-m-hero-beats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+
+.tex-m-hero-beat {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--tex-ink);
   opacity: 0;
   transform: translateY(4px);
-  display: inline-block;
   transition: opacity 0.9s ease, transform 0.9s ease;
 }
 
-.tex-hero-card--armed .tex-hero-card-beat--1 { opacity: 1; transform: translateY(0); transition-delay: 1.4s; }
-.tex-hero-card--armed .tex-hero-card-beat--2 { opacity: 1; transform: translateY(0); transition-delay: 1.75s; }
-.tex-hero-card--armed .tex-hero-card-beat--3 { opacity: 1; transform: translateY(0); transition-delay: 2.10s; }
-
-.tex-hero-card-aside {
-  font-family: var(--tex-serif);
-  font-weight: 300;
-  font-style: italic;
-  font-size: 16px;
-  line-height: 1.45;
-  letter-spacing: -0.005em;
-  color: var(--tex-ink-soft);
-  margin: 0;
-  max-width: 320px;
-  text-wrap: balance;
+.tex-m-hero-beat-sep {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  color: var(--tex-ink-hair);
   opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 1.4s ease 2.7s, transform 1.4s ease 2.7s;
+  transition: opacity 0.9s ease;
 }
 
-.tex-hero-card--armed .tex-hero-card-aside {
+.tex-m-hero--armed .tex-m-hero-beat--1 { opacity: 1; transform: translateY(0); transition-delay: 1.6s; }
+.tex-m-hero--armed .tex-m-hero-beats > *:nth-child(2) { opacity: 1; transition-delay: 1.85s; }
+.tex-m-hero--armed .tex-m-hero-beat--2 { opacity: 1; transform: translateY(0); transition-delay: 2.0s; }
+.tex-m-hero--armed .tex-m-hero-beats > *:nth-child(4) { opacity: 1; transition-delay: 2.25s; }
+.tex-m-hero--armed .tex-m-hero-beat--3 { opacity: 1; transform: translateY(0); transition-delay: 2.4s; }
+
+/* ASIDE — italic, soft. ───────────────────────────────── */
+.tex-m-hero-aside {
+  font-family: var(--tex-serif);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 14px 0 0 0;
+  max-width: 320px;
+  align-self: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 1.4s ease 3.0s, transform 1.4s ease 3.0s;
+}
+
+.tex-m-hero-aside em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-m-hero--armed .tex-m-hero-aside {
   opacity: 1;
   transform: translateY(0);
 }
 
-/* BOTTOM CUE ─────────────────────────────────────────────
-   A small button with a chevron, centered above the safe area.
-   Soft float so the eye finds it without ever screaming. */
-.tex-hero-card-cue {
+/* CUE — hairline + SWIPE label. ───────────────────────── */
+.tex-m-hero-cue {
   align-self: center;
-  color: var(--tex-ink-mute);
-  opacity: 0;
-  transition: opacity 1.2s ease 3.2s, color 0.2s ease;
   display: inline-flex;
-  padding: 14px;
-  border-radius: 999px;
-  animation: tex-hero-card-cue-float 3.2s ease-in-out infinite;
-  animation-delay: 4s;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  transition: opacity 1.4s ease 3.8s;
   flex-shrink: 0;
 }
 
-.tex-hero-card--armed .tex-hero-card-cue { opacity: 1; }
+.tex-m-hero--armed .tex-m-hero-cue { opacity: 1; }
 
-.tex-hero-card-cue:hover { color: var(--tex-ink); }
-
-@keyframes tex-hero-card-cue-float {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(4px); }
+.tex-m-hero-cue-rule {
+  width: 1px;
+  height: 24px;
+  background: var(--tex-ink-mute);
+  animation: tex-m-hero-cue-pulse 3s ease-in-out infinite;
+  animation-delay: 4.5s;
 }
 
-/* Phones narrower than 360 — the iPhone SE 1st gen is 320 wide.
-   Cap the word so it still fits with comfortable margins. */
+.tex-m-hero-cue-label {
+  font-family: var(--tex-mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--tex-ink-mute);
+}
+
+@keyframes tex-m-hero-cue-pulse {
+  0%, 100% { transform: scaleY(1);   opacity: 0.6; }
+  50%      { transform: scaleY(1.4); opacity: 1;   }
+}
+
+/* Narrow phones — bring the word down a bit so the
+   stroke doesn't go pixel-thin. */
 @media (max-width: 360px) {
-  .tex-hero-card-word { width: 94vw; }
-  .tex-hero-card-line { font-size: 18px; }
-  .tex-hero-card-aside { font-size: 15px; }
+  .tex-m-hero-word { font-size: 160px; -webkit-text-stroke: 1px var(--tex-ink); }
+  .tex-m-hero-aside { font-size: 16px; }
 }

@@ -1,8 +1,8 @@
 /* ============================================================
-   Evidence Card — Every decision, signed.
+   Evidence Card — fanned deck of signed decisions.
    ============================================================ */
 
-.tex-evidence-card {
+.tex-m-evidence {
   position: relative;
   width: 100%;
   height: 100%;
@@ -18,7 +18,7 @@
   overflow: hidden;
 }
 
-.tex-evidence-card-stage {
+.tex-m-evidence-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -26,244 +26,181 @@
   gap: 18px;
 }
 
-.tex-evidence-card-orb {
-  /* Proof posture orb sits above the chain, slightly nested
-     so the orb's halo overlaps the chain's first link visually. */
+.tex-m-evidence-orb {
   margin-bottom: -4px;
 }
 
-/* THE CHAIN ──────────────────────────────────────────────
-   A vertical list. The spine is a hairline that runs the
-   length of the list, drawn via the ::before of the <ol>.
-   Each link is a row: dot on the left (sitting on the spine),
-   hash to the right.
-
-   To align the spine with the orb's vertical axis above, the
-   whole chain block is shifted right by half its width minus
-   half the spine's offset — see transform: translateX below. */
-.tex-evidence-card-chain {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 4px;
+/* THE DECK — relative container, each tile absolutely
+   positioned inside. */
+.tex-m-evidence-deck {
   position: relative;
+  width: 260px;
+  height: 160px;
+  margin: 8px 0;
+  opacity: 0;
+  transition: opacity 1.0s ease 0.35s;
+}
+
+.tex-m-evidence--armed .tex-m-evidence-deck { opacity: 1; }
+
+.tex-m-evidence-tile {
+  position: absolute;
+  left: 0; top: 0;
+  width: 260px;
+  height: 160px;
+  padding: 16px 18px;
+  background: var(--tex-paper);
+  border: 1px solid var(--tex-ink-hair);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(20, 17, 13, 0.02),
+    0 6px 24px rgba(20, 17, 13, 0.04);
+  transition:
+    transform 600ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 600ms ease,
+    box-shadow 600ms ease;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  /* Cap the width so dot + hash sit as one compact module on
-     the screen's vertical axis. */
-  width: 220px;
-  /* The spine sits at left: 9px inside the OL. The OL itself
-     is centered by its flex parent, so its center is at page
-     center, putting the spine 101px left of page center
-     (220/2 − 9 = 101). Push right by that amount so the
-     spine — not the OL's center — lines up with the orb above. */
-  transform: translateX(101px);
+  gap: 8px;
+  transform-origin: top left;
 }
 
-.tex-evidence-card-chain::before {
-  content: "";
-  position: absolute;
-  left: 9px;
-  top: 12px;
-  bottom: 12px;
-  width: 1px;
-  background: var(--tex-glass-3);
-  opacity: 0;
-  transform: scaleY(0);
-  transform-origin: top;
-  transition: opacity 1.2s ease, transform 1.6s ease;
-  transition-delay: 350ms;
+.tex-m-evidence-tile--top {
+  /* The active tile gets a slightly stronger shadow so it
+     reads as ON TOP of the deck. */
+  box-shadow:
+    0 1px 0 rgba(20, 17, 13, 0.04),
+    0 12px 36px rgba(20, 17, 13, 0.08);
 }
 
-.tex-evidence-card--armed .tex-evidence-card-chain::before {
-  opacity: 0.36;
-  transform: scaleY(1);
-}
-
-.tex-evidence-card-link {
-  position: relative;
+.tex-m-evidence-tile-head {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 6px 0;
-  min-height: 24px;
-  opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 600ms ease, transform 600ms ease;
+  justify-content: space-between;
 }
 
-.tex-evidence-card--armed .tex-evidence-card-link {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.tex-evidence-card-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--tex-ink);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 1;
-  /* Place the dot so its center sits on the spine (spine at
-     left: 9px in the OL means the dot's center at 9px → the
-     dot itself starts at 9 − 5.5 = 3.5; our OL has padding-left
-     4 so the dot sits at left: 0 inside the LI starts at 4 from
-     the OL's left edge, putting its center near 9.5 — close
-     enough to read as exactly on the line at this scale.) */
-}
-
-.tex-evidence-card-link--highlighted .tex-evidence-card-dot {
-  width: 13px;
-  height: 13px;
-  /* Soft halo ring that announces THIS is the one. */
-  box-shadow: 0 0 0 6px rgba(91, 110, 132, 0.18);
-}
-
-.tex-evidence-card-hash {
-  font-family: var(--tex-mono);
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  color: var(--tex-ink-soft);
-  line-height: 1;
-}
-
-/* ELISION MARK ─────────────────────────────────────────
-   "+ 3" / "+ 2" — soft mono badges that sit in flow,
-   covering the spine to read as a join, not a gap. */
-.tex-evidence-card-elide {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 4px 0;
-  margin-left: -3px;
-  opacity: 0;
-  transition: opacity 700ms ease;
-}
-.tex-evidence-card--armed .tex-evidence-card-elide {
-  opacity: 1;
-}
-
-.tex-evidence-card-elide-mark {
+.tex-m-evidence-verdict {
   font-family: var(--tex-mono);
   font-size: 10px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.tex-m-evidence-verdict--permit {
+  background: rgba(20, 17, 13, 0.06);
+  color: var(--tex-ink);
+}
+
+.tex-m-evidence-verdict--abstain {
+  background: rgba(91, 110, 132, 0.12);
+  color: var(--tex-glass-3);
+}
+
+.tex-m-evidence-verdict--forbid {
+  background: var(--tex-ink);
+  color: var(--tex-paper);
+}
+
+.tex-m-evidence-ts {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
   color: var(--tex-ink-mute);
-  background: var(--tex-paper);
-  padding: 2px 8px 2px 22px;
-  line-height: 1;
 }
 
-/* BRANCH TO BUNDLE ─────────────────────────────────────
-   On the highlighted link, a short horizontal hairline leaves
-   the dot and meets a small folder mark + BUNDLE.ZIP label.
-   The branch sits to the right of the hash, on the same row. */
-.tex-evidence-card-link--highlighted {
-  flex-wrap: wrap;
+.tex-m-evidence-hash {
+  font-family: var(--tex-mono);
+  font-size: 16px;
+  letter-spacing: 0.05em;
+  color: var(--tex-ink);
+  margin: 4px 0 0 0;
+  font-weight: 500;
 }
 
-.tex-evidence-card-branch {
+.tex-m-evidence-note {
+  font-family: var(--tex-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--tex-ink-soft);
+  margin: 0;
+}
+
+.tex-m-evidence-tile-foot {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: 25px;
-  padding-top: 6px;
-  flex-basis: 100%;
-  opacity: 0;
-  transform: translateX(-4px);
-  transition: opacity 800ms ease, transform 800ms ease;
+  margin-top: auto;
 }
 
-.tex-evidence-card--armed .tex-evidence-card-branch {
-  opacity: 1;
-  transform: translateX(0);
+.tex-m-evidence-sigil {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--tex-ink);
 }
 
-.tex-evidence-card-branch-line {
-  display: none;
+.tex-m-evidence-signed {
+  font-family: var(--tex-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: var(--tex-ink-mute);
 }
 
-.tex-evidence-card-bundle {
+/* BUNDLE — the deck rolls up here. */
+.tex-m-evidence-bundle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-top: 4px;
   opacity: 0;
-  transition: opacity 900ms ease;
+  transition: opacity 1.2s ease 1.4s;
 }
 
-.tex-evidence-card--armed .tex-evidence-card-bundle {
+.tex-m-evidence--armed .tex-m-evidence-bundle {
   opacity: 1;
 }
 
-.tex-evidence-card-bundle svg {
-  display: block;
-  flex-shrink: 0;
-}
-
-.tex-evidence-card-bundle-label {
+.tex-m-evidence-bundle-label {
   font-family: var(--tex-mono);
   font-size: 9px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   color: var(--tex-ink-mute);
   text-transform: uppercase;
-  line-height: 1;
-  white-space: nowrap;
 }
 
-/* COPY ──────────────────────────────────────────────────── */
-.tex-evidence-card-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.tex-evidence-card-line {
+/* CLOSING ─────────────────────────────────────────────── */
+.tex-m-evidence-line {
   font-family: var(--tex-serif);
   font-weight: 400;
-  font-size: 21px;
+  font-size: 20px;
   line-height: 1.32;
   letter-spacing: -0.015em;
   color: var(--tex-ink);
   text-align: center;
-  margin: 0;
+  margin: 12px 0 0 0;
   max-width: 320px;
   text-wrap: balance;
   padding: 0 8px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 1.2s ease, transform 1.2s ease;
+  transition: opacity 1.2s ease 1.8s, transform 1.2s ease 1.8s;
 }
 
-.tex-evidence-card-line em {
+.tex-m-evidence-line em {
   font-style: italic;
   font-weight: 300;
   color: var(--tex-ink-soft);
 }
 
-.tex-evidence-card--armed .tex-evidence-card-line {
+.tex-m-evidence--armed .tex-m-evidence-line {
   opacity: 1;
   transform: translateY(0);
 }
 
-.tex-evidence-card-proof {
-  font-family: var(--tex-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--tex-ink-mute);
-  text-align: center;
-  margin: 0;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 1.2s ease;
-}
-
-.tex-evidence-card--armed .tex-evidence-card-proof {
-  opacity: 1;
-}
-
 @media (max-width: 360px) {
-  .tex-evidence-card-line { font-size: 19px; }
-  .tex-evidence-card-proof { font-size: 8px; letter-spacing: 0.12em; }
+  .tex-m-evidence-deck,
+  .tex-m-evidence-tile { width: 240px; }
+  .tex-m-evidence-hash { font-size: 15px; }
+  .tex-m-evidence-line { font-size: 19px; }
 }

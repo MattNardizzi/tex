@@ -1,8 +1,8 @@
 /* ============================================================
-   Foresight Card — I see what's coming.
+   Foresight Card — pull the future.
    ============================================================ */
 
-.tex-foresight-card {
+.tex-m-foresight {
   position: relative;
   width: 100%;
   height: 100%;
@@ -18,36 +18,22 @@
   overflow: hidden;
 }
 
-.tex-foresight-card-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 28px;
-  width: 100%;
-}
-
-/* THE BEAM ────────────────────────────────────────────────
-   The whole vertical beam — orb + plumb + cone + label — sits
-   in this container. Capped width so the cone never reaches
-   the screen edges. */
-.tex-foresight-card-beam {
-  position: relative;
+.tex-m-foresight-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
-  max-width: 240px;
+  gap: 16px;
 }
 
-.tex-foresight-card-now {
-  position: relative;
+.tex-m-foresight-now {
   display: flex;
   flex-direction: column;
   align-items: center;
   z-index: 2;
 }
 
-.tex-foresight-card-now-label {
+.tex-m-foresight-now-label {
   font-family: var(--tex-mono);
   font-size: 9px;
   letter-spacing: 0.16em;
@@ -55,85 +41,103 @@
   margin-top: -4px;
 }
 
-/* The SVG drops directly under the orb. Slight negative top
-   margin so the plumb line emerges from the orb's center. */
-.tex-foresight-card-svg {
+/* THE PULL FIELD — the user gestures here. The SVG inside
+   draws the cone + ghost. The field is touch-responsive,
+   capturing pointer events. */
+.tex-m-foresight-field {
+  position: relative;
   width: 100%;
+  max-width: 260px;
   height: 260px;
   margin-top: -10px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.tex-m-foresight-field:active {
+  cursor: grabbing;
+}
+
+.tex-m-foresight-svg {
+  width: 100%;
+  height: 100%;
   display: block;
-}
-
-/* The plumb line draws from the orb to the base. */
-.tex-foresight-card-timeline {
-  stroke-dasharray: 260;
-  stroke-dashoffset: 260;
-  transition: stroke-dashoffset 1.2s ease;
-  transition-delay: 350ms;
-}
-.tex-foresight-card--armed .tex-foresight-card-timeline {
-  stroke-dashoffset: 0;
-}
-
-/* The cone opens after the plumb is drawn. */
-.tex-foresight-card-cone,
-.tex-foresight-card-cone-bound {
   opacity: 0;
-  transition: opacity 1.2s ease;
-  transition-delay: 1600ms;
+  transition: opacity 1.0s ease 0.35s;
 }
-.tex-foresight-card--armed .tex-foresight-card-cone,
-.tex-foresight-card--armed .tex-foresight-card-cone-bound {
+
+.tex-m-foresight--armed .tex-m-foresight-svg {
   opacity: 1;
 }
 
-/* The ghost orb travels down the plumb line ONCE — single
-   demonstration of the simulation, not a perpetual loop. */
-.tex-foresight-card-shadow {
+/* The "PULL TO SEE" prompt — softly pulses to invite touch.
+   Disappears once the user (or auto-demo) starts pulling. */
+.tex-m-foresight-prompt {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--tex-mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--tex-ink-mute);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   opacity: 0;
-  transition: opacity 0.6s ease;
-  transition-delay: 1850ms;
-}
-.tex-foresight-card--armed .tex-foresight-card-shadow {
-  opacity: 1;
-  animation: tex-foresight-card-fall 2.6s ease-in forwards;
-  animation-delay: 1850ms;
-}
-@keyframes tex-foresight-card-fall {
-  0%   { transform: translateY(0);    opacity: 0.85; }
-  70%  { transform: translateY(220px); opacity: 0.55; }
-  100% { transform: translateY(260px); opacity: 0;    }
+  transition: opacity 0.5s ease;
+  animation: tex-m-foresight-prompt-pulse 2.4s ease-in-out infinite;
+  animation-delay: 1.6s;
+  pointer-events: none;
 }
 
-/* CONFORMAL · 95% — a small label centered at the cone's
-   base. Two short hairlines flank it for register. */
-.tex-foresight-card-conformal {
+.tex-m-foresight--armed .tex-m-foresight-prompt { opacity: 1; }
+
+.tex-m-foresight-prompt--hide {
+  opacity: 0 !important;
+  animation: none;
+}
+
+.tex-m-foresight-prompt-arrow {
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+@keyframes tex-m-foresight-prompt-pulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, 0); }
+  50%      { opacity: 1;   transform: translate(-50%, 2px); }
+}
+
+/* THE CONFORMAL TAG ─────────────────────────────────────── */
+.tex-m-foresight-conformal {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: -8px;
+  margin-top: 4px;
   opacity: 0;
-  transition: opacity 1.2s ease;
-  transition-delay: 4250ms;
+  transition: opacity 1.2s ease 1.6s;
 }
-.tex-foresight-card--armed .tex-foresight-card-conformal {
+
+.tex-m-foresight--armed .tex-m-foresight-conformal {
   opacity: 1;
 }
-.tex-foresight-card-conformal-rule {
+
+.tex-m-foresight-conformal-rule {
   width: 18px;
   height: 1px;
   background: var(--tex-glass-3);
   opacity: 0.4;
 }
-.tex-foresight-card-conformal-label {
+
+.tex-m-foresight-conformal-label {
   font-family: var(--tex-mono);
   font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--tex-ink-mute);
 }
 
-/* CLOSING SENTENCE ──────────────────────────────────────── */
-.tex-foresight-card-line {
+/* CLOSING SENTENCE ──────────────────────────────────── */
+.tex-m-foresight-line {
   font-family: var(--tex-serif);
   font-weight: 400;
   font-size: 22px;
@@ -141,24 +145,27 @@
   letter-spacing: -0.015em;
   color: var(--tex-ink);
   text-align: center;
-  margin: 0;
+  margin: 12px 0 0 0;
   max-width: 320px;
   text-wrap: balance;
   padding: 0 8px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 1.2s ease, transform 1.2s ease;
+  transition: opacity 1.2s ease 2.0s, transform 1.2s ease 2.0s;
 }
-.tex-foresight-card-line em {
+
+.tex-m-foresight-line em {
   font-style: italic;
   font-weight: 300;
   color: var(--tex-ink-soft);
 }
-.tex-foresight-card--armed .tex-foresight-card-line {
+
+.tex-m-foresight--armed .tex-m-foresight-line {
   opacity: 1;
   transform: translateY(0);
 }
 
 @media (max-width: 360px) {
-  .tex-foresight-card-line { font-size: 20px; }
+  .tex-m-foresight-line { font-size: 20px; }
+  .tex-m-foresight-field { height: 220px; }
 }

@@ -1,8 +1,8 @@
 /* ============================================================
-   Evolution Card — Sharper, only with your hand.
+   Evolution Card — press-and-hold to sign.
    ============================================================ */
 
-.tex-evolution-m {
+.tex-m-evolution {
   position: relative;
   width: 100%;
   height: 100%;
@@ -18,27 +18,23 @@
   overflow: hidden;
 }
 
-.tex-evolution-m-stage {
+.tex-m-evolution-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
-  gap: 20px;
+  gap: 18px;
 }
 
-.tex-evolution-m-orb {
+.tex-m-evolution-orb {
   margin-bottom: -4px;
 }
 
-/* THE PROPOSAL CARD ──────────────────────────────────────
-   Fills the full phone width inside the gutter. Hairline
-   border, very subtle inset shadow at the top, paper background.
-   The card is its own little composition — the desktop card
-   sits beside the orb; here it sits beneath the orb. */
-.tex-evolution-m-proposal {
+/* THE PROPOSAL CARD ─────────────────────────────────── */
+.tex-m-evolution-proposal {
   width: 100%;
-  max-width: 360px;
-  padding: 22px 22px 20px 22px;
+  max-width: 340px;
+  padding: 20px 22px 22px 22px;
   border: 1px solid var(--tex-ink-hair);
   border-radius: 14px;
   background: var(--tex-paper);
@@ -48,23 +44,23 @@
   transition: opacity 1.2s ease, transform 1.2s ease;
 }
 
-.tex-evolution-m--armed .tex-evolution-m-proposal {
+.tex-m-evolution--armed .tex-m-evolution-proposal {
   opacity: 1;
   transform: translateY(0);
 }
 
-.tex-evolution-m-eyebrow {
+.tex-m-evolution-eyebrow {
   font-family: var(--tex-mono);
   font-size: 9px;
   letter-spacing: 0.18em;
   color: var(--tex-ink-mute);
-  margin: 0 0 12px 0;
+  margin: 0 0 10px 0;
   opacity: 0;
   transition: opacity 1.0s ease;
 }
-.tex-evolution-m--armed .tex-evolution-m-eyebrow { opacity: 1; }
+.tex-m-evolution--armed .tex-m-evolution-eyebrow { opacity: 1; }
 
-.tex-evolution-m-title {
+.tex-m-evolution-title {
   font-family: var(--tex-serif);
   font-style: italic;
   font-weight: 400;
@@ -72,35 +68,33 @@
   line-height: 1.22;
   letter-spacing: -0.01em;
   color: var(--tex-ink);
-  margin: 0 0 18px 0;
+  margin: 0 0 16px 0;
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 1.0s ease, transform 1.0s ease;
 }
-.tex-evolution-m--armed .tex-evolution-m-title {
+.tex-m-evolution--armed .tex-m-evolution-title {
   opacity: 1;
   transform: translateY(0);
 }
 
-.tex-evolution-m-context {
+.tex-m-evolution-context {
   font-family: var(--tex-sans);
   font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0;
   color: var(--tex-ink-soft);
   margin: 0 0 10px 0;
   opacity: 0;
   transition: opacity 1.0s ease;
 }
-.tex-evolution-m--armed .tex-evolution-m-context { opacity: 1; }
+.tex-m-evolution--armed .tex-m-evolution-context { opacity: 1; }
 
-.tex-evolution-m-ghosts {
+.tex-m-evolution-ghosts {
   list-style: none;
   padding: 0;
   margin: 0 0 18px 0;
 }
 
-.tex-evolution-m-ghost {
+.tex-m-evolution-ghost {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -109,21 +103,21 @@
   transform: translateX(-4px);
   transition: opacity 0.8s ease, transform 0.8s ease;
 }
-.tex-evolution-m--armed .tex-evolution-m-ghost {
+
+.tex-m-evolution--armed .tex-m-evolution-ghost {
   opacity: 1;
   transform: translateX(0);
 }
 
-.tex-evolution-m-ghost-dot {
-  width: 4px;
-  height: 4px;
+.tex-m-evolution-ghost-dot {
+  width: 4px; height: 4px;
   border-radius: 50%;
   background: var(--tex-glass-3);
   opacity: 0.7;
   flex-shrink: 0;
 }
 
-.tex-evolution-m-ghost-text {
+.tex-m-evolution-ghost-text {
   font-family: var(--tex-serif);
   font-style: italic;
   font-weight: 300;
@@ -132,65 +126,73 @@
   color: var(--tex-ink-soft);
 }
 
-/* ACTIONS — the pulsing pill + "Tex waits." aside.
-   The halo on the button has inset -6px, so we add 6px of
-   left padding here to keep the halo from clipping at the
-   proposal's left edge. */
-.tex-evolution-m-actions {
+/* THE HOLD RING ──────────────────────────────────────── */
+.tex-m-evolution-hold-wrap {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding-left: 6px;
+  margin-top: 6px;
   opacity: 0;
   transition: opacity 1.0s ease;
 }
-.tex-evolution-m--armed .tex-evolution-m-actions { opacity: 1; }
 
-.tex-evolution-m-btn {
-  position: relative;
-  font-family: var(--tex-sans);
-  font-weight: 500;
-  font-size: 14px;
-  letter-spacing: 0.005em;
-  color: var(--tex-paper);
-  background: var(--tex-ink);
-  padding: 12px 22px;
-  border-radius: 999px;
-  overflow: visible;
-  cursor: default;
-  border: 0;
+.tex-m-evolution--armed .tex-m-evolution-hold-wrap {
+  opacity: 1;
 }
 
-.tex-evolution-m-btn-label {
+.tex-m-evolution-hold {
   position: relative;
+  width: 64px;
+  height: 64px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tex-m-evolution-hold-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tex-m-evolution-hold-label {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--tex-ink);
+  font-weight: 500;
   z-index: 1;
 }
 
-.tex-evolution-m-btn-halo {
-  position: absolute;
-  inset: -6px;
-  border-radius: 999px;
-  border: 1px solid var(--tex-ink);
-  opacity: 0;
-  animation: tex-evolution-m-btn-pulse 3.6s ease-in-out infinite;
-  animation-delay: 1s;
+.tex-m-evolution-hold--signed .tex-m-evolution-hold-label {
+  color: var(--tex-paper);
 }
 
-@keyframes tex-evolution-m-btn-pulse {
-  0%   { opacity: 0;    transform: scale(0.96); }
-  20%  { opacity: 0.45;                          }
-  100% { opacity: 0;    transform: scale(1.14); }
+.tex-m-evolution-hold--signed .tex-m-evolution-hold-ring circle:first-of-type {
+  fill: var(--tex-ink);
 }
 
-.tex-evolution-m-actions-aside {
+.tex-m-evolution-hold-aside {
   font-family: var(--tex-serif);
   font-style: italic;
   font-size: 13px;
   color: var(--tex-ink-mute);
 }
 
+.tex-m-evolution--signed .tex-m-evolution-hold-aside {
+  color: var(--tex-ink);
+}
+
 /* CLOSING LINE ─────────────────────────────────────────── */
-.tex-evolution-m-line {
+.tex-m-evolution-line {
   font-family: var(--tex-serif);
   font-weight: 400;
   font-size: 22px;
@@ -198,7 +200,7 @@
   letter-spacing: -0.015em;
   color: var(--tex-ink);
   text-align: center;
-  margin: 8px 0 0 0;
+  margin: 6px 0 0 0;
   max-width: 320px;
   text-wrap: balance;
   padding: 0 8px;
@@ -207,20 +209,19 @@
   transition: opacity 1.2s ease, transform 1.2s ease;
 }
 
-.tex-evolution-m-line em {
+.tex-m-evolution-line em {
   font-style: italic;
   font-weight: 300;
   color: var(--tex-ink-soft);
 }
 
-.tex-evolution-m--armed .tex-evolution-m-line {
+.tex-m-evolution--armed .tex-m-evolution-line {
   opacity: 1;
   transform: translateY(0);
 }
 
 @media (max-width: 360px) {
-  .tex-evolution-m-proposal { padding: 20px 18px 18px 18px; }
-  .tex-evolution-m-title { font-size: 20px; }
-  .tex-evolution-m-ghost-text { font-size: 14px; }
-  .tex-evolution-m-line { font-size: 20px; }
+  .tex-m-evolution-title { font-size: 20px; }
+  .tex-m-evolution-ghost-text { font-size: 14px; }
+  .tex-m-evolution-line { font-size: 20px; }
 }

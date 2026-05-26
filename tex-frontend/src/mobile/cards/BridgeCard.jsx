@@ -3,38 +3,56 @@ import Orb from '../../components/Orb.jsx';
 import './BridgeCard.css';
 
 /* =============================================================
-   BRIDGE CARD — Watch.
+   BRIDGE CARD — Watch.   [MOBILE-NATIVE COMPOSITION]
 
-   The breath between the claim (Card 1) and the demonstrations
-   that follow (Cards 3-7). On a phone this card is the test of
-   how comfortable the product is with silence.
+   Desktop: orb centered, italic word below. Restful.
+   Mobile:  a phone-native dark→light reveal.
 
-   The composition is two elements only:
+   The composition
+   ───────────────
+   The card begins fully dark ink. A pinprick of light appears
+   at center and slowly opens, pushing the dark outward into
+   a vignette, until the orb materializes from the dilating
+   light. As the dark recedes, the word "Watch." resolves one
+   letter at a time in serif italic, soft against the just-
+   revealed paper.
 
-     • The orb, centered on the glass, breathing.
-     • One word in serif italic, just below the halo's lower edge.
-
-   Nothing else. No supporting copy, no proof line, no button.
-   The user reads the word, holds it for a beat, swipes on.
+   This works on a phone (especially an OLED iPhone) the way
+   it could never work on a desktop site — the screen IS the
+   eye opening. The viewer feels the device wake up.
    ============================================================= */
 
 export default function BridgeCard({ isActive }) {
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
-    if (!isActive) return;
-    setArmed(false);
+    if (!isActive) {
+      setArmed(false);
+      return;
+    }
     const t = setTimeout(() => setArmed(true), 80);
     return () => clearTimeout(t);
   }, [isActive]);
 
   return (
-    <div className={`tex-bridge-card${armed ? ' tex-bridge-card--armed' : ''}`}>
-      <div className="tex-bridge-card-stage">
-        <div className="tex-bridge-card-orb">
+    <div className={`tex-m-bridge${armed ? ' tex-m-bridge--armed' : ''}`}>
+      {/* The black field that retreats. A circle of paper
+          expands from center, pushing the dark to a vignette
+          at the screen edges. */}
+      <div className="tex-m-bridge-iris" aria-hidden="true" />
+
+      <div className="tex-m-bridge-stage">
+        <div className="tex-m-bridge-orb">
           <Orb state="quiet" size="lg" />
         </div>
-        <p className="tex-bridge-card-word">Watch.</p>
+        <p className="tex-m-bridge-word" aria-label="Watch.">
+          <span className="tex-m-bridge-l tex-m-bridge-l--1">W</span>
+          <span className="tex-m-bridge-l tex-m-bridge-l--2">a</span>
+          <span className="tex-m-bridge-l tex-m-bridge-l--3">t</span>
+          <span className="tex-m-bridge-l tex-m-bridge-l--4">c</span>
+          <span className="tex-m-bridge-l tex-m-bridge-l--5">h</span>
+          <span className="tex-m-bridge-l tex-m-bridge-l--6">.</span>
+        </p>
       </div>
     </div>
   );

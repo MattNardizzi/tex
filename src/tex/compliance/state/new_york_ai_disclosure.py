@@ -35,7 +35,7 @@ factory. The payload binds:
 - ``advertiser_legal_entity`` — the §1700-A "advertiser" of record.
 - ``publication_window_start`` / ``end`` — when the creative ran.
 
-Priority: P1 (directly supports GTM-A AI-SDR brand-safety pitch).
+Priority: P1 (regulatory evidence emitter for NY AI Advertising Disclosure Law).
 """
 
 from __future__ import annotations

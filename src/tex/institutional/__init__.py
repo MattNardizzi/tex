@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — governance LTS — wired via ecosystem engine
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Institutional Layer — Public Governance Graph + Oracle/Controller
 ==================================================================
 
@@ -20,7 +24,13 @@ to 1.8 (Cohen's d=1.28); severe-collusion incidence drops from 50% to 5.6%.
 Priority
 --------
 P1 — this is the architectural centerpiece of ecosystem governance.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.institutional import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.institutional.controller import (
     ControllerDecision,

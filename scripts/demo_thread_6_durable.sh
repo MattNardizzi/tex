@@ -176,7 +176,7 @@ ok(f"issuer kid {issuer_kid} (ES384)")
 
 banner("Step 4 / 9 — watermark detection (SynthID-Text recorded score)")
 body = (
-    b"Subject: Tex Aegis pilot interest\n\n"
+    b"Subject: Tex pilot interest\n\n"
     b"Hi Sara, this is an AI-assisted outreach from Matthew at "
     b"VortexBlack. Five minutes next week to discuss your AI SDR "
     b"brand-safety story?\n"
@@ -253,7 +253,7 @@ unsigned = C2paManifest(
         format="text/plain",
         instance_id="xmp.iid:thread6-demo-001",
         claim_generator="tex/0.1 (thread6-demo)",
-        claim_generator_info={"name": "Tex Aegis", "version": "0.1.0"},
+        claim_generator_info={"name": "Tex", "version": "0.1.0"},
         created_at=datetime.now(tz=timezone.utc),
         assertions=(
             C2paAssertion(

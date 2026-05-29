@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Orb from '../../components/Orb.jsx';
+import { openCalendly } from '../../utils/calendly.js';
 import './HeroCard.css';
 
 /* =============================================================
@@ -61,14 +62,14 @@ export default function HeroCard({ isActive, navigate, onAdvance }) {
           <span className="tex-hero-card-brand-word">Tex</span>
         </a>
         <a
-          href="/sign-in"
+          href="#book"
           className="tex-hero-card-signin"
           onClick={(e) => {
             e.preventDefault();
-            navigate && navigate('/sign-in');
+            openCalendly();
           }}
         >
-          Sign in
+          Show me
         </a>
       </header>
 

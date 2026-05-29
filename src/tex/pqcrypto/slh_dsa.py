@@ -12,7 +12,7 @@ Frontier delta (May 18, 2026) — bleeding edge vs competitor baseline
 - Asqav ships ML-DSA-65 only. No SLH-DSA.
 - The "quantum-safe" benchmark (arxiv 2605.17061, May 16 2026) explicitly
   marks SLH-DSA as "not yet implemented" across the Python PQ library
-  ecosystem. **Tex Aegis ships it in the live evidence path.**
+  ecosystem. **Tex ships it in the live evidence path.**
 - CNSA 2.0 mandates SLH-DSA-256s for software and firmware signing
   (NSA Cybersecurity Advisory, updated CNSA 2.1 Dec 2024 per FAQ; reiterated
   in April 2026 CNSA 2.0 deep dives). The 2027 NSS procurement gate requires

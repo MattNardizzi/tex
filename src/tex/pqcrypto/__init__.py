@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — post-quantum signing infrastructure — ML-DSA primary path via algorithm_agility, several extension modules carried for completeness
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Post-Quantum Cryptography Layer
 ================================
 
@@ -24,7 +28,13 @@ Priority
 --------
 P0 — drop-in ML-DSA replacement for ECDSA in evidence chain. Hybrid
 ML-DSA + Ed25519 mode for transition.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.pqcrypto import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.pqcrypto.algorithm_agility import (
     SignatureAlgorithm,

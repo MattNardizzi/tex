@@ -32,7 +32,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import RLock
-from typing import Iterable
+from typing import Any, Iterable
 from uuid import UUID
 
 from tex.discovery.connectors.base import (
@@ -56,6 +56,7 @@ from tex.domain.discovery import (
     DiscoverySource,
     ReconciliationAction,
 )
+from tex.domain.signal_trust import tier_for_source
 from tex.stores.agent_registry import InMemoryAgentRegistry
 from tex.stores.connector_health import ConnectorHealthStore
 from tex.stores.discovery_ledger import InMemoryDiscoveryLedger
@@ -222,6 +223,7 @@ class DiscoveryService:
         "_connectors",
         "_scan_run_store",
         "_health_store",
+        "_provenance_engine",
     )
 
     def __init__(
@@ -234,6 +236,7 @@ class DiscoveryService:
         connectors: Iterable[DiscoveryConnector] | None = None,
         scan_run_store: ScanRunStore | None = None,
         health_store: ConnectorHealthStore | None = None,
+        provenance_engine: Any | None = None,
     ) -> None:
         self._registry = registry
         self._ledger = ledger
@@ -242,6 +245,11 @@ class DiscoveryService:
         self._connectors: list[DiscoveryConnector] = list(connectors or [])
         self._scan_run_store = scan_run_store
         self._health_store = health_store
+        # Optional: when wired, every REGISTER seals a behavioural birth
+        # into the provenance log, anchored to the discovery signal's
+        # admissibility tier — discovery and provenance become one flow.
+        # Default None keeps the legacy path bit-for-bit.
+        self._provenance_engine = provenance_engine
 
     # ------------------------------------------------------------------ ops
 
@@ -588,10 +596,41 @@ class DiscoveryService:
         decision = self._engine.decide(candidate=candidate, existing=existing)
         self._apply(decision)
 
+        # Birth-certificate anchoring on REGISTER (§3.4, §8): the instant a
+        # candidate becomes a real agent, seal its behavioural birth into
+        # the provenance log, anchored to the discovery signal's
+        # admissibility tier and any stable anchors the platform exposed.
+        # Silent by construction; a new agent being discovered never breaks
+        # the voice.
+        if decision.new_agent is not None and self._provenance_engine is not None:
+            self._seal_discovery_birth(decision.new_agent, candidate)
+
         return self._ledger.append(
             candidate=candidate,
             outcome=decision.outcome,
         )
+
+    def _seal_discovery_birth(self, agent: AgentIdentity, candidate: CandidateAgent) -> None:
+        """Anchor a sealed behavioural birth to a freshly-registered agent."""
+        try:
+            evidence = candidate.evidence or {}
+            self._provenance_engine.register_birth(
+                agent_id=agent.agent_id,
+                signal_tier=tier_for_source(str(candidate.source)),
+                system_prompt_hash=evidence.get("system_prompt_hash"),
+                tool_manifest_hash=evidence.get("tool_manifest_hash"),
+                memory_hash=evidence.get("memory_hash"),
+                declared_intent=candidate.description,
+                detail={
+                    "discovery_source": str(candidate.source),
+                    "reconciliation_key": candidate.reconciliation_key,
+                    "discovery_confidence": round(float(candidate.confidence), 6),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            # Provenance anchoring is best-effort and must never break a
+            # scan; the registry write already succeeded.
+            _logger.warning("discovery birth anchoring failed", exc_info=True)
 
     def _apply(self, decision: ReconciliationDecision) -> None:
         """Apply a decision's side effects to the registry."""

@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — systemic risk and digital-twin simulation — wired via ecosystem engine and twin route
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Systemic Layer — Risk Evaluation + Digital Twin
 =================================================
 
@@ -20,7 +24,13 @@ Three components:
 Priority
 --------
 P2 — the digital twin is a 6-month build. Risk evaluator skeleton in P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.systemic import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.systemic.risk_evaluator import SystemicRiskEvaluator
 from tex.systemic.digital_twin import EcosystemDigitalTwin, DEFAULT_HORIZON, MAX_HORIZON

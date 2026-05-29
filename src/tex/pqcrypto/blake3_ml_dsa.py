@@ -2,7 +2,7 @@
 ML-DSA-B (BLAKE3-accelerated ML-DSA) signature provider.
 
 Bleeding-edge frontier as of May 2026. **No shipping AI governance
-product implements this.** Tex Aegis is first.
+product implements this.** Tex is first.
 
 Background
 ----------

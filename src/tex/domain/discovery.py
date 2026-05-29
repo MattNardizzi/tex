@@ -63,6 +63,16 @@ class DiscoverySource(StrEnum):
     LANGSMITH = "langsmith"
     GENERIC = "generic"
 
+    # Tamper-resistant planes (the grades were fixed in signal_trust before
+    # the connectors existed; these strings match that mapping exactly).
+    # Ranked by admissibility-per-effort: cloud-audit is agentless AND
+    # tamper-resistant (the sweet spot), egress catches the headless agent
+    # nothing else lists, kernel/eBPF is the signal the workload cannot
+    # reach at all.
+    CLOUD_AUDIT = "cloud_audit"
+    NETWORK_EGRESS = "network_egress"
+    KERNEL_EBPF = "kernel_ebpf"
+
 
 class DiscoveryFindingKind(StrEnum):
     """

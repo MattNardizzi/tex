@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — TexGate, @tex_gated decorator, framework adapters, ASGI proxy — built but not invoked by the runtime today
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Tex Enforcement — in-process and at-the-edge enforcement adapters.
 
 Tex's PDP returns a verdict (PERMIT / ABSTAIN / FORBID). The enforcement
@@ -36,9 +40,16 @@ All three honor the same five contracts:
 This package has no required dependency on FastAPI, httpx, LangChain,
 CrewAI, or any framework. The framework adapters import their
 framework lazily so users only pay for what they use.
+
 """
 
 from __future__ import annotations
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.enforcement import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
+
 
 from tex.enforcement.errors import (
     TexAbstainError,

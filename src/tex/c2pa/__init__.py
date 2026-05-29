@@ -1,10 +1,14 @@
 """
+[Architecture: Layer 5 (Evidence)] — C2PA Content Credentials emission for PERMIT-with-outbound-artifact
+
+See ARCHITECTURE.md for the full six-layer model.
+
 C2PA Content Credentials Layer
 ==============================
 
 Implements the Coalition for Content Provenance and Authenticity (C2PA)
 specification for outbound AI-generated content. Every email, post, document,
-or image produced by an AI-SDR running through Tex carries a tamper-evident,
+or image produced by an AI agent running through Tex carries a tamper-evident,
 cryptographically-signed manifest declaring origin, AI-generation status,
 training-data class, and ingredient chain.
 
@@ -21,7 +25,7 @@ References
 
 Threat model
 ------------
-Closes the verification gap for AI-SDR outbound content. Without C2PA,
+Closes the verification gap for AI-generated outbound content. Without C2PA,
 recipients cannot prove content came from a sanctioned AI system. With
 C2PA + ML-DSA signing, Tex provides the evidence trail FTC investigators
 and EU notified bodies require under Art. 50.
@@ -30,7 +34,13 @@ Priority
 --------
 P0 — ship in days 1-14. Together with `pqcrypto/`, this is the regulatory
 forced-buyer wedge.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.c2pa import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.c2pa.manifest import (
     ASSERTION_LABEL_ACTIONS_V2,

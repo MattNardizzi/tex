@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — PCAS Datalog policy compiler invoked by specialists/pcas_specialist
+
+See ARCHITECTURE.md for the full six-layer model.
+
 PCAS — Policy Compiler for Agentic Systems.
 
 Datalog-derived policy language over the PCAS dependency graph, with
@@ -69,7 +73,13 @@ Engineering targets
   serialized policy artifact
 
 Priority: P0 — wired into the live PDP via ``PcasSpecialist``.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.pcas import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.pcas.language.ast import (
     Atom,

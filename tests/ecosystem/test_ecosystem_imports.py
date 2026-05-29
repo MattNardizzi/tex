@@ -30,14 +30,11 @@ ECOSYSTEM_PACKAGES: tuple[str, ...] = (
     "tex.graph.temporal_kg",
     "tex.graph.projection",
     "tex.graph.query",
-    "tex.graph.postgres_backend",
-    "tex.graph.janusgraph_backend",
     # events
     "tex.events",
     "tex.events.event",
     "tex.events.ledger",
     "tex.events.crypto_provenance",
-    "tex.events.quorum_shard",
     # causal
     "tex.causal",
     "tex.causal.chief",

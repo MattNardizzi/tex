@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — runtime defense modules invoked by their matching specialists — mcpshield, mage, planguard, clawguard, agentarmor
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Runtime Defense Layer
 =====================
 
@@ -24,6 +28,12 @@ Priority
 --------
 P0: clawguard (ships with C2PA + receipts in days 15-42)
 P1: planguard, agentarmor, mage, mcpshield (days 71-150)
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.runtime import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 __all__ = []

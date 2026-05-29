@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — entity/event ontology validator used by the ecosystem engine
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Ontology Layer
 ==============
 
@@ -22,7 +26,13 @@ Three sub-ontologies (per arxiv 2604.00555):
 Priority
 --------
 P0 — the type system is the foundation; nothing else types-checks without it.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.ontology import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.ontology.entity_types import EntityKind, EntityTypeRegistry
 from tex.ontology.event_types import EventKind, EventTypeRegistry

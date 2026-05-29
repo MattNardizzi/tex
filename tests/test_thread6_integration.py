@@ -180,7 +180,7 @@ def _build_unsigned_manifest() -> C2paManifest:
             format="text/plain",
             instance_id="xmp.iid:thread6-integration-001",
             claim_generator="tex/0.1 (thread6)",
-            claim_generator_info={"name": "Tex Aegis", "version": "0.1.0"},
+            claim_generator_info={"name": "Tex", "version": "0.1.0"},
             created_at=datetime.now(tz=timezone.utc),
             assertions=(
                 C2paAssertion(
@@ -190,7 +190,7 @@ def _build_unsigned_manifest() -> C2paManifest:
                             {
                                 "action": "c2pa.created",
                                 "softwareAgent": {
-                                    "name": "Tex Aegis",
+                                    "name": "Tex",
                                     "version": "0.1.0",
                                 },
                             },
@@ -302,7 +302,7 @@ class TestThread6FullStack:
     ):
         # 1. The outbound artifact (a marketing email).
         body = (
-            b"Subject: Tex Aegis pilot interest\n\n"
+            b"Subject: Tex pilot interest\n\n"
             b"Hi Sara, this is an AI-assisted outreach from Matthew at "
             b"VortexBlack. Five minutes next week to discuss your AI SDR "
             b"brand-safety story?\n"

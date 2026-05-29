@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — eight-step ecosystem engine that wraps the PDP — ontology, graph, contracts, governance LTS, causal, drift, systemic, intervention
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Ecosystem Governance Layer — Top-Level Package
 ===============================================
 
@@ -13,7 +17,13 @@ Public surface
   EcosystemVerdict       — extended verdict type
   EcosystemState         — read-only snapshot
   ProposedEvent          — input to evaluate()
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.ecosystem import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.ecosystem.bridge import EcosystemBridge, routing_result_to_proposed_event
 from tex.ecosystem.engine import EcosystemEngine

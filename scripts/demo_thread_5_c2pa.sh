@@ -117,7 +117,7 @@ cosign_key = Ed25519Provider().generate_keypair("demo-cosign")
 
 body = (
     "Hi Sara,\n\n"
-    "Tex Aegis just shipped a wedge: we're now the only agent-governance "
+    "Tex just shipped a wedge: we're now the only agent-governance "
     "platform whose evidence carries a C2PA 2.4 Content Credential by "
     "default, and the only one that closes the six attack classes the NSA "
     "paper from late April found in the C2PA spec.\n\n"

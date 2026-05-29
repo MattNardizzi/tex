@@ -30,7 +30,7 @@ threshold ML-DSA because it has different operational properties:
 
 Microsoft Agent Governance Toolkit
 (Apr 2 2026) ships ML-DSA-65 single-key. Asqav ships ML-DSA-65 single-key.
-Tex Aegis is first with a k-of-n quorum on FIPS 204-compatible signatures.
+Tex is first with a k-of-n quorum on FIPS 204-compatible signatures.
 
 Why threshold for AI governance
 -------------------------------

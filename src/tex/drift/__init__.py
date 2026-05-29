@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — drift detection — wired via ecosystem engine
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Drift Layer — Change-Point Detection + Emergent Norm Tracing
 =============================================================
 
@@ -27,7 +31,13 @@ identical ``ChangePointEvent`` records into the events ledger.
 Priority
 --------
 P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.drift import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.drift.change_point import (
     ChangePointDetector,

@@ -1,6 +1,6 @@
 # tex-guardrail
 
-Official Python SDK for [Tex](https://texaegis.com) — the gate between AI and the real world.
+Official Python SDK for [Tex](https://tex.systems) — the gate between AI and the real world.
 
 ## Installation
 
@@ -13,7 +13,7 @@ pip install tex-guardrail
 ```python
 from tex_guardrail import TexClient
 
-tex = TexClient(api_key="your-api-key", base_url="https://api.texaegis.com")
+tex = TexClient(api_key="your-api-key", base_url="https://api.tex.systems")
 
 verdict = tex.evaluate(
     content="Hi Jordan, saw you're hiring for revops...",

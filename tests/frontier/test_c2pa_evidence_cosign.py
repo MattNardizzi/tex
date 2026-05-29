@@ -164,7 +164,7 @@ def unsigned_email_manifest():
     return build_email_manifest(
         from_address="ai-sdr@vortexblack.com",
         to_addresses=("prospect@example.com",),
-        subject="Re: Tex Aegis pilot",
+        subject="Re: Tex pilot",
         body_sha256=body_hash,
         model_name="claude-sonnet-4.6",
         model_version="2026-03",

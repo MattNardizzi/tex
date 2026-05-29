@@ -44,7 +44,7 @@ def demo_slh_dsa() -> None:
 
     p = SlhDsaProvider(SignatureAlgorithm.SLH_DSA_256S)  # CNSA 2.0 code signing
     kp = p.generate_keypair("tex-release-v1.16.0")
-    artifact = b"# Tex Aegis v1.16.0 release binary (placeholder)"
+    artifact = b"# Tex v1.16.0 release binary (placeholder)"
     sig = p.sign(artifact, kp)
     print(f"  signature: {len(sig)} bytes (FIPS 205 §11 = 29792)")
     print(f"  verify:    {p.verify(artifact, sig, kp.public_key)}")
@@ -103,7 +103,7 @@ def demo_composite() -> None:
 def main() -> int:
     print()
     print("┌─────────────────────────────────────────────────────────────────────┐")
-    print("│  Tex Aegis Thread 10 — Post-Quantum Cryptography Wave demo          │")
+    print("│  Tex Thread 10 — Post-Quantum Cryptography Wave demo          │")
     print("│  May 20, 2026 — bleeding-edge frontier for AI governance evidence   │")
     print("└─────────────────────────────────────────────────────────────────────┘")
     try:

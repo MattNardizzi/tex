@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 1 (Discovery)] — scan tenants for AI agents across OpenAI, Slack, AWS Bedrock, GitHub, Microsoft Graph, Salesforce, and MCP servers
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Tex Discovery Layer.
 
 The discovery layer answers the upstream half of agent governance:
@@ -18,7 +22,13 @@ Public API:
 Connectors live in tex.discovery.connectors. Mock implementations
 ship in this repo; real connectors that hit live cloud APIs are
 drop-in replacements that satisfy the DiscoveryConnector Protocol.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.discovery import __layer__, __layer_kind__`.
+__layer__: int | None = 1
+__layer_kind__: str = 'discovery'
 
 from tex.discovery.reconciliation import (
     AUTO_REGISTER_THRESHOLD,

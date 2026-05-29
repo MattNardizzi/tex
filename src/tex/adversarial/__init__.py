@@ -1,4 +1,8 @@
 """
+[Architecture: Tooling] — fuzz testing harness — runs AgentDojo, MCPSafeBench, AgentLAB, SIREN fixtures against the PDP. Tooling, not runtime.
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Tex Adversarial Harness.
 
 Stress-tests the live ``/v1/guardrail`` endpoint against curated fixture
@@ -58,9 +62,16 @@ Performance
 -----------
 Each fixture is one ``/v1/guardrail`` call. With 50 fixtures per suite
 and 5 suites, the full sweep is ~250 calls (≈ 30s at p95 = 150ms).
+
 """
 
 from __future__ import annotations
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.adversarial import __layer__, __layer_kind__`.
+__layer__: int | None = None
+__layer_kind__: str = 'tooling'
+
 
 from tex.adversarial.fuzz_runner import (
     FuzzRunner,

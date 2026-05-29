@@ -289,7 +289,7 @@ def test_a26_carries_bound_evidence_ids():
 def test_all_four_modules_share_c2pa_binding_convention():
     """All four jurisdictions reference a C2PA manifest id as the
     cryptographic anchor for their disclosures. This is the value the
-    GTM-A AI-SDR brand-safety pitch leans on."""
+    enterprise-agent compliance pitch leans on."""
     ny = emit_ny_disclosure(**_ny_kwargs(c2pa_manifest_id="urn:uuid:1"))
     co = emit_co_ai_evidence(**_co_kwargs(c2pa_manifest_id="urn:uuid:2"))
     assert ny.c2pa_manifest_id == "urn:uuid:1"

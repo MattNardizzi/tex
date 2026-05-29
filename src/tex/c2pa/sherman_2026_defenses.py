@@ -12,8 +12,8 @@ defenses **explicit, structured, and exportable** so:
 
 1. An auditor can read one record and confirm Tex closes all six
    classes without walking the full codebase.
-2. Buyer-facing materials (cyber-insurance dossier, brand-safety
-   pitch) can cite the paper and bind specific Tex modules to specific
+2. Buyer-facing materials (audit evidence packets, security
+   dossiers) can cite the paper and bind specific Tex modules to specific
    attack-class IDs.
 3. A regression in any defense (e.g. someone reverts the v2 timestamp
    to v1, or removes OCSP staple parsing) flips the
@@ -297,9 +297,8 @@ def _all_modules_importable(paths: tuple[str, ...]) -> bool:
 def render_buyer_dossier() -> dict:
     """Return a JSON-serialisable dossier for buyer-facing materials.
 
-    Shape is intentionally flat so it can be embedded in the
-    brand-safety pitch deck (GTM-A) or the cyber-insurance evidence
-    packet (GTM-B) without further transformation. The
+    Shape is intentionally flat so it can be embedded in audit evidence
+    packets or security dossiers without further transformation. The
     ``sherman_2026_compliant`` boolean is the headline; the per-class
     table is the supporting evidence.
     """

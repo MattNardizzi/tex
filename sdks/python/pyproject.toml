@@ -35,7 +35,7 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://texaegis.com"
+Homepage = "https://tex.systems"
 
 [tool.setuptools.packages.find]
 where = ["."]

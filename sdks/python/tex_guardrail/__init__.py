@@ -9,7 +9,7 @@ Quick start
 
     from tex_guardrail import TexClient
 
-    tex = TexClient(api_key="...", base_url="https://api.texaegis.com")
+    tex = TexClient(api_key="...", base_url="https://api.tex.systems")
 
     verdict = tex.evaluate(
         content="Hi Jordan, saw you're hiring for revops...",

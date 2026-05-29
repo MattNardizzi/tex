@@ -12,9 +12,7 @@ Packages live in one of two states:
   ``test_module_importable`` parametrize over ``ACTIVE_PACKAGES``
   enforces this hard.
 * **Pending** — under ``src/tex/_pending/`` per the policy documented
-  in ``src/tex/_pending/__init__.py``. The current Tex Aegis GTM (VP
-  Marketing at AI-SDR-using SaaS) does not require the interop
-  packages, so they were moved here. They MUST NOT import as
+  in ``src/tex/_pending/__init__.py``. They MUST NOT import as
   ``tex.<name>`` from the active namespace; that's the whole point of
   ``_pending/``. A separate parametrize asserts the *correct* status
   of each pending package (importable under ``tex._pending.<name>``
@@ -115,17 +113,6 @@ ACTIVE_PACKAGES: tuple[str, ...] = (
     "tex.compliance.state.california_ab853_capture",
     "tex.compliance.state.colorado_ai_act",
     "tex.compliance.state.new_york_ai_disclosure",
-    "tex.compliance.nist",
-    "tex.compliance.nist.ai_rmf",
-    "tex.compliance.nist.agent_standards",
-    "tex.compliance.naic",
-    "tex.compliance.naic.model_bulletin",
-    "tex.compliance.naic.cyber_rider",
-    # Pitch surfaces
-    "tex.pitch",
-    "tex.pitch.vp_marketing",
-    "tex.pitch.ciso",
-    "tex.pitch.insurer_export",
     # Causal layer (CHIEF + ARM, Thread 11)
     "tex.causal",
     "tex.causal.chief",
@@ -156,6 +143,24 @@ PENDING_PACKAGES: tuple[tuple[str, str], ...] = (
     ("tex.interop.microsoft.policy_bundle_exporter", "tex._pending.interop.microsoft.policy_bundle_exporter"),
     ("tex.interop.nist", "tex._pending.interop.nist"),
     ("tex.interop.nist.self_assessment", "tex._pending.interop.nist.self_assessment"),
+    # Graph backend stubs (moved from tex.graph)
+    ("tex.graph.postgres_backend", "tex._pending.graph.postgres_backend"),
+    ("tex.graph.janusgraph_backend", "tex._pending.graph.janusgraph_backend"),
+    # Events extension stub (moved from tex.events)
+    ("tex.events.quorum_shard", "tex._pending.events.quorum_shard"),
+    # Compliance stubs (moved from tex.compliance.{naic,nist})
+    ("tex.compliance.nist", "tex._pending.compliance.nist"),
+    ("tex.compliance.nist.ai_rmf", "tex._pending.compliance.nist.ai_rmf"),
+    ("tex.compliance.nist.agent_standards", "tex._pending.compliance.nist.agent_standards"),
+    ("tex.compliance.naic", "tex._pending.compliance.naic"),
+    ("tex.compliance.naic.model_bulletin", "tex._pending.compliance.naic.model_bulletin"),
+    ("tex.compliance.naic.cyber_rider", "tex._pending.compliance.naic.cyber_rider"),
+    # Pitch surfaces (audience-specific exports — parked pending new GTM)
+    ("tex.pitch", "tex._pending.pitch"),
+    ("tex.pitch.vp_marketing", "tex._pending.pitch.vp_marketing"),
+    ("tex.pitch.ciso", "tex._pending.pitch.ciso"),
+    ("tex.pitch.insurer_export", "tex._pending.pitch.insurer_export"),
+    ("tex.api.pitch_routes", "tex._pending.api.pitch_routes"),
 )
 
 

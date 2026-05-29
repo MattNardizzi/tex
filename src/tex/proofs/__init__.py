@@ -1,5 +1,9 @@
 """
-Tex Aegis — Formal proofs.
+[Architecture: Empty placeholder] — reserved for future proof types — no code yet
+
+See ARCHITECTURE.md for the full six-layer model.
+
+Tex — Formal proofs.
 
 This package houses Lean 4 / Mathlib4 proof artifacts that
 mechanically verify load-bearing properties of the Tex governance
@@ -24,4 +28,10 @@ The Lean files are not part of the Python build. To check them::
 
 CI does not build Lean for this delivery; the file is intended for
 publication review and manual proof checking.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.proofs import __layer__, __layer_kind__`.
+__layer__: int | None = None
+__layer_kind__: str = 'empty_placeholder'

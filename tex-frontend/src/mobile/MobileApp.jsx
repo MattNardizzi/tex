@@ -8,6 +8,7 @@ import EvidenceCard from './cards/EvidenceCard.jsx';
 import EvolutionCard from './cards/EvolutionCard.jsx';
 import CloserCard from './cards/CloserCard.jsx';
 import MobileProgress from './MobileProgress.jsx';
+import { openCalendly } from '../utils/calendly.js';
 import './MobileApp.css';
 
 /* =============================================================
@@ -119,7 +120,7 @@ export default function MobileApp({ navigate }) {
     <BridgeCard    key="bridge" />,
     <PresenceCard  key="presence" />,
     <ForesightCard key="foresight" />,
-    <MomentCard    key="moment"    onShowMe={() => navigate('/execution')} />,
+    <MomentCard    key="moment"    onShowMe={openCalendly} />,
     <EvidenceCard  key="evidence" />,
     <EvolutionCard key="evolution" />,
     <CloserCard    key="closer" />,

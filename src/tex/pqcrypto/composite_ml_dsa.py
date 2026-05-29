@@ -14,7 +14,7 @@ Frontier delta vs competitors
   as INDEPENDENT credentials — not a composite signature. A single break
   of ML-DSA-65 or single Ed25519 key compromise voids the entire scheme.
 - Asqav ships ML-DSA-65 alone — no traditional counter-signature.
-- Tex Aegis is first to ship a true composite signature per
+- Tex is first to ship a true composite signature per
   draft-ietf-lamps-pq-composite-sigs-18 (Apr 9 2026 — current revision)
   with the HPKE-style domain separator strings that draft-16 introduced.
 

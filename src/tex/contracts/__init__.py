@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — LTLf behavioral contracts that gate the PDP routing stage
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Contracts Layer — Agent Behavioral Contracts
 ============================================
 
@@ -31,7 +35,13 @@ without re-deriving the parameters.
 Priority
 --------
 P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.contracts import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.contracts._atoms import ContractContext
 from tex.contracts._ltl import LTLFormula, LTLParseError, RVVerdict

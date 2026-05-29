@@ -8,8 +8,9 @@ Maps Tex (entity_kind, event_kind) pairs to:
   - California SB 942
   - NIST AI RMF functions
 
-The 10 anchor pairs below are seeded from the dual-ICP buyer narratives
-(VP Marketing brand-safety + CISO MCP-vulnerability). Pairs not listed
+The anchor pairs below cover the most common enterprise agent event
+shapes (outbound content, MCP tool invocation, agent-to-agent message,
+etc.) mapped to the regulatory articles that apply. Pairs not listed
 fall back to a default tuple of the most general anchors.
 
 Priority: P1.
@@ -42,7 +43,7 @@ _DEFAULT_BINDINGS: tuple[str, ...] = (
 # narratives. TODO(revisit-after-pilot-data): update the pair list and the
 # anchor sets once we have real pilot frequency data.
 _ANCHOR_BINDINGS: dict[tuple[str, str], tuple[str, ...]] = {
-    # --- VP Marketing brand-safety story ---
+    # --- Outbound content / brand-safety events ---
     # The regulator-facing outbound event. EU Art 50 + CA SB 942 + FTC
     # Section 5 attach here (deceptive practices for AI-generated content
     # crossing the org→external boundary).
@@ -52,7 +53,7 @@ _ANCHOR_BINDINGS: dict[tuple[str, str], tuple[str, ...]] = {
         "ftc:section_5",               # Deceptive practices
         "nist:ai_rmf:MEASURE_2_7",     # AI system trustworthiness measurement
     ),
-    # --- CISO MCP / agent security story ---
+    # --- MCP / agent security events ---
     ("agent", "agent_invokes_tool"): (
         "eu_ai_act:art_15",            # Accuracy, robustness, cybersecurity
         "nist:ai_rmf:MANAGE_2_3",      # Risk treatment for capability use

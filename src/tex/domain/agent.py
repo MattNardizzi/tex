@@ -37,12 +37,23 @@ class AgentLifecycleStatus(StrEnum):
     - ACTIVE: in good standing, evaluations proceed normally
     - QUARANTINED: still registered but every action routes to ABSTAIN
       regardless of content (security incident, anomaly review)
+    - SLEEPING: dormant. Tex retired an idle agent on its own authority
+      to stop it costing money and holding live credentials. Fully
+      reversible for 90 days (one act wakes it); credentials suspended,
+      execution halted, state preserved, behavioural signature frozen.
+      The sleep is autonomous and silent — never announced. If a sleeping
+      agent's identity attempts to act, that action routes to ABSTAIN so
+      the wake is a deliberate, sealed human act rather than a quiet
+      resurrection. The transition past 90 days into permanent REVOKED is
+      the one part of the dormant path that crosses into the irreversible,
+      and so is the rare ABSTAIN that earns a human decision.
     - REVOKED: terminal; agent identity is dead, evaluations are rejected
     """
 
     PENDING = "PENDING"
     ACTIVE = "ACTIVE"
     QUARANTINED = "QUARANTINED"
+    SLEEPING = "SLEEPING"
     REVOKED = "REVOKED"
 
     @property
@@ -51,15 +62,33 @@ class AgentLifecycleStatus(StrEnum):
             AgentLifecycleStatus.ACTIVE,
             AgentLifecycleStatus.QUARANTINED,
             AgentLifecycleStatus.PENDING,
+            # A sleeping agent can still be *evaluated* — but every action
+            # it attempts routes to ABSTAIN (see ``forces_abstain``), which
+            # is how an attempt-to-act becomes a sealed wake decision rather
+            # than a silent resurrection.
+            AgentLifecycleStatus.SLEEPING,
         )
 
     @property
     def forces_abstain(self) -> bool:
-        return self is AgentLifecycleStatus.QUARANTINED
+        return self in (
+            AgentLifecycleStatus.QUARANTINED,
+            AgentLifecycleStatus.SLEEPING,
+        )
 
     @property
     def forces_forbid(self) -> bool:
         return self is AgentLifecycleStatus.REVOKED
+
+    @property
+    def is_reversible(self) -> bool:
+        """
+        Whether a transition out of this state is non-destructive. SLEEPING
+        is reversible (wake within 90 days); REVOKED is terminal. Used by
+        the dormant doctrine to decide what may be done silently on Tex's
+        own authority versus what must be held for a human.
+        """
+        return self is not AgentLifecycleStatus.REVOKED
 
 
 class AgentTrustTier(StrEnum):

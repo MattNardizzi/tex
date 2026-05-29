@@ -17,7 +17,7 @@ interaction provenance with quorum-replicated shards. Storage analysis
 ≈492 MB and streams at <80 KB/s — comfortable for in-memory dev/test
 fixtures and for the P0 production deployment box.
 
-Quorum replication is P2 — see ``events.quorum_shard``.
+Quorum replication is P2 — see ``_pending.events.quorum_shard``.
 
 Priority: P0.
 """

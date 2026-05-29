@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — append-only event ledger with ECDSA-P256 signature provenance
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Events Layer — Append-Only Cryptographic Ledger
 ================================================
 
@@ -17,7 +21,13 @@ T=10^6 steps the ledger is ≈492 MB and streams at <80 KB/s.
 Priority
 --------
 P0 — the ledger is the system of record.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.events import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.events.crypto_provenance import CryptoProvenance
 from tex.events.event import Event, genesis_ledger_hash

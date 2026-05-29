@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — intervention selection — wired via ecosystem engine
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Intervention Layer — Cost-Bounded Steering
 ============================================
 
@@ -25,7 +29,13 @@ Intervention kinds
 Priority
 --------
 P2 (full); skeleton in P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.intervention import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.intervention.engine import (
     InterventionApplyError,

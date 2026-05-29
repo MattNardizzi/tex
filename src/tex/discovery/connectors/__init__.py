@@ -8,9 +8,12 @@ from tex.discovery.connectors.base import (
     ConnectorTimeout,
     DiscoveryConnector,
 )
+from tex.discovery.connectors.cloud_audit import CloudAuditConnector
 from tex.discovery.connectors.github import GitHubConnector
+from tex.discovery.connectors.kernel_ebpf import KernelEbpfConnector
 from tex.discovery.connectors.mcp_server import MCPServerConnector
 from tex.discovery.connectors.microsoft_graph import MicrosoftGraphConnector
+from tex.discovery.connectors.network_egress import NetworkEgressConnector
 from tex.discovery.connectors.openai_assistants import OpenAIConnector
 from tex.discovery.connectors.openai_live import OpenAIAssistantsLiveConnector
 from tex.discovery.connectors.salesforce import SalesforceConnector
@@ -20,13 +23,16 @@ from tex.discovery.connectors.slack_live import SlackLiveConnector
 __all__ = [
     "AwsBedrockConnector",
     "BaseConnector",
+    "CloudAuditConnector",
     "ConnectorContext",
     "ConnectorError",
     "ConnectorTimeout",
     "DiscoveryConnector",
     "GitHubConnector",
+    "KernelEbpfConnector",
     "MCPServerConnector",
     "MicrosoftGraphConnector",
+    "NetworkEgressConnector",
     "OpenAIConnector",
     "OpenAIAssistantsLiveConnector",
     "SalesforceConnector",

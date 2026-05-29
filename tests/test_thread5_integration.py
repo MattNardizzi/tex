@@ -193,7 +193,7 @@ def test_permit_emits_manifest_with_cosign_through_recorder(tmp_path: Path):
         model_version="2026-03",
         from_address="ai-sdr@vortexblack.com",
         to_addresses=("prospect@example.com",),
-        subject="Re: Tex Aegis pilot",
+        subject="Re: Tex pilot",
         tenant_id="vortexblack",
         revocation_proof={
             "kind": "crl_snapshot_pin",
@@ -396,7 +396,7 @@ def test_tampering_outbound_artifact_breaks_verification(tmp_path: Path):
         model_version="2026-03",
         from_address="ai-sdr@vortexblack.com",
         to_addresses=("prospect@example.com",),
-        subject="Re: Tex Aegis pilot",
+        subject="Re: Tex pilot",
         revocation_proof={
             "kind": "crl_snapshot_pin",
             "sha256": "b" * 64,

@@ -9,6 +9,7 @@ import EvolutionSection from './sections/EvolutionSection.jsx';
 import CloserSection from './sections/CloserSection.jsx';
 import MobileApp from './mobile/MobileApp.jsx';
 import { useIsMobile } from './hooks/useIsMobile.js';
+import { openCalendly } from './utils/calendly.js';
 
 /* =============================================================
    Tex — the marketing site, end to end.
@@ -58,7 +59,7 @@ export default function App() {
       <BridgeSection />
       <PresenceSection />
       <ForesightSection />
-      <MomentSection onShowMe={() => navigate('/execution')} />
+      <MomentSection onShowMe={openCalendly} />
       <EvidenceSection />
       <EvolutionSection />
       <CloserSection />

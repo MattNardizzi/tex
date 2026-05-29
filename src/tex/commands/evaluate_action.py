@@ -107,6 +107,11 @@ class EvaluateActionCommand:
         "_agent_registry",
         "_tenant_baseline",
         "_memory_system",
+        # Continuous provenance feed (optional). When wired, the command
+        # notifies the feed after each action-ledger write so behavioural
+        # identity seals on its own, off the hot path. Default ``None``
+        # keeps the legacy path bit-for-bit.
+        "_provenance_feed",
         # Thread 7: optional ecosystem-engine bridge. When wired AND
         # ``TEX_ECOSYSTEM=1`` is set, ``execute()`` forwards every
         # ``RoutingResult`` through the bridge and folds the
@@ -129,6 +134,7 @@ class EvaluateActionCommand:
         agent_registry: InMemoryAgentRegistry | None = None,
         tenant_baseline: InMemoryTenantContentBaseline | None = None,
         memory_system: Any | None = None,
+        provenance_feed: Any | None = None,
         # Thread 7: optional ecosystem-engine bridge. Default ``None``
         # so every existing test that constructs the command directly
         # (without an ecosystem layer) keeps passing unchanged. When
@@ -168,6 +174,7 @@ class EvaluateActionCommand:
         self._agent_registry = agent_registry
         self._tenant_baseline = tenant_baseline
         self._memory_system = memory_system
+        self._provenance_feed = provenance_feed
         self._ecosystem_bridge = ecosystem_bridge
 
     def execute(self, request: EvaluationRequest) -> EvaluateActionResult:
@@ -315,6 +322,16 @@ class EvaluateActionCommand:
                     evidence_record.record_hash if evidence_record is not None else None
                 ),
             )
+            # Continuous provenance: notify the feed that this agent acted
+            # so identity re-seals on its own. Cheap and non-blocking by
+            # contract — a counter bump, at most one enqueue; all sealing
+            # happens on the feed's worker. Wrapped so provenance can never
+            # break the gate verdict the caller is waiting on.
+            if self._provenance_feed is not None and request.agent_id is not None:
+                try:
+                    self._provenance_feed.note_action(request.agent_id)
+                except Exception:  # noqa: BLE001
+                    pass
             self._update_tenant_baseline(
                 request=request,
                 decision=decision,

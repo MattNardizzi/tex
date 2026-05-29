@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — zero-knowledge dataset and inference provenance proofs
+
+See ARCHITECTURE.md for the full six-layer model.
+
 ZKPROV: Zero-Knowledge Dataset Provenance + VFT extensions
 ===========================================================
 
@@ -40,7 +44,13 @@ Microsoft Agent Governance Toolkit (Apr 2 2026), Noma, Zenity,
 Pillar, Lakera — none of them ship training-data provenance proofs.
 No incumbent has wired DeepProve, LatticeFold+, ARP, or NABAOS in
 the agent-governance market as of May 18 2026.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.zkprov import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.zkprov.commitment import (
     DatasetCommitment,

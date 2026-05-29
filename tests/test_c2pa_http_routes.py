@@ -121,7 +121,7 @@ def signed_manifest_pair():
     unsigned = build_email_manifest(
         from_address="ai-sdr@vortexblack.com",
         to_addresses=("prospect@example.com",),
-        subject="Re: Tex Aegis pilot HTTP roundtrip",
+        subject="Re: Tex pilot HTTP roundtrip",
         body_sha256=body_sha,
         model_name="claude-sonnet-4.6",
         model_version="2026-03",

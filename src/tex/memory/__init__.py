@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — V18 unified durable store — DurableDecisionStore, DurablePolicyStore, memory orchestrator
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Tex memory system — public API.
 
 The memory layer is the system of record for every durable artifact
@@ -34,7 +38,13 @@ Usage::
     )
     result = engine.replay(decision.decision_id)
     assert result.is_clean
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.memory import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.memory.decision_input_store import (
     DecisionInputStore,

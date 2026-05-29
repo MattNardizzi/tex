@@ -488,7 +488,7 @@ def _sb942_call_kwargs(signed_manifest, ledger, provenance, content_hash, issued
         "provenance": provenance,
         "actor_entity_id": "agent_sdr_1",
         "covered_provider_name": "VortexBlack, Inc.",
-        "genai_system_name": "Tex Aegis",
+        "genai_system_name": "Tex",
         "genai_system_version": "2.0",
         "created_or_altered_at": issued_at,
         "unique_identifier": signed_manifest.claim.instance_id,
@@ -518,7 +518,7 @@ class TestSB942:
         # § 22757.1(b)(1)(A)–(D) plus the unique identifier
         payload = emitted.record.disclosure_payload
         assert payload["covered_provider_name"] == "VortexBlack, Inc."
-        assert payload["genai_system_name"] == "Tex Aegis"
+        assert payload["genai_system_name"] == "Tex"
         assert payload["genai_system_version"] == "2.0"
         assert payload["created_or_altered_at"] == issued_at.isoformat().replace("+00:00", "Z")
         assert payload["unique_identifier"] == signed_manifest.claim.instance_id
@@ -589,7 +589,7 @@ class TestSB942:
 def _ftc_claims() -> tuple[FTCSubstantiationClaim, ...]:
     return (
         FTCSubstantiationClaim(
-            capability_claim="Tex Aegis adjudicates 100% of outbound AI emails.",
+            capability_claim="Tex adjudicates 100% of outbound AI emails.",
             disclosure_tier=FTCDisclosureTier.GENERATED,
             verdict_id="vrd_ftc_001",
             bound_manifest_id="sha256:bound-1",

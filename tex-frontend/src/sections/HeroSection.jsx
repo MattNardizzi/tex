@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { openCalendly } from '../utils/calendly.js';
 import './HeroSection.css';
 
 /* =============================================================
@@ -31,7 +32,7 @@ export default function HeroSection({ navigate }) {
       id="top"
       aria-label="Tex"
     >
-      {/* TOP BAR — three objects only. Logo. Presence. Sign in. */}
+      {/* TOP BAR — three objects only. Logo. Presence. Show me. */}
       <header className="tex-topbar">
         <a
           href="/"
@@ -50,14 +51,14 @@ export default function HeroSection({ navigate }) {
         </a>
 
         <a
-          href="/sign-in"
+          href="#book"
           className="tex-signin"
           onClick={(e) => {
             e.preventDefault();
-            navigate('/sign-in');
+            openCalendly();
           }}
         >
-          Sign in
+          Show me
         </a>
       </header>
 

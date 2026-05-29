@@ -588,7 +588,7 @@ def build_governance_history_router() -> APIRouter:
             default=str,
         ).encode("utf-8")
         readme = (
-            "Tex Aegis — Governance Evidence Bundle\n"
+            "Tex — Governance Evidence Bundle\n"
             "======================================\n\n"
             f"snapshot_id: {snapshot_id}\n"
             f"schema_version: {bundle.get('schema_version')}\n\n"

@@ -78,7 +78,7 @@ class TestRecordedScoreDetectorTextSeal:
             detected_regions=((0, 120), (250, 400)),
         )
         result = det.detect(
-            "Subject: Tex Aegis pilot\nBody: " + "x" * 500, key_id="textseal-key"
+            "Subject: Tex pilot\nBody: " + "x" * 500, key_id="textseal-key"
         )
         assert result.watermark_present is True
         assert result.detected_regions == ((0, 120), (250, 400))
@@ -151,8 +151,8 @@ class TestPerceptualTextHash:
         assert h1 == h2
 
     def test_punctuation_stripping(self):
-        h1 = text_perceptual_hash("Hi, Sara! This is Tex Aegis.")
-        h2 = text_perceptual_hash("Hi Sara This is Tex Aegis")
+        h1 = text_perceptual_hash("Hi, Sara! This is Tex.")
+        h2 = text_perceptual_hash("Hi Sara This is Tex")
         assert h1 == h2
 
     def test_different_content_differs(self):

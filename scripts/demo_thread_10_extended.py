@@ -147,7 +147,7 @@ def demo_composite_cms() -> None:
 def main() -> int:
     print()
     print("┌─────────────────────────────────────────────────────────────────────┐")
-    print("│  Tex Aegis Thread 10 (extended) — the actually bleeding edge        │")
+    print("│  Tex Thread 10 (extended) — the actually bleeding edge        │")
     print("│  May 20, 2026                                                       │")
     print("│  Genuine Mithril · TALUS-TEE · HQC · CMS DER                        │")
     print("└─────────────────────────────────────────────────────────────────────┘")

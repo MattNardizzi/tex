@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — TEE attestation composition — Intel TDX + NVIDIA H100/H200/B200/B300 via Intel Trust Authority
+
+See ARCHITECTURE.md for the full six-layer model.
+
 TEE Attestation Layer (Thread 12)
 =================================
 
@@ -12,9 +16,16 @@ Reference anchors as of May 18 2026
 * draft-ietf-rats-ear-03 — AR4SI trustworthiness vector.
 * arxiv 2605.03213 — compound attestation gap analysis.
 * arxiv 2604.23280 — CrossGuard TEE instance binding.
+
 """
 
 from __future__ import annotations
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.tee import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
+
 
 from tex.tee.attestation_client import (
     ExpectedMeasurements,

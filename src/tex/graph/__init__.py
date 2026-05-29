@@ -1,4 +1,8 @@
 """
+[Architecture: Cross-cutting (Persistence)] — temporal knowledge graph — in-memory backend wired; rustworkx/postgres/janusgraph backends test-only or orphan
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Graph Layer — Temporal Knowledge Graph
 ========================================
 
@@ -19,7 +23,13 @@ Backends
 Priority
 --------
 P0 (in-memory backbone), P1 (Postgres), P2 (graph DB).
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.graph import __layer__, __layer_kind__`.
+__layer__: int | None = None
+__layer_kind__: str = 'cross_cutting_persistence'
 
 from tex.graph.temporal_kg import InMemoryTemporalKG, TemporalKnowledgeGraph
 from tex.graph.projection import StateProjection

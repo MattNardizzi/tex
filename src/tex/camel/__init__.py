@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — CamEL capability-based interpreter invoked by specialists/camel_specialist
+
+See ARCHITECTURE.md for the full six-layer model.
+
 CaMeL — Capabilities for Machine Learning.
 
 Capability-based dual-LLM execution layer that defends against indirect
@@ -56,7 +60,13 @@ Components
 - ``policy``       — tool-call policy: what capabilities each tool requires
 
 Priority: P0 — wired into the PDP via ``CamelSpecialist``.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.camel import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.camel.capability import (
     Capability,

@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — deeper governance subpackages — path_policy, kernel_mcp, stpa_specs (test-only), private_data_exec/ifc (wired via specialists/ifc_specialist)
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Governance Layer
 ================
 
@@ -21,6 +25,12 @@ Modules
                     Strengthens enterprise compliance language.
 
 Priority: P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.governance import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 __all__ = []

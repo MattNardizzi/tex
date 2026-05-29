@@ -12,19 +12,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from tex.agent.suite import AgentEvaluationSuite
-from tex.api.arcade_leaderboard import router as arcade_leaderboard_router  # ARCADE
 from tex.api.agent_routes import build_agent_router
 from tex.api.discovery_routes import build_discovery_router
 from tex.api.tenant_routes import build_tenant_router
 from tex.api.guardrail import router as guardrail_router  # GUARDRAIL: canonical webhook
 from tex.api.guardrail_adapters import router as guardrail_adapters_router  # GUARDRAIL: gateway adapters
 from tex.api.guardrail_streaming import router as guardrail_streaming_router  # GUARDRAIL: SSE + async
-from tex.api.leaderboard import router as leaderboard_router  # LEADERBOARD
 from tex.api.mcp_server import router as mcp_router  # MCP: server interface
+from tex.api.provenance_routes import build_provenance_router  # PROVENANCE: identity-by-behaviour
+from tex.api.discovery_surface_routes import build_discovery_surface_router  # PROVENANCE: count-once voice
 from tex.api.tee_routes import router as tee_router  # Thread 12: composite TEE attestation
 from tex.api.vet_routes import router as vet_router  # Thread 13: VET Web Proofs + AID
 from tex.api.zkprov_routes import router as zkprov_router  # Thread 14: ZKPROV training-data provenance
 from tex.api.incident_routes import build_incident_router  # Thread 3: causal attribution
+from tex.api.vigil_routes import build_vigil_router  # VIGIL: surprise-selected voice (/v1/vigil)
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
 from tex.commands.calibrate_policy import CalibratePolicyCommand
@@ -34,19 +35,28 @@ from tex.commands.report_outcome import ReportOutcomeCommand
 from tex.config import get_settings
 from tex.contracts import BehavioralContract, ContractEnforcer
 from tex.engine.contract_bridge import SessionEnforcerRegistry
-from tex.db import arcade_leaderboard_repo  # ARCADE
-from tex.db import leaderboard_repo  # LEADERBOARD
+from tex.provenance import build_default_provenance_engine  # PROVENANCE
+from tex.provenance.delegation import SealedDelegationGraph  # PROVENANCE: delegation edges
+from tex.provenance.feed import (  # PROVENANCE: continuous feed
+    ContinuousProvenanceFeed,
+    HeldDecisionSink,
+)
 from tex.discovery.connectors import (
     AwsBedrockConnector,
+    CloudAuditConnector,
     GitHubConnector,
+    KernelEbpfConnector,
     MCPServerConnector,
     MicrosoftGraphConnector,
+    NetworkEgressConnector,
     OpenAIAssistantsLiveConnector,
     OpenAIConnector,
     SalesforceConnector,
     SlackConnector,
     SlackLiveConnector,
 )
+from tex.discovery.dormancy import DormancyController  # discovery: dormant-agent doctrine
+from tex.discovery.ignition import IgnitionRegistry  # discovery: count-once
 from tex.discovery.service import DiscoveryService
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.policy import PolicySnapshot
@@ -241,6 +251,31 @@ class TexRuntime:
     # response shape.
     ecosystem_engine: Any = None
     ecosystem_bridge: Any = None
+
+    # PROVENANCE: behavioural identity engine + sealed transparency log.
+    # ----------------------------------------------------------------------
+    # ``provenance_engine`` proves who an agent is by what it does and seals
+    # that identity into a signed, hash-chained log. It consumes the gate's
+    # decision stream (the agent action ledger) and is the one discovery
+    # primitive that survives credential rotation, rename, and the absence
+    # of any self-declared identity. Built once here so the sealed log is a
+    # single durable instance across the app lifecycle.
+    provenance_engine: Any = None
+
+    # PROVENANCE: continuous feed + held-decision sink + sealed delegation
+    # graph, and the discovery dormancy controller + count-once ignition.
+    # ----------------------------------------------------------------------
+    # ``provenance_feed`` fires the engine off the gate's decision stream so
+    # identity seals on its own, silently; ``held_decision_sink`` is the one
+    # place a resolution that needs a human surfaces (the only thing that
+    # earns the voice). ``delegation_graph`` seals who-delegates-to-whom so
+    # the ``dormancy_controller`` can prove an idle agent is safe to sleep.
+    # ``ignition_registry`` makes "Run discovery" speak exactly once.
+    provenance_feed: Any = None
+    held_decision_sink: Any = None
+    delegation_graph: Any = None
+    dormancy_controller: Any = None
+    ignition_registry: Any = None
 
 
 class InMemoryPolicyClauseStoreAdapter:
@@ -613,6 +648,25 @@ def build_runtime(
     #   TEX_DISCOVERY_SLACK_TOKEN      → SlackLiveConnector
     #   TEX_DISCOVERY_SLACK_TEAM_ID    → optional, scope to one workspace
     #
+    # ----- Behavioural provenance (built early so discovery + the gate
+    # ----- can both feed the one sealed identity log) --------------------
+    #
+    # The engine reads the gate's decision stream (the action ledger) to
+    # seal birth / sighting / re-identification / drift, and the discovery
+    # path anchors a birth into the *same* log the instant it registers an
+    # agent — so discovery and provenance are one flow, not two systems.
+    # The signing key is generated here; production injects an HSM/keystore
+    # key by building the ledger explicitly.
+    provenance_engine = build_default_provenance_engine()
+    held_decision_sink = HeldDecisionSink()
+    delegation_graph = SealedDelegationGraph()
+    provenance_feed = ContinuousProvenanceFeed(
+        engine=provenance_engine,
+        action_ledger=action_ledger,
+        held_sink=held_decision_sink,
+        delegation_graph=delegation_graph,
+    )
+
     # Mock connectors start with empty record lists so a default boot
     # produces zero candidates. Live connectors start scanning real
     # tenants the moment they're wired. If a live connector raises a
@@ -667,7 +721,27 @@ def build_runtime(
         connectors=_build_discovery_connectors(),
         scan_run_store=scan_run_store,
         health_store=connector_health_store,
+        provenance_engine=provenance_engine,
     )
+
+    # Dormant-agent doctrine (§2): sleep what is provably safe in silence,
+    # hold the uncertain as a genuine ABSTAIN, never auto-execute the
+    # irreversible day-90 deletion. Idle threshold is the one open detail
+    # the doctrine leaves; default fixed, override via env.
+    _idle_days = int(os.environ.get("TEX_DORMANCY_IDLE_DAYS", "30").strip() or "30")
+    from datetime import timedelta as _timedelta
+
+    dormancy_controller = DormancyController(
+        registry=agent_registry,
+        action_ledger=action_ledger,
+        provenance_engine=provenance_engine,
+        held_sink=held_decision_sink,
+        delegation_graph=delegation_graph,
+        idle_threshold=_timedelta(days=_idle_days),
+    )
+
+    # Count-once ignition flag (§1): "Run discovery" said once per tenant.
+    ignition_registry = IgnitionRegistry()
 
     # ---- V16 control-loop closure ---------------------------------
     # The scheduler can auto-capture a governance snapshot at the
@@ -841,6 +915,9 @@ def build_runtime(
         agent_registry=agent_registry,
         tenant_baseline=tenant_baseline,
         memory_system=memory,
+        # Continuous provenance: identity re-seals off the hot path after
+        # every action. Default None elsewhere keeps legacy callers intact.
+        provenance_feed=provenance_feed,
         # Thread 7: ecosystem bridge for the optional eight-step pass.
         # The command calls ``bridge.emit_verdict(...)`` after PDP runs
         # and folds axis scores into the response only when
@@ -1023,6 +1100,14 @@ def build_runtime(
             sliding_window_compromise_ratio=0.0,
         )
 
+    # ----- Behavioural provenance ----------------------------------------
+    #
+    # The engine, its signed transparency log, the held-decision sink, the
+    # sealed delegation graph, and the continuous feed were all built
+    # earlier (before discovery) so the gate and discovery feed one log.
+    # Start the feed's background sealing worker now that wiring is done.
+    provenance_feed.start()
+
     return TexRuntime(
         pdp=pdp,
         calibrator=calibrator,
@@ -1070,6 +1155,13 @@ def build_runtime(
         # Thread 7
         ecosystem_engine=ecosystem_engine,
         ecosystem_bridge=ecosystem_bridge,
+        # Provenance
+        provenance_engine=provenance_engine,
+        provenance_feed=provenance_feed,
+        held_decision_sink=held_decision_sink,
+        delegation_graph=delegation_graph,
+        dormancy_controller=dormancy_controller,
+        ignition_registry=ignition_registry,
     )
 
 
@@ -1114,17 +1206,6 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _attach_runtime_to_app(app, resolved_runtime)
-        # LEADERBOARD: best-effort schema init. Don't crash the app if DB
-        # is misconfigured — just log it and keep the rest of Tex working.
-        try:
-            await leaderboard_repo.ensure_schema()
-        except Exception as exc:  # pragma: no cover
-            _logger.warning("leaderboard schema init failed: %s", exc)
-        # ARCADE: same pattern — best-effort schema for the arcade leaderboard.
-        try:
-            await arcade_leaderboard_repo.ensure_schema()
-        except Exception as exc:  # pragma: no cover
-            _logger.warning("arcade leaderboard schema init failed: %s", exc)
         # V15: start the background discovery scheduler. ``start()`` is
         # idempotent and a no-op when no tenants are configured, so
         # local-dev boots stay quiet.
@@ -1182,7 +1263,9 @@ def create_app(
     # V16: aggregate read endpoint
     from tex.api.system_state_routes import build_system_state_router
     app.include_router(build_system_state_router())
-    app.include_router(leaderboard_router)  # LEADERBOARD
+    app.include_router(build_vigil_router())  # VIGIL: /v1/vigil surprise-selected voice
+    app.include_router(build_provenance_router())  # PROVENANCE: identity-by-behaviour, sealed
+    app.include_router(build_discovery_surface_router())  # PROVENANCE: count-once voice + pull-only
     app.include_router(tee_router)  # THREAD 12: composite TEE attestation
     app.include_router(vet_router)  # THREAD 13: VET Web Proofs + AID
     app.include_router(zkprov_router)  # THREAD 14: ZKPROV training-data provenance
@@ -1190,7 +1273,6 @@ def create_app(
     # V17: Learning/Drift layer
     from tex.api.learning_routes import build_learning_router
     app.include_router(build_learning_router())
-    app.include_router(arcade_leaderboard_router)  # ARCADE
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
     app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
     app.include_router(guardrail_streaming_router)  # GUARDRAIL: SSE + async + chunk streaming
@@ -1199,19 +1281,6 @@ def create_app(
     # Thread 5: C2PA Content Credentials endpoints
     from tex.api.c2pa_routes import router as c2pa_router
     app.include_router(c2pa_router)
-
-    # Thread 4 (May 2026): Layer 5 (Reporting / Documenting / Logging)
-    # export endpoints. /v1/exports/vp-marketing, /v1/exports/ciso,
-    # /v1/exports/insurer expose the signed evidence chain to three
-    # audiences the deploying company has to answer to (offline
-    # verifiers like insurers / AI Act QMS auditors / NAIC examiners;
-    # the company's own security team; and the team running
-    # customer-facing AI agents). All require scope ``evidence:export``;
-    # the insurer route additionally runs
-    # ``RequireTenantMatch.from_body('tenant_id')`` before the handler
-    # (Thread 3 BOLA defence).
-    from tex.api.pitch_routes import build_pitch_router
-    app.include_router(build_pitch_router())
 
     # Thread 9: Ecosystem digital-twin simulation endpoint.
     # The router is unconditionally registered; the endpoint itself
@@ -1344,6 +1413,59 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # reference via constructor wiring; this is for additional consumers.
     app.state.ecosystem_engine = runtime.ecosystem_engine
     app.state.ecosystem_bridge = runtime.ecosystem_bridge
+
+    # PROVENANCE: behavioural identity engine + sealed transparency log.
+    # Read by /v1/provenance/* to resolve identity-by-behaviour and to let
+    # any relying party verify the signed chain.
+    app.state.provenance_engine = runtime.provenance_engine
+    app.state.provenance_feed = runtime.provenance_feed
+    app.state.held_decision_sink = runtime.held_decision_sink
+    app.state.delegation_graph = runtime.delegation_graph
+    app.state.dormancy_controller = runtime.dormancy_controller
+    app.state.ignition_registry = runtime.ignition_registry
+
+    # VIGIL: the selection layer's engine. Stateless-per-cycle in v1 (warms
+    # the model of normal from ledger history each cycle). Attached here so
+    # v2's live learner can later be injected at construction without
+    # touching the route. /v1/vigil reads the six dimensions off app.state.
+    # VIGIL: the selection layer's engine, now running the full ladder.
+    # v2 live learner (accumulating model of normal), v3 preference/VoI
+    # (calibrated speak threshold from resolved decisions), v4 expected free
+    # energy (set-level policy selection with cause->symptom collapse), v5
+    # causal port (sealed attribution + provability gate). Each is injected
+    # here so the route never changes; /v1/vigil reads the six dimensions off
+    # app.state and the engine consults every rung.
+    from tex.vigil import VigilEngine, build_default_explainer
+    from tex.vigil.causal import CausalAttributionPort
+    from tex.vigil.efe import ExpectedFreeEnergySelector
+    from tex.vigil.learning import DirichletNormalLearner
+    from tex.vigil.preference import PreferenceModel
+
+    _vigil_preference = PreferenceModel()
+    # Warm the preference model from any resolved decisions already on hand,
+    # so the calibrated threshold reflects this shop from the first cycle.
+    try:
+        _vigil_preference.learn_from_stores(
+            getattr(app.state, "decision_store", None),
+            getattr(app.state, "outcome_store", None),
+        )
+    except Exception:  # noqa: BLE001 — never block boot on calibration
+        pass
+
+    app.state.vigil_learner = DirichletNormalLearner()
+    app.state.vigil_preference = _vigil_preference
+    app.state.vigil_engine = VigilEngine(
+        learner=app.state.vigil_learner,
+        preference=_vigil_preference,
+        efe_selector=ExpectedFreeEnergySelector(),
+        causal_port=CausalAttributionPort(
+            decision_store=getattr(app.state, "decision_store", None),
+        ),
+    )
+    # VIGIL: the explanation layer (pull). Deterministic floor by default;
+    # binds an LLM text provider only when TEX_SEMANTIC_PROVIDER='openai'
+    # and a key is present. Never generates a claim — narrates sealed facts.
+    app.state.vigil_explainer = build_default_explainer()
 
 
 def _seed_default_policies(policy_store: InMemoryPolicyStore) -> None:

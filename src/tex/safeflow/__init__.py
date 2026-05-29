@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — transactional execution with WAL — built but not invoked by the runtime today
+
+See ARCHITECTURE.md for the full six-layer model.
+
 SAFEFLOW — Transactional agent execution with WAL and rollback.
 
 Implements the transactional-execution discipline from arxiv 2506.07564
@@ -51,7 +55,13 @@ Components
 - ``rollback``       — inverse-operation registry
 - ``executor``       — runs transactions, drives WAL, decides commit /
                        rollback
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.safeflow import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.safeflow.executor import (
     SafeflowError,

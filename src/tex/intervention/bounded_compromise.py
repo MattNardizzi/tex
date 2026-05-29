@@ -83,8 +83,7 @@ class CompromiseCertificate:
     A structured certificate of bound satisfaction.
 
     Emitted as a payload field on the intervention's governance-ledger
-    record so an external auditor (NAIC examiner, cyber-insurance
-    underwriter) can read the *math* the system applied -- not just the
+    record so an external auditor can read the *math* the system applied -- not just the
     enforcement decision.
 
     Fields are floats; the governance-log canonicaliser coerces them to

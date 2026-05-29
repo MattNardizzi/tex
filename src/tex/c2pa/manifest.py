@@ -321,7 +321,7 @@ def build_email_manifest(
         instance_id=resolved_instance,
         claim_generator="tex/2.0",
         claim_generator_info={
-            "name": "Tex Aegis",
+            "name": "Tex",
             "version": "2.0",
             "model": {"name": model_name, "version": model_version},
         },

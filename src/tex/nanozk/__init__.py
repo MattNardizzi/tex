@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — layerwise zero-knowledge proofs for model inference integrity
+
+See ARCHITECTURE.md for the full six-layer model.
+
 NANOZK: Layerwise Zero-Knowledge Proofs of Transformer Inference (Thread 15)
 ============================================================================
 
@@ -175,9 +179,16 @@ Module surface
 - ``nanozk.veil_wrapper`` — VEIL-style hash-based ZK compiler that
   takes a layerwise sumcheck proof and adds zero-knowledge with the
   ~3% overhead the VEIL paper documents.
+
 """
 
 from __future__ import annotations
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.nanozk import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
+
 
 from tex.nanozk.fisher_guided import (
     FisherSelectionResult,

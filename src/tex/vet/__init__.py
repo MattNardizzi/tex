@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 5 (Evidence)] — Verifiable Evidence Trail — Web Proofs, AID, SCITT, SD-JWT-VC, transparent receipts
+
+See ARCHITECTURE.md for the full six-layer model.
+
 VET: Verifiable Execution Traces
 ================================
 
@@ -24,7 +28,13 @@ P2 spike — implement after pqcrypto + tee ground floor is in place.
 The VET Agent Identity Document (AID) is the headline artifact: a "passport"
 for Tex that binds Tex's configuration and the proof systems it uses to
 its public identity.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.vet import __layer__, __layer_kind__`.
+__layer__: int | None = 5
+__layer_kind__: str = 'evidence'
 
 from tex.vet.agent_identity_document import AgentIdentityDocument
 

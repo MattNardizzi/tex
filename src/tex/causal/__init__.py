@@ -1,4 +1,8 @@
 """
+[Architecture: Layer 4 (Execution Governance)] — causal attribution engine for incidents — wired via api/incident_routes and ecosystem/engine
+
+See ARCHITECTURE.md for the full six-layer model.
+
 Causal Layer — Hierarchical Causal Graphs + Reference Monitor
 ==============================================================
 
@@ -17,7 +21,13 @@ Two complementary mechanisms:
 Priority
 --------
 P1.
+
 """
+
+# Architectural layer marker (see ARCHITECTURE.md).
+# Queryable as `from tex.causal import __layer__, __layer_kind__`.
+__layer__: int | None = 4
+__layer_kind__: str = 'execution_governance'
 
 from tex.causal.arm import (
     AgenticReferenceMonitor,

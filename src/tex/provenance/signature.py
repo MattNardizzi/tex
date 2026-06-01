@@ -241,6 +241,36 @@ class BehavioralSignature:
         """
         return self.observation_count >= WARM_OBSERVATION_THRESHOLD
 
+    @classmethod
+    def from_jsonable(cls, data: Mapping[str, Any]) -> "BehavioralSignature":
+        """
+        Reconstruct a signature from its ``to_jsonable`` form. Used to
+        rehydrate the engine's identity projection from the sealed ledger
+        on boot — the event-sourcing replay that makes the witness's
+        memory survive a restart. The reconstructed signature is hashed
+        the same way, so its ``signature_hash`` matches the sealed one.
+        """
+        sig = cls(
+            observation_count=int(data.get("observation_count", 0)),
+            action_type_dist=dict(data.get("action_type_dist", {})),
+            channel_dist=dict(data.get("channel_dist", {})),
+            environment_dist=dict(data.get("environment_dist", {})),
+            verdict_mix=dict(data.get("verdict_mix", {})),
+            tool_set=frozenset(data.get("tool_set", ())),
+            mcp_set=frozenset(data.get("mcp_set", ())),
+            data_scope_set=frozenset(data.get("data_scope_set", ())),
+            score_mean=float(data.get("score_mean", 0.0)),
+            score_std=float(data.get("score_std", 0.0)),
+            violation_rate=float(data.get("violation_rate", 0.0)),
+            system_prompt_hash=data.get("system_prompt_hash"),
+            tool_manifest_hash=data.get("tool_manifest_hash"),
+            memory_hash=data.get("memory_hash"),
+            cadence_median_s=float(data.get("cadence_median_s", 0.0)),
+            cadence_dispersion=float(data.get("cadence_dispersion", 0.0)),
+            signature_hash="",
+        )
+        return sig._with_hash()
+
     def to_jsonable(self) -> dict[str, Any]:
         return {
             "observation_count": self.observation_count,

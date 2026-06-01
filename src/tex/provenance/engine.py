@@ -44,6 +44,11 @@ from uuid import UUID
 from tex.domain.agent import ActionLedgerEntry
 from tex.domain.signal_trust import SignalTrustTier
 from tex.provenance.distance import behavioral_confidence
+from tex.provenance.intent import (
+    DEFAULT_INTENT_SCORER,
+    INTENT_DIVERGENCE_REVIEW_THRESHOLD,
+    IntentScorer,
+)
 from tex.provenance.ledger import BehavioralProvenanceLedger
 from tex.provenance.models import (
     BehavioralBirthCertificate,
@@ -105,6 +110,11 @@ class BehavioralProvenanceEngine:
     ledger: BehavioralProvenanceLedger
     _known: dict[str, _KnownIdentity] = field(default_factory=dict)
     _lock: threading.RLock = field(default_factory=threading.RLock)
+    # The declared-vs-observed intent comparator. Default is the
+    # deterministic, content-free, offline-verifiable taxonomy scorer; an
+    # operator may inject an embedding scorer. The method is sealed beside
+    # any grade so it can be re-derived or re-graded later.
+    intent_scorer: IntentScorer = field(default=DEFAULT_INTENT_SCORER)
 
     # ------------------------------------------------------------------
     def observe(
@@ -249,6 +259,7 @@ class BehavioralProvenanceEngine:
             confidence=confidence,
             signal_tier=int(max(signal_tier, known.signal_tier)),
             observation_count=signature.observation_count,
+            detail={"signature": signature.to_jsonable()},
         )
         known.signature = signature
         known.signal_tier = max(signal_tier, known.signal_tier)
@@ -288,6 +299,7 @@ class BehavioralProvenanceEngine:
             detail={
                 "recognized_as": str(best.agent_id),
                 "shared_anchors": best.shared_anchors,
+                "signature": signature.to_jsonable(),
             },
         )
         now = datetime.now(UTC)
@@ -329,7 +341,7 @@ class BehavioralProvenanceEngine:
             confidence=1.0 - drift,
             signal_tier=int(signal_tier),
             observation_count=signature.observation_count,
-            detail={"drift": round(drift, 6), "baseline": known.signature.signature_hash},
+            detail={"drift": round(drift, 6), "baseline": known.signature.signature_hash, "signature": signature.to_jsonable()},
         )
         known.signature = signature
         known.last_seen_at = datetime.now(UTC)
@@ -450,6 +462,15 @@ class BehavioralProvenanceEngine:
             )._with_hash()
 
             seal_detail = {"discovery_birth": True, "signal_tier": signal_tier.label}
+            # Seal the stable anchors so a restart can reconstruct this cold
+            # identity's signature exactly (event-sourcing replay), not just
+            # its hash. Content-free: these are hashes, never text.
+            if system_prompt_hash:
+                seal_detail["system_prompt_hash"] = system_prompt_hash
+            if tool_manifest_hash:
+                seal_detail["tool_manifest_hash"] = tool_manifest_hash
+            if memory_hash:
+                seal_detail["memory_hash"] = memory_hash
             if declared_intent:
                 seal_detail["declared_intent"] = declared_intent
             if detail:
@@ -605,8 +626,16 @@ class BehavioralProvenanceEngine:
     def intent_drift(self, agent_id: UUID) -> dict | None:
         """
         Compare an agent's *declared* intent (sealed at birth) against the
-        action shape it has actually exercised. The gap is the signal
-        nobody else has, because nobody else sealed the declaration.
+        action shape it has actually exercised, via the injected scorer.
+        The gap is the signal nobody else has, because nobody else sealed
+        the declaration.
+
+        Rename-resistant by construction: the scorer compares behavioural
+        *categories*, not action-type strings, so an agent that renames a
+        capability to dodge a keyword filter still lands in the same
+        category. ``requires_human`` is set when the divergence — the share
+        of behavioural mass outside the declaration — crosses the review
+        threshold, routing the consequential case to the held path.
 
         Returns None when nothing was declared.
         """
@@ -614,27 +643,185 @@ class BehavioralProvenanceEngine:
             known = self._known.get(str(agent_id))
             if known is None or not known.declared_intent:
                 return None
-            declared = known.declared_intent.casefold()
-            observed_actions = sorted(known.signature.action_type_dist.keys())
+            declared_intent = known.declared_intent
+            action_dist = dict(known.signature.action_type_dist)
             warm = known.signature.is_warm
 
-        matched = [a for a in observed_actions if a.casefold() in declared]
-        unmatched = [a for a in observed_actions if a.casefold() not in declared]
-        coverage = (len(matched) / len(observed_actions)) if observed_actions else 0.0
+        alignment = self.intent_scorer.score(declared_intent, action_dist)
+        requires_human = (
+            warm and alignment.divergence >= INTENT_DIVERGENCE_REVIEW_THRESHOLD
+        )
         return {
-            "declared_intent": known.declared_intent,
-            "observed_action_types": observed_actions,
-            "consistent_with_declaration": matched,
-            "outside_declaration": unmatched,
-            "declaration_coverage": round(coverage, 4),
+            "declared_intent": declared_intent,
+            "declared_categories": list(alignment.declared_categories),
+            "observed_categories": list(alignment.observed_categories),
+            "consistent_with_declaration": list(alignment.consistent_categories),
+            "outside_declaration": list(alignment.divergent_categories),
+            "declaration_coverage": alignment.coverage,
+            "intent_divergence": alignment.divergence,
+            "scoring_method": alignment.method,
             "warm": warm,
-            "note": (
-                "behaviour falls outside the sealed declaration"
-                if unmatched
-                else "behaviour consistent with the sealed declaration"
-            ),
+            "requires_human": requires_human,
+            "note": alignment.note,
         }
 
     def known_count(self) -> int:
         with self._lock:
             return len(self._known)
+
+    # ------------------------------------------------------------------ memory
+    #
+    # The engine's ``_known`` map is a *projection* (a read model) over the
+    # sealed ledger, which is the event store. On its own the projection is
+    # process-local: a restart leaves it empty while the ledger still holds
+    # the full history, so the first post-restart sighting of a known agent
+    # would mint a second birth and the "continuous witness" claim would be
+    # a lie. The standard event-sourcing answer is to rebuild the projection
+    # by replaying the log. That is what ``rebuild_from_ledger`` does.
+    #
+    # Snapshots are a performance optimization, not a correctness one — the
+    # discipline ("KISS until replay is slow") is to ship the interface and
+    # leave it dormant: ``snapshot()`` captures the projection at a sequence,
+    # and ``rebuild_from_ledger(snapshot=...)`` resumes from there instead of
+    # genesis. Default replay is from genesis, which is correct at any size.
+
+    def rebuild_from_ledger(self, *, snapshot: dict | None = None) -> int:
+        """
+        Reconstruct the identity projection by replaying the sealed ledger.
+        Idempotent and safe to call on a fresh engine at boot. Returns the
+        number of distinct identities rebuilt.
+
+        With ``snapshot`` provided, only records after the snapshot's
+        ``last_sequence`` are replayed and the snapshot's identities seed
+        the projection — the resume path. Without it, the whole log is
+        replayed, which is always correct.
+        """
+        with self._lock:
+            self._known = {}
+            start_after = -1
+            if snapshot is not None:
+                start_after = int(snapshot.get("last_sequence", -1))
+                for entry in snapshot.get("identities", ()):  # seed from snapshot
+                    ident = self._identity_from_snapshot(entry)
+                    self._known[str(ident.agent_id)] = ident
+
+            for record in self.ledger.list_all():
+                if record.sequence <= start_after:
+                    continue
+                self._apply_record(record)
+            return len(self._known)
+
+    def _apply_record(self, record) -> None:
+        """Fold one sealed record into the in-memory projection."""
+        key = str(record.agent_id)
+        kind = record.event_kind
+        detail = record.detail or {}
+        tier = SignalTrustTier(int(record.signal_tier))
+        recorded_at = record.recorded_at
+
+        if kind is ProvenanceEventKind.BIRTH:
+            signature = self._signature_from_detail(detail)
+            self._known[key] = _KnownIdentity(
+                agent_id=record.agent_id,
+                signature=signature,
+                signal_tier=tier,
+                born_at=recorded_at,
+                born_at_sequence=record.sequence,
+                birth_record_hash=record.record_hash,
+                last_seen_at=recorded_at,
+                total_observations=int(record.observation_count),
+                declared_intent=detail.get("declared_intent"),
+                confirmed_tiers={tier},
+            )
+            return
+
+        if kind is ProvenanceEventKind.REIDENTIFIED:
+            # The new alias becomes its own known identity, linked by the
+            # sealed record to the prior one (a merge stays a human's call).
+            signature = self._signature_from_detail(detail)
+            self._known[key] = _KnownIdentity(
+                agent_id=record.agent_id,
+                signature=signature,
+                signal_tier=tier,
+                born_at=recorded_at,
+                born_at_sequence=record.sequence,
+                birth_record_hash=record.record_hash,
+                last_seen_at=recorded_at,
+                total_observations=int(record.observation_count),
+                confirmed_tiers={tier},
+            )
+            return
+
+        known = self._known.get(key)
+        if known is None:
+            # A sighting/drift/sleep for an agent whose birth we never saw
+            # (e.g. a truncated log). Skip rather than fabricate a birth.
+            return
+
+        if kind in (ProvenanceEventKind.SIGHTING, ProvenanceEventKind.DRIFT):
+            if "signature" in detail:
+                known.signature = self._signature_from_detail(detail)
+            known.signal_tier = max(known.signal_tier, tier)
+            known.confirmed_tiers.add(tier)
+            known.last_seen_at = recorded_at
+            known.total_observations += int(record.observation_count)
+        elif kind in (ProvenanceEventKind.SLEPT, ProvenanceEventKind.WOKE):
+            known.last_seen_at = recorded_at
+
+    @staticmethod
+    def _signature_from_detail(detail: dict) -> BehavioralSignature:
+        """Reconstruct a behavioural signature from a sealed record's detail."""
+        if "signature" in detail:
+            return BehavioralSignature.from_jsonable(detail["signature"])
+        # A discovery (cold) birth seals only its stable anchors. Rebuild an
+        # observation-free signature from them so a later behavioural
+        # sighting confirms the same identity rather than minting a new one.
+        return BehavioralSignature(
+            observation_count=0,
+            system_prompt_hash=detail.get("system_prompt_hash"),
+            tool_manifest_hash=detail.get("tool_manifest_hash"),
+            memory_hash=detail.get("memory_hash"),
+        )._with_hash()
+
+    def _identity_from_snapshot(self, entry: dict) -> _KnownIdentity:
+        tier = SignalTrustTier(int(entry["signal_tier"]))
+        return _KnownIdentity(
+            agent_id=UUID(entry["agent_id"]),
+            signature=BehavioralSignature.from_jsonable(entry["signature"]),
+            signal_tier=tier,
+            born_at=datetime.fromisoformat(entry["born_at"]),
+            born_at_sequence=int(entry["born_at_sequence"]),
+            birth_record_hash=entry["birth_record_hash"],
+            last_seen_at=datetime.fromisoformat(entry["last_seen_at"]),
+            total_observations=int(entry.get("total_observations", 0)),
+            declared_intent=entry.get("declared_intent"),
+            confirmed_tiers={
+                SignalTrustTier(int(t)) for t in entry.get("confirmed_tiers", (int(tier),))
+            },
+        )
+
+    def snapshot(self) -> dict:
+        """
+        Capture the projection as a resume point. Dormant by default — the
+        boot path replays from genesis — but ready for the day replay time
+        on a hot estate justifies it. Pairs with
+        ``rebuild_from_ledger(snapshot=...)``.
+        """
+        with self._lock:
+            last_sequence = len(self.ledger) - 1
+            identities = [
+                {
+                    "agent_id": str(k.agent_id),
+                    "signature": k.signature.to_jsonable(),
+                    "signal_tier": int(k.signal_tier),
+                    "born_at": k.born_at.isoformat(),
+                    "born_at_sequence": k.born_at_sequence,
+                    "birth_record_hash": k.birth_record_hash,
+                    "last_seen_at": k.last_seen_at.isoformat(),
+                    "total_observations": k.total_observations,
+                    "declared_intent": k.declared_intent,
+                    "confirmed_tiers": [int(t) for t in k.confirmed_tiers],
+                }
+                for k in self._known.values()
+            ]
+        return {"last_sequence": last_sequence, "identities": identities}

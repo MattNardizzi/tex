@@ -248,6 +248,53 @@ in the gate case, the same grant Tex needs for its core job anyway.
 
 ## 8. Build status
 
+**Root-layer upgrades (2026-06-01, built on the spine):**
+- **Ignition now maps, then counts** (`/v1/surface/discovery/ignite`): on the
+  first fire for a tenant it runs the full `DiscoveryService.scan`, sealing a
+  behavioural birth for every agent found (engine memory engages here), then
+  speaks one line — the count of the *running estate* (everything discovered
+  and present, excluding the silently-slept and the revoked; a freshly-
+  discovered PENDING agent is still running). Was count-only; this is the
+  doctrine's §1 ignition made real. The new roots are registered in
+  `_build_discovery_connectors` with live-or-seed fallback, so "click Begin"
+  maps a believable estate through the real pipeline even before a customer
+  grant (`tex.discovery.demo_seed`). The surface accepts an optional
+  per-session `tenant_id` (anonymous/cross-tenant only) so the preview runs
+  the real pipeline each visit and the day-one door replays; a real operator
+  console omits it and ignites once for its own tenant.
+- **Engine memory — event-sourcing rehydration** (`engine.rebuild_from_ledger`,
+  `engine.snapshot`): the identity map is a projection over the sealed
+  ledger and is rebuilt by replaying it on boot, so a restart resolves a
+  known agent's next action as a SIGHTING, never a second BIRTH. SIGHTING /
+  DRIFT / REIDENTIFIED now seal their signature into the record, and a
+  discovery birth seals its anchors, so the replay is faithful. Snapshot
+  resume is built but dormant (replay-from-genesis is correct at any size;
+  snapshots are a perf optimization for later). Wired into boot in `main`.
+- **Root one — live IdP consent-graph enumerator** (`EntraConsentGraphConnector`
+  + `ConsentGraph` + `GraphTransport`): one read-only admin grant, walks
+  `servicePrincipals` + `oauth2PermissionGrants` + `appRoleAssignments`,
+  builds the consent graph, computes per-agent **blast radius** (transitive
+  reach), emits `CandidateAgent` at CONTROL_PLANE. Delta query exposed as the
+  standing watch (`sweep_delta`). I/O behind `GraphTransport`: `Live`
+  (httpx, client-credentials, nextLink paging, 429 backoff, delta) vs
+  `Fixture` (tests). **Live path needs a real tenant to prove; logic is
+  fully unit-tested without one.** This replaces the per-platform connector
+  list as the seamless one-grant core; the Graph mock is kept for tests.
+- **Root two — OCSF audit plane** (`OcsfAuditConnector` + `tex.discovery.ocsf`):
+  consumes OCSF-normalized events (Security Lake) or raw CloudTrail via the
+  adapter, groups by acting agent, emits `CandidateAgent` at AUDIT_LOG. One
+  parser for every OCSF-speaking SIEM; catches the shadow agent the consent
+  graph misses, as actions it cannot suppress. Injectable source; fixture-
+  tested. (The earlier `CloudAuditConnector` mock is kept for tests.)
+- **Intent — deterministic, rename-resistant comparison** (`tex.provenance.intent`):
+  declared intent and observed action types are classified into a shared
+  **capability taxonomy** and compared by distribution-weighted divergence,
+  so a synonym rename (`suppress_logs` ≡ `disable_monitoring`) no longer
+  dodges the grade the way the old substring match did. Deterministic,
+  content-free, offline-verifiable; scorer injectable, method sealed for
+  re-grading. `engine.intent_drift` routes consequential divergence to the
+  held path.
+
 **Built and wired (verified):**
 - `tex.provenance` — signature, distance, signed hash-chained ledger,
   engine (BIRTH / SIGHTING / REIDENTIFIED / DRIFT, graded confidence).
@@ -303,11 +350,16 @@ in the gate case, the same grant Tex needs for its core job anyway.
   the macOS zip-duplicate directories.
 
 **Next (designed, not yet built):**
-- Real backend wiring for the connectors (the planes are mocks following
-  the repo convention; live versions implement the same Protocol).
+- Live tenant proving for root one (Entra/Okta) and root two (CloudTrail /
+  Security Lake) — the logic is built and unit-tested behind injectable
+  transports; only a real tenant/account can prove the live I/O paths.
+- Root four (boundary tracing — AgentSight/Tetragon, KERNEL_ATTESTED):
+  deliberately left dormant as the regulated-buyer upsell, not pre-built.
 - Learned-per-estate idle threshold (vs the fixed default).
 - A daemon scheduler tick that calls `DormancyController.sweep()`
   continuously (today it sweeps on demand).
+- Optional embedding-based intent scorer (the taxonomy scorer is the
+  default; an operator who accepts a model dependency can inject one).
 
 ---
 

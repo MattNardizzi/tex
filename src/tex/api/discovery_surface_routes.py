@@ -68,13 +68,36 @@ def _engine(request: Request):
     return getattr(request.app.state, "provenance_engine", None)
 
 
-def _running_count(registry, tenant: str) -> int:
-    """Agents that are running (ACTIVE) for this tenant."""
+def _discovery_service(request: Request):
+    return getattr(request.app.state, "discovery_service", None)
+
+
+# Agents that are "running" in the estate for the spoken count: everything
+# discovered and present, excluding the ones Tex put to sleep (the dormant
+# doctrine forbids speaking about them) and the terminally revoked. A
+# freshly-discovered agent is PENDING governance but is still running — that
+# is exactly what ignition is meant to surface.
+_NOT_RUNNING = {AgentLifecycleStatus.SLEEPING, AgentLifecycleStatus.REVOKED}
+
+
+def _estate_count(registry, tenant: str) -> int:
     return sum(
         1
-        for a in registry.list_by_status(AgentLifecycleStatus.ACTIVE)
-        if a.tenant_id == tenant
+        for a in registry.list_all()
+        if a.tenant_id == tenant and a.lifecycle_status not in _NOT_RUNNING
     )
+
+
+def _resolve_tenant(principal: TexPrincipal, override: str | None) -> str:
+    """
+    The tenant a surface call operates on. Defaults to the principal's own
+    tenant; an explicit override is honoured only for a principal allowed to
+    act cross-tenant (anonymous/dev or a cross-tenant-scoped key), which is
+    what lets the preview surface run each visit under its own fresh tenant.
+    """
+    if override and principal.can_access_tenant(override):
+        return override.strip().casefold()
+    return principal.tenant
 
 
 def build_discovery_surface_router() -> APIRouter:
@@ -83,13 +106,14 @@ def build_discovery_surface_router() -> APIRouter:
     @router.get("/status", summary="Has ignition fired for this tenant? (no side effect)")
     def status_(
         request: Request,
+        tenant_id: str | None = Query(default=None),
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> dict[str, Any]:
         # A pure read so the surface can decide whether to show the day-one
         # door WITHOUT firing ignition. The door is shown iff ignition has
         # not fired; firing is the user's deliberate act on /ignite.
         ignition = _ignition(request)
-        tenant = principal.tenant
+        tenant = _resolve_tenant(principal, tenant_id)
         fired = ignition.has_fired(tenant)
         at = ignition.fired_at(tenant)
         return {
@@ -97,14 +121,15 @@ def build_discovery_surface_router() -> APIRouter:
             "ignited_at": at.isoformat() if at else None,
         }
 
-    @router.post("/ignite", summary="Begin watching the estate — the count, said once")
+    @router.post("/ignite", summary="Begin watching the estate — map it, then the count, said once")
     def ignite(
         request: Request,
+        tenant_id: str | None = Query(default=None, description="Override tenant (anonymous/cross-tenant only)"),
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> dict[str, Any]:
         registry = _registry(request)
         ignition = _ignition(request)
-        tenant = principal.tenant
+        tenant = _resolve_tenant(principal, tenant_id)
 
         if ignition.has_fired(tenant):
             # The door has already opened. Pull-only from here; never
@@ -116,7 +141,23 @@ def build_discovery_surface_router() -> APIRouter:
                 "ignited_at": ignition.fired_at(tenant).isoformat(),
             }
 
-        count = _running_count(registry, tenant)
+        # Ignition is the moment the witness starts watching: do the full
+        # multi-plane discovery now, seal a behavioural birth for everything
+        # found (the provenance engine engages here), take the inventory in,
+        # then surface exactly one line — the count of what is running.
+        # (DISCOVERY_DOCTRINE §1.) Silent by construction: the scan speaks
+        # nothing; only this single ignition line is spoken.
+        service = _discovery_service(request)
+        if service is not None:
+            try:
+                service.scan(tenant_id=tenant, trigger="ignition")
+            except Exception:  # noqa: BLE001
+                # Discovery is decoupled from the voice: if a scan errors,
+                # ignition still speaks the truth of what is already known
+                # rather than failing the operator's deliberate act.
+                pass
+
+        count = _estate_count(registry, tenant)
         ignition.fire(tenant)
         words = humanize_count(count)
         agents = "agent" if count == 1 else "agents"
@@ -130,10 +171,11 @@ def build_discovery_surface_router() -> APIRouter:
     @router.get("/count", summary="How many now (pull-only)")
     def count(
         request: Request,
+        tenant_id: str | None = Query(default=None),
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> dict[str, Any]:
         registry = _registry(request)
-        n = _running_count(registry, principal.tenant)
+        n = _estate_count(registry, _resolve_tenant(principal, tenant_id))
         words = humanize_count(n)
         agents = "agent" if n == 1 else "agents"
         return {"spoken": f"{words.capitalize()} {agents} running.", "object": None, "count": n}

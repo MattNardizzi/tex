@@ -658,6 +658,13 @@ def build_runtime(
     # The signing key is generated here; production injects an HSM/keystore
     # key by building the ledger explicitly.
     provenance_engine = build_default_provenance_engine()
+    # Event-sourcing rehydration: the engine's identity map is a projection
+    # over the sealed ledger, so on boot we rebuild it by replaying the log.
+    # A no-op on a fresh in-memory ledger, but it makes the "continuous
+    # witness" guarantee real the instant a durable ledger is injected — a
+    # restart resolves a known agent's next action as a sighting, never a
+    # second birth. (DISCOVERY_DOCTRINE §3.8, §8 next.)
+    provenance_engine.rebuild_from_ledger()
     held_decision_sink = HeldDecisionSink()
     delegation_graph = SealedDelegationGraph()
     provenance_feed = ContinuousProvenanceFeed(
@@ -1548,6 +1555,69 @@ def _build_discovery_connectors() -> list:
         GitHubConnector(),
         MCPServerConnector(),
     ]
+
+    # Root one — the IdP consent-graph enumerator (the seamless one-grant
+    # core). With a real Entra admin grant it walks the live directory; with
+    # no grant it runs against the demo seed so "click Begin" still maps a
+    # believable estate through the real pipeline. Either way the connector
+    # logic is identical — only the transport differs.
+    from tex.discovery.connectors.entra_consent_graph import EntraConsentGraphConnector
+    from tex.discovery.graph_transport import (
+        FixtureGraphTransport,
+        GraphCredentials,
+        LiveGraphTransport,
+    )
+
+    entra_tenant = os.environ.get("TEX_DISCOVERY_ENTRA_TENANT_ID", "").strip()
+    entra_client = os.environ.get("TEX_DISCOVERY_ENTRA_CLIENT_ID", "").strip()
+    entra_secret = os.environ.get("TEX_DISCOVERY_ENTRA_CLIENT_SECRET", "").strip()
+    if entra_tenant and entra_client and entra_secret:
+        try:
+            connectors.append(
+                EntraConsentGraphConnector(
+                    transport=LiveGraphTransport(
+                        GraphCredentials(
+                            tenant_id=entra_tenant,
+                            client_id=entra_client,
+                            client_secret=entra_secret,
+                        )
+                    )
+                )
+            )
+            _logger.info("discovery: Entra consent-graph live connector wired")
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "discovery: Entra live connector failed to construct (%s); seeding", exc
+            )
+            from tex.discovery.demo_seed import entra_pages
+            connectors.append(
+                EntraConsentGraphConnector(transport=FixtureGraphTransport(entra_pages()))
+            )
+    else:
+        from tex.discovery.demo_seed import entra_pages
+        connectors.append(
+            EntraConsentGraphConnector(transport=FixtureGraphTransport(entra_pages()))
+        )
+
+    # Root two — the OCSF audit plane (the agentless, tamper-resistant
+    # catch). A real deployment points it at Security Lake / CloudTrail; with
+    # no source it runs against the demo seed of shadow-agent activity.
+    from tex.discovery.connectors.cloud_audit_ocsf import OcsfAuditConnector
+
+    audit_query = os.environ.get("TEX_DISCOVERY_AUDIT_QUERY", "").strip()
+    if audit_query:
+        # A live deployment supplies its own reader (Athena/CloudTrail Lake
+        # query, Security Lake S3). Left as the seam to implement per estate.
+        _logger.info("discovery: audit query configured; live reader is deployment-supplied")
+        from tex.discovery.demo_seed import cloudtrail_records
+        connectors.append(
+            OcsfAuditConnector(source=lambda ctx: cloudtrail_records(), source_format="cloudtrail")
+        )
+    else:
+        from tex.discovery.demo_seed import cloudtrail_records
+        connectors.append(
+            OcsfAuditConnector(source=lambda ctx: cloudtrail_records(), source_format="cloudtrail")
+        )
 
     # OpenAI Assistants
     openai_key = os.environ.get("TEX_DISCOVERY_OPENAI_API_KEY", "").strip()

@@ -216,8 +216,13 @@ def test_intent_drift_flags_behaviour_outside_declaration():
     engine.observe(agent_id=agent, entries=window)
     drift = engine.intent_drift(agent)
     assert drift is not None
-    assert "delete_record" in drift["outside_declaration"]
-    assert "invoke_model" in drift["consistent_with_declaration"]
+    # The grade now speaks in capability *categories* (rename-resistant),
+    # not raw action-type strings: deleting records is data_delete, which is
+    # outside a declaration that only covers invoking a model.
+    assert "data_delete" in drift["outside_declaration"]
+    assert "tool_use" in drift["consistent_with_declaration"]
+    assert drift["intent_divergence"] > 0.0
+    assert drift["scoring_method"] == "taxonomy_v1"
 
 
 # =========================================================================== #3 ignition

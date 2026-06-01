@@ -729,6 +729,7 @@ def build_runtime(
         scan_run_store=scan_run_store,
         health_store=connector_health_store,
         provenance_engine=provenance_engine,
+        held_sink=held_decision_sink,
     )
 
     # Dormant-agent doctrine (§2): sleep what is provably safe in silence,
@@ -793,7 +794,19 @@ def build_runtime(
             "TEX_DISCOVERY_SCAN_POLICY_VERSION", ""
         ).strip() or None,
         metrics=discovery_metrics,
+        # The standing tick also runs the dormant-agent doctrine sweep.
+        dormancy_controller=dormancy_controller,
     )
+
+    # Until a real client connects, run the standing system against a demo
+    # tenant so the full loop — periodic re-scan (the standing watch),
+    # dormancy sweep, and held-decision surfacing — is live and visible
+    # against the demo seed. A real tenant is enrolled on its ignition.
+    _demo_watch_tenant = os.environ.get(
+        "TEX_DISCOVERY_DEMO_TENANT", "demo"
+    ).strip().casefold()
+    if _demo_watch_tenant:
+        scan_scheduler.enroll_tenant(_demo_watch_tenant)
 
     # ── Thread 1 / 1.5: behavioral contracts (LTLf) wiring ────────────────
     # The default runtime ships a small, opt-out contract suite. Operators

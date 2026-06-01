@@ -224,6 +224,8 @@ class DiscoveryService:
         "_scan_run_store",
         "_health_store",
         "_provenance_engine",
+        "_held_sink",
+        "_surfaced_holds",
     )
 
     def __init__(
@@ -237,6 +239,7 @@ class DiscoveryService:
         scan_run_store: ScanRunStore | None = None,
         health_store: ConnectorHealthStore | None = None,
         provenance_engine: Any | None = None,
+        held_sink: Any | None = None,
     ) -> None:
         self._registry = registry
         self._ledger = ledger
@@ -250,6 +253,14 @@ class DiscoveryService:
         # admissibility tier — discovery and provenance become one flow.
         # Default None keeps the legacy path bit-for-bit.
         self._provenance_engine = provenance_engine
+        # Optional: the held-decision queue the voice reads from. When wired
+        # and a scan is asked to ``surface_holds``, a candidate held for
+        # operator review (an unbounded surface) is routed here so Tex can
+        # speak it — the held path is one of the two things that earn the
+        # voice. Deduped per reconciliation key so a standing re-scan does
+        # not re-raise the same hold every cycle.
+        self._held_sink = held_sink
+        self._surfaced_holds: set[str] = set()
 
     # ------------------------------------------------------------------ ops
 
@@ -274,6 +285,7 @@ class DiscoveryService:
         trigger: str = "manual",
         idempotency_key: str | None = None,
         policy_version: str | None = None,
+        surface_holds: bool = False,
     ) -> DiscoveryScanResult:
         """
         Run a full discovery scan against every wired connector.
@@ -346,7 +358,7 @@ class DiscoveryService:
                     for candidate in connector.scan(context):
                         candidates_seen += 1
                         connector_candidates += 1
-                        entry = self._handle_candidate(candidate)
+                        entry = self._handle_candidate(candidate, surface_holds=surface_holds)
                         new_entries.append(entry)
                         outcomes_summary[entry.outcome.action] = (
                             outcomes_summary.get(entry.outcome.action, 0) + 1
@@ -579,7 +591,7 @@ class DiscoveryService:
 
     # ------------------------------------------------------------------ inner
 
-    def _handle_candidate(self, candidate: CandidateAgent) -> DiscoveryLedgerEntry:
+    def _handle_candidate(self, candidate: CandidateAgent, *, surface_holds: bool = False) -> DiscoveryLedgerEntry:
         """
         Run reconciliation for one candidate and apply the resulting
         side effects atomically (registry first, then ledger). The
@@ -605,10 +617,54 @@ class DiscoveryService:
         if decision.new_agent is not None and self._provenance_engine is not None:
             self._seal_discovery_birth(decision.new_agent, candidate)
 
+        # A candidate held for operator review (an unbounded capability
+        # surface Tex will not auto-promote) is one of the held decisions
+        # that earns the voice. Route it to the held queue so the surface
+        # can speak it — once per candidate, even across standing re-scans.
+        if surface_holds and self._held_sink is not None:
+            self._maybe_surface_hold(candidate, decision)
+
         return self._ledger.append(
             candidate=candidate,
             outcome=decision.outcome,
         )
+
+    def _maybe_surface_hold(self, candidate: CandidateAgent, decision: ReconciliationDecision) -> None:
+        action = decision.outcome.action
+        if action not in (
+            ReconciliationAction.HELD_AMBIGUOUS,
+            ReconciliationAction.HELD_DUPLICATE,
+        ):
+            return
+        key = candidate.reconciliation_key
+        if key in self._surfaced_holds:
+            return
+        self._surfaced_holds.add(key)
+        try:
+            from tex.provenance.feed import HeldDecision
+
+            self._held_sink.append(
+                HeldDecision(
+                    agent_id=candidate.candidate_id,
+                    kind="discovery_unbounded_surface",
+                    confidence=float(candidate.confidence),
+                    note=(
+                        f"{candidate.name} was discovered requesting an unbounded "
+                        "capability surface; Tex will not let it operate without a "
+                        "human blessing it."
+                    ),
+                    detail={
+                        "reconciliation_key": key,
+                        "source": str(candidate.source),
+                        "owner": candidate.owner_hint,
+                        "name": candidate.name,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            # Surfacing a hold must never break a scan; the ledger entry
+            # below is the durable record regardless.
+            self._surfaced_holds.discard(key)
 
     def _seal_discovery_birth(self, agent: AgentIdentity, candidate: CandidateAgent) -> None:
         """Anchor a sealed behavioural birth to a freshly-registered agent."""

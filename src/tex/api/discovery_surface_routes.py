@@ -147,15 +147,35 @@ def build_discovery_surface_router() -> APIRouter:
         # then surface exactly one line — the count of what is running.
         # (DISCOVERY_DOCTRINE §1.) Silent by construction: the scan speaks
         # nothing; only this single ignition line is spoken.
+        #
+        # A real operator console ignites its own tenant (no override): that
+        # tenant is enrolled into the standing watch (periodic re-scan,
+        # dormancy sweep, held surfacing) and its holds are routed to the
+        # voice. A preview/ephemeral tenant (an explicit override) does the
+        # initial map only — no perpetual loop, no holds into the shared
+        # queue — so the demo door can replay per visit without leaking.
+        is_real_tenant = not tenant_id
         service = _discovery_service(request)
         if service is not None:
             try:
-                service.scan(tenant_id=tenant, trigger="ignition")
+                service.scan(
+                    tenant_id=tenant,
+                    trigger="ignition",
+                    surface_holds=is_real_tenant,
+                )
             except Exception:  # noqa: BLE001
                 # Discovery is decoupled from the voice: if a scan errors,
                 # ignition still speaks the truth of what is already known
                 # rather than failing the operator's deliberate act.
                 pass
+
+        if is_real_tenant:
+            scheduler = getattr(request.app.state, "scan_scheduler", None)
+            if scheduler is not None:
+                try:
+                    scheduler.enroll_tenant(tenant)
+                except Exception:  # noqa: BLE001
+                    pass
 
         count = _estate_count(registry, tenant)
         ignition.fire(tenant)

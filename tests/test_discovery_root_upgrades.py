@@ -293,3 +293,45 @@ def test_ignite_maps_estate_counts_and_seals_births():
     fresh = client.post("/v1/surface/discovery/ignite?tenant_id=preview-e2e-2").json()
     assert fresh["already_ignited"] is False
     assert fresh["count"] > 0
+
+
+# --------------------------------------------------------------------------- 6. standing system
+def test_standing_watch_dormancy_and_held_surfacing_wired():
+    """Lifespan start -> scheduler watches the demo tenant, sweeps dormancy,
+    and surfaces reconciliation holds to the one /held voice queue."""
+    import time
+    from fastapi.testclient import TestClient
+    from tex.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:  # 'with' triggers lifespan -> scheduler starts
+        sched = app.state.scan_scheduler
+        assert sched.is_running is True
+        assert "demo" in sched.status["tenants"]  # demo seed under standing watch
+        time.sleep(0.5)  # let the startup cycle complete
+
+        # (3) reconciliation holds (unbounded surfaces) reach the voice queue
+        held = client.get("/v1/surface/discovery/held").json()
+        assert held["count"] > 0
+        assert any(h["kind"] == "discovery_unbounded_surface" for h in held["held"])
+
+        # (2) the dormancy sweep ran on the cycle
+        assert "dormancy" in (sched._last_run_summary or {})
+
+    # building the app (no lifespan) must NOT have started a scan — pure construction
+    app2 = create_app()
+    assert app2.state.scan_scheduler.is_running is False
+
+
+def test_preview_ignite_does_not_pollute_held_queue():
+    """An ephemeral preview tenant does the initial map only — no holds into
+    the shared queue, no enrollment into the perpetual watch."""
+    from fastapi.testclient import TestClient
+    from tex.main import create_app
+
+    app = create_app()
+    client = TestClient(app)  # no lifespan -> scheduler idle
+    client.post("/v1/surface/discovery/ignite?tenant_id=preview-no-pollute")
+    held = client.get("/v1/surface/discovery/held").json()
+    assert held["count"] == 0  # preview never routes holds to the shared voice
+    assert "preview-no-pollute" not in app.state.scan_scheduler.status["tenants"]

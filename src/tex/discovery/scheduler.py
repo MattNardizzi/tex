@@ -97,6 +97,8 @@ class BackgroundScanScheduler:
         "_last_run_summary",
         "_run_count",
         "_last_seen_by_tenant",
+        "_dormancy_controller",
+        "_tenants_lock",
     )
 
     def __init__(
@@ -112,6 +114,7 @@ class BackgroundScanScheduler:
         snapshot_capture_callable=None,
         policy_version: str | None = None,
         metrics: DiscoveryMetrics | None = None,
+        dormancy_controller=None,
     ) -> None:
         self._service = service
         self._drift_store = drift_store
@@ -120,8 +123,13 @@ class BackgroundScanScheduler:
         self._snapshot_capture_callable = snapshot_capture_callable
         self._policy_version = policy_version
         self._metrics = metrics
+        # The dormant-agent doctrine runs on the standing tick: each cycle
+        # sleeps what is provably safe, holds the uncertain, and flags the
+        # day-90 deletion — all on Tex's own authority, in silence.
+        self._dormancy_controller = dormancy_controller
         self._interval_seconds = self._resolve_interval(interval_seconds)
-        self._tenants = tuple(self._resolve_tenants(tenants))
+        self._tenants = set(self._resolve_tenants(tenants))
+        self._tenants_lock = threading.Lock()
         self._timeout_seconds = self._resolve_timeout(timeout_seconds)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -136,9 +144,10 @@ class BackgroundScanScheduler:
         """Launch the background thread. Idempotent."""
         if self._thread is not None and self._thread.is_alive():
             return
-        if not self._tenants:
+        if not self._tenants and self._dormancy_controller is None:
             _logger.info(
-                "BackgroundScanScheduler: no tenants configured; not starting."
+                "BackgroundScanScheduler: no tenants and no dormancy controller; "
+                "not starting."
             )
             return
         self._stop_event.clear()
@@ -151,8 +160,26 @@ class BackgroundScanScheduler:
         _logger.info(
             "BackgroundScanScheduler: started; interval=%ds, tenants=%s",
             self._interval_seconds,
-            list(self._tenants),
+            sorted(self._tenants),
         )
+
+    def enroll_tenant(self, tenant_id: str) -> None:
+        """
+        Bring a tenant under the standing watch at runtime — the standing
+        system that ignition starts (DISCOVERY_DOCTRINE §3.8: ignition
+        starts a standing watch). Idempotent. Enrollment only registers the
+        tenant; the loop is started by the app lifespan (so building the app
+        has no side effect). In production the scheduler is already running
+        from boot, so a real client's ignition simply joins the live watch.
+        """
+        tid = (tenant_id or "").strip().casefold()
+        if not tid:
+            return
+        with self._tenants_lock:
+            already = tid in self._tenants
+            self._tenants.add(tid)
+        if not already:
+            _logger.info("BackgroundScanScheduler: enrolled tenant=%s", tid)
 
     def stop(self, *, join_timeout: float = 5.0) -> None:
         """Signal the loop to exit and wait briefly for it to finish."""
@@ -236,7 +263,9 @@ class BackgroundScanScheduler:
     def _run_one_cycle(self) -> dict:
         cycle_started = time.time()
         per_tenant_summaries: list[dict] = []
-        for tenant_id in self._tenants:
+        with self._tenants_lock:
+            tenants = sorted(self._tenants)
+        for tenant_id in tenants:
             if self._metrics is not None:
                 self._metrics.record_scan_started()
             try:
@@ -245,6 +274,7 @@ class BackgroundScanScheduler:
                     timeout_seconds=self._timeout_seconds,
                     trigger="scheduled",
                     policy_version=self._policy_version,
+                    surface_holds=True,
                 )
                 drift_counts = self._emit_drift_events(tenant_id=tenant_id, run=run)
                 summary = run.summary
@@ -324,10 +354,27 @@ class BackgroundScanScheduler:
                     {"tenant_id": tenant_id, "error": str(exc)}
                 )
         cycle_duration = time.time() - cycle_started
+
+        # The dormant-agent doctrine on the standing tick: once per cycle,
+        # sleep what is provably safe (in silence), hold the uncertain as a
+        # genuine ABSTAIN into the held queue, and flag the day-90 deletion.
+        # Sweep is global over the registry, so it runs once per cycle rather
+        # than per tenant. Never allowed to break the cycle.
+        dormancy_summary = None
+        if self._dormancy_controller is not None:
+            try:
+                result = self._dormancy_controller.sweep()
+                dormancy_summary = result.to_jsonable()
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning(
+                    "BackgroundScanScheduler: dormancy sweep failed: %s", exc
+                )
+
         self._last_run_completed_at = time.time()
         self._last_run_summary = {
             "duration_seconds": round(cycle_duration, 3),
             "tenants": per_tenant_summaries,
+            "dormancy": dormancy_summary,
         }
         self._run_count += 1
         _logger.info(

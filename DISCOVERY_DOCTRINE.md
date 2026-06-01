@@ -248,7 +248,25 @@ in the gate case, the same grant Tex needs for its core job anyway.
 
 ## 8. Build status
 
-**Root-layer upgrades (2026-06-01, built on the spine):**
+**Standing system wired (2026-06-01):**
+- **Continuous watch.** The background scheduler now supports runtime tenant
+  enrollment (`enroll_tenant`); real ignition enrolls the operator's tenant
+  into the standing watch (periodic re-scan = the delta watch in effect),
+  while ephemeral preview tenants do the initial map only. Until a client
+  connects, a demo tenant is enrolled at boot so the full loop runs visibly
+  against the seed. Enrollment is side-effect-free; the lifespan owns
+  starting the loop, so building the app never triggers a scan.
+- **Dormancy sweep on the tick.** Each scheduler cycle runs
+  `DormancyController.sweep()` once (global over the registry): sleeps the
+  provably-safe in silence, holds the uncertain as an ABSTAIN, flags day-90.
+- **Reconciliation holds reach the voice.** A candidate held for review (an
+  unbounded capability surface) is routed to the same `HeldDecisionSink` the
+  dormancy and provenance holds use, so `/v1/surface/discovery/held` is the
+  one unified unprompted-voice channel. Deduped per reconciliation key so a
+  standing re-scan never re-raises the same hold; only surfaced for real
+  (non-preview) tenants so the shared queue never leaks across the demo.
+
+
 - **Ignition now maps, then counts** (`/v1/surface/discovery/ignite`): on the
   first fire for a tenant it runs the full `DiscoveryService.scan`, sealing a
   behavioural birth for every agent found (engine memory engages here), then

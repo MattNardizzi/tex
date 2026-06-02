@@ -1,0 +1,25 @@
+# The operator watches namespaces (enrollment) and reads pods; the kernel PEP
+# agent reads pods to resolve cgroups. Least privilege.
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: tex-operator, namespace: {{ include "tex.namespace" . }} }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: tex-pep, namespace: {{ include "tex.namespace" . }} }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: tex-operator }
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: tex-operator }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tex-operator }
+subjects:
+  - { kind: ServiceAccount, name: tex-operator, namespace: {{ include "tex.namespace" . }} }
+  - { kind: ServiceAccount, name: tex-pep, namespace: {{ include "tex.namespace" . }} }

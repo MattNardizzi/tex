@@ -1,0 +1,21 @@
+# Optional Tetragon alternative for clusters already running Tetragon: kill-
+# based inline enforcement of egress connect() for governed workloads, as a
+# defense-in-depth backstop to the redirect path. Tetragon enforces in-kernel
+# (SIGKILL / override) at sub-millisecond latency. Tune the matchBinaries /
+# namespace selectors to the governed set.
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: tex-egress-backstop
+spec:
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      args:
+        - { index: 0, type: "sock" }
+      selectors:
+        - matchActions:
+            # Default posture is observe; the agent flips this to a kill list
+            # populated from the PDP forbid-set for the highest-confidence
+            # denials. Shown here as the enforcement shape.
+            - action: Post

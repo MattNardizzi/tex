@@ -1,0 +1,36 @@
+{{- if .Values.operator.enabled }}
+# The operator: enrollment controller (namespace watch) + mutating webhook.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: tex-operator, namespace: {{ include "tex.namespace" . }} }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: tex-operator } }
+  template:
+    metadata: { labels: { app: tex-operator } }
+    spec:
+      serviceAccountName: tex-operator
+      containers:
+        - name: operator
+          image: {{ .Values.image.pdp }}
+          command: ["python", "-m", "tex.operator"]
+          env:
+            - { name: TEX_PDP_BASE, value: "http://tex.{{ include "tex.namespace" . }}.svc.cluster.local:{{ .Values.pdp.port }}" }
+            - { name: TEX_PROXY_IMAGE, value: {{ .Values.image.proxy | quote }} }
+            - { name: TEX_INIT_IMAGE, value: {{ .Values.image.init | quote }} }
+            - { name: TEX_PROXY_PORT, value: "{{ .Values.sidecarInjection.proxyPort }}" }
+            - { name: TEX_OPERATOR_PORT, value: "{{ .Values.operator.port }}" }
+            - { name: TEX_WEBHOOK_CERT, value: "/tls/tls.crt" }
+            - { name: TEX_WEBHOOK_KEY, value: "/tls/tls.key" }
+          ports: [ { containerPort: {{ .Values.operator.port }}, name: webhook } ]
+          volumeMounts: [ { name: tls, mountPath: /tls, readOnly: true } ]
+      volumes:
+        - { name: tls, secret: { secretName: tex-operator-tls, optional: true } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: tex-operator, namespace: {{ include "tex.namespace" . }} }
+spec:
+  selector: { app: tex-operator }
+  ports: [ { port: 443, targetPort: webhook, name: webhook } ]
+{{- end }}

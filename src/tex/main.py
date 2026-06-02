@@ -1447,6 +1447,15 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.provenance_engine = runtime.provenance_engine
     app.state.provenance_feed = runtime.provenance_feed
     app.state.held_decision_sink = runtime.held_decision_sink
+    # The vigil's held-card seam: adapt the held-decision sink (where the
+    # standing PDP and the discovery path queue ABSTAINs) into the
+    # ``/v1/vigil`` ``human_decision`` channel, carrying the Layer-4 Hold when
+    # the held decision originated from a PDP ABSTAIN. Read-only; never blocks.
+    from tex.vigil.held_provider import HeldDecisionVigilProvider
+
+    app.state.held_decision_provider = HeldDecisionVigilProvider(
+        runtime.held_decision_sink
+    )
     app.state.delegation_graph = runtime.delegation_graph
     app.state.dormancy_controller = runtime.dormancy_controller
     app.state.ignition_registry = runtime.ignition_registry

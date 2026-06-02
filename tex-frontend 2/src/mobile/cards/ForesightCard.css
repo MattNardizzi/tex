@@ -1,0 +1,164 @@
+/* ============================================================
+   Foresight Card — I see what's coming.
+   ============================================================ */
+
+.tex-foresight-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 56px)
+    20px
+    calc(env(safe-area-inset-bottom, 0px) + 24px)
+    20px;
+  overflow: hidden;
+}
+
+.tex-foresight-card-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: 100%;
+}
+
+/* THE BEAM ────────────────────────────────────────────────
+   The whole vertical beam — orb + plumb + cone + label — sits
+   in this container. Capped width so the cone never reaches
+   the screen edges. */
+.tex-foresight-card-beam {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 240px;
+}
+
+.tex-foresight-card-now {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 2;
+}
+
+.tex-foresight-card-now-label {
+  font-family: var(--tex-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--tex-ink-mute);
+  margin-top: -4px;
+}
+
+/* The SVG drops directly under the orb. Slight negative top
+   margin so the plumb line emerges from the orb's center. */
+.tex-foresight-card-svg {
+  width: 100%;
+  height: 260px;
+  margin-top: -10px;
+  display: block;
+}
+
+/* The plumb line draws from the orb to the base. */
+.tex-foresight-card-timeline {
+  stroke-dasharray: 260;
+  stroke-dashoffset: 260;
+  transition: stroke-dashoffset 1.2s ease;
+  transition-delay: 350ms;
+}
+.tex-foresight-card--armed .tex-foresight-card-timeline {
+  stroke-dashoffset: 0;
+}
+
+/* The cone opens after the plumb is drawn. */
+.tex-foresight-card-cone,
+.tex-foresight-card-cone-bound {
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  transition-delay: 1600ms;
+}
+.tex-foresight-card--armed .tex-foresight-card-cone,
+.tex-foresight-card--armed .tex-foresight-card-cone-bound {
+  opacity: 1;
+}
+
+/* The ghost orb travels down the plumb line ONCE — single
+   demonstration of the simulation, not a perpetual loop. */
+.tex-foresight-card-shadow {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  transition-delay: 1850ms;
+}
+.tex-foresight-card--armed .tex-foresight-card-shadow {
+  opacity: 1;
+  animation: tex-foresight-card-fall 2.6s ease-in forwards;
+  animation-delay: 1850ms;
+}
+@keyframes tex-foresight-card-fall {
+  0%   { transform: translateY(0);    opacity: 0.85; }
+  70%  { transform: translateY(220px); opacity: 0.55; }
+  100% { transform: translateY(260px); opacity: 0;    }
+}
+
+/* CONFORMAL · 95% — a small label centered at the cone's
+   base. Two short hairlines flank it for register. */
+.tex-foresight-card-conformal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -8px;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  transition-delay: 4250ms;
+}
+.tex-foresight-card--armed .tex-foresight-card-conformal {
+  opacity: 1;
+}
+.tex-foresight-card-conformal-rule {
+  width: 18px;
+  height: 1px;
+  background: var(--tex-glass-3);
+  opacity: 0.4;
+}
+.tex-foresight-card-conformal-label {
+  font-family: var(--tex-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--tex-ink-mute);
+}
+
+/* CLOSING SENTENCE ──────────────────────────────────────── */
+.tex-foresight-card-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.32;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: 320px;
+  text-wrap: balance;
+  padding: 0 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.2s ease, transform 1.2s ease;
+}
+.tex-foresight-card-line em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+.tex-foresight-card--armed .tex-foresight-card-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 360px) {
+  .tex-foresight-card-line { font-size: 20px; }
+}

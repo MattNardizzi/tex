@@ -1,0 +1,236 @@
+/* ============================================================
+   Presence — I see them all.
+   ============================================================ */
+
+.tex-presence-section {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tex-section-pad) 24px;
+}
+
+.tex-presence-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 72px;
+  width: 100%;
+  max-width: var(--tex-canvas-max);
+}
+
+.tex-presence-composition {
+  position: relative;
+  width: 100%;
+  max-width: 980px;
+  aspect-ratio: 940 / 440;
+}
+
+.tex-presence-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tex-presence-orb {
+  position: absolute;
+  top: 86.4%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Each hairline draws from the orb outward to its agent. */
+.tex-presence-line {
+  stroke-dasharray: 360;
+  stroke-dashoffset: 360;
+  opacity: 0;
+  animation: tex-presence-line-draw 900ms ease forwards;
+  animation-play-state: paused;
+}
+
+.tex-presence-section--armed .tex-presence-line {
+  animation-play-state: running;
+}
+
+@keyframes tex-presence-line-draw {
+  0%   { stroke-dashoffset: 360; opacity: 0;    }
+  25%  { opacity: 0.6;                          }
+  100% { stroke-dashoffset: 0;   opacity: 0.46; }
+}
+
+.tex-presence-agent {
+  opacity: 0;
+  animation: tex-presence-agent-appear 800ms ease forwards;
+  animation-play-state: paused;
+}
+
+.tex-presence-section--armed .tex-presence-agent {
+  animation-play-state: running;
+}
+
+@keyframes tex-presence-agent-appear {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.tex-presence-line-text {
+  font-family: var(--tex-serif);
+  font-style: normal;
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: var(--tex-reading-max);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+
+.tex-presence-line-text em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-presence-section--armed .tex-presence-line-text {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* MOBILE COMPOSITION ────────────────────────────────────────
+   Agents arrive through time, not space. One name slot. Eight
+   names fade through it in sequence. A counter underneath
+   confirms the count when the sequence ends.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-presence-mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .tex-presence-section {
+    padding: var(--tex-section-pad) 20px;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+  /* The stage was 56px gap between every child, which spread the orb,
+     name slot, counter, and closing line across the entire viewport
+     without any sense of grouping. Tighten so orb + name slot + counter
+     read as one composition, and the closing sentence sits as a
+     distinct beat beneath. */
+  .tex-presence-stage {
+    gap: 40px;
+  }
+
+  /* Hide the desktop arc composition entirely. */
+  .tex-presence-composition {
+    display: none;
+  }
+
+  /* The mobile composition lives where the desktop composition would. */
+  .tex-presence-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* Orb and slot are one paired thought (Tex looking, naming what
+       it sees), counter is the soft proof at the end. Pull them
+       closer together than the original 36px. */
+    gap: 18px;
+    width: 100%;
+  }
+
+  .tex-presence-mobile-orb {
+    margin: 0;
+  }
+
+  /* The name slot — a single fixed-height row where names appear
+     one at a time. Min-height keeps the layout from jumping as
+     names swap. */
+  .tex-presence-mobile-slot {
+    position: relative;
+    height: 22px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tex-presence-mobile-name {
+    position: absolute;
+    font-family: var(--tex-mono);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+    color: var(--tex-ink);
+    line-height: 1;
+    opacity: 0;
+    transform: translateY(4px);
+    animation: tex-presence-name-pass forwards;
+    animation-iteration-count: 1;
+    animation-timing-function: ease;
+    animation-play-state: paused;
+  }
+
+  .tex-presence-section--armed .tex-presence-mobile-name {
+    animation-play-state: running;
+  }
+
+  @keyframes tex-presence-name-pass {
+    0%   { opacity: 0; transform: translateY(4px); }
+    18%  { opacity: 1; transform: translateY(0);   }
+    82%  { opacity: 1; transform: translateY(0);   }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+
+  /* The counter — a soft tally beneath the slot. Reads as "8 identified"
+     once the sequence completes. Tighter spacing so the number and label
+     sit closer together. */
+  .tex-presence-mobile-counter {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    margin-top: 8px;
+  }
+
+  .tex-presence-section--armed .tex-presence-mobile-counter {
+    opacity: 1;
+    transition-delay: calc(350ms + 8 * 380ms);
+  }
+
+  .tex-presence-mobile-counter-number {
+    font-family: var(--tex-serif);
+    font-weight: 400;
+    font-style: italic;
+    font-size: 32px;
+    line-height: 1;
+    color: var(--tex-ink);
+    letter-spacing: -0.01em;
+  }
+
+  .tex-presence-mobile-counter-label {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--tex-ink-mute);
+    text-transform: uppercase;
+  }
+
+  /* Closing line — give it real padding so it never touches the screen
+     edge. text-wrap:balance makes the two-line break sit evenly across
+     both lines instead of orphaning "are." on its own line. */
+  .tex-presence-line-text {
+    font-size: 22px;
+    line-height: 1.32;
+    padding: 0 16px;
+    max-width: 340px;
+    text-wrap: balance;
+  }
+}

@@ -1,0 +1,150 @@
+/* ============================================================
+   Closer — The weight is mine now.
+   ============================================================ */
+
+.tex-closer {
+  position: relative;
+  width: 100%;
+  min-height: 90vh;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tex-section-pad) 24px;
+}
+
+.tex-closer-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 64px;
+  width: 100%;
+  max-width: var(--tex-reading-max);
+  position: relative;
+}
+
+.tex-closer-orb {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 1.6s ease 0.2s, transform 1.6s ease 0.2s;
+}
+
+.tex-closer--armed .tex-closer-orb {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tex-closer-line {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(36px, 4.2vw, 60px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.6s ease 1.4s, transform 1.6s ease 1.4s;
+}
+
+.tex-closer--armed .tex-closer-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* The footer — three links, separated by middots, plus a mark. */
+.tex-closer-foot {
+  position: absolute;
+  bottom: calc(var(--tex-section-pad) * -0.5);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  opacity: 0;
+  transition: opacity 1.4s ease 3s;
+}
+
+.tex-closer--armed .tex-closer-foot {
+  opacity: 1;
+}
+
+.tex-closer-foot-link {
+  font-family: var(--tex-sans);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--tex-ink-mute);
+  transition: color 0.2s ease;
+}
+
+.tex-closer-foot-link:hover {
+  color: var(--tex-ink);
+}
+
+.tex-closer-foot-sep {
+  font-size: 12px;
+  color: var(--tex-ink-hair);
+}
+
+.tex-closer-foot-mark {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--tex-ink-mute);
+  margin-left: 18px;
+}
+
+@media (max-width: 720px) {
+  .tex-closer {
+    padding: var(--tex-section-pad) 20px;
+    min-height: 90svh;
+    min-height: 90dvh;
+  }
+  .tex-closer-stage {
+    gap: 32px;
+  }
+  /* Closing line — pad in so it doesn't touch screen edges. Tighter
+     type than desktop's 36-60px clamp because we want the sentence
+     to read as one balanced statement, not a wrap. */
+  .tex-closer-line {
+    font-size: 28px;
+    line-height: 1.22;
+    padding: 0 16px;
+    max-width: 340px;
+    text-wrap: balance;
+  }
+  /* Footer stays inline as middot-separated links — they're short
+     enough (4-9 chars each) that one horizontal row works at 360px
+     when the type is small enough. Stacking vertically added 80+ px
+     of section height for no readability gain. */
+  .tex-closer-foot {
+    position: static;
+    transform: none;
+    margin-top: 24px;
+    flex-direction: row;
+    gap: 10px;
+    font-size: 11px;
+  }
+  .tex-closer-foot-sep {
+    display: inline;
+    font-size: 11px;
+  }
+  .tex-closer-foot-link {
+    font-size: 11px;
+  }
+  /* The mark goes on its own row beneath the links, so the row stays
+     a clean three-link signature and the wordmark gets its own beat. */
+  .tex-closer-foot-mark {
+    flex-basis: 100%;
+    text-align: center;
+    margin-left: 0;
+    margin-top: 8px;
+    font-size: 11px;
+  }
+}

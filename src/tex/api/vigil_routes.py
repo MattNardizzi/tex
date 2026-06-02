@@ -56,6 +56,45 @@ class VigilUtteranceDTO(BaseModel):
     requires_human: bool = False
 
 
+class HoldDTO(BaseModel):
+    """The first-class abstention the operator hears (engine/hold.py).
+
+    Carries the two-sided certificate band, the epistemic/aleatoric type, and
+    the single pivotal fact that would resolve it. The voice speaks the
+    meaning; the surface renders the type and the question — never the file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    hold_type: str                       # EPISTEMIC | ALEATORIC | MIXED
+    resolution_mode: str                 # SELF_HEAL | HUMAN_FACT | HUMAN_JUDGMENT
+    resolving_question: str | None = None
+    epistemic_score: float = Field(ge=0.0, le=1.0)
+    aleatoric_score: float = Field(ge=0.0, le=1.0)
+    band_certified: bool = False
+    band_lower: float = 0.0
+    band_upper: float = 1.0
+    final_score: float = Field(ge=0.0, le=1.0, default=0.0)
+
+
+class HumanDecisionDTO(BaseModel):
+    """What the held card renders. A superset of an utterance: it adds the
+    durable decision id, the spoken sentence + grounding detail, the agent,
+    and the structured Hold. Backward-compatible with the older shape (the
+    surface read ``sentence``/``detail`` already)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str | None = None
+    sentence: str
+    detail: str | None = None
+    dimension: str = "execution"
+    surprise: float = Field(ge=0.0, default=0.0)
+    agent: str | None = None
+    proof_ref: ProofRefDTO | None = None
+    requires_human: bool = True
+    anchor_sha256: str | None = None
+    hold: HoldDTO | None = None
+
+
 class VigilMetaDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
     warm: bool
@@ -71,11 +110,68 @@ class VigilResponse(BaseModel):
     generated_at: str
     standing: str  # "Absolute" | "Open"
     utterances: list[VigilUtteranceDTO] = Field(default_factory=list)
-    human_decision: VigilUtteranceDTO | None = None
+    human_decision: HumanDecisionDTO | None = None
     meta: VigilMetaDTO
 
 
 # --------------------------------------------------------------------------- mapping
+
+
+def _hold_dto(hold: Any) -> HoldDTO | None:
+    """Map a Hold (engine/hold.py) or its dict form to the wire DTO."""
+    if hold is None:
+        return None
+    g = hold.get if isinstance(hold, dict) else (lambda k, d=None: getattr(hold, k, d))
+    return HoldDTO(
+        hold_type=str(g("hold_type", "MIXED")),
+        resolution_mode=str(g("resolution_mode", "HUMAN_JUDGMENT")),
+        resolving_question=g("resolving_question", None),
+        epistemic_score=float(g("epistemic_score", 0.5)),
+        aleatoric_score=float(g("aleatoric_score", 0.5)),
+        band_certified=bool(g("band_certified", False)),
+        band_lower=float(g("band_lower", 0.0)),
+        band_upper=float(g("band_upper", 1.0)),
+        final_score=float(g("final_score", 0.0)),
+    )
+
+
+def _human_decision_from_held(held: Any) -> HumanDecisionDTO:
+    """Build the held-card DTO from a held-decision payload supplied by the
+    provider seam (a real PDP ABSTAIN with its Hold)."""
+    g = held.get if isinstance(held, dict) else (lambda k, d=None: getattr(held, k, d))
+    hold = g("hold", None)
+    proof = g("proof_ref", None)
+    return HumanDecisionDTO(
+        id=g("id", None),
+        sentence=g("sentence", "I'm holding this one. It's yours to decide."),
+        detail=g("detail", None),
+        dimension=g("dimension", "execution"),
+        surprise=float(g("surprise", 0.0) or 0.0),
+        agent=g("agent", None),
+        proof_ref=(ProofRefDTO(**proof) if isinstance(proof, dict) else _proof_dto(proof)),
+        requires_human=True,
+        anchor_sha256=g("anchor_sha256", None),
+        hold=_hold_dto(hold),
+    )
+
+
+def _human_decision_from_utterance(u: Any) -> HumanDecisionDTO:
+    """Posture-true fallback: map the selector's dimension-derived
+    human_decision utterance into the held-card DTO (no structured Hold yet —
+    the honest shape until a real held decision is wired through the provider)."""
+    proof = _proof_dto(getattr(u, "proof", None))
+    return HumanDecisionDTO(
+        id=None,
+        sentence=u.text,
+        detail=None,
+        dimension=u.dimension,
+        surprise=round(float(u.surprise), 6),
+        agent=None,
+        proof_ref=proof,
+        requires_human=True,
+        anchor_sha256=(proof.sha256 if proof is not None else None),
+        hold=None,
+    )
 
 
 def _proof_dto(proof: Any) -> ProofRefDTO | None:
@@ -162,6 +258,50 @@ def _facts_dto(facts: Any) -> EvidenceFactsDTO:
 # --------------------------------------------------------------------------- router
 
 
+def _build_vigil_response(request: Request, effective_tenant: str | None) -> VigilResponse:
+    """Run one vigil cycle and assemble the wire contract. Shared by the
+    polling GET and the SSE stream so both speak the identical truth."""
+    from datetime import UTC, datetime
+
+    engine = getattr(request.app.state, "vigil_engine", None)
+    if engine is None:
+        engine = VigilEngine()  # safe default; no warm cache attached
+    selection = engine.run(request, effective_tenant)
+
+    # Held-decision provider seam (mirrors the vigil v2–v5 collaborator
+    # pattern): when the runtime wires a provider, it yields the freshest
+    # unresolved ABSTAIN — a real PDP decision carrying its two-sided Hold —
+    # which becomes the held card. When absent, fall back to the selector's
+    # dimension-derived human_decision (posture-true, no structured Hold).
+    human_decision: HumanDecisionDTO | None = None
+    provider = getattr(request.app.state, "held_decision_provider", None)
+    if provider is not None:
+        try:
+            current = getattr(provider, "current", None)
+            held = current(effective_tenant) if callable(current) else provider(effective_tenant)
+        except Exception:  # noqa: BLE001 — the provider never breaks the cycle
+            held = None
+        if held is not None:
+            human_decision = _human_decision_from_held(held)
+    if human_decision is None and selection.human_decision is not None:
+        human_decision = _human_decision_from_utterance(selection.human_decision)
+
+    return VigilResponse(
+        tenant_id=effective_tenant,
+        generated_at=datetime.now(UTC).isoformat(),
+        standing=selection.standing,
+        utterances=[_utterance_dto(u) for u in selection.utterances],
+        human_decision=human_decision,
+        meta=VigilMetaDTO(
+            warm=selection.warm,
+            observed_dimensions=selection.observed_dimensions,
+            spoken=len(selection.utterances),
+            suppressed=selection.suppressed,
+            selector_version=selection.selector_version,
+        ),
+    )
+
+
 def build_vigil_router() -> APIRouter:
     router = APIRouter(prefix="/v1", tags=["vigil"])
 
@@ -176,33 +316,76 @@ def build_vigil_router() -> APIRouter:
         # Speaks real findings -> authed like the proof endpoints.
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> VigilResponse:
-        # Resolve effective tenant the same way system_state does.
         effective_tenant = _resolve_effective_tenant(principal, tenant_id)
+        return _build_vigil_response(request, effective_tenant)
 
-        from datetime import UTC, datetime
+    @router.get(
+        "/vigil/stream",
+        summary="The live voice as a Server-Sent Events stream (push, not poll)",
+    )
+    def vigil_stream(
+        request: Request,
+        tenant_id: str | None = Query(default=None, max_length=200),
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ):
+        """SSE is the 2026 SOTA for one-way server→client push (native
+        EventSource auto-reconnect + Last-Event-ID resume, rides the existing
+        same-origin proxy untouched; the WebSocket stays only for the truly
+        bidirectional recognizer). The stream emits the same VigilResponse the
+        poll returns, as ``event: vigil`` frames with a monotonic ``id:`` for
+        resume, plus periodic ``: heartbeat`` comments so intermediaries keep
+        the connection warm. The frontend renders on change; silence between
+        frames is the calm, not a gap."""
+        import asyncio
+        import json
 
-        engine = getattr(request.app.state, "vigil_engine", None)
-        if engine is None:
-            engine = VigilEngine()  # safe default; no warm cache attached
-        selection = engine.run(request, effective_tenant)
+        from fastapi.responses import StreamingResponse
 
-        return VigilResponse(
-            tenant_id=effective_tenant,
-            generated_at=datetime.now(UTC).isoformat(),
-            standing=selection.standing,
-            utterances=[_utterance_dto(u) for u in selection.utterances],
-            human_decision=(
-                _utterance_dto(selection.human_decision)
-                if selection.human_decision is not None
-                else None
-            ),
-            meta=VigilMetaDTO(
-                warm=selection.warm,
-                observed_dimensions=selection.observed_dimensions,
-                spoken=len(selection.utterances),
-                suppressed=selection.suppressed,
-                selector_version=selection.selector_version,
-            ),
+        effective_tenant = _resolve_effective_tenant(principal, tenant_id)
+        # Cadence: a calm push every PERIOD_S, a keepalive every HEARTBEAT_S.
+        PERIOD_S = 10.0
+        HEARTBEAT_S = 15.0
+
+        async def event_source():
+            seq = 0
+            last_payload: str | None = None
+            # Emit immediately so a fresh subscriber gets the current truth.
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    resp = _build_vigil_response(request, effective_tenant)
+                    payload = resp.model_dump_json()
+                except Exception:  # noqa: BLE001 — never crash the stream
+                    payload = None
+
+                if payload is not None and payload != last_payload:
+                    seq += 1
+                    last_payload = payload
+                    yield f"id: {seq}\nevent: vigil\ndata: {payload}\n\n"
+                else:
+                    # Comment frame: keeps proxies from idling the socket out;
+                    # invisible to EventSource consumers.
+                    yield ": heartbeat\n\n"
+
+                # Sleep in heartbeat-sized slices up to one push period.
+                slept = 0.0
+                while slept < PERIOD_S:
+                    if await request.is_disconnected():
+                        return
+                    await asyncio.sleep(min(HEARTBEAT_S, PERIOD_S - slept))
+                    slept += HEARTBEAT_S
+                    if slept < PERIOD_S:
+                        yield ": heartbeat\n\n"
+
+        return StreamingResponse(
+            event_source(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",   # disable nginx buffering of the stream
+                "Connection": "keep-alive",
+            },
         )
 
     @router.post(

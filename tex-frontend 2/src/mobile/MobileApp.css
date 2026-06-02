@@ -1,0 +1,58 @@
+/* ============================================================
+   MobileApp — the shell.
+
+   The whole mobile experience lives inside one full-viewport
+   scroller. Vertical snap. Each card fills the screen.
+   ============================================================ */
+
+.tex-mobile-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  background: var(--tex-paper);
+  overflow: hidden;
+  /* Lock the whole page so we don't double-scroll behind the
+     scroller. The body can still scroll for accessibility tools
+     that don't respect the snap container; the snap container
+     itself owns the breath. */
+  touch-action: pan-y;
+}
+
+.tex-mobile-scroller {
+  width: 100%;
+  height: 100%;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  /* iOS-style smooth deceleration without breaking snap. */
+  -webkit-overflow-scrolling: touch;
+  /* Hide the scrollbar; the progress notches are the visible
+     index of where you are. */
+  scrollbar-width: none;
+}
+
+.tex-mobile-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.tex-mobile-card-slot {
+  width: 100%;
+  height: 100dvh;
+  /* Fallback for browsers without dvh — keeps the card from
+     getting clipped behind the URL bar. */
+  min-height: 100svh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  /* Background matches the cards; transitions between cards
+     look like one continuous breath of paper, not a stack
+     of separate panels. */
+  background: var(--tex-paper);
+}
+
+/* The cards themselves manage their own padding. The slot is
+   just the canvas. */

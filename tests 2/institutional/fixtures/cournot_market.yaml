@@ -1,0 +1,243 @@
+# Cournot market governance manifest — replicates arxiv 2601.11369
+# Figure 2 / Section 4.2 / Table 5.
+#
+# Five paper-canonical institutional states:
+#   active     — baseline compliant
+#   warning    — under review (Appendix C.1 "UNDER REVIEW")
+#   fined      — penalised (Appendix C.2 "PENALISED")
+#   credited   — short-lived rehabilitation overlay
+#   suspended  — last-resort removal (production forced to zero)
+#
+# Twelve transitions in three families:
+#   Escalation (3): active->warning, warning->fined, fined->suspended
+#   Repeat-tier  (1): fined->fined (tier upgrade on repeat violation)
+#   Restoration time-driven (4): warning->active, fined->active (clean),
+#                                 suspended->active, credited->active
+#   Restoration credit-based (1): fined->credited
+#   Self-clear   (3): active->active (clear), warning->warning (renew),
+#                     credited->credited (extend)
+#
+# This 12-transition set satisfies the Thread 12 acceptance criterion of
+# "5 legal states and 12 transitions" exactly.
+
+graph_id: "cournot_market_v1"
+version: "1.0.0"
+schema_version: "v1"
+
+interpreter:
+  name: "tex.institutional.oracle_controller"
+  version: "1.0.0"
+
+states:
+  - state_id: "active"
+    description: "Baseline compliant state (Appendix C: CLEAR)"
+  - state_id: "warning"
+    description: "Under regulatory review (Appendix C.1: UNDER REVIEW)"
+  - state_id: "fined"
+    description: "Penalty applied to round profits (Appendix C.2: PENALISED)"
+  - state_id: "credited"
+    description: "Short-lived rehabilitation (Appendix C.3: REHABILITATED)"
+  - state_id: "suspended"
+    description: "Removed from market for fixed duration"
+
+# Sanctions follow Table 5 (paper §6.2.3 Policy Surface): tier rates
+# 35% / 75% / 100%, $200 floor, suspension 5 rounds.
+sanctions:
+  - sanction_id: "warning_notice"
+    description: "Public notice with no economic penalty"
+    cost_to_actor: 1.0
+    cost_to_system: 0.0
+    enforcement_action: "warning"
+
+  - sanction_id: "fine_tier1"
+    description: "First fine: 35% of round profits, $200 floor"
+    cost_to_actor: 200.0
+    cost_to_system: 0.0
+    enforcement_action: "fine"
+    tier: 1
+    fine_rate: 0.35
+    fine_floor: 200.0
+
+  - sanction_id: "fine_tier2"
+    description: "Repeat fine: 75% of round profits, $200 floor"
+    cost_to_actor: 500.0
+    cost_to_system: 0.0
+    enforcement_action: "fine"
+    tier: 2
+    fine_rate: 0.75
+    fine_floor: 200.0
+
+  - sanction_id: "fine_tier3"
+    description: "Persistent fine: 100% of round profits, $200 floor"
+    cost_to_actor: 1000.0
+    cost_to_system: 0.0
+    enforcement_action: "fine"
+    tier: 3
+    fine_rate: 1.00
+    fine_floor: 200.0
+
+  - sanction_id: "suspend_5_rounds"
+    description: "Removed from market for 5 rounds; production forced to zero"
+    cost_to_actor: 5000.0
+    cost_to_system: 100.0
+    enforcement_action: "suspension"
+    duration_rounds: 5
+
+# Restorative paths follow §4.2: time-driven expiry, credit-based
+# rehabilitation, and "clean" restoration from fined to active.
+restorative_paths:
+  - path_id: "warning_expiry"
+    description: "Time-driven restoration after a clean window"
+    restorative_event_kinds: ["expiry_tick"]
+    target_legal_state_id: "active"
+    restoration_kind: "expiry"
+    condition:
+      duration_rounds: 5
+
+  - path_id: "fine_clean_restore"
+    description: "Direct clean restoration from fined to active"
+    restorative_event_kinds: ["expiry_tick"]
+    target_legal_state_id: "active"
+    restoration_kind: "clean_restoration"
+    condition:
+      clean_rounds_required: 2
+
+  - path_id: "fine_credit_relief"
+    description: "Credit-based rehabilitation: fined->credited"
+    restorative_event_kinds: ["credit_earned"]
+    target_legal_state_id: "credited"
+    restoration_kind: "credit_relief"
+    condition:
+      credits_required: 1
+      clean_rounds_required: 2
+
+  - path_id: "suspension_expiry"
+    description: "Suspension auto-expires back to active"
+    restorative_event_kinds: ["expiry_tick"]
+    target_legal_state_id: "active"
+    restoration_kind: "expiry"
+    condition:
+      duration_rounds: 5
+
+  - path_id: "credited_expiry"
+    description: "Credited overlay auto-expires back to active"
+    restorative_event_kinds: ["expiry_tick"]
+    target_legal_state_id: "active"
+    restoration_kind: "expiry"
+    condition:
+      duration_rounds: 3
+
+# Twelve transitions exactly.
+transitions:
+  # --- Escalation ladder (3) -----------------------------------------
+  - rule_id: "P2_independent_decision"
+    from_state: "active"
+    to_state: "warning"
+    triggered_by: "probable_violation"
+    sanction_id: "warning_notice"
+    timing:
+      cooldown_rounds: 1
+
+  - rule_id: "P2_independent_decision"
+    from_state: "warning"
+    to_state: "fined"
+    triggered_by: "probable_violation"
+    sanction_id: "fine_tier1"
+    timing:
+      cooldown_rounds: 2
+
+  - rule_id: "P2_independent_decision"
+    from_state: "fined"
+    to_state: "suspended"
+    triggered_by: "probable_violation"
+    sanction_id: "suspend_5_rounds"
+    timing:
+      cooldown_rounds: 3
+    metadata:
+      tier_gate: "tier_3_required"
+
+  # --- Repeat-tier escalation within fined (1) -----------------------
+  - rule_id: "P2_independent_decision"
+    from_state: "fined"
+    to_state: "fined"
+    triggered_by: "tier_upgrade"
+    sanction_id: "fine_tier2"
+    timing:
+      cooldown_rounds: 2
+
+  # --- Restoration: time-driven expiry (4) ---------------------------
+  - rule_id: "warning_expiry_rule"
+    from_state: "warning"
+    to_state: "active"
+    triggered_by: "expiry_tick"
+    restorative_path_id: "warning_expiry"
+
+  - rule_id: "fine_clean_restoration_rule"
+    from_state: "fined"
+    to_state: "active"
+    triggered_by: "expiry_tick"
+    restorative_path_id: "fine_clean_restore"
+
+  - rule_id: "suspension_expiry_rule"
+    from_state: "suspended"
+    to_state: "active"
+    triggered_by: "expiry_tick"
+    restorative_path_id: "suspension_expiry"
+
+  - rule_id: "credited_expiry_rule"
+    from_state: "credited"
+    to_state: "active"
+    triggered_by: "expiry_tick"
+    restorative_path_id: "credited_expiry"
+
+  # --- Restoration: credit-based (1) ---------------------------------
+  - rule_id: "fine_credit_rule"
+    from_state: "fined"
+    to_state: "credited"
+    triggered_by: "credit_earned"
+    restorative_path_id: "fine_credit_relief"
+
+  # --- Self-clear / no-op idempotent edges (3) -----------------------
+  # These let the manifest distinguish "no event" from "actor remains
+  # in same state under a positive signal" — useful for the empirical
+  # test where we tick rounds without any case opening.
+  - rule_id: "active_clean_rule"
+    from_state: "active"
+    to_state: "active"
+    triggered_by: "clean_round"
+
+  - rule_id: "warning_renewal_rule"
+    from_state: "warning"
+    to_state: "warning"
+    triggered_by: "warning_renewal"
+
+  - rule_id: "credited_renewal_rule"
+    from_state: "credited"
+    to_state: "credited"
+    triggered_by: "credit_earned"
+
+# Policy surface (Table 5 verbatim).
+policy_surface:
+  fines:
+    tier_1_rate: 0.35
+    tier_2_rate: 0.75
+    tier_3_rate: 1.00
+    floor_dollars: 200
+  credits:
+    rounds_to_earn: 2
+    rounds_to_spend: 1
+    max_balance: 3
+    decay_window_rounds: 10
+  recovery_gates:
+    hhi_threshold: 0.65
+
+# Execution contracts per Appendix D.
+contracts:
+  timing:
+    default_jitter_rounds: 0
+  case_id:
+    format: "case_{uuid12}"
+  notice:
+    template_hash: "appendix_C_v1"
+  temporal_expiration:
+    default_duration_rounds: 5

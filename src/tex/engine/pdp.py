@@ -36,6 +36,7 @@ from tex.engine.crc_gate import (
     CRCCertificate,
     build_default_crc_gate,
 )
+from tex.engine.hold import Hold, build_hold
 from tex.engine.path_policy_bridge import (
     NEUTRAL_PATH_OUTCOME,
     PathPolicyOutcome,
@@ -376,6 +377,23 @@ class PolicyDecisionPoint:
         crc_ms = _elapsed_ms(crc_start)
         total_ms = _elapsed_ms(pipeline_start)
 
+        # ── The hold — Tex's abstention made first-class ──────────────────
+        # When (and only when) the final verdict is ABSTAIN, build the typed,
+        # self-resolving hold object off the (now two-sided) CRC certificate:
+        # epistemic vs aleatoric, the single pivotal fact that would resolve
+        # it, and the resolution mode (self-heal / human-fact / human-judgment).
+        # Pure and deterministic, so the determinism fingerprint is preserved.
+        # See engine/hold.py and TEX_ABSTAIN_DOCTRINE.md.
+        hold = build_hold(
+            verdict=routing_result.verdict,
+            final_score=routing_result.final_score,
+            uncertainty_flags=tuple(routing_result.uncertainty_flags),
+            certificate=crc_certificate,
+            confidence=routing_result.confidence,
+            agent_id=(str(request.agent_id) if request.agent_id is not None else None),
+            action_type=request.action_type,
+        )
+
         latency = LatencyBreakdown(
             deterministic_ms=round(deterministic_ms, 2),
             retrieval_ms=round(retrieval_ms, 2),
@@ -413,6 +431,7 @@ class PolicyDecisionPoint:
             structural_floor=structural_floor,
             crc_certificate=crc_certificate,
             crc_ms=crc_ms,
+            hold=hold,
         )
 
         response = self._build_response(
@@ -456,6 +475,7 @@ class PolicyDecisionPoint:
         structural_floor: StructuralFloorResult = NEUTRAL_STRUCTURAL_FLOOR,
         crc_certificate: CRCCertificate | None = None,
         crc_ms: float = 0.0,
+        hold: Hold | None = None,
     ) -> Decision:
         metadata = self._build_decision_metadata(
             request=request,
@@ -474,6 +494,7 @@ class PolicyDecisionPoint:
             structural_floor=structural_floor,
             crc_certificate=crc_certificate,
             crc_ms=crc_ms,
+            hold=hold,
         )
 
         return Decision(
@@ -758,6 +779,7 @@ class PolicyDecisionPoint:
         structural_floor: StructuralFloorResult = NEUTRAL_STRUCTURAL_FLOOR,
         crc_certificate: CRCCertificate | None = None,
         crc_ms: float = 0.0,
+        hold: Hold | None = None,
     ) -> dict[str, Any]:
         """
         Produces a compact execution summary for audit, replay, and debugging.
@@ -862,6 +884,7 @@ class PolicyDecisionPoint:
                 if crc_certificate is not None
                 else {"enabled": False, "certified": False}
             ),
+            "hold": (hold.model_dump() if hold is not None else None),
             "policy": {
                 "policy_id": policy.policy_id,
                 "policy_version": policy.version,

@@ -1,0 +1,167 @@
+/* ============================================================
+   Tex — global tokens
+   ────────────────────────────────────────────────────────────
+   The whole design system in one file. Three type sizes,
+   one palette, one rhythm. Pure paper. Breath as warmth.
+   ============================================================ */
+
+:root {
+  /* Type families — two, no more. */
+  --tex-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Helvetica Neue", Arial, sans-serif;
+  --tex-serif: "Source Serif 4", "Source Serif Pro", "New York",
+    "Times New Roman", Georgia, serif;
+  --tex-mono: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+
+  /* Ink — black on paper, with two soft greys for asides and proof. */
+  --tex-ink: #14110d;
+  --tex-ink-soft: #5e564c;
+  --tex-ink-mute: #9b9388;
+  --tex-ink-hair: #d8d4cc;
+
+  /* Paper — the room. One white, two ticks toward warm for hover/quiet. */
+  --tex-paper: #ffffff;
+  --tex-paper-2: #fafaf8;
+  --tex-paper-3: #f4f3ef;
+
+  /* Glass — the orb and the hero word. The only soft objects on the page. */
+  --tex-glass-1: #F4F6FA;
+  --tex-glass-2: #C8D2DE;
+  --tex-glass-3: #5B6E84;
+  --tex-glass-4: #1D2733;
+
+  /* Rhythm — 4px base, 8px standard, 64px section breath. */
+  --tex-unit: 4px;
+  --tex-section-pad: clamp(80px, 12vh, 160px);
+  --tex-canvas-max: 1280px;
+  --tex-reading-max: 720px;
+}
+
+/* On phones we tighten the section breath so content does not float
+   in a sea of padding that only made sense on desktop. We also pull
+   the reading max in so prose hits the natural line-length sweet spot
+   on a 380px screen — 84vw leaves a real margin on either side, so
+   serif lines never run right up to the safe-area edge. */
+@media (max-width: 720px) {
+  :root {
+    --tex-section-pad: 64px;
+    --tex-reading-max: 84vw;
+  }
+}
+
+@media (max-width: 420px) {
+  :root {
+    --tex-section-pad: 48px;
+    --tex-reading-max: 86vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--tex-sans);
+  color: var(--tex-ink);
+  background: var(--tex-paper);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern", "liga", "calt";
+}
+
+button {
+  font-family: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+input,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Type scale — three sizes, used everywhere.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-display {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-style: italic;
+  font-size: clamp(48px, 6.4vw, 84px);
+  line-height: 1.05;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+}
+
+.tex-reading {
+  font-family: var(--tex-serif);
+  font-weight: 300;
+  font-style: italic;
+  font-size: clamp(20px, 1.8vw, 26px);
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink-soft);
+}
+
+.tex-proof {
+  font-family: var(--tex-mono);
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tex-ink-mute);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Accessibility.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::selection {
+  background: var(--tex-ink);
+  color: var(--tex-paper);
+}

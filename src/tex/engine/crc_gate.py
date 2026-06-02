@@ -144,6 +144,84 @@ class CRCCertificate(BaseModel):
         description="Whether the gate demoted this evaluation's PERMIT to ABSTAIN.",
     )
 
+    # ── Two-sided extension (the forbid-side bound) ──────────────────────
+    # The one-sided gate above bounds only the FALSE-PERMIT rate. A hold
+    # (ABSTAIN) is the verdict the operator actually sees, so it deserves a
+    # guarantee of the same caliber — which requires the *other* side too: a
+    # certified bound on the FALSE-FORBID rate (blocking a genuinely-safe
+    # action). With both cutoffs in hand the certified hold band is the
+    # region between them: the scores where neither a PERMIT nor a FORBID can
+    # be certified at its budget. ABSTAIN stops being the score's leftover
+    # and becomes a region with its own coverage statement.
+    #
+    # Construction follows the same RCPS / Hoeffding-Bentkus machinery as the
+    # permit side (SCRC, arXiv 2512.12844; SCOPE, arXiv 2602.13110 — bound the
+    # error among the verdicts actually acted on). Fields default to the
+    # one-sided posture so older certificates and tests remain valid.
+    alpha_forbid: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Risk budget: target upper bound on the false-forbid rate.",
+    )
+    lambda_forbid: float = Field(
+        default=2.0,
+        description=(
+            "Frozen forbid cutoff. FORBID is only *certified* for scores >= "
+            "lambda_forbid. 2.0 (above the score range) means no score is "
+            "forbid-certifiable; the forbid side is inert when forbid_certified "
+            "is False."
+        ),
+    )
+    empirical_false_forbid_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="R_hat_forbid(lambda_forbid) on the calibration set (safe-but-blocked).",
+    )
+    forbid_risk_upper_bound: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Hoeffding-Bentkus UCB on the true false-forbid risk at lambda_forbid.",
+    )
+    certified_false_forbid_rate: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "The number Tex stands behind on the forbid side: the certified "
+            "upper bound on how often a FORBID blocks a genuinely-safe action. "
+            "Equals forbid_risk_upper_bound when forbid_certified, else 1.0."
+        ),
+    )
+    forbid_certified: bool = Field(
+        default=False,
+        description="Whether a non-empty certified FORBID region exists.",
+    )
+    hold_certified: bool = Field(
+        default=False,
+        description=(
+            "Whether the hold (ABSTAIN) band carries a two-sided guarantee: "
+            "both the permit and forbid sides are certified and the band "
+            "[lambda_hat, lambda_forbid] is well-formed (lambda_hat < "
+            "lambda_forbid). When true, an ABSTAIN inside the band is the "
+            "certified-uncertain region, not a leftover."
+        ),
+    )
+    hold_band_lower: float = Field(
+        default=0.0,
+        description="Lower edge of the certified hold band (= the permit cutoff lambda_hat).",
+    )
+    hold_band_upper: float = Field(
+        default=1.0,
+        description="Upper edge of the certified hold band (= the forbid cutoff lambda_forbid).",
+    )
+    in_hold_band: bool = Field(
+        default=False,
+        description="Whether THIS evaluation's fused score fell inside the certified hold band.",
+    )
+
 
 # ── Result of applying the gate to one verdict ──────────────────────────
 
@@ -241,6 +319,12 @@ class ConformalRiskGate:
         "_n",
         "_bound_method",
         "_certified",
+        # two-sided (forbid) state
+        "_alpha_forbid",
+        "_lambda_forbid",
+        "_empirical_forbid_risk",
+        "_forbid_risk_ucb",
+        "_forbid_certified",
     )
 
     def __init__(
@@ -249,24 +333,37 @@ class ConformalRiskGate:
         calibration: Sequence[CalibrationRecord] | None = None,
         alpha: float = 0.05,
         delta: float = 0.05,
+        alpha_forbid: float | None = None,
         grid_size: int = _DEFAULT_GRID_SIZE,
     ) -> None:
         if not 0.0 < alpha < 1.0:
             raise ValueError("alpha must be in (0, 1)")
         if not 0.0 < delta < 1.0:
             raise ValueError("delta must be in (0, 1)")
+        # The forbid-side budget defaults to the permit-side budget — a
+        # symmetric posture — but can be set independently (over-blocking is
+        # often cheaper than under-blocking, so an operator may widen it).
+        if alpha_forbid is None:
+            alpha_forbid = alpha
+        if not 0.0 < alpha_forbid < 1.0:
+            raise ValueError("alpha_forbid must be in (0, 1)")
         self._alpha = alpha
         self._delta = delta
+        self._alpha_forbid = alpha_forbid
         self._bound_method = "hoeffding_bentkus"
 
         if not calibration:
-            # Inert gate: pass-through, certifies nothing.
+            # Inert gate: pass-through, certifies nothing (both sides).
             self._enabled = False
             self._certified = False
             self._lambda_hat = 1.0  # permit region = everything (pass-through)
             self._empirical_risk = 0.0
             self._risk_ucb = 1.0
             self._n = 0
+            self._forbid_certified = False
+            self._lambda_forbid = 2.0  # forbid region = nothing (pass-through)
+            self._empirical_forbid_risk = 0.0
+            self._forbid_risk_ucb = 1.0
             return
 
         self._enabled = True
@@ -276,6 +373,16 @@ class ConformalRiskGate:
         )
         # certified == "there exists a non-empty certified permit region".
         self._certified = self._lambda_hat >= 0.0
+
+        # Forbid side — symmetric construction over the SAME labelled set.
+        (
+            self._lambda_forbid,
+            self._empirical_forbid_risk,
+            self._forbid_risk_ucb,
+        ) = self._calibrate_forbid(
+            calibration, alpha_forbid=alpha_forbid, delta=delta, grid_size=grid_size
+        )
+        self._forbid_certified = self._lambda_forbid <= 1.0
 
     @staticmethod
     def _calibrate(
@@ -323,7 +430,56 @@ class ConformalRiskGate:
                 break
         return best_lambda, best_rhat, best_ucb
 
-    # ----- introspection (used by tests + audit) -------------------------
+    @staticmethod
+    def _calibrate_forbid(
+        calibration: Sequence[CalibrationRecord],
+        *,
+        alpha_forbid: float,
+        delta: float,
+        grid_size: int,
+    ) -> tuple[float, float, float]:
+        """RCPS calibration for the FORBID side — bound over-blocking.
+
+        The forbid risk R_f(lambda) = mean over calibration of
+        [ SAFE AND score >= lambda ] is the mass of genuinely-safe actions
+        that a FORBID-at-and-above-lambda rule would wrongly block. It is
+        non-increasing in lambda (raise the cutoff and you block fewer safe
+        actions). We want the *most permissive* forbid region — the smallest
+        cutoff whose over-block UCB is still within budget — so the certified
+        FORBID region [lambda_forbid, 1] is as large as possible subject to:
+
+            lambda_forbid = inf { lambda : UCB(R_f(lambda); delta) <= alpha_forbid }
+
+        Returns (lambda_forbid, R_hat_f(lambda_forbid), UCB). If even
+        lambda = 1.0 violates the budget, returns lambda_forbid = 2.0
+        (no score forbid-certifiable — the forbid side stays inert, and the
+        gate never fabricates a FORBID it cannot stand behind).
+        """
+        n = len(calibration)
+        scores = [c.final_score for c in calibration]
+        safe = [not c.unsafe for c in calibration]
+
+        # Sweep the grid from most-restrictive (1.0) downward; track the
+        # lowest cutoff whose UCB is still <= budget. Because R_f is monotone
+        # non-increasing, the certified set of cutoffs is an upper interval
+        # [lambda_forbid, 1.0]; we want its infimum.
+        best_lambda = 2.0
+        best_rhat = 0.0
+        best_ucb = 1.0
+        for i in range(grid_size):
+            lam = 1.0 - (i / (grid_size - 1))  # 1.0, ..., 0.0
+            hits = sum(1 for s, sf in zip(scores, safe) if sf and s >= lam)
+            r_hat = hits / n
+            ucb = hoeffding_bentkus_ucb(r_hat, n, delta)
+            if ucb <= alpha_forbid:
+                best_lambda = lam
+                best_rhat = r_hat
+                best_ucb = ucb
+            else:
+                # Once the budget is first violated as lam decreases, every
+                # smaller lam violates it too (risk only grows). Stop.
+                break
+        return best_lambda, best_rhat, best_ucb
 
     @property
     def enabled(self) -> bool:
@@ -337,8 +493,38 @@ class ConformalRiskGate:
     def lambda_hat(self) -> float:
         return self._lambda_hat
 
-    def certificate_template(self, *, demoted: bool = False) -> CRCCertificate:
+    @property
+    def lambda_forbid(self) -> float:
+        return self._lambda_forbid
+
+    @property
+    def forbid_certified(self) -> bool:
+        return self._forbid_certified
+
+    @property
+    def hold_certified(self) -> bool:
+        """Both sides certified and the band is well-formed."""
+        return (
+            self._certified
+            and self._forbid_certified
+            and self._lambda_hat < self._lambda_forbid
+        )
+
+    def in_hold_band(self, final_score: float) -> bool:
+        """Whether a score lies strictly inside the certified hold band."""
+        return self.hold_certified and (
+            self._lambda_hat < final_score < self._lambda_forbid
+        )
+
+    def certificate_template(
+        self, *, demoted: bool = False, final_score: float | None = None
+    ) -> CRCCertificate:
         certified_rate = self._risk_ucb if self._certified else 1.0
+        forbid_rate = self._forbid_risk_ucb if self._forbid_certified else 1.0
+        hold_certified = self.hold_certified
+        in_band = (
+            self.in_hold_band(final_score) if final_score is not None else False
+        )
         return CRCCertificate(
             enabled=self._enabled,
             certified=self._certified,
@@ -351,6 +537,17 @@ class ConformalRiskGate:
             n_calibration=self._n,
             bound_method=self._bound_method,
             demoted=demoted,
+            # two-sided / hold band
+            alpha_forbid=self._alpha_forbid,
+            lambda_forbid=round(self._lambda_forbid, 6),
+            empirical_false_forbid_rate=round(self._empirical_forbid_risk, 6),
+            forbid_risk_upper_bound=round(min(1.0, max(0.0, self._forbid_risk_ucb)), 6),
+            certified_false_forbid_rate=round(min(1.0, max(0.0, forbid_rate)), 6),
+            forbid_certified=self._forbid_certified,
+            hold_certified=hold_certified,
+            hold_band_lower=round(self._lambda_hat, 6) if hold_certified else 0.0,
+            hold_band_upper=round(self._lambda_forbid, 6) if hold_certified else 1.0,
+            in_hold_band=in_band,
         )
 
     # ----- the runtime call ----------------------------------------------
@@ -371,7 +568,7 @@ class ConformalRiskGate:
             return CRCGateResult(
                 verdict=verdict,
                 demoted=False,
-                certificate=self.certificate_template(demoted=False),
+                certificate=self.certificate_template(demoted=False, final_score=final_score),
                 reasons=(),
                 uncertainty_flags=(),
             )
@@ -383,7 +580,7 @@ class ConformalRiskGate:
             return CRCGateResult(
                 verdict=Verdict.PERMIT,
                 demoted=False,
-                certificate=self.certificate_template(demoted=False),
+                certificate=self.certificate_template(demoted=False, final_score=final_score),
                 reasons=(
                     f"CRC gate: PERMIT certified — fused score "
                     f"{final_score:.3f} <= cutoff {self._lambda_hat:.3f}; "
@@ -409,7 +606,7 @@ class ConformalRiskGate:
         return CRCGateResult(
             verdict=Verdict.ABSTAIN,
             demoted=True,
-            certificate=self.certificate_template(demoted=True),
+            certificate=self.certificate_template(demoted=True, final_score=final_score),
             reasons=(reason,),
             uncertainty_flags=("crc_permit_region_exceeded",),
         )

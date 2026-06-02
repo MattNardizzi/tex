@@ -79,6 +79,14 @@ class HeldDecision:
     note: str
     detail: dict[str, Any] = field(default_factory=dict)
     raised_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Optional Layer-4 hold object (engine/hold.py, as a dict) when this held
+    # decision originates from a PDP ABSTAIN rather than the provenance path.
+    # Carries the two-sided certificate band, the epistemic/aleatoric type,
+    # and the pivotal resolving question. Left None for provenance-origin holds.
+    hold: dict[str, Any] | None = None
+    # Optional durable decision id + sealed anchor, when known.
+    decision_id: str | None = None
+    anchor_sha256: str | None = None
 
     def to_jsonable(self) -> dict[str, Any]:
         return {
@@ -88,6 +96,9 @@ class HeldDecision:
             "note": self.note,
             "detail": self.detail,
             "raised_at": self.raised_at.isoformat(),
+            "hold": self.hold,
+            "decision_id": self.decision_id,
+            "anchor_sha256": self.anchor_sha256,
         }
 
 

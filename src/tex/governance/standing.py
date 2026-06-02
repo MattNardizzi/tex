@@ -412,21 +412,39 @@ class StandingGovernance:
         if verdict is Verdict.ABSTAIN:
             # The engine refused to settle alone. Surface it to the one voice
             # and block. An unresolved hold never releases on its own.
+            #
+            # Carry the Layer-4 Hold (engine/hold.py) the PDP produced: the
+            # two-sided certified band, the epistemic/aleatoric type, and the
+            # single pivotal fact that would resolve it. It rides on the held
+            # decision so the vigil speaks the type and the question — never
+            # the case file. Falls back to the flat note when (older runtime)
+            # no hold is present.
+            hold = self._extract_hold(response)
+            note = (
+                hold.get("sentence")
+                if isinstance(hold, dict) and hold.get("sentence")
+                else (
+                    f"I need to know if I can let this through "
+                    f"({action_type}). It's yours to decide."
+                )
+            )
             self._raise_hold(
                 agent_id=agent_uuid,
                 kind=str(action_type),
                 confidence=float(getattr(response, "confidence", 0.0) or 0.0),
-                note=(
-                    f"I need to know if I can let this through "
-                    f"({action_type}). It's yours to decide."
-                ),
+                note=note,
                 detail={
                     "channel": channel,
                     "environment": environment,
                     "recipient": recipient,
+                    "tenant_id": tenant,
+                    "dimension": "execution",
                     "decision_id": str(decision_id) if decision_id else None,
                     "evidence_hash": evidence_hash,
                 },
+                hold=hold,
+                decision_id=(str(decision_id) if decision_id else None),
+                anchor_sha256=evidence_hash,
             )
             return DecisionOutcome(
                 verdict=Verdict.ABSTAIN,
@@ -473,6 +491,9 @@ class StandingGovernance:
         confidence: float,
         note: str,
         detail: dict[str, Any],
+        hold: dict[str, Any] | None = None,
+        decision_id: str | None = None,
+        anchor_sha256: str | None = None,
     ) -> None:
         if self._held is None or agent_id is None:
             return
@@ -486,10 +507,36 @@ class StandingGovernance:
                     confidence=confidence,
                     note=note,
                     detail=detail,
+                    hold=hold,
+                    decision_id=decision_id,
+                    anchor_sha256=anchor_sha256,
                 )
             )
         except Exception:  # noqa: BLE001 — surfacing a hold must never break the ruling
             pass
+
+    @staticmethod
+    def _extract_hold(response: Any) -> dict[str, Any] | None:
+        """Pull the Layer-4 Hold dict out of a PDP response/decision.
+
+        The PDP stamps it at ``metadata['pdp']['hold']`` on every ABSTAIN
+        (engine/pdp.py). Tolerant of either a response carrying ``metadata``
+        or a wrapper exposing ``decision.metadata``; returns None if absent so
+        an older engine degrades to the flat note.
+        """
+        meta = getattr(response, "metadata", None)
+        if meta is None:
+            decision = getattr(response, "decision", None)
+            meta = getattr(decision, "metadata", None)
+        if not isinstance(meta, dict):
+            return None
+        pdp = meta.get("pdp")
+        if isinstance(pdp, dict):
+            hold = pdp.get("hold")
+            if isinstance(hold, dict):
+                return hold
+        hold = meta.get("hold")
+        return hold if isinstance(hold, dict) else None
 
     def _resolve_agent(
         self,

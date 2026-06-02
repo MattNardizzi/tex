@@ -1,0 +1,26 @@
+# The PDP — Tex itself. Decides; never in the path.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: tex, namespace: {{ include "tex.namespace" . }} }
+spec:
+  replicas: {{ .Values.pdp.replicas }}
+  selector: { matchLabels: { app: tex } }
+  template:
+    metadata: { labels: { app: tex } }
+    spec:
+      containers:
+        - name: tex
+          image: {{ .Values.image.pdp }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uvicorn", "tex.main:app", "--host", "0.0.0.0", "--port", "{{ .Values.pdp.port }}"]
+          env:
+            - { name: TEX_DISCOVERY_SCAN_INTERVAL_SECONDS, value: "{{ .Values.pdp.scanIntervalSeconds }}" }
+            - { name: TEX_ENV, value: {{ .Values.pdp.env | quote }} }
+          ports: [ { containerPort: {{ .Values.pdp.port }}, name: http } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: tex, namespace: {{ include "tex.namespace" . }} }
+spec:
+  selector: { app: tex }
+  ports: [ { port: {{ .Values.pdp.port }}, targetPort: http, name: http } ]

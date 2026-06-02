@@ -177,6 +177,17 @@ def build_discovery_surface_router() -> APIRouter:
                 except Exception:  # noqa: BLE001
                     pass
 
+            # The inventory is in and the watch is enrolled. Switch on the
+            # live PDP for this tenant NOW: from here every action an agent
+            # attempts is ruled on at /v1/govern, fail-closed, and newly
+            # discovered agents are governed by default the instant they act.
+            governance = getattr(request.app.state, "standing_governance", None)
+            if governance is not None:
+                try:
+                    governance.activate(tenant)
+                except Exception:  # noqa: BLE001
+                    pass
+
         count = _estate_count(registry, tenant)
         ignition.fire(tenant)
         words = humanize_count(count)

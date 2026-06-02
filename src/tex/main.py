@@ -1286,6 +1286,13 @@ def create_app(
     app.include_router(build_vigil_router())  # VIGIL: /v1/vigil surprise-selected voice
     app.include_router(build_provenance_router())  # PROVENANCE: identity-by-behaviour, sealed
     app.include_router(build_discovery_surface_router())  # PROVENANCE: count-once voice + pull-only
+
+    # STANDING GOVERNANCE: /v1/govern — the PEP-facing decision surface. The
+    # enforcement point (kernel hook, MCP/mesh gateway, in-process gate) calls
+    # /v1/govern/decide before letting an action cross; /v1/govern/posture is
+    # the governed-vs-observed boundary, spoken.
+    from tex.api.governance_standing_routes import build_governance_standing_router
+    app.include_router(build_governance_standing_router())
     app.include_router(tee_router)  # THREAD 12: composite TEE attestation
     app.include_router(vet_router)  # THREAD 13: VET Web Proofs + AID
     app.include_router(zkprov_router)  # THREAD 14: ZKPROV training-data provenance
@@ -1443,6 +1450,22 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.delegation_graph = runtime.delegation_graph
     app.state.dormancy_controller = runtime.dormancy_controller
     app.state.ignition_registry = runtime.ignition_registry
+
+    # STANDING GOVERNANCE: the live PDP. Switched on per tenant the instant
+    # ignition seals the inventory (see discovery_surface_routes.ignite). It
+    # composes the already-built primitives — the registry (pre-computed
+    # capability surfaces for the microsecond floor), the EvaluateActionCommand
+    # (deep six-layer adjudication, sealed), and the held sink (ABSTAIN -> the
+    # one voice) — into the path every enforcement point calls at /v1/govern.
+    # Fail-closed: an agent with no sealed identity is forbidden by default.
+    from tex.governance.standing import StandingGovernance
+
+    app.state.standing_governance = StandingGovernance(
+        agent_registry=runtime.agent_registry,
+        evaluate_command=runtime.evaluate_action_command,
+        held_sink=runtime.held_decision_sink,
+        provenance_engine=runtime.provenance_engine,
+    )
 
     # VIGIL: the selection layer's engine. Stateless-per-cycle in v1 (warms
     # the model of normal from ledger history each cycle). Attached here so

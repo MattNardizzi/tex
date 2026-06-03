@@ -1,0 +1,371 @@
+/* ============================================================
+   Evidence — Signed. Verifiable without us.
+   ============================================================ */
+
+.tex-evidence {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tex-section-pad) 24px;
+}
+
+.tex-evidence-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+  width: 100%;
+  max-width: var(--tex-canvas-max);
+}
+
+.tex-evidence-orb {
+  margin-bottom: -24px;
+}
+
+.tex-evidence-composition {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  aspect-ratio: 1000 / 380;
+}
+
+.tex-evidence-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Chain segments — each segment draws from the previous dot
+   to the next, becoming the visible spine of the chain. */
+.tex-evidence-seg {
+  stroke-dasharray: 110;
+  stroke-dashoffset: 110;
+  opacity: 0;
+  animation: tex-evidence-seg-draw 460ms ease forwards;
+  animation-play-state: paused;
+}
+
+.tex-evidence--armed .tex-evidence-seg {
+  animation-play-state: running;
+}
+
+@keyframes tex-evidence-seg-draw {
+  0%   { stroke-dashoffset: 110; opacity: 0;   }
+  30%  { opacity: 0.6;                          }
+  100% { stroke-dashoffset: 0;   opacity: 0.6; }
+}
+
+/* Each link in the chain — dot + hash. */
+.tex-evidence-link {
+  opacity: 0;
+  animation: tex-evidence-link-appear 600ms ease forwards;
+  animation-play-state: paused;
+}
+
+.tex-evidence--armed .tex-evidence-link {
+  animation-play-state: running;
+}
+
+@keyframes tex-evidence-link-appear {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* The highlighted dot's pulse — runs once after the chain
+   completes, signaling the export action. */
+.tex-evidence-pulse {
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+  animation: tex-evidence-pulse 1.2s ease-out forwards;
+  animation-play-state: paused;
+}
+
+.tex-evidence--armed .tex-evidence-pulse {
+  animation-play-state: running;
+}
+
+@keyframes tex-evidence-pulse {
+  0%   { opacity: 0;   transform: scale(0.6); }
+  30%  { opacity: 0.8; }
+  100% { opacity: 0;   transform: scale(2.2); }
+}
+
+/* Export hairline and folder. */
+.tex-evidence-export-line,
+.tex-evidence-folder {
+  transition: opacity 1.0s ease;
+}
+
+/* Copy ─────────────────────────────────────────────────── */
+
+.tex-evidence-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.tex-evidence-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: var(--tex-reading-max);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+
+.tex-evidence-line em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-evidence--armed .tex-evidence-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tex-evidence-proof {
+  font-family: var(--tex-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--tex-ink-mute);
+  margin: 0;
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+
+.tex-evidence--armed .tex-evidence-proof {
+  opacity: 1;
+}
+
+/* MOBILE COMPOSITION ────────────────────────────────────────
+   Hidden on desktop. The desktop SVG above is hidden on mobile.
+   The vertical chain is the same evidence story, drawn for the
+   phone instead of squashed into one.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-evidence-mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .tex-evidence {
+    padding: var(--tex-section-pad) 20px;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+  .tex-evidence-stage {
+    gap: 36px;
+  }
+  .tex-evidence-orb {
+    margin-bottom: 0;
+  }
+
+  /* Closing line and proof — both were running edge-to-edge on a
+     375px viewport. Pad them in so they sit inside the safe area
+     with the same gutter the rest of the prose gets. */
+  .tex-evidence-line {
+    font-size: 22px;
+    line-height: 1.32;
+    padding: 0 16px;
+    max-width: 340px;
+    text-wrap: balance;
+  }
+  .tex-evidence-proof {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-align: center;
+    padding: 0 16px;
+    white-space: nowrap;
+  }
+
+  /* Hide the desktop SVG composition. */
+  .tex-evidence-composition {
+    display: none;
+  }
+
+  /* Show the mobile vertical chain. The chain's SPINE must sit on the
+     page's vertical axis so the orb above and the chain below share one
+     centerline. We achieve that by giving the chain a fixed width, then
+     translating the whole block left by half a chain-row so the spine
+     (which sits at the block's left edge + 5px) lands at page center. */
+  .tex-evidence-mobile {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .tex-evidence-mobile-chain {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    position: relative;
+    width: 200px;
+    /* Half-row offset to put the spine on page center: half of the
+       typical row width is ~100px; spine sits at left+5px; net shift
+       is +95px. So translate right by 95px to align spine with center
+       — actually, since the block is already centered, we shift LEFT
+       by 95px to undo half the row-width and put spine on center.
+       Wait: centered block puts the block's center on page center.
+       Spine is at block-left + 5 = block-center - 95. So spine is 95px
+       LEFT of center. To push spine TO center, translate right by 95px. */
+    transform: translateX(95px);
+  }
+
+  /* The vertical spine — a hairline that runs the full length of
+     the chain, behind the dots and gap markers. */
+  .tex-evidence-mobile-chain::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 14px;
+    bottom: 14px;
+    width: 1px;
+    background: var(--tex-glass-3);
+    opacity: 0;
+    transform: scaleY(0);
+    transform-origin: top;
+    transition: opacity 1.2s ease, transform 1.6s ease;
+    transition-delay: 350ms;
+  }
+
+  .tex-evidence--armed .tex-evidence-mobile-chain::before {
+    opacity: 0.36;
+    transform: scaleY(1);
+  }
+
+  .tex-evidence-mobile-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 0;
+    min-height: 28px;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 600ms ease, transform 600ms ease;
+  }
+
+  .tex-evidence--armed .tex-evidence-mobile-link {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .tex-evidence-mobile-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--tex-ink);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .tex-evidence-mobile-link--highlighted .tex-evidence-mobile-dot {
+    width: 13px;
+    height: 13px;
+    box-shadow: 0 0 0 6px rgba(91, 110, 132, 0.18);
+  }
+
+  .tex-evidence-mobile-hash {
+    font-family: var(--tex-mono);
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: var(--tex-ink-soft);
+    line-height: 1;
+  }
+
+  /* The gap indicator — "+ 3", "+ 4", etc. Reads as elision rather
+     than truncation. Sits inline with the chain on the spine. */
+  .tex-evidence-mobile-gap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 4px 0 4px 0;
+    margin-left: -3px;
+    opacity: 0;
+    transition: opacity 700ms ease;
+  }
+  .tex-evidence--armed .tex-evidence-mobile-gap {
+    opacity: 1;
+  }
+  .tex-evidence-mobile-gap-mark {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--tex-ink-mute);
+    background: var(--tex-paper);
+    padding: 2px 8px 2px 16px;
+    line-height: 1;
+  }
+
+  /* The branch — only on the highlighted link. On the centered chain
+     the bundle sits beneath the highlighted row, indented from the
+     dot, so it reads as "this one was exported." */
+  .tex-evidence-mobile-link--highlighted {
+    flex-wrap: wrap;
+  }
+  .tex-evidence-mobile-branch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 25px;
+    padding-top: 6px;
+    flex-basis: 100%;
+    opacity: 0;
+    transform: translateX(-4px);
+    transition: opacity 800ms ease, transform 800ms ease;
+  }
+
+  .tex-evidence--armed .tex-evidence-mobile-branch {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .tex-evidence-mobile-branch-line {
+    display: none;
+  }
+
+  .tex-evidence-mobile-bundle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    transition: opacity 900ms ease;
+  }
+
+  .tex-evidence--armed .tex-evidence-mobile-bundle {
+    opacity: 1;
+  }
+
+  .tex-evidence-mobile-bundle svg {
+    display: block;
+    flex-shrink: 0;
+  }
+
+  .tex-evidence-mobile-bundle-label {
+    font-family: var(--tex-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--tex-ink-mute);
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+  }
+}
+
+/* Very narrow phones — no separate treatment needed; the wrapped layout
+   above already handles 360px and below. */

@@ -1,0 +1,258 @@
+/* ============================================================
+   Foresight — I see what's coming.
+   ============================================================ */
+
+.tex-foresight {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--tex-section-pad) 24px;
+}
+
+.tex-foresight-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 56px;
+  width: 100%;
+  max-width: var(--tex-canvas-max);
+}
+
+.tex-foresight-composition {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  aspect-ratio: 1000 / 360;
+}
+
+.tex-foresight-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Orb anchored at the left of the composition where the timeline begins.
+   The SVG's "x=200, y=180" maps to 20% from left, 50% from top. */
+.tex-foresight-orb {
+  position: absolute;
+  left: 20%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Animated SVG primitives ─────────────────────────────────── */
+
+.tex-foresight-timeline {
+  transition: stroke-dashoffset 1.4s ease;
+}
+
+.tex-foresight-now {
+  transition: opacity 0.8s ease;
+}
+
+.tex-foresight-cone,
+.tex-foresight-cone-bound {
+  transition: opacity 1.4s ease;
+}
+
+.tex-foresight-shadow {
+  transition: opacity 0.6s ease;
+}
+
+.tex-foresight-shadow-dot,
+.tex-foresight-shadow-halo {
+  animation: tex-foresight-shadow-travel 4.2s ease-in-out infinite;
+  animation-play-state: paused;
+}
+
+.tex-foresight--armed .tex-foresight-shadow-dot,
+.tex-foresight--armed .tex-foresight-shadow-halo {
+  animation-play-state: running;
+}
+
+@keyframes tex-foresight-shadow-travel {
+  0%   { transform: translateX(0);    opacity: 0.7; }
+  40%  { transform: translateX(640px); opacity: 0.55; }
+  70%  { transform: translateX(720px); opacity: 0.3;  }
+  100% { transform: translateX(740px); opacity: 0;    }
+}
+
+.tex-foresight-tick-label {
+  transition: opacity 0.8s ease;
+}
+
+/* The sentence ──────────────────────────────────────────── */
+
+.tex-foresight-line {
+  font-family: var(--tex-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  color: var(--tex-ink);
+  text-align: center;
+  margin: 0;
+  max-width: var(--tex-reading-max);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+
+.tex-foresight-line em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--tex-ink-soft);
+}
+
+.tex-foresight--armed .tex-foresight-line {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* MOBILE COMPOSITION ────────────────────────────────────────
+   The beam stands up on mobile. The desktop horizontal SVG is
+   hidden; this vertical DOM/SVG composition takes its place.
+   ──────────────────────────────────────────────────────────── */
+
+.tex-foresight-mobile {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .tex-foresight {
+    padding: var(--tex-section-pad) 20px;
+    min-height: 100svh;
+    min-height: 100dvh;
+  }
+  .tex-foresight-stage {
+    gap: 40px;
+  }
+
+  /* Hide the desktop composition entirely. Its math does not work
+     at phone width — the cone compresses into a sliver and the orb
+     drops outside the visible band. */
+  .tex-foresight-composition {
+    display: none;
+  }
+
+  /* Mobile composition. */
+  .tex-foresight-mobile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 280px;
+    margin: 0 auto;
+  }
+
+  .tex-foresight-mobile-now {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 2;
+  }
+
+  .tex-foresight-mobile-now-label {
+    font-family: var(--tex-mono);
+    font-size: 9px;
+    letter-spacing: 0.16em;
+    color: var(--tex-ink-mute);
+    margin-top: -2px;
+  }
+
+  /* The beam is shorter on mobile so the whole composition fits one
+     viewport with the sentence below. 220px from orb to base. */
+  .tex-foresight-mobile-svg {
+    width: 100%;
+    height: 220px;
+    margin-top: -28px;
+    display: block;
+  }
+
+  /* The timeline draws downward. */
+  .tex-foresight-mobile-timeline {
+    stroke-dasharray: 280;
+    stroke-dashoffset: 280;
+    transition: stroke-dashoffset 1.4s ease;
+    transition-delay: 350ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-timeline {
+    stroke-dashoffset: 0;
+  }
+
+  /* The cone fades in once the timeline is drawn. */
+  .tex-foresight-mobile-cone,
+  .tex-foresight-mobile-cone-bound {
+    opacity: 0;
+    transition: opacity 1.4s ease;
+    transition-delay: 1700ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-cone,
+  .tex-foresight--armed .tex-foresight-mobile-cone-bound {
+    opacity: 1;
+  }
+
+  /* The shadow orb travels down the beam — once, not on loop. A single
+     comet that demonstrates the simulation, then settles. */
+  .tex-foresight-mobile-shadow {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    transition-delay: 1850ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-shadow {
+    opacity: 1;
+    animation: tex-foresight-mobile-travel 3.4s ease-in-out forwards;
+    animation-delay: 1850ms;
+    animation-iteration-count: 1;
+  }
+
+  @keyframes tex-foresight-mobile-travel {
+    0%   { transform: translateY(0);    opacity: 0.7; }
+    60%  { transform: translateY(220px); opacity: 0.4; }
+    100% { transform: translateY(240px); opacity: 0;   }
+  }
+
+  /* CONFORMAL label anchored close to the cone's base, not floating. */
+  .tex-foresight-mobile-conformal {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: -14px;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    transition-delay: 2500ms;
+  }
+  .tex-foresight--armed .tex-foresight-mobile-conformal {
+    opacity: 1;
+  }
+  .tex-foresight-mobile-conformal-rule {
+    width: 22px;
+    height: 1px;
+    background: var(--tex-glass-3);
+    opacity: 0.5;
+  }
+  .tex-foresight-mobile-conformal-label {
+    font-family: var(--tex-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--tex-ink-mute);
+  }
+
+  /* Closing sentence — narrower than the reading max so "not just what is."
+     stays together as a phrase. text-wrap:balance produces an even
+     two-line split instead of leaving a fragment alone. */
+  .tex-foresight-line {
+    font-size: 22px;
+    line-height: 1.32;
+    padding: 0 16px;
+    max-width: 320px;
+    text-wrap: balance;
+  }
+}

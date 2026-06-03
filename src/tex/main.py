@@ -64,6 +64,7 @@ from tex.domain.retrieval import RetrievedEntity, RetrievedPolicyClause, Retriev
 from tex.engine.pdp import PolicyDecisionPoint
 from tex.evidence.exporter import EvidenceExporter
 from tex.evidence.recorder import EvidenceRecorder
+from tex.evidence.seal import build_evidence_chain_signer
 # Thread 5: C2PA emission + manifest mirror + digital-twin wiring.
 from tex.evidence.c2pa_emitter import C2paEmitter
 from tex.evidence.manifest_mirror import PostgresManifestMirror
@@ -87,6 +88,9 @@ from tex.learning.calibration_safety import CalibrationSafetyGuard
 from tex.learning.drift import PolicyDriftMonitor
 from tex.learning.drift_classifier import DriftClassifier
 from tex.learning.feedback_loop import FeedbackLoopOrchestrator
+from tex.learning.ope import OffPolicyEvaluator
+from tex.learning.sufficiency import EvidenceSufficiency
+from tex.learning.trigger import AnytimeValidCalibrationTrigger
 from tex.learning.observability import (
     CompositeLearningObserver,
     LearningAlertEngine,
@@ -605,11 +609,23 @@ def build_runtime(
 
         legacy_evidence_mirror = PostgresEvidenceMirror()
 
+    # Layer-5 post-quantum seal over the evidence chain. Activates the
+    # composite ML-DSA-65 + Ed25519 signer when an ML-DSA backend is present
+    # (pyca/cryptography>=48 + OpenSSL>=3.5, or liboqs); otherwise falls back to
+    # ECDSA-P256 and logs the downgrade — signatures are always labelled with
+    # the algorithm that actually produced them. Every appended evidence record
+    # then carries an embedded, self-verifying signature, and the human-
+    # resolution seal (POST /decisions/{id}/seal) is signed the same way.
+    evidence_chain_signer = build_evidence_chain_signer(
+        key_dir=os.environ.get("TEX_EVIDENCE_KEY_DIR", "var/tex/keys"),
+    )
+
     recorder = EvidenceRecorder(
         normalized_evidence_path,
         mirror=legacy_evidence_mirror,
         c2pa_emitter=c2pa_emitter,
         manifest_mirror=manifest_mirror,
+        chain_signer=evidence_chain_signer,
     )
     # Re-point the memory system's recorder at the same instance so the
     # JSONL chain (and all Thread 5 emission wiring) is shared. The
@@ -983,7 +999,21 @@ def build_runtime(
         drift_classifier=drift_classifier,
         poisoning_detector=poisoning_detector,
         observer=learning_observer,
+        sufficiency_gate=EvidenceSufficiency(),
+        ope_evaluator=OffPolicyEvaluator(),
     )
+
+    # Autonomous calibration trigger: maintains an anytime-valid e-process per
+    # tenant/policy target on the false-permit signal and calls propose() only
+    # when the boundary is crossed (anytime-valid p < alpha). This is what
+    # lets the learning voice speak unprompted — before it, propose() had only
+    # the manual route as a caller and the proposal store stayed empty in
+    # practice. Bound after construction to break the back-reference cycle.
+    learning_trigger = AnytimeValidCalibrationTrigger(
+        orchestrator=learning_orchestrator,
+        proposals=proposal_store,
+    )
+    learning_orchestrator.set_trigger(learning_trigger)
 
     report_outcome_command = ReportOutcomeCommand(
         decision_store=decision_store,
@@ -1452,9 +1482,20 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # ``/v1/vigil`` ``human_decision`` channel, carrying the Layer-4 Hold when
     # the held decision originated from a PDP ABSTAIN. Read-only; never blocks.
     from tex.vigil.held_provider import HeldDecisionVigilProvider
+    from tex.vigil.calibration_provider import (
+        CalibrationProposalVigilProvider,
+        CompositeHeldProvider,
+    )
 
-    app.state.held_decision_provider = HeldDecisionVigilProvider(
-        runtime.held_decision_sink
+    # Decision-first composition: a held decision (money, irreversible action)
+    # always wins the single held-card slot; a pending calibration proposal is
+    # consulted only when nothing waits on a human. A proposal never preempts a
+    # decision and never breaks silence with urgency.
+    app.state.held_decision_provider = CompositeHeldProvider(
+        [
+            HeldDecisionVigilProvider(runtime.held_decision_sink),
+            CalibrationProposalVigilProvider(runtime.proposal_store),
+        ]
     )
     app.state.delegation_graph = runtime.delegation_graph
     app.state.dormancy_controller = runtime.dormancy_controller

@@ -142,6 +142,10 @@ class FeedbackLoopOrchestrator:
         "_observer",
         "_cold_start_minimum",
         "_clock",
+        "_sufficiency",
+        "_ope",
+        "_ope_budget",
+        "_trigger",
     )
 
     def __init__(
@@ -162,6 +166,9 @@ class FeedbackLoopOrchestrator:
         observer: _LearningObserver | None = None,
         cold_start_minimum: int = DEFAULT_COLD_START_MINIMUM,
         clock: callable | None = None,
+        sufficiency_gate: Any | None = None,
+        ope_evaluator: Any | None = None,
+        ope_unsafe_release_budget: float = 0.05,
     ) -> None:
         self._decisions = decisions
         self._outcomes = outcomes
@@ -178,6 +185,21 @@ class FeedbackLoopOrchestrator:
         self._observer = observer or _NullObserver()
         self._cold_start_minimum = cold_start_minimum
         self._clock = clock or (lambda: datetime.now(UTC))
+        # Optional frontier collaborators. All default to None / inert so an
+        # orchestrator built the legacy way behaves identically.
+        self._sufficiency = sufficiency_gate
+        self._ope = ope_evaluator
+        self._ope_budget = ope_unsafe_release_budget
+        self._trigger: Any | None = None
+
+    def set_trigger(self, trigger: Any) -> None:
+        """Attach the autonomous calibration trigger after construction.
+
+        Set via a method (not __init__) because the trigger holds a
+        back-reference to this orchestrator — the two are built in sequence
+        and bound here to break the construction cycle.
+        """
+        self._trigger = trigger
 
     # ── ingest ──────────────────────────────────────────────────────────
 
@@ -237,6 +259,15 @@ class FeedbackLoopOrchestrator:
             )
             reputation_updated = True
 
+        # Autonomous trigger hook: fold this outcome into its calibration
+        # e-process and (on a boundary crossing) draft a proposal. Optional
+        # and fully defensive — a trigger fault never breaks ingest.
+        if self._trigger is not None:
+            try:
+                self._trigger.on_outcome(result.outcome)
+            except Exception:  # noqa: BLE001
+                pass
+
         return IngestResult(
             validation=result,
             persisted=True,
@@ -275,6 +306,7 @@ class FeedbackLoopOrchestrator:
         source_policy_version: str | None = None,
         recent_window: timedelta = DEFAULT_PROPOSAL_FRESHNESS_WINDOW,
         replay_window_size: int = 200,
+        trigger_metadata: dict[str, Any] | None = None,
     ) -> ProposalDraftResult:
         """
         Drive the full proposal pipeline for one tenant.
@@ -346,6 +378,35 @@ class FeedbackLoopOrchestrator:
                 ),
                 advisories=tuple(advisories),
             )
+
+        # Evidence-sufficiency gate (optional). Past the raw cold-start count,
+        # ask whether the window is actually fit to justify a change: complete,
+        # fresh, reliable, and representative of both error modes. When it
+        # isn't, hold the baseline and surface the honest reason. This is the
+        # difference between "not enough rows" and "not enough evidence".
+        if self._sufficiency is not None:
+            sufficiency = self._sufficiency.assess(eligible)
+            if not sufficiency.ready:
+                advisories.append(
+                    "Evidence not yet sufficient for calibration: "
+                    + sufficiency.reason
+                )
+                self._observer.on_event(
+                    event="calibration_insufficient_evidence",
+                    payload={"tenant_id": tenant_id, **sufficiency.as_dict()},
+                )
+                return ProposalDraftResult(
+                    proposal=None,
+                    drift_report=drift_report,
+                    drift_classification=drift_classification,
+                    poisoning_report=poisoning_report,
+                    health=self._snapshot_health(
+                        eligible=eligible,
+                        quarantined_count=quarantined_count,
+                        drift_report=drift_report,
+                    ),
+                    advisories=tuple(advisories),
+                )
 
         # Surface poisoning-detector findings as a dedicated event for
         # operator alerting, regardless of which path the proposal takes.
@@ -486,11 +547,62 @@ class FeedbackLoopOrchestrator:
                 },
             )
 
+        # Off-policy evaluation (optional): an anytime-valid upper bound on
+        # the counterfactual unsafe-release rate of the proposed policy. We
+        # gate on the *bound*, not the point estimate — an operator approving
+        # a governance change is owed a conservative worst case. A bound above
+        # budget refuses the proposal even when replay looks benign.
+        ope_meta: dict[str, Any] | None = None
+        if self._ope is not None:
+            ope_report = self._ope.evaluate(
+                decisions=recent_decisions,
+                outcomes=eligible,
+                policy=source_policy,
+                recommendation=safety_decision.clipped_recommendation,
+            )
+            ope_meta = ope_report.as_dict()
+            if not ope_report.within_budget(self._ope_budget):
+                advisories.append(
+                    "Off-policy safety bound exceeds budget: the proposed "
+                    f"change could release unsafe actions at up to "
+                    f"{ope_report.upper_bound:.1%} "
+                    f"(budget {self._ope_budget:.1%}, anytime-valid at "
+                    f"alpha={ope_report.alpha}). Refusing."
+                )
+                self._observer.on_event(
+                    event="calibration_ope_blocked",
+                    payload={"tenant_id": tenant_id, **ope_meta},
+                )
+                return ProposalDraftResult(
+                    proposal=None,
+                    drift_report=drift_report,
+                    drift_classification=drift_classification,
+                    poisoning_report=poisoning_report,
+                    health=self._snapshot_health(
+                        eligible=eligible,
+                        quarantined_count=quarantined_count,
+                        drift_report=drift_report,
+                    ),
+                    advisories=tuple(advisories),
+                )
+
         health = self._snapshot_health(
             eligible=eligible,
             quarantined_count=quarantined_count,
             drift_report=drift_report,
         )
+
+        proposal_metadata: dict[str, Any] = {
+            "drift_report": _drift_report_dict(drift_report),
+            "drift_classification": _drift_classification_dict(drift_classification),
+            "poisoning_summary": _poisoning_summary_dict(poisoning_report),
+            "weighted_total": weighted.total,
+            "raw_total": weighted.raw.total,
+        }
+        if ope_meta is not None:
+            proposal_metadata["ope"] = ope_meta
+        if trigger_metadata:
+            proposal_metadata.update(trigger_metadata)
 
         proposal = CalibrationProposal.build(
             source_policy=source_policy,
@@ -502,13 +614,7 @@ class FeedbackLoopOrchestrator:
             safety_reasons=safety_decision.reasons,
             tenant_id=tenant_id.strip(),
             created_by=created_by.strip(),
-            metadata={
-                "drift_report": _drift_report_dict(drift_report),
-                "drift_classification": _drift_classification_dict(drift_classification),
-                "poisoning_summary": _poisoning_summary_dict(poisoning_report),
-                "weighted_total": weighted.total,
-                "raw_total": weighted.raw.total,
-            },
+            metadata=proposal_metadata,
         )
         self._proposals.save(proposal)
         self._observer.on_event(

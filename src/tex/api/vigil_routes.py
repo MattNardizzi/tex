@@ -74,6 +74,14 @@ class HoldDTO(BaseModel):
     band_lower: float = 0.0
     band_upper: float = 1.0
     final_score: float = Field(ge=0.0, le=1.0, default=0.0)
+    # ── calibration-hold extension (additive; default keeps decision holds
+    # identical on the wire). A calibration hold sets kind="calibration" and
+    # carries the proposal handle + proposed change + anytime-valid safety
+    # bound, which the surface raises only on reach.
+    kind: str = "decision"               # decision | calibration
+    proposal_id: str | None = None
+    proposed_change: dict[str, Any] | None = None
+    safety_bound: dict[str, Any] | None = None
 
 
 class HumanDecisionDTO(BaseModel):
@@ -132,6 +140,10 @@ def _hold_dto(hold: Any) -> HoldDTO | None:
         band_lower=float(g("band_lower", 0.0)),
         band_upper=float(g("band_upper", 1.0)),
         final_score=float(g("final_score", 0.0)),
+        kind=str(g("kind", "decision")),
+        proposal_id=g("proposal_id", None),
+        proposed_change=g("proposed_change", None),
+        safety_bound=g("safety_bound", None),
     )
 
 

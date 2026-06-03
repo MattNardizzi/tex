@@ -1,0 +1,142 @@
+/* ============================================================
+   Moment Card — I stopped one.
+   ============================================================ */
+
+.tex-moment-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--tex-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 56px)
+    20px
+    calc(env(safe-area-inset-bottom, 0px) + 24px)
+    20px;
+  overflow: hidden;
+}
+
+.tex-moment-card-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  /* The two phases occupy the same vertical real estate, so
+     we use a small explicit gap and absolute-position each
+     phase block within the stage. */
+  gap: 20px;
+}
+
+.tex-moment-card-orb {
+  /* Reserve the orb's space so the layout doesn't reflow when
+     the halo intensifies in the event phase. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* PHASE STACK ────────────────────────────────────────────
+   The quiet and event blocks both live below the orb. They
+   take turns being visible. The block in flow is the active
+   one; the other has display:none so it doesn't take vertical
+   space (otherwise the orb would shift between phases). */
+.tex-moment-card-quiet,
+.tex-moment-card-event {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  text-align: center;
+}
+
+.tex-moment-card--quiet .tex-moment-card-event { display: none; }
+.tex-moment-card--event .tex-moment-card-quiet { display: none; }
+
+/* QUIET WORD ─────────────────────────────────────────── */
+.tex-moment-card-quiet-word {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 26px;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink-soft);
+  margin: 0;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 1.2s ease 0.4s, transform 1.2s ease 0.4s;
+}
+.tex-moment-card--armed .tex-moment-card-quiet-word {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* EVENT BLOCK ─────────────────────────────────────────── */
+.tex-moment-card-event {
+  gap: 14px;
+  opacity: 0;
+  /* Fade up gracefully when the phase changes — the swap is
+     instant at the React level (display:none → display:flex)
+     but the contents arrive as a single staggered breath. */
+  animation: tex-moment-card-event-in 1.4s ease forwards;
+}
+
+@keyframes tex-moment-card-event-in {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0);   }
+}
+
+.tex-moment-card-line {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--tex-ink);
+  margin: 0;
+}
+
+.tex-moment-card-aside {
+  font-family: var(--tex-serif);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 18px;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  color: var(--tex-ink-soft);
+  margin: 0;
+}
+
+/* THE BUTTON ─────────────────────────────────────────── */
+.tex-moment-card-btn {
+  margin-top: 14px;
+  font-family: var(--tex-sans);
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: 0.005em;
+  color: var(--tex-paper);
+  background: var(--tex-ink);
+  padding: 14px 32px;
+  border-radius: 999px;
+  transition: background 0.2s ease, transform 0.2s ease;
+  border: 0;
+  cursor: pointer;
+  /* The whole card breathes around this one button — give it a
+     hairline ring of halo so the eye lands on it last. */
+  box-shadow: 0 0 0 6px rgba(20, 17, 13, 0.04);
+}
+
+.tex-moment-card-btn:hover { background: #000000; }
+.tex-moment-card-btn:active { transform: translateY(1px); }
+.tex-moment-card-btn:focus-visible {
+  outline: 2px solid var(--tex-ink);
+  outline-offset: 4px;
+}
+
+@media (max-width: 360px) {
+  .tex-moment-card-line { font-size: 30px; }
+  .tex-moment-card-aside { font-size: 16px; }
+}

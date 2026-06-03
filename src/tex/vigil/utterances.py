@@ -97,7 +97,12 @@ FORMS: dict[str, UtteranceForm] = {
         dimension="learning",
         template="{count} learning proposals are waiting for your review.",
         required_slots=("count",),
-        speaks_when=_gt0,
+        # Retired: a pending calibration no longer speaks as a vigil line (that
+        # was the proposals-list/notification pattern). Learning now surfaces
+        # only as a calibration hold inside the Held state — one proposal at a
+        # time, pull-only. The dimension reading still feeds the model of
+        # normal; it just never becomes a spoken utterance.
+        speaks_when=lambda s: False,
     ),
     # v5: authored counterfactual forms. Spoken ONLY when filled from a
     # sealed CausalAttributionPort.counterfactual() claim (provability gate).

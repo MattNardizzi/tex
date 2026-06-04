@@ -70,6 +70,17 @@ class LiveConfig:
     abstain_rate: float = 0.18       # target share that reach for ABSTAIN content
     seed: int = 7
     max_latency_samples: int = 2000  # bounded ring buffer for percentiles
+    # The practice course: wait for the operator to press "Yes" on the
+    # interface (server-authoritative ignition) instead of self-igniting, so
+    # the day-one door is never stolen. The driver re-asserts ignition only if
+    # it later detects the tenant went un-ignited (a web restart), never on the
+    # first run.
+    wait_for_ignition: bool = False
+    # Which path the action stream drives. "govern" => POST /v1/govern/decide,
+    # the live PEP path whose ABSTAINs surface on the glass (the faithful
+    # default). "evaluate" => POST /evaluate, the audit path — seals decisions
+    # but never surfaces a hold (useful only to observe that difference).
+    drive: str = "govern"
 
 
 def parse_duration(text: str | None) -> float | None:
@@ -327,27 +338,8 @@ def run_live(config: LiveConfig, *, base_url: str = "http://localhost:8000",
     print(f"  onboard    : governed cohort -> {config.onboard.upper()}  (shadow stays UNVERIFIED)")
     print("-" * 72)
 
-    # 1. ignite discovery (map the estate)
-    try:
-        status = client.discovery_status(estate.tenant_id)
-        if not status.get("ignited"):
-            client.ignite(estate.tenant_id)
-            print("  discovery ignited — mapping the estate…")
-    except TexClientError:
-        pass
-
-    # 2. onboard the governed cohort
-    if config.onboard.lower() != "none":
-        ob = _onboard_governed_cohort(client, estate, config.onboard)
-        print(f"  onboarded  : {ob.get('onboarded', 0)} governed agents -> "
-              f"{ob.get('tier', '')}  ({ob.get('warmups', 0)} registered, "
-              f"{ob.get('skipped_shadow', 0)} shadow left untrusted)")
-    print("-" * 72)
-    print("  watching. heartbeats below; Ctrl-C for a clean stop + summary.\n")
-
-    stats = LiveStats(latencies_ms=deque(maxlen=config.max_latency_samples))
-    stats.heartbeat_window = config.heartbeat_seconds  # type: ignore[attr-defined]
-
+    # A clean stop must be possible during the (possibly long) wait for the
+    # operator's "Yes", so the handler is installed before anything blocks.
     stop = {"flag": False}
 
     def _handle_sigint(signum, frame):  # noqa: ANN001
@@ -355,6 +347,56 @@ def run_live(config: LiveConfig, *, base_url: str = "http://localhost:8000",
         print("\n  stop requested — finishing in-flight tick…")
 
     signal.signal(signal.SIGINT, _handle_sigint)
+
+    def _onboard() -> None:
+        if config.onboard.lower() == "none":
+            return
+        ob = _onboard_governed_cohort(client, estate, config.onboard)
+        print(f"  onboarded  : {ob.get('onboarded', 0)} governed agents -> "
+              f"{ob.get('tier', '')}  ({ob.get('warmups', 0)} registered, "
+              f"{ob.get('skipped_shadow', 0)} shadow left untrusted)")
+
+    # 1. ignition — the operator's act.
+    if config.wait_for_ignition:
+        # The practice course: do NOT ignite. Wait, silent, until the operator
+        # presses "Yes" on the interface and server-authoritative ignition
+        # fires. That first moment is the thing being rehearsed; stealing it by
+        # self-igniting is exactly the regression we are avoiding.
+        print("  waiting for the operator to begin mapping "
+              "(press Yes on the interface)…")
+        waited = 0.0
+        while not stop["flag"]:
+            try:
+                if client.discovery_status(estate.tenant_id).get("ignited"):
+                    break
+            except TexClientError:
+                pass
+            time.sleep(2.0)
+            waited += 2.0
+            if waited % 30 == 0:
+                print(f"  …still waiting ({_hms(waited)})")
+        if stop["flag"]:
+            return 0
+        print("  ignition fired by the operator — estate mapped. onboarding + driving.")
+    else:
+        try:
+            status = client.discovery_status(estate.tenant_id)
+            if not status.get("ignited"):
+                client.ignite(estate.tenant_id)
+                print("  discovery ignited — mapping the estate…")
+        except TexClientError:
+            pass
+
+    # 2. onboard the governed cohort
+    _onboard()
+    print("-" * 72)
+    drive_path = "/v1/govern/decide" if config.drive == "govern" else "/evaluate"
+    print(f"  driving    : {drive_path}  "
+          f"({'holds surface on the glass' if config.drive == 'govern' else 'audit path — holds do NOT surface'})")
+    print("  watching. heartbeats below; Ctrl-C for a clean stop + summary.\n")
+
+    stats = LiveStats(latencies_ms=deque(maxlen=config.max_latency_samples))
+    stats.heartbeat_window = config.heartbeat_seconds  # type: ignore[attr-defined]
 
     rng = random.Random(config.seed)
     agents = list(estate.agents)
@@ -383,10 +425,13 @@ def run_live(config: LiveConfig, *, base_url: str = "http://localhost:8000",
 
         action = _next_action(estate, rng, seq, config.forbid_rate, config.abstain_rate, agents, weights)
         seq += 1
-        payload = action.to_evaluate_payload(estate.tenant_id)
+        if config.drive == "govern":
+            payload = action.to_decide_payload(estate.tenant_id)
+        else:
+            payload = action.to_evaluate_payload(estate.tenant_id)
         t0 = time.monotonic()
         try:
-            resp = client.evaluate(payload)
+            resp = client.decide(payload) if config.drive == "govern" else client.evaluate(payload)
             stats.record(resp, (time.monotonic() - t0) * 1000.0)
         except TexClientError as e:
             stats.record_error(f"{e.status} {str(e.body)[:80]}")
@@ -406,6 +451,22 @@ def run_live(config: LiveConfig, *, base_url: str = "http://localhost:8000",
                 print(f"    !! invariant: {stats.unsealed} decisions returned with no seal")
             if stats.last_error_detail:
                 print(f"    last error: {stats.last_error_detail}")
+
+            # Self-heal across a backend restart. The ignition registry and the
+            # discovered inventory are in-memory; a Render sleep/redeploy wipes
+            # them, after which every decide() fails closed against an empty,
+            # un-ignited tenant. The operator already crossed the threshold once
+            # — re-asserting it after an infra blip is recovery, not a new
+            # decision — so re-ignite and re-onboard, then carry on.
+            try:
+                if not client.discovery_status(estate.tenant_id).get("ignited"):
+                    print("    !! tenant went un-ignited (backend restarted) — "
+                          "re-igniting + re-onboarding…")
+                    client.ignite(estate.tenant_id)
+                    _onboard()
+            except TexClientError:
+                pass
+
             next_heartbeat = now + config.heartbeat_seconds
 
     # final summary

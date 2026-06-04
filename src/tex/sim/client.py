@@ -4,7 +4,8 @@ client.py — the simulator's wire to a running Tex backend.
 Stdlib only (urllib), so the simulator adds no dependency to the repo. Every
 call hits a REAL endpoint on a running `uvicorn tex.main:app`:
 
-    POST /evaluate                          -> one action through the PDP
+    POST /evaluate                          -> one action through the PDP (audit path)
+    POST /v1/govern/decide                  -> one action through the live PEP (surfaces holds)
     GET  /v1/agents                         -> the discovered inventory
     GET  /v1/agents/{id}                    -> one agent
     GET  /v1/agents/{id}/ledger             -> that agent's sealed records
@@ -62,6 +63,12 @@ class TexClient:
     # -- decision path ---------------------------------------------------- #
     def evaluate(self, payload: dict) -> dict:
         return self._request("POST", "/evaluate", payload)
+
+    def decide(self, payload: dict) -> dict:
+        """The live enforcement path every PEP calls. Unlike /evaluate (the
+        audit surface), an ABSTAIN here is pushed to the held sink and rises on
+        the vigil — this is the path that makes holds reach the glass."""
+        return self._request("POST", "/v1/govern/decide", payload)
 
     def evidence_bundle(self, decision_id: str) -> dict:
         return self._request("GET", f"/decisions/{decision_id}/evidence-bundle")

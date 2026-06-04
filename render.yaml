@@ -1,0 +1,65 @@
+# render.yaml — Tex sandbox "practice course" driver.
+#
+# Defines the long-running action driver that turns the synthetic Meridian
+# estate into a living enterprise. It is a Render Background Worker that drives
+# ~1 agent action/second through Tex's LIVE enforcement path
+# (POST /v1/govern/decide) for two days, so every PERMIT / FORBID / ABSTAIN is
+# sealed with a hash-chained evidence record and every ABSTAIN surfaces as a
+# held card on the interface.
+#
+# Behaviour that makes it faithful:
+#   * It WAITS for the operator to press "Yes" on the interface before it does
+#     anything (--wait-for-ignition). It never self-ignites, so the day-one
+#     door is never stolen.
+#   * Its steady traffic keeps the web service awake (protecting the in-memory
+#     inventory) and survives your laptop being closed.
+#   * If the web service restarts mid-run (redeploy / sleep) and its in-memory
+#     state resets, the driver detects the un-ignited tenant at the next
+#     heartbeat and re-asserts ignition + re-onboards, then carries on.
+#
+# ── The WEB service is assumed to already exist. ───────────────────────────
+# Set these THREE env vars on it (Dashboard → your web service → Environment),
+# so ignition treats meridian-7 as the deployment's OWN real estate (full
+# discovery, standing watch enrolled, live PDP switched on, holds surfaced)
+# rather than an ephemeral preview override:
+#
+#     TEX_SANDBOX=1
+#     TEX_SANDBOX_TENANT=meridian-7
+#     TEX_SANDBOX_SEED=7
+#
+# Without TEX_SANDBOX_TENANT, pressing "Yes" maps the estate but governs
+# nothing — no holds ever reach the glass. This is the single most important
+# setting.
+#
+# ── Add the worker ─────────────────────────────────────────────────────────
+# Either deploy this blueprint (Dashboard → New → Blueprint) or create it by
+# hand (New → Background Worker) with the build/start commands below. A worker
+# requires a paid plan; "starter" is the cheapest always-on tier.
+#
+# Note: if your Render account rejects `runtime:`, use `env: python` instead —
+# the two are the same field under different spec versions.
+
+services:
+  - type: worker
+    name: tex-sim-driver
+    runtime: python
+    plan: starter
+    region: oregon            # match your web service's region for low-latency hops
+    branch: main
+    autoDeploy: false
+    buildCommand: pip install -r requirements.txt
+    # There is no package install (src layout, no pyproject), so the web and
+    # the worker both run with src on the path. Mirror whatever the web start
+    # command does; PYTHONPATH=src is the simplest.
+    startCommand: >
+      PYTHONPATH=src python -m tex.sim live reference
+      --wait-for-ignition
+      --drive govern
+      --rate 1
+      --onboard standard
+      --duration 2d
+      --heartbeat 60
+      --base-url $TEX_BASE_URL
+    envVars:
+      - key: TEX_BASE_URL
+        value: https://tex-uh4j.onrender.com

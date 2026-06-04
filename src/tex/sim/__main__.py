@@ -42,6 +42,10 @@ def main(argv: list[str] | None = None) -> int:
     lv.add_argument("--abstain-rate", type=float, default=0.18)
     lv.add_argument("--seed", type=int, default=7)
     lv.add_argument("--report", default=None, help="write a JSON summary on stop")
+    lv.add_argument("--wait-for-ignition", action="store_true",
+                    help="do not self-ignite; wait for the operator to press Yes on the interface")
+    lv.add_argument("--drive", default="govern", choices=["govern", "evaluate"],
+                    help="action path: govern (live PEP, holds surface) or evaluate (audit only)")
 
     d = sub.add_parser("describe", help="print the estate a scenario generates")
     d.add_argument("scenario", choices=["smoke", "reference", "soak"])
@@ -66,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
             duration_seconds=parse_duration(args.duration),
             heartbeat_seconds=args.heartbeat, onboard=args.onboard,
             forbid_rate=args.forbid_rate, abstain_rate=args.abstain_rate, seed=args.seed,
+            wait_for_ignition=args.wait_for_ignition, drive=args.drive,
         )
         return run_live(config, base_url=args.base_url, api_key=args.api_key,
                         report_path=args.report)

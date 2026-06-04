@@ -78,6 +78,23 @@ class PlannedAction:
             },
         }
 
+    def to_decide_payload(self, tenant_id: str) -> dict:
+        """Render the DecideRequest wire shape for POST /v1/govern/decide — the
+        live PEP path. It carries only what a real enforcement point observed:
+        the action edge plus the agent handle (external id). The agent must
+        already be sealed in the registry (discovery seals a birth at ignition);
+        an unknown agent fails closed at the floor, which is the honest result."""
+        return {
+            "action_type": self.action_type,
+            "content": self.content,
+            "channel": self.channel,
+            "environment": "prod",
+            "recipient": self.recipient,
+            "agent_external_id": self.agent.external_id,
+            "session_id": f"sim-{self.agent.external_id}",
+            "tenant_id": tenant_id,
+        }
+
 
 def plan_actions(
     estate: Estate,

@@ -30,6 +30,8 @@ screen never holds an answer.
 
 from __future__ import annotations
 
+import os
+
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -86,6 +88,20 @@ def _estate_count(registry, tenant: str) -> int:
         for a in registry.list_all()
         if a.tenant_id == tenant and a.lifecycle_status not in _NOT_RUNNING
     )
+
+
+def _sandbox_real_tenant() -> str:
+    """The synthetic estate this deployment treats as its OWN real tenant.
+
+    In the sandbox the interface has no API key, so it must name the tenant on
+    every call (``meridian-<seed>``) — which would otherwise read as an
+    ephemeral preview override and strip the standing watch. Declaring it here
+    (``TEX_SANDBOX_TENANT``) lets ignition treat it as the real estate it is:
+    full discovery, standing watch enrolled, live PDP switched on, holds
+    surfaced. Empty in a keyed production deployment, where the key carries the
+    tenant and this seam is never reached.
+    """
+    return os.environ.get("TEX_SANDBOX_TENANT", "").strip().casefold()
 
 
 def _resolve_tenant(principal: TexPrincipal, override: str | None) -> str:
@@ -154,7 +170,15 @@ def build_discovery_surface_router() -> APIRouter:
         # voice. A preview/ephemeral tenant (an explicit override) does the
         # initial map only — no perpetual loop, no holds into the shared
         # queue — so the demo door can replay per visit without leaking.
-        is_real_tenant = not tenant_id
+        # A keyed operator console omits the tenant (the key carries it). The
+        # keyless sandbox must name its tenant, so an explicit override that
+        # matches the declared sandbox estate is ALSO real — it gets the full
+        # standing treatment (watch enrolled, PDP activated, holds surfaced),
+        # not the ephemeral preview path.
+        sandbox_tenant = _sandbox_real_tenant()
+        is_real_tenant = (not tenant_id) or (
+            bool(sandbox_tenant) and tenant == sandbox_tenant
+        )
         service = _discovery_service(request)
         if service is not None:
             try:
@@ -198,6 +222,27 @@ def build_discovery_surface_router() -> APIRouter:
             "already_ignited": False,
             "count": count,
         }
+
+    @router.post("/reset", summary="Re-stage the day-one threshold (sandbox only)")
+    def reset(
+        request: Request,
+        tenant_id: str | None = Query(default=None),
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ) -> dict[str, Any]:
+        # Sandbox-only: clear the once-only ignition flag so the day-one door
+        # re-appears and the operator can rehearse the first moment again. The
+        # discovered inventory is left intact (re-igniting re-scans it), so the
+        # spoken count stays genuine. Refused outright when not in sandbox mode
+        # — the real fires-once threshold must never be resettable from the wire.
+        if os.environ.get("TEX_SANDBOX") != "1":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="not found",
+            )
+        ignition = _ignition(request)
+        tenant = _resolve_tenant(principal, tenant_id)
+        ignition.reset(tenant)
+        return {"reset": True, "tenant": tenant}
 
     @router.get("/count", summary="How many now (pull-only)")
     def count(

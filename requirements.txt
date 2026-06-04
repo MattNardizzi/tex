@@ -5,3 +5,11 @@ pydantic
 pydantic-settings
 psycopg[binary]
 pyasn1
+cryptography
+networkx
+numpy
+scipy
+PyYAML
+blake3
+pyasn1-modules
+rustworkx

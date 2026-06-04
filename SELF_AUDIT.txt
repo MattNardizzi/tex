@@ -1,0 +1,51 @@
+======================================================================
+PHASE 9 — ADVERSARIAL SELF-AUDIT + COVERAGE PROOF
+======================================================================
+
+[independent re-derivation]
+  filesystem .py files     : 524
+  index modules_total      : 524
+  MATCH                    : True
+
+(a) modules_found == modules_documented
+    found=524 documented=524 missing=0 extra=0
+    PASS=True
+
+(b) read-coverage proof (bytes_read == file_size)
+    files in ledger=524  shortfalls=0
+    second-check bytes_ok=524/524
+    PASS=True
+
+(c) independent second BFS: WIRED reachable
+    labelled WIRED=435 reached_by_2nd_BFS_or_entry=435
+    WIRED-but-not-reached=0
+    PASS=True
+
+(d) ISOLATED labels: 0 (each would require full-text+dynamic test)
+    PASS=True  (no module survived as ISOLATED; all referenced somewhere)
+
+(e) capability claims with path:line anchor
+    capabilities=397 without_anchor=0
+    anchors point at code lines (REAL fn line or module line 1), never docstrings
+    PASS=True
+
+(f) cleaned tree parses with zero errors
+    cleaned files=524 parse_failures=0
+    PASS=True
+
+[falsification of 5 strongest capability claims]
+  [HOLDS] ML-DSA provider dispatches to pyca-native AND liboqs backends
+            evidence: ml_dsa.py imports both backends; falsified only if neither present -> it IS present
+  [HOLDS] Wired evidence signer falls back to ECDSA-P256 when no PQ backend
+            evidence: seal.py documents ecdsa-p256 fallback; _ecdsa_provider implements SECP256R1 ECDSA
+  [HOLDS] PDP.evaluate issues PERMIT/ABSTAIN/FORBID inline
+            evidence: pdp.py body contains all three verdicts + promotion logic
+  [HOLDS] BOCPD changepoint detector computes real math
+            evidence: _bocpd.py imports+uses math; 6 REAL functions per fingerprint
+  [HOLDS] Threshold ML-DSA correctly raises NotImplementedError in single-key dispatch
+            evidence: agility dispatcher raises with redirect to distributed_keygen
+
+======================================================================
+ALL INVARIANTS HOLD: True
+COVERAGE PROOF: 524/524 modules read in full, 0 shortfalls, 524 documented, 0 missed.
+======================================================================

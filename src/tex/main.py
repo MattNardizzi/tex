@@ -1646,6 +1646,16 @@ def _build_discovery_connectors() -> list:
     The discovery service does not care which is which — they both
     satisfy the ``DiscoveryConnector`` Protocol.
     """
+    # --- SANDBOX: watch a synthetic estate through the real pipeline ---
+    # With TEX_SANDBOX=1 the discovery roots are fed by tex.sim's generated
+    # estate via fixture transports instead of demo_seed / live tenants. The
+    # connector logic, reconciliation, ledger, and provenance are unchanged —
+    # only the data source differs. See SANDBOX_SIMULATOR.md.
+    import os
+    if os.environ.get("TEX_SANDBOX") == "1":
+        from tex.sim.connectors import build_sandbox_connectors
+        return build_sandbox_connectors()
+
     connectors: list = [
         MicrosoftGraphConnector(),
         SalesforceConnector(),

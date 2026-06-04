@@ -1,0 +1,18 @@
+digraph rt {
+rankdir=LR; bgcolor="white";
+node [shape=box style="rounded,filled" fontname="Helvetica" fontsize=10];
+label="Tex — runtime/concurrency topology (code-derived spawn sites)"; labelloc=b; fontsize=10;
+"uvicorn" [label="uvicorn tex.main:app\n(ASGI worker)" fillcolor="#14110d" fontcolor="white"];
+"lifespan" [label="FastAPI lifespan hook\nmain.py:1257\nstart/stop scheduler" fillcolor="#f3efe9"];
+"uvicorn" -> "lifespan";
+"alerts_py356" [label="threading.Thread\nalerts.py:356\nalert dispatch thread\ndrift/threshold alerts" fillcolor="#f3efe9" fontcolor="black"];
+"uvicorn" -> "alerts_py356";
+"scheduler_py154" [label="threading.Thread\nscheduler.py:154\nBackgroundScanScheduler thread\nscans tenants on interval\ntouches discovery ledger" fillcolor="#f3efe9" fontcolor="black"];
+"lifespan" -> "scheduler_py154";
+"__main___py64" [label="threading.Thread\n__main__.py:64\noperator CLI worker thread (separate entrypoint)" fillcolor="#b0852a" fontcolor="white"];
+"uvicorn" -> "__main___py64";
+"feed_py233" [label="threading.Thread\nfeed.py:233\nContinuousProvenanceFeed thread\nheld-decision sink" fillcolor="#f3efe9" fontcolor="black"];
+"uvicorn" -> "feed_py233";
+"llm_bridge_py113" [label="threading.Thread\nllm_bridge.py:113\nspecialist LLM bridge thread" fillcolor="#f3efe9" fontcolor="black"];
+"uvicorn" -> "llm_bridge_py113";
+}

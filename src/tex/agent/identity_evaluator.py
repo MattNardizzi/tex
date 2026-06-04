@@ -220,6 +220,23 @@ def _lifecycle_risk(status: AgentLifecycleStatus) -> float:
     }[status]
 
 
+# Common spellings callers use for an environment, mapped to the canonical
+# AgentEnvironment value. This mirrors the alias map used when *declaring* an
+# agent's environment (see EvaluateActionCommand._coerce_environment) so that a
+# request saying "prod" and an agent declared as PRODUCTION are recognised as
+# the same environment rather than a spurious mismatch.
+_ENVIRONMENT_ALIASES: dict[str, str] = {
+    "dev": "sandbox",
+    "development": "sandbox",
+    "prod": "production",
+}
+
+
+def _normalize_environment_token(value: str) -> str:
+    token = value.strip().casefold()
+    return _ENVIRONMENT_ALIASES.get(token, token)
+
+
 def _environment_matches(declared: AgentEnvironment, requested: str) -> bool:
     """
     Whether the agent's declared environment matches the request's.
@@ -227,9 +244,14 @@ def _environment_matches(declared: AgentEnvironment, requested: str) -> bool:
     Sandbox agents on production requests are always a mismatch.
     Production agents on staging/sandbox are also a mismatch — we want
     operators to register one agent per environment.
+
+    Both sides are normalised through the same alias map first, so common
+    shorthand ("prod" for production, "dev" for sandbox) does not register as a
+    structural mismatch. Genuine cross-environment use (sandbox agent issuing a
+    production request) still fails to match.
     """
-    requested_normalized = requested.strip().casefold()
-    declared_normalized = declared.value.casefold()
+    requested_normalized = _normalize_environment_token(requested)
+    declared_normalized = _normalize_environment_token(declared.value)
     return declared_normalized == requested_normalized
 
 

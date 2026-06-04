@@ -1,0 +1,28 @@
+digraph layers {
+rankdir=TB; bgcolor="white";
+node [shape=box style="rounded,filled" fontname="Helvetica" fontsize=11];
+edge [color="#8a8178"];
+label="Tex — layer architecture (code-derived). green=mostly wired, amber=mostly parked. n=modules, w/p=wired/parked"; labelloc=b; fontname="Helvetica"; fontsize=10;
+"API___Surface" [label="API / Surface\n26 modules · 13305 LOC\nREAL 150 / THIN 114 / STUB 7\nwired 26 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Voice___Vigil" [label="Voice / Vigil\n21 modules · 5381 LOC\nREAL 104 / THIN 90 / STUB 5\nwired 21 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Engine___Decision" [label="Engine / Decision\n60 modules · 16619 LOC\nREAL 219 / THIN 246 / STUB 15\nwired 60 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Discovery___Inventory" [label="Discovery / Inventory\n28 modules · 6706 LOC\nREAL 111 / THIN 90 / STUB 5\nwired 28 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Identity___Access___Provenance" [label="Identity / Access / Provenance\n20 modules · 8071 LOC\nREAL 85 / THIN 116 / STUB 14\nwired 18 · parked 2" fillcolor="#1f6f43" fontcolor="white"];
+"Monitoring___Observability" [label="Monitoring / Observability\n11 modules · 3515 LOC\nREAL 46 / THIN 46 / STUB 0\nwired 10 · parked 1" fillcolor="#1f6f43" fontcolor="white"];
+"Execution_Governance" [label="Execution Governance\n115 modules · 31358 LOC\nREAL 371 / THIN 340 / STUB 23\nwired 103 · parked 12" fillcolor="#1f6f43" fontcolor="white"];
+"Evidence___Crypto" [label="Evidence / Crypto\n82 modules · 29736 LOC\nREAL 350 / THIN 241 / STUB 21\nwired 67 · parked 15" fillcolor="#1f6f43" fontcolor="white"];
+"Learning" [label="Learning\n16 modules · 5690 LOC\nREAL 83 / THIN 45 / STUB 5\nwired 16 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Ecosystem___Systemic" [label="Ecosystem / Systemic\n38 modules · 13711 LOC\nREAL 164 / THIN 82 / STUB 3\nwired 38 · parked 0" fillcolor="#1f6f43" fontcolor="white"];
+"Compliance" [label="Compliance\n14 modules · 1907 LOC\nREAL 7 / THIN 6 / STUB 3\nwired 0 · parked 14" fillcolor="#b0852a" fontcolor="white"];
+"Parked__pending" [label="Parked: _pending\n34 modules · 2490 LOC\nREAL 16 / THIN 12 / STUB 10\nwired 0 · parked 34" fillcolor="#b0852a" fontcolor="white"];
+"Plumbing___Stores" [label="Plumbing / Stores\n59 modules · 15987 LOC\nREAL 192 / THIN 372 / STUB 13\nwired 52 · parked 7" fillcolor="#1f6f43" fontcolor="white"];
+"API___Surface" -> "Engine___Decision" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Execution_Governance" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Evidence___Crypto" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Monitoring___Observability" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Learning" [penwidth=2 color="#14110d"];
+"Discovery___Inventory" -> "Engine___Decision" [penwidth=2 color="#14110d"];
+"Identity___Access___Provenance" -> "Engine___Decision" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Voice___Vigil" [penwidth=2 color="#14110d"];
+"Engine___Decision" -> "Ecosystem___Systemic" [penwidth=2 color="#14110d"];
+}

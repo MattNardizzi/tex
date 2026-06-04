@@ -1,0 +1,27 @@
+digraph seq {
+rankdir=TB; bgcolor="white";
+node [shape=box style="rounded,filled" fillcolor="#f3efe9" fontname="Helvetica" fontsize=10];
+edge [fontname="Helvetica" fontsize=8 color="#14110d"];
+label="Tex — live decision path: POST /evaluate (code-derived order)"; labelloc=b; fontsize=10;
+"s0" [label="POST /evaluate\n[api/routes.py:116]"];
+"s1" [label="EvaluateActionCommand.execute\n[commands/evaluate_action.py]"];
+"s0" -> "s1";
+"s2" [label="PolicyDecisionPoint.evaluate\n[engine/pdp.py:205]"];
+"s1" -> "s2";
+"s3" [label="deterministic gate + structural FORBID floor\n[engine/pdp.py:284]"];
+"s2" -> "s3";
+"s4" [label="contract enforcement (LTLf) → PERMIT?ABSTAIN\n[engine/pdp.py:349]"];
+"s3" -> "s4";
+"s5" [label="conformal calibration → PERMIT?ABSTAIN\n[engine/pdp.py:361]"];
+"s4" -> "s5";
+"s6" [label="build typed ABSTAIN hold (engine/hold.py)\n[engine/pdp.py:381]"];
+"s5" -> "s6";
+"s7" [label="EvidenceRecorder.record (hash-chained, signed)\n[evidence/recorder.py]"];
+"s6" -> "s7";
+"s8" [label="signature provider (composite-ML-DSA→ECDSA fallback)\n[evidence/seal.py]"];
+"s7" -> "s8";
+"s9" [label="EvaluateResponseDTO.from_command_result\n[api/routes.py:147]"];
+"s8" -> "s9";
+"s10" [label="Verdict: PERMIT | ABSTAIN | FORBID\n[domain/verdict.py]"];
+"s9" -> "s10";
+}

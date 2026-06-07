@@ -273,6 +273,19 @@
   @keyframes hash-fade{from{opacity:1;}to{opacity:0;}}
 
   /* ===========================================================
+     Coda — "One voice." The spine's twin: same family, same ink,
+     same scale as "Tex decides." It rises like everything else.
+     =========================================================== */
+  .coda{min-height:78vh;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;}
+  .coda-line{
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(2.15rem,6.6vw,3.85rem);line-height:1.08;letter-spacing:-.022em;color:var(--ink);
+    opacity:0;transform:translateY(14px);
+    transition:opacity var(--d-rise) var(--ease),transform var(--d-rise) var(--ease);
+  }
+  .coda.in .coda-line{opacity:1;transform:none;}
+
+  /* ===========================================================
      Closer — the breath out, and the hand-off. This is where the
      product begins: "The weight is mine now." + Begin.
      =========================================================== */
@@ -294,12 +307,23 @@
   .closer-sub{
     margin-top:1.6em;font-family:var(--sans);font-size:13px;font-weight:400;letter-spacing:.01em;color:var(--ink-mute);
   }
-  .closer .closer-line,.closer .begin,.closer .closer-sub{
+  /* Hear it — the film, the sound-on turn. A whisper, not an act: muted serif,
+     no pill, risen last. Begin stays the only inked decision on the page. */
+  .closer-hear{
+    margin-top:clamp(2.4rem,6vh,3.4rem);
+    display:inline-flex;align-items:center;gap:.45ch;
+    font-family:var(--serif);font-weight:400;font-size:clamp(1rem,1.6vw,1.18rem);letter-spacing:-.006em;
+    color:var(--ink-mute);transition:color var(--d-micro) ease;
+  }
+  .closer-hear:hover{color:var(--ink-soft);}
+  .closer-hear .arr{font-family:var(--sans);font-size:.82em;opacity:.7;}
+  .closer .closer-line,.closer .begin,.closer .closer-sub,.closer .closer-hear{
     opacity:0;transform:translateY(14px);transition:opacity var(--d-voice) var(--ease),transform var(--d-voice) var(--ease);
   }
   .closer.in .closer-line{opacity:1;transform:none;transition-delay:0ms;}
   .closer.in .begin{opacity:1;transform:none;transition-delay:520ms;}
   .closer.in .closer-sub{opacity:1;transform:none;transition-delay:760ms;}
+  .closer.in .closer-hear{opacity:1;transform:none;transition-delay:980ms;}
 
   /* ===========================================================
      Footer — identity, at the bottom of the world. Nothing more.
@@ -330,7 +354,7 @@
 </head>
 
 <body>
-  <h1 class="sr-only">Tex — I decide what your agents may do. You will not supervise me. Everything else watches. Tex decides.</h1>
+  <h1 class="sr-only">Tex — I decide what your agents may do. You will not supervise me. Everything else watches. Tex decides. One voice.</h1>
 
   <!-- Chrome — fades in only after the name has been spoken. -->
   <header class="chrome">
@@ -443,12 +467,20 @@
     </div>
   </section>
 
+  <!-- ============ CODA — six layers, collapsed. The spine opened the layers
+       ("Tex decides"); this closes them. One sentence, alone on warm paper,
+       the spine's twin in ink and scale. ============ -->
+  <section class="coda" id="coda" aria-label="One voice.">
+    <p class="coda-line">One voice.</p>
+  </section>
+
   <!-- ============ CLOSER — the breath out, the hand-off ============ -->
   <section class="closer in" id="closer" aria-label="The weight is mine now.">
     <div class="closer-w">
       <p class="closer-line">The weight is mine now.</p>
       <button class="begin" type="button" data-begin>Begin</button>
       <p class="closer-sub">See it decide — against your own agents, live.</p>
+      <a class="closer-hear" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="Hear it — the film, with sound (opens in a new tab)">Hear it<span class="arr" aria-hidden="true">↗</span></a>
     </div>
   </section>
 
@@ -530,7 +562,7 @@
   const io = new IntersectionObserver((entries) => {
     entries.forEach((en) => { if (en.isIntersecting){ en.target.classList.add("in"); io.unobserve(en.target); } });
   }, { threshold: 0.32 });
-  document.querySelectorAll(".beat, .spine").forEach((s) => io.observe(s));
+  document.querySelectorAll(".beat, .spine, .coda").forEach((s) => io.observe(s));
 
   /* ---- The object — a sealed record rises on reach, then dissolves. ---- */
   const SEALS = [

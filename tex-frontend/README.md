@@ -55,6 +55,12 @@ each, never a feature card:
 5. **Learning** — calibration with your hand. Every change proposed, replayed
    against the last ninety days, applied only once you've signed.
 
+**The coda.** One sentence, alone on warm paper — the spine's twin in ink and
+scale: **One voice.** The spine opened the six layers (*Tex decides*); this closes
+them. What watches hands you six dashboards; Tex resolves to one voice. Placed at
+the collapse it is a payoff, not a tagline — which is why it is here and not at the
+top, where it would describe Tex before Tex has spoken.
+
 **The closer.** *The weight is mine now.* — and **Begin** (the one weighted act,
 identical to the product's Approve pill), which opens the meeting inline.
 
@@ -66,6 +72,13 @@ wherever you like:
 ```js
 const CAL = "https://calendly.com/matt-vortexblack/tex-trial";
 ```
+
+Beneath Begin, one faint line — **Hear it** — opens the film (the sound-on turn at
+`tex-deck.com`) in a new tab. It is deliberately *not* a second weighted act: muted
+serif, no pill, risen last. Begin stays the only inked decision on the page. The
+film is the same turn the hero performs in silence, so the one thing it promises is
+the one thing it adds — sound. (Longer term it belongs under `tex.systems`, not a
+third domain; that's an infra move, not a code change.)
 
 ## Accessibility & motion
 

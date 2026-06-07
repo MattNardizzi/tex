@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Tex — Everything else watches. Tex decides.</title>
+<meta name="description" content="Tex decides what your agents may do. It permits, forbids, and holds — on its own authority — and proves every ruling. You will not supervise it." />
+<meta name="theme-color" content="#ffffff" />
+
+<!-- The link preview is the turn: the name, and the line. -->
+<meta property="og:title" content="I am Tex." />
+<meta property="og:description" content="I decide what your agents may do. You will not supervise me." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://vortexblack.ai" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="I am Tex." />
+<meta name="twitter:description" content="Everything else watches. Tex decides." />
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<!-- The voice: EB Garamond, roman and upright — the same well the product speaks
+     from. The chrome and the single machine object are Geist / Geist Mono. One
+     design system across the product and this site, by law. -->
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..700;1,400..600&family=Geist:wght@300..600&family=Geist+Mono:wght@400..500&display=swap" rel="stylesheet" />
+
+<!-- Calendly — the one outbound action. Opens an inline modal; the visitor
+     never leaves vortexblack.ai. -->
+<link rel="stylesheet" href="https://assets.calendly.com/assets/external/widget.css" />
+<script src="https://assets.calendly.com/assets/external/widget.js" async></script>
+
+<style>
+  :root{
+    /* The room. Cold is the era of tools; warm is the moment Tex speaks. */
+    --cold:#ffffff;
+    --warm:#faf8f3;
+
+    /* Ink — warm near-black, two greys for asides and proof, one hairline. */
+    --ink:#14110d;
+    --ink-soft:#5e564c;
+    --ink-mute:#9b9388;
+    --ink-hair:#d8d4cc;
+
+    /* The wall — competitors, rendered as fact, in cold grey. */
+    --wall:#b8b5af;
+
+    --serif:"EB Garamond","Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:"Geist",-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+    --mono:"Geist Mono","SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+
+    --reading:34em;
+    --ease:cubic-bezier(.2,.8,.2,1);
+  }
+
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
+  body{
+    font-family:var(--sans);
+    color:var(--ink);
+    background:var(--warm);            /* the page rests warm; only the hero is cold */
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    text-rendering:optimizeLegibility;
+    font-optical-sizing:auto;
+    font-feature-settings:"kern","liga","calt";
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none;}
+  button{font-family:inherit;background:none;border:0;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+  ::selection{background:var(--ink);color:var(--warm);}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+
+  /* ===========================================================
+     Chrome — appears only after Tex has spoken. A sovereign posts
+     no sign of itself until it has declared itself.
+     =========================================================== */
+  .chrome{
+    position:fixed;top:0;left:0;right:0;z-index:40;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:22px clamp(20px,4vw,40px);
+    opacity:0;transform:translateY(-6px);
+    transition:opacity 900ms ease,transform 900ms var(--ease);
+    pointer-events:none;
+  }
+  body.chrome-in .chrome{opacity:1;transform:none;pointer-events:auto;}
+  .brand{display:flex;align-items:baseline;gap:.5ch;font-family:var(--serif);}
+  .brand-name{font-size:20px;font-weight:500;letter-spacing:-.01em;color:var(--ink);}
+  .brand-by{font-family:var(--sans);font-size:11px;font-weight:400;letter-spacing:.02em;color:var(--ink-mute);}
+  .chrome-act{
+    font-family:var(--sans);font-size:13px;font-weight:500;letter-spacing:.01em;
+    color:var(--ink-soft);padding:9px 20px;border-radius:999px;border:1px solid var(--ink-hair);
+    background:transparent;transition:border-color 160ms ease,color 160ms ease;
+  }
+  .chrome-act:hover{border-color:var(--ink);color:var(--ink);}
+
+  /* ===========================================================
+     HERO — the turn. The deck, compressed: cold room, the wall,
+     the verdict, the silence, the name. Plays once, then rests.
+     =========================================================== */
+  .hero{position:relative;min-height:100svh;min-height:100vh;width:100%;overflow:hidden;cursor:default;}
+  /* The cold sheet sits over the warm body and lifts when Tex speaks —
+     so the warm is revealed, not painted, and there is no seam below. */
+  .cold-sheet{position:absolute;inset:0;background:var(--cold);z-index:0;opacity:1;transition:opacity 1900ms ease;}
+  body.warm .cold-sheet{opacity:0;}
+
+  .layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;pointer-events:none;}
+
+  /* Beat 0 — the cold line. */
+  .cold-line{z-index:3;opacity:0;transition:opacity 800ms ease;}
+  .cold-line.show{opacity:1;}
+  .cold-line p{
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(1.4rem,3.6vw,2.2rem);line-height:1.4;letter-spacing:-.01em;
+    color:#2a2620;max-width:24ch;
+  }
+
+  /* Beat 1 — the wall. */
+  .wall{z-index:1;}
+  .wall-inner{position:absolute;inset:0;transition:opacity 800ms ease,transform 1000ms var(--ease),filter 1000ms ease;}
+  .wall-inner.recede{opacity:.16;}
+  .wall-inner.clear{opacity:0;transform:scale(1.06);filter:blur(8px);}
+  .vendor{
+    position:absolute;white-space:nowrap;font-family:var(--sans);font-weight:520;letter-spacing:-.012em;
+    color:var(--wall);transform:translate(-50%,-50%) rotate(var(--r)) scale(.9);transform-origin:center;
+    opacity:0;transition:opacity 520ms ease,transform 760ms var(--ease);will-change:opacity,transform;
+  }
+  .vendor.show{opacity:var(--o);transform:translate(-50%,-50%) rotate(var(--r)) scale(1);}
+
+  /* Beat 2 — the verdict over the receding wall. */
+  .verdict{z-index:2;}
+  .vstack{display:flex;flex-direction:column;align-items:center;}
+  .vline{
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(1.7rem,5vw,3.1rem);line-height:1.16;letter-spacing:-.02em;color:var(--ink);
+    opacity:0;transform:translateY(10px);transition:opacity 640ms ease,transform 640ms var(--ease);
+  }
+  .vline.show{opacity:1;transform:none;}
+  .vcoda{
+    margin-top:clamp(1.1rem,3.4vh,2.2rem);
+    font-family:var(--serif);font-style:italic;font-weight:400;
+    font-size:clamp(1.15rem,3vw,1.8rem);letter-spacing:0;color:#5a534a;
+    opacity:0;transition:opacity 900ms ease;
+  }
+  .vcoda.show{opacity:1;}
+
+  /* Beats 4–5 — the name, then the headline, as one centered block.
+     The name rises the way the product door does: opacity, weight,
+     tracking, and a hair of scale, all at once. The headline fades in
+     just beneath it once the name has mostly settled. */
+  .reveal{z-index:4;}
+  .reveal-stack{display:flex;flex-direction:column;align-items:center;gap:clamp(1.4rem,3.4vh,2.4rem);max-width:min(92vw,34rem);}
+  .name-line{
+    font-family:var(--serif);
+    font-size:clamp(2.2rem,7vw,4.2rem);line-height:1.04;letter-spacing:-.01em;color:var(--ink);
+    opacity:0;transform:scale(.984);font-variation-settings:"wght" 400;
+    transition:opacity 1700ms ease,transform 1900ms var(--ease),letter-spacing 1700ms ease,font-variation-settings 1700ms ease;
+  }
+  .name-line.show{opacity:1;transform:none;letter-spacing:.006em;font-variation-settings:"wght" 500;}
+  .head-line{
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(1.4rem,3.7vw,2.4rem);line-height:1.3;letter-spacing:-.012em;color:var(--ink);
+    opacity:0;transition:opacity 1400ms ease;text-wrap:balance;
+  }
+  .head-line.show{opacity:1;}
+
+  /* Scroll cue — the only invitation out of the hero. */
+  .cue{position:absolute;left:50%;bottom:4.5vh;transform:translateX(-50%);z-index:5;opacity:0;transition:opacity 900ms ease;color:var(--ink-mute);}
+  .cue.show{opacity:.5;}
+  .cue:hover{opacity:.85;}
+  .cue svg{display:block;animation:cue-drift 2.4s ease-in-out infinite;}
+  @keyframes cue-drift{0%,100%{transform:translateY(0);}50%{transform:translateY(4px);}}
+
+  /* ===========================================================
+     The spine — the one sentence. Watching, then the turn.
+     =========================================================== */
+  .spine{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;}
+  .spine-stack{display:flex;flex-direction:column;align-items:center;gap:.1em;}
+  .spine-watch,.spine-decide{font-family:var(--serif);line-height:1.08;letter-spacing:-.022em;}
+  .spine-watch{font-weight:400;font-size:clamp(2rem,6.4vw,4.4rem);color:var(--ink-mute);}
+  .spine-decide{font-weight:500;font-size:clamp(2.4rem,7.4vw,4.8rem);color:var(--ink);}
+
+  /* ===========================================================
+     Beats — six layers, each one thing Tex says + one quiet proof.
+     =========================================================== */
+  .beat{min-height:92vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:clamp(72px,12vh,140px) 7vw;}
+  .beat-w{max-width:var(--reading);display:flex;flex-direction:column;align-items:center;}
+  .eyebrow{
+    font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.3em;text-transform:uppercase;
+    color:var(--ink-mute);margin-bottom:clamp(1.6rem,4vh,2.6rem);
+  }
+  .line{
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(1.8rem,4.2vw,2.9rem);line-height:1.26;letter-spacing:-.018em;color:var(--ink);
+    text-wrap:balance;
+  }
+  .line .soft{color:var(--ink-mute);}
+  .line.italic{font-style:italic;}
+  .sub{
+    margin-top:1.5em;max-width:30em;
+    font-family:var(--serif);font-weight:400;
+    font-size:clamp(1.05rem,1.75vw,1.32rem);line-height:1.62;letter-spacing:-.004em;color:var(--ink-soft);
+    text-wrap:pretty;
+  }
+  .turn{
+    margin-top:1.3em;
+    font-family:var(--serif);font-weight:500;font-size:clamp(1.4rem,3.4vw,2.1rem);
+    line-height:1.2;letter-spacing:-.016em;color:var(--ink);
+  }
+  .proof{
+    margin-top:clamp(2.2rem,5vh,3.2rem);
+    font-family:var(--mono);font-size:12px;font-weight:400;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);
+  }
+
+  /* The judgment triad — held is ink. No alarm colour, ever. */
+  .triad{display:flex;flex-direction:column;align-items:center;gap:.18em;margin:.2em 0 0;}
+  .triad p{font-family:var(--serif);font-weight:400;font-size:clamp(1.7rem,4vw,2.7rem);line-height:1.2;letter-spacing:-.018em;color:var(--ink);}
+  .moment{display:flex;flex-direction:column;align-items:center;gap:.5em;margin-top:clamp(2.4rem,6vh,3.8rem);}
+  .moment .quiet{font-family:var(--serif);font-weight:400;font-size:clamp(1.3rem,3vw,1.9rem);letter-spacing:-.01em;color:var(--ink-mute);}
+  .moment .stop{font-family:var(--serif);font-weight:500;font-size:clamp(1.9rem,4.6vw,3.1rem);line-height:1.18;letter-spacing:-.02em;color:var(--ink);}
+  .moment .stop em{font-style:italic;font-weight:400;}
+
+  /* The reveal-on-scroll: children rise, gently staggered. */
+  .beat .eyebrow,.beat .line,.beat .sub,.beat .turn,.beat .proof,.beat .triad,.beat .moment,
+  .spine-watch,.spine-decide{
+    opacity:0;transform:translateY(14px);transition:opacity 900ms ease,transform 900ms var(--ease);
+  }
+  .beat.in .eyebrow{opacity:1;transform:none;transition-delay:0ms;}
+  .beat.in .line{opacity:1;transform:none;transition-delay:120ms;}
+  .beat.in .triad{opacity:1;transform:none;transition-delay:120ms;}
+  .beat.in .turn{opacity:1;transform:none;transition-delay:520ms;}
+  .beat.in .sub{opacity:1;transform:none;transition-delay:360ms;}
+  .beat.in .moment{opacity:1;transform:none;transition-delay:620ms;}
+  .beat.in .proof{opacity:1;transform:none;transition-delay:760ms;}
+  .spine.in .spine-watch{opacity:1;transform:none;transition-delay:0ms;}
+  .spine.in .spine-decide{opacity:1;transform:none;transition-delay:520ms;}
+
+  /* ===========================================================
+     The object — the one thing the glass may ever hold. A sealed
+     hash that rises when you reach for it, and dissolves once taken.
+     =========================================================== */
+  .evidence-reach{position:relative;display:flex;flex-direction:column;align-items:center;}
+  .reach-target{
+    margin-top:clamp(2rem,5vh,3rem);
+    font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:lowercase;color:var(--ink-mute);
+    border:1px solid var(--ink-hair);border-radius:999px;padding:10px 20px;background:transparent;
+    transition:border-color 200ms ease,color 200ms ease;opacity:.85;
+  }
+  .reach-target:hover,.reach-target:focus-visible{border-color:var(--ink-soft);color:var(--ink-soft);outline:none;}
+  .hash{
+    min-height:2.4em;margin-top:1.4em;display:flex;align-items:center;justify-content:center;
+    max-width:30em;padding:0 1em;
+  }
+  .hash span{
+    font-family:var(--mono);font-size:clamp(13px,1.5vw,16px);letter-spacing:.02em;line-height:1.5;
+    color:var(--ink);word-break:break-all;opacity:0;
+  }
+  .hash.show span{animation:hash-rise 640ms var(--ease) both,hash-fade 700ms ease 5300ms both;}
+  @keyframes hash-rise{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  @keyframes hash-fade{from{opacity:1;}to{opacity:0;}}
+
+  /* ===========================================================
+     Closer — the breath out, and the hand-off. This is where the
+     product begins: "The weight is mine now." + Begin.
+     =========================================================== */
+  .closer{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:clamp(80px,14vh,160px) 7vw;}
+  .closer-w{display:flex;flex-direction:column;align-items:center;max-width:30em;}
+  .closer-line{
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(2rem,5.6vw,3.4rem);line-height:1.14;letter-spacing:-.022em;color:var(--ink);
+  }
+  .begin{
+    margin-top:clamp(2.6rem,6vh,3.6rem);
+    font-family:var(--sans);font-size:16px;font-weight:500;letter-spacing:.012em;
+    color:var(--warm);background:var(--ink);border:1px solid var(--ink);
+    padding:14px 36px;border-radius:999px;transition:background 180ms ease,transform 180ms ease;
+  }
+  .begin:hover{background:#000;transform:translateY(-1px);}
+  .begin:active{transform:translateY(0);}
+  .closer-sub{
+    margin-top:1.6em;font-family:var(--sans);font-size:13px;font-weight:400;letter-spacing:.01em;color:var(--ink-mute);
+  }
+  .closer .eyebrow,.closer .closer-line,.closer .begin,.closer .closer-sub{
+    opacity:0;transform:translateY(14px);transition:opacity 1000ms ease,transform 1000ms var(--ease);
+  }
+  .closer.in .closer-line{opacity:1;transform:none;transition-delay:0ms;}
+  .closer.in .begin{opacity:1;transform:none;transition-delay:520ms;}
+  .closer.in .closer-sub{opacity:1;transform:none;transition-delay:760ms;}
+
+  /* ===========================================================
+     Footer — identity, at the bottom of the world. Nothing more.
+     =========================================================== */
+  .foot{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;
+    padding:clamp(28px,5vh,44px) clamp(20px,4vw,40px);border-top:1px solid var(--ink-hair);}
+  .foot-brand{display:flex;align-items:baseline;gap:.5ch;font-family:var(--serif);}
+  .foot-brand .n{font-size:17px;font-weight:500;letter-spacing:-.01em;color:var(--ink);}
+  .foot-brand .b{font-family:var(--sans);font-size:11px;color:var(--ink-mute);}
+  .foot-mark{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--ink-mute);}
+
+  /* ===========================================================
+     Reduced motion — the lines are content, not decoration. Show
+     everything; the room is warm; nothing moves.
+     =========================================================== */
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;}
+    .cold-sheet{opacity:0;}
+  }
+
+  @media (max-width:720px){
+    :root{--reading:88vw;}
+    .beat{min-height:86vh;}
+    .chrome{padding:18px 20px;}
+  }
+</style>
+</head>
+
+<body>
+  <h1 class="sr-only">Tex — I decide what your agents may do. You will not supervise me. Everything else watches. Tex decides.</h1>
+
+  <!-- Chrome — fades in only after the name has been spoken. -->
+  <header class="chrome">
+    <a class="brand" href="/" aria-label="Tex by VortexBlack — home">
+      <span class="brand-name">Tex</span>
+      <span class="brand-by">by VortexBlack</span>
+    </a>
+    <button class="chrome-act" type="button" data-begin>Begin</button>
+  </header>
+
+  <!-- ============ HERO — the turn ============ -->
+  <section class="hero" id="hero" aria-label="Tex">
+    <div class="cold-sheet" aria-hidden="true"></div>
+
+    <div class="layer cold-line" id="coldLine" aria-hidden="true">
+      <p>Agents are already acting inside your company.</p>
+    </div>
+
+    <div class="layer wall" id="wall" aria-hidden="true"><div class="wall-inner" id="wallInner"></div></div>
+
+    <div class="layer verdict" id="verdict" aria-hidden="true">
+      <div class="vstack">
+        <p class="vline">Everything else learned to watch them.</p>
+        <p class="vline">To score them. To raise an alert.</p>
+        <p class="vline">And to wait for you.</p>
+        <p class="vcoda">You were already too late.</p>
+      </div>
+    </div>
+
+    <div class="layer reveal" id="reveal" aria-hidden="true">
+      <div class="reveal-stack">
+        <p class="name-line" id="nameLine">I am Tex.</p>
+        <h2 class="head-line" id="headLine">I decide what your agents may do. You will not supervise me.</h2>
+      </div>
+    </div>
+
+    <a class="cue" id="cue" href="#spine" aria-label="Continue">
+      <svg width="14" height="22" viewBox="0 0 14 22" fill="none" aria-hidden="true">
+        <path d="M7 1 V 19 M 1 13 L 7 19 L 13 13" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </a>
+  </section>
+
+  <!-- ============ SPINE — the one sentence ============ -->
+  <section class="spine" id="spine" aria-label="Everything else watches. Tex decides.">
+    <div class="spine-stack">
+      <span class="spine-watch">Everything else watches.</span>
+      <span class="spine-decide">Tex decides.</span>
+    </div>
+  </section>
+
+  <!-- ============ PRESENCE — discovery + identity ============ -->
+  <section class="beat" aria-label="Presence">
+    <div class="beat-w">
+      <p class="eyebrow">Presence</p>
+      <p class="line">I see every agent you're running. And I know which ones are pretending to be something they're not.</p>
+      <p class="sub">Across AWS Bedrock, GitHub, Microsoft Graph, OpenAI, Salesforce, and Slack — every agent discovered, named, and sealed into the record at the moment I find it. Not an inventory you maintain. A census I keep.</p>
+      <p class="proof">203 agents · 6 platforms · 0 unknown</p>
+    </div>
+  </section>
+
+  <!-- ============ FORESIGHT — monitoring, subordinate to the decision ============ -->
+  <section class="beat" aria-label="Foresight">
+    <div class="beat-w">
+      <p class="eyebrow">Foresight</p>
+      <p class="line">I see what's coming. <span class="soft">Not just what's happening now.</span></p>
+      <p class="sub">I fork the live state, run it forward, and tell you where it's heading — with a coverage guarantee, not a hunch.</p>
+      <p class="turn">But watching was never the point.</p>
+      <p class="proof">Conformal · 95% coverage</p>
+    </div>
+  </section>
+
+  <!-- ============ JUDGMENT — execution governance — the heart ============ -->
+  <section class="beat" aria-label="Judgment">
+    <div class="beat-w">
+      <p class="eyebrow">Judgment</p>
+      <p class="line">So I decide.</p>
+      <div class="triad" aria-hidden="false">
+        <p>I permit.</p>
+        <p>I forbid.</p>
+        <p>I hold — and I tell you.</p>
+      </div>
+      <div class="moment">
+        <p class="quiet">All quiet.</p>
+        <p class="stop">I stopped one. <em>I'd like you to look.</em></p>
+      </div>
+      <p class="sub">Thousands of times a day, in the background, on my own authority. You hear from me only when the call is yours to make.</p>
+    </div>
+  </section>
+
+  <!-- ============ EVIDENCE — the one object ============ -->
+  <section class="beat" aria-label="Evidence">
+    <div class="beat-w">
+      <p class="eyebrow">Evidence</p>
+      <p class="line">Every decision I make, I sign. You can prove it without me.</p>
+      <p class="sub">A hash-chained record for every ruling — offline-verifiable, post-quantum sealed, shaped for a regulator. The proof doesn't depend on trusting me.</p>
+      <div class="evidence-reach">
+        <button class="reach-target" id="reach" type="button" aria-label="Take a sealed record">reach to take one</button>
+        <div class="hash" id="hash" role="status" aria-live="polite"><span></span></div>
+      </div>
+      <p class="proof">Offline · post-quantum · regulator-shaped</p>
+    </div>
+  </section>
+
+  <!-- ============ LEARNING — with your hand ============ -->
+  <section class="beat" aria-label="Learning">
+    <div class="beat-w">
+      <p class="eyebrow">Learning</p>
+      <p class="line">I get sharper. <span class="soft">Never on my own.</span></p>
+      <p class="sub">Every change I want to make, I propose — replayed against your last ninety days — and apply only once you've signed for it.</p>
+      <p class="proof">Proposal · permit 0.34 → 0.32 · pending your signature</p>
+    </div>
+  </section>
+
+  <!-- ============ CLOSER — the breath out, the hand-off ============ -->
+  <section class="closer in" id="closer" aria-label="The weight is mine now.">
+    <div class="closer-w">
+      <p class="closer-line">The weight is mine now.</p>
+      <button class="begin" type="button" data-begin>Begin</button>
+      <p class="closer-sub">See it decide — against your own agents, live.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span class="foot-brand"><span class="n">Tex</span><span class="b">by VortexBlack</span></span>
+    <span class="foot-mark">vortexblack.ai</span>
+  </footer>
+
+  <noscript>
+    <div style="position:fixed;inset:0;display:flex;flex-direction:column;gap:1rem;align-items:center;justify-content:center;background:#faf8f3;color:#14110d;font-family:Georgia,serif;text-align:center;padding:2rem;">
+      <div style="font-size:clamp(2rem,7vw,3.6rem);">I am Tex.</div>
+      <div style="font-size:clamp(1.1rem,3vw,1.5rem);max-width:28ch;">I decide what your agents may do. You will not supervise me.</div>
+    </div>
+  </noscript>
+
+<script>
+(() => {
+  "use strict";
+  const RM = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const show = (el) => el && el.classList.add("show");
+  const hide = (el) => el && el.classList.remove("show");
+
+  const body = document.body;
+  const coldLine = $("coldLine");
+  const wall = $("wall"), wallInner = $("wallInner");
+  const verdict = $("verdict"), vlines = [...verdict.querySelectorAll(".vline")], vcoda = verdict.querySelector(".vcoda");
+  const nameLine = $("nameLine");
+  const headLine = $("headLine");
+  const cue = $("cue");
+
+  /* ---- The wall. Real names (fact), cold grey, rising and accelerating
+     into a pile, then receding behind the verdict, then dissolving. ---- */
+  const VENDORS = [
+    {t:"Zenity",x:18,y:24,s:2.1,r:-5,o:.70,d:0},
+    {t:"Noma",x:75,y:21,s:1.7,r:4,o:.62,d:120},
+    {t:"Palo Alto",x:50,y:13,s:2.6,r:-2,o:.80,d:200},
+    {t:"Cisco",x:30,y:62,s:2.2,r:3,o:.66,d:300},
+    {t:"CrowdStrike",x:69,y:65,s:1.9,r:-4,o:.60,d:380},
+    {t:"Astrix",x:85,y:43,s:1.5,r:6,o:.55,d:460},
+    {t:"Pillar",x:12,y:47,s:1.6,r:-3,o:.58,d:520},
+    {t:"Lasso",x:44,y:39,s:1.4,r:2,o:.50,d:580},
+    {t:"Saviynt",x:61,y:33,s:1.8,r:-2,o:.62,d:640},
+    {t:"Protect AI",x:24,y:82,s:1.6,r:4,o:.56,d:700},
+    {t:"CyberArk",x:81,y:80,s:1.5,r:-5,o:.54,d:760},
+    {t:"Prompt Security",x:46,y:74,s:1.3,r:3,o:.50,d:820},
+    {t:"Robust Intelligence",x:35,y:17,s:1.2,r:-2,o:.48,d:880},
+    {t:"Keycard",x:89,y:60,s:1.4,r:5,o:.50,d:940},
+    {t:"Oasis",x:8,y:71,s:1.5,r:-4,o:.52,d:1000},
+    {t:"+ 40 more",x:58,y:53,s:1.3,r:2,o:.60,d:1080},
+  ];
+  function buildWall(){
+    const frag = document.createDocumentFragment();
+    VENDORS.forEach((v) => {
+      const s = document.createElement("span");
+      s.className = "vendor";
+      s.textContent = v.t;
+      s.style.left = v.x + "%";
+      s.style.top = v.y + "%";
+      s.style.fontSize = v.s + "rem";
+      s.style.setProperty("--r", v.r + "deg");
+      s.style.setProperty("--o", v.o);
+      s.dataset.delay = v.d;
+      frag.appendChild(s);
+    });
+    wallInner.appendChild(frag);
+  }
+  function revealWall(){
+    const items = [...wallInner.querySelectorAll(".vendor")];
+    items.forEach((el) => setTimeout(() => el.classList.add("show"), Number(el.dataset.delay)));
+  }
+
+  /* ---- The turn. Plays once. Click / Space jumps to the resting state. ---- */
+  let done = false;
+  function settle(){
+    done = true;
+    body.classList.add("warm");
+    wallInner.classList.add("clear");
+    [coldLine, ...vlines].forEach(hide); hide(vcoda); hide(verdict);
+    show(nameLine); show(headLine);
+    body.classList.add("chrome-in");
+    show(cue);
+  }
+
+  async function run(){
+    buildWall();
+    if (RM){ settle(); return; }
+
+    await sleep(220); show(coldLine);
+    await sleep(1000); hide(coldLine); revealWall();
+    await sleep(1700);                           // the wall piles up
+    wallInner.classList.add("recede");
+    await sleep(150);
+    for (const l of vlines){ show(l); await sleep(380); }
+    await sleep(340); show(vcoda);
+    await sleep(1150);                           // the verdict sits
+    if (done) return;
+    body.classList.add("warm");                  // the room warms
+    wallInner.classList.add("clear");
+    [...vlines].forEach(hide); hide(vcoda);
+    await sleep(1150);                           // the silence
+    if (done) return;
+    show(nameLine);
+    await sleep(1150);                           // the name rises, mostly settles
+    if (done) return;
+    show(headLine);
+    await sleep(650);
+    body.classList.add("chrome-in");
+    show(cue);
+  }
+
+  // Skip to rest on a click in the hero, or Space/Enter — before it finishes.
+  $("hero").addEventListener("click", (e) => {
+    if (done) return;
+    if (e.target.closest("a,button")) return;   // the cue and chrome stay clickable
+    settle();
+  });
+  addEventListener("keydown", (e) => {
+    if (!done && (e.code === "Space" || e.code === "Enter") && scrollY < 40){ e.preventDefault(); settle(); }
+  });
+
+  /* ---- Reveal-on-scroll for the body beats. ---- */
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => { if (en.isIntersecting){ en.target.classList.add("in"); io.unobserve(en.target); } });
+  }, { threshold: 0.32 });
+  document.querySelectorAll(".beat, .spine").forEach((s) => io.observe(s));
+
+  /* ---- The object — a sealed record rises on reach, then dissolves. ---- */
+  const SEALS = [
+    "9f2c4e7a1b8d63f50ae9c27d4b1f8e036a5c9d72e4b08f1a6c3d59e27b4a0f81",
+    "b7e1d903c4a86f25e0d71c9b4f3a8e62015d7c93a6b4e08f2d1c75a93e6b0c4d",
+    "3a6f9c02e7b14d85f0c93a7e1b6d4f82059c7e34a1b8d602f7c4e95a3b1d0e6f",
+  ];
+  let sealIdx = 0;
+  const hashWrap = $("hash"), hashSpan = hashWrap.querySelector("span");
+  let hashTimer = null;
+  $("reach").addEventListener("click", () => {
+    hashSpan.textContent = SEALS[sealIdx % SEALS.length]; sealIdx++;
+    hashWrap.classList.remove("show"); void hashWrap.offsetWidth; hashWrap.classList.add("show");
+    if (hashTimer) clearTimeout(hashTimer);
+    hashTimer = setTimeout(() => hashWrap.classList.remove("show"), 6000);
+  });
+
+  /* ---- Calendly — the one action. ---- */
+  const CAL = "https://calendly.com/matt-vortexblack/tex-trial";
+  function openCalendly(){
+    if (window.Calendly && typeof Calendly.initPopupWidget === "function"){ Calendly.initPopupWidget({ url: CAL }); return; }
+    window.open(CAL, "_blank", "noopener,noreferrer");
+  }
+  document.querySelectorAll("[data-begin]").forEach((b) => b.addEventListener("click", openCalendly));
+
+  // Go.
+  if (document.fonts && document.fonts.ready){
+    let started = false; const start = () => { if (!started){ started = true; run(); } };
+    document.fonts.ready.then(start);
+    setTimeout(start, 1200); // never wait on slow fonts
+  } else { run(); }
+})();
+</script>
+</body>
+</html>

@@ -151,7 +151,7 @@
     margin-top:clamp(1.1rem,3.4vh,2.2rem);
     font-family:var(--serif);font-style:italic;font-weight:400;
     font-size:clamp(1.1rem,2.9vw,1.7rem);letter-spacing:0;color:var(--ink-soft);
-    opacity:0;transition:opacity var(--d-rise) ease;
+    opacity:0;transition:opacity 1100ms ease;  /* the coda arrives slower — a realization, not a flash */
   }
   .vcoda.show{opacity:1;}
 
@@ -499,9 +499,9 @@
     await sleep(260); show(coldLine);
     await sleep(2400); hide(coldLine);
     await sleep(420);
-    for (const l of vlines){ show(l); await sleep(640); }   // the verdict rises, line by line
-    await sleep(300); show(vcoda);
-    await sleep(1500);                                       // the verdict sits
+    for (const l of vlines){ show(l); await sleep(720); }   // the verdict rises, line by line — a touch more deliberate
+    await sleep(650); show(vcoda);                          // a held breath, then the turn
+    await sleep(2800);                                       // the coda lands — and is given the time to be read, and felt
     if (done) return;
     [...vlines].forEach(hide); hide(vcoda);                 // it clears
     body.classList.add("warm");                             // the room warms

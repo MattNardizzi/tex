@@ -73,12 +73,13 @@ wherever you like:
 const CAL = "https://calendly.com/matt-vortexblack/tex-trial";
 ```
 
-Beneath Begin, one faint line — **Hear it** — opens the film (the sound-on turn at
-`tex-deck.com`) in a new tab. It is deliberately *not* a second weighted act: muted
-serif, no pill, risen last. Begin stays the only inked decision on the page. The
-film is the same turn the hero performs in silence, so the one thing it promises is
-the one thing it adds — sound. (Longer term it belongs under `tex.systems`, not a
-third domain; that's an infra move, not a code change.)
+Two faint **see it** marks point to the film (the turn at `tex-deck.com`), opening
+in a new tab: one under the hero headline — shown *only after* the manifesto has
+settled, never during the turn — and one beneath Begin in the closer. Both are the
+same quiet mono mark (a pointer to an external object speaks in mono, never the
+serif voice), not a weighted act: Begin stays the only inked decision on the page,
+and "I am Tex." is never rivalled. (Longer term the film belongs under
+`tex.systems`, not a third domain; that's an infra move, not a code change.)
 
 ## Accessibility & motion
 

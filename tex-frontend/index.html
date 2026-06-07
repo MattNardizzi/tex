@@ -174,6 +174,19 @@
   }
   .head-line.show{opacity:1;}
 
+  /* The hero mark — the same "see it" mono whisper, shown only after Tex has
+     spoken. Never during the turn; never a rival to "I am Tex." Hidden and
+     unclickable until settled. */
+  .hero-see{
+    display:inline-flex;align-items:center;gap:.5ch;
+    font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.16em;text-transform:lowercase;
+    color:var(--ink-mute);
+    opacity:0;pointer-events:none;transition:opacity var(--d-rise) ease;
+  }
+  .hero-see.show{opacity:1;pointer-events:auto;}
+  .hero-see:hover{color:var(--ink-soft);}
+  .hero-see .arr{font-size:.95em;opacity:.7;}
+
   /* Scroll cue — the only invitation out of the hero. */
   .cue{position:absolute;left:50%;bottom:4.5vh;transform:translateX(-50%);z-index:5;opacity:0;transition:opacity var(--d-rise) ease;color:var(--ink-mute);}
   .cue.show{opacity:.5;}
@@ -307,16 +320,17 @@
   .closer-sub{
     margin-top:1.6em;font-family:var(--sans);font-size:13px;font-weight:400;letter-spacing:.01em;color:var(--ink-mute);
   }
-  /* Hear it — the film, the sound-on turn. A whisper, not an act: muted serif,
-     no pill, risen last. Begin stays the only inked decision on the page. */
+  /* See it — the film. A quiet machine-mark pointing out to an external object,
+     so it speaks in mono, never the serif voice. A whisper, not an act: Begin
+     stays the only inked decision on the page. The hero mark is the same. */
   .closer-hear{
     margin-top:clamp(2.4rem,6vh,3.4rem);
-    display:inline-flex;align-items:center;gap:.45ch;
-    font-family:var(--serif);font-weight:400;font-size:clamp(1rem,1.6vw,1.18rem);letter-spacing:-.006em;
-    color:var(--ink-mute);transition:color var(--d-micro) ease;
+    display:inline-flex;align-items:center;gap:.5ch;
+    font-family:var(--mono);font-weight:400;font-size:12px;letter-spacing:.16em;text-transform:lowercase;
+    color:var(--ink-mute);
   }
   .closer-hear:hover{color:var(--ink-soft);}
-  .closer-hear .arr{font-family:var(--sans);font-size:.82em;opacity:.7;}
+  .closer-hear .arr{font-size:.95em;opacity:.7;}
   .closer .closer-line,.closer .begin,.closer .closer-sub,.closer .closer-hear{
     opacity:0;transform:translateY(14px);transition:opacity var(--d-voice) var(--ease),transform var(--d-voice) var(--ease);
   }
@@ -386,6 +400,7 @@
       <div class="stage reveal-stack">
         <p class="name-line" id="nameLine">I am Tex.</p>
         <h2 class="head-line" id="headLine">I decide what your agents may do. You will not supervise me.</h2>
+        <a class="hero-see" id="heroSee" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="See it — the film (opens in a new tab)">see it<span class="arr" aria-hidden="true">↗</span></a>
       </div>
     </div>
 
@@ -480,7 +495,7 @@
       <p class="closer-line">The weight is mine now.</p>
       <button class="begin" type="button" data-begin>Begin</button>
       <p class="closer-sub">See it decide — against your own agents, live.</p>
-      <a class="closer-hear" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="Hear it — the film, with sound (opens in a new tab)">Hear it<span class="arr" aria-hidden="true">↗</span></a>
+      <a class="closer-hear" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="See it — the film (opens in a new tab)">see it<span class="arr" aria-hidden="true">↗</span></a>
     </div>
   </section>
 
@@ -511,6 +526,7 @@
   const nameLine = $("nameLine");
   const headLine = $("headLine");
   const cue = $("cue");
+  const heroSee = $("heroSee");
 
   /* ---- The turn. Plays once. Click / Space jumps to the resting state.
      The market's noise is carried by the words now, not by a wall — so the
@@ -520,7 +536,7 @@
     done = true;
     body.classList.add("warm");
     [coldLine, ...vlines].forEach(hide); hide(vcoda); hide(verdict);
-    show(nameLine); show(headLine);
+    show(nameLine); show(headLine); show(heroSee);
     body.classList.add("chrome-in");
     show(cue);
   }
@@ -545,7 +561,7 @@
     show(headLine);
     await sleep(600);
     body.classList.add("chrome-in");
-    show(cue);
+    show(cue); show(heroSee);
   }
 
   // Skip to rest on a click in the hero, or Space/Enter — before it finishes.

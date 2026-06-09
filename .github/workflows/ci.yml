@@ -1,0 +1,107 @@
+name: CI
+
+# Wave-0 credibility floor. Two jobs:
+#
+#   * guard       — the 5 verdict/crypto/replay guard suites. This is the
+#                   BLOCKING gate. Mark THIS check (and only this one) as
+#                   "Required" in branch protection for `main`.
+#   * full-suite  — the entire test suite, run for honesty. It is expected
+#                   to be RED today (pre-existing failures documented in the
+#                   PR). It is intentionally NOT marked required, so the
+#                   credibility-floor work is not blocked by debt it did not
+#                   create — but the failures are surfaced, never hidden or
+#                   skipped to fake green.
+#
+# Tests run exactly as the project documents: `PYTHONPATH=src python -m pytest`
+# (there is no installed package / pyproject, so PYTHONPATH=src is required).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: guard (required gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run the 5 guard suites
+        run: |
+          PYTHONPATH=src python -m pytest \
+            tests/test_crc_gate.py \
+            tests/test_structural_floor.py \
+            tests/test_deterministic.py \
+            tests/test_enforcement.py \
+            tests/test_replay_validator.py
+
+  full-suite:
+    name: full-suite (informational, non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run the full suite (failures surfaced, not hidden)
+        run: |
+          set -o pipefail
+          PYTHONPATH=src python -m pytest -rfE --tb=short \
+            | tee full_suite.log
+
+      - name: Summarize results
+        if: always()
+        run: |
+          {
+            echo '## Full suite result'
+            echo ''
+            echo '```'
+            grep -E '[0-9]+ (passed|failed|error|skipped)' full_suite.log | tail -1 || true
+            echo '```'
+            echo ''
+            echo '### Pre-existing failures (FAILED / ERROR)'
+            echo ''
+            echo '```'
+            grep -E '^(FAILED|ERROR)' full_suite.log || echo '(none)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full-suite log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-suite-log
+          path: full_suite.log

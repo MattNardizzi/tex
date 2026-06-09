@@ -28,9 +28,15 @@ Design properties
    used internally on ``/v1/guardrail`` augmentation.
 2. All request/response models are Pydantic v2
    ``frozen=True, extra="forbid"`` per Section 3.
-3. Endpoints are intentionally **not authenticated by default**;
-   the bearer of trust is the cryptographic envelope. Operators
-   add auth at the gateway. (Same policy as ``/v1/vet/*``.)
+3. **Authentication is required** (Wave-0 credibility floor): the router
+   carries a ``RequireScope("evidence:read")`` dependency, so every
+   endpoint needs an authenticated principal. Endpoints that mint a
+   CA-signed commitment or generate/persist a proof (``issue-commitment``,
+   ``prove``) additionally require ``evidence:write``. Against a keyless
+   dev backend (no ``TEX_API_KEYS``) the anonymous principal carries
+   every scope. The cryptographic envelope is still the bearer of trust
+   for *verification*; auth gates *who may call the surface*. (Same
+   posture as ``/v1/vet/*``.)
 4. The proof envelope is delivered as a JSON string field (the
    canonical envelope JSON), not a re-parsed object, so the
    wire is byte-stable and the SHA-256 reference can be
@@ -49,9 +55,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.api.auth import RequireScope
 from tex.stores.provenance_proofs_postgres import PostgresProvenanceProofStore
 from tex.zkprov.backends import ProofBackendId, is_regulator_grade
 from tex.zkprov.commitment import (
@@ -96,7 +103,17 @@ from tex.zkprov.scitt_arp import (
 __all__ = ["router"]
 
 
-router = APIRouter(prefix="/v1/zkprov", tags=["zkprov"])
+# Baseline: every /v1/zkprov/* route requires an authenticated principal
+# carrying ``evidence:read``; minting/persisting endpoints elevate to
+# ``evidence:write`` per-route. Router-level wiring makes a future
+# unauthenticated route impossible to ship by accident.
+router = APIRouter(
+    prefix="/v1/zkprov",
+    tags=["zkprov"],
+    dependencies=[Depends(RequireScope("evidence:read"))],
+)
+
+_REQUIRE_WRITE = Depends(RequireScope("evidence:write"))
 
 
 # Module-scoped store. Lazy-built so import-time has no DB I/O.
@@ -274,7 +291,11 @@ class IssueCommitmentResponse(BaseModel):
     tds_public_summary: TDSPublicSummary
 
 
-@router.post("/issue-commitment", response_model=IssueCommitmentResponse)
+@router.post(
+    "/issue-commitment",
+    response_model=IssueCommitmentResponse,
+    dependencies=[_REQUIRE_WRITE],
+)
 def issue_commitment_endpoint(body: IssueCommitmentRequest) -> IssueCommitmentResponse:
     if not body.use_deterministic_test_ca:
         raise HTTPException(
@@ -341,7 +362,11 @@ class ProveResponse(BaseModel):
     is_regulator_grade: bool
 
 
-@router.post("/prove", response_model=ProveResponse)
+@router.post(
+    "/prove",
+    response_model=ProveResponse,
+    dependencies=[_REQUIRE_WRITE],
+)
 def prove_endpoint(body: ProveRequest) -> ProveResponse:
     try:
         commitment = body.commitment.to_domain()

@@ -20,17 +20,24 @@ Design properties
 2. ``POST /v1/tee/verify`` accepts an optional ``expected_measurements``
    block so RPs can pin policy (e.g. "must be Blackwell, must run
    model hash X").
-3. Endpoint is intentionally NOT authenticated by default; the JWT
-   itself is the bearer of trust and the verifier returns a structured
-   result. Operators who want to rate-limit add auth in their gateway.
+3. **Authentication is required** (Wave-0 credibility floor): the router
+   carries a ``RequireScope("evidence:read")`` dependency, so both
+   endpoints need an authenticated principal. Both are read-only
+   verification surfaces, so ``evidence:read`` is the only scope
+   required. Against a keyless dev backend (no ``TEX_API_KEYS``) the
+   anonymous principal carries every scope and dev workflows keep
+   working. The JWT remains the bearer of trust for the *attestation*
+   itself; auth is the gate on *who may ask the verifier*.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, ConfigDict, Field
+
+from tex.api.auth import RequireScope
 
 from tex.tee.attestation_client import (
     ExpectedMeasurements,
@@ -43,7 +50,14 @@ from tex.tee.tdx_attestation import is_tdx_capable
 __all__ = ["router"]
 
 
-router = APIRouter(prefix="/v1/tee", tags=["tee"])
+# Baseline: both /v1/tee/* routes require an authenticated principal
+# carrying ``evidence:read``. Wired at the router level so a future
+# endpoint cannot accidentally ship unauthenticated.
+router = APIRouter(
+    prefix="/v1/tee",
+    tags=["tee"],
+    dependencies=[Depends(RequireScope("evidence:read"))],
+)
 
 
 # --------------------------------------------------------------------------- #

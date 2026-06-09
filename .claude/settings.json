@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); printf '%s' \"$cmd\" | grep -qE 'git (commit|push)' && [ \"$(git rev-parse --abbrev-ref HEAD 2>/dev/null)\" = \"main\" ] && [ \"${TEX_ALLOW_MAIN:-0}\" != \"1\" ] && { echo 'BLOCKED: do not commit or push to main from a feature thread (see COORDINATION.md). For baseline docs, prefix the command with TEX_ALLOW_MAIN=1.' >&2; exit 2; }; exit 0",
+            "statusMessage": "checking branch"
+          },
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); printf '%s' \"$cmd\" | grep -q 'git commit' && [ \"${TEX_SKIP_TESTS:-0}\" != \"1\" ] && { root=$(git rev-parse --show-toplevel 2>/dev/null); cd \"$root\" 2>/dev/null && PYTHONPATH=src python -m pytest -q -x tests/test_crc_gate.py tests/test_structural_floor.py tests/test_deterministic.py tests/test_enforcement.py tests/test_replay_validator.py >/tmp/tex-guard.log 2>&1 || { echo 'BLOCKED: guard tests failed (see /tmp/tex-guard.log). Fix before committing, or set TEX_SKIP_TESTS=1 to bypass for a docs-only commit.' >&2; tail -12 /tmp/tex-guard.log >&2; exit 2; }; }; exit 0",
+            "timeout": 120,
+            "statusMessage": "running guard tests"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); printf '%s' \"$f\" | grep -qE 'engine/(crc_gate|router|pdp|hold)\\.py' && echo 'REMINDER (verdict path): add or extend a test that FAILS if monotone-lowering or the structural floor breaks \u2014 not just one that runs. Then run the 5 guard tests with PYTHONPATH=src and paste the output.' >&2; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); [ -f \"$f\" ] && { if { grep -qiE 'zero.?knowledge|snark|lattice.?(proof|commit)' \"$f\" && grep -qiE 'hmac|sha256|hashlib' \"$f\"; } || grep -qiE 'ml-?dsa.{0,25}(live|default|active|production)|signature proves integrity|hardware.?backed.{0,5}attestation' \"$f\"; then echo 'FABRICATION TRIPWIRE: a name may imply a crypto property the body does not deliver (nanozk lesson). Live signer is ECDSA-P256; the hash CHAIN (not a lone signature) proves integrity; attestation is verifier-only; PQ is not live. Implement it for real or label its maturity honestly.' >&2; exit 2; fi; }; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); printf '%s' \"$f\" | grep -qE 'nanozk/|frontier' && [ -f \"$f\" ] && ! grep -qiE 'production|research-solid|research-early|speculative' \"$f\" && echo 'REMINDER: frontier/nanozk code with no maturity word. Label production / research-solid / research-early / speculative in prose and add the benchmark that earns it.' >&2; exit 0"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "p=$(jq -r '.prompt // empty'); printf '%s' \"$p\" | grep -qiE 'design|architect|frontier|novel|new primitive|engine|crypto|verdict|provenance|evidence|governance' && echo 'CORE likely: maximum depth. Generate >=2 distinct attacked approaches; survey the live frontier (retrieved + verifiable citation, or honest none-found \u2014 never invented); falsify your own strongest claims in the work; if a gate cannot be cleared, honest-stop with BLOCKED/UNVERIFIED.'; exit 0"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'TEX CONSTITUTION \u2014 (1) Prove or label UNVERIFIED + maturity; a name must deliver its property (nanozk lesson). (2) ABSTAIN-only surfaces to the operator; signals may only lower a verdict. (3) Never commit to main from a feature thread (override TEX_ALLOW_MAIN=1). (4) Edit only your track; keep pdp.py/main.py deltas to 1-2 lines. (5) Tests run with PYTHONPATH=src python -m pytest. Read CLAUDE.md, ROADMAP.md, COORDINATION.md.' "
+          }
+        ]
+      }
+    ]
+  }
+}

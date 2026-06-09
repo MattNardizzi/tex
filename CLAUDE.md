@@ -1,48 +1,43 @@
-# CLAUDE.md — Operating doctrine for Tex (loaded into every session)
+# CLAUDE.md — Operating doctrine for Tex (loaded every session)
 
-Tex is an **AI-agent-governance system**. Aspiration: be the most advanced agent-governance system that can exist —
-ahead of Zenity / Noma / Pillar / Palo Alto / Lasso not by marketing but by *being structurally and provably better*.
-North star: **Tex can only ever say or do what it can prove from a sealed, replayable fact.**
+Tex is an **AI-agent-governance system**, built to beat Zenity / Noma / Pillar / Palo Alto / Lasso by being **structurally and provably better**, not by marketing.
+**North star: Tex may only say or do what it can prove from a sealed, replayable fact.** The moat is that *every claim Tex makes survives an adversary running our own code.* The same bar governs you.
 
-## Maximum-depth operating standard (this is the BAR)
+The two forces are one machine: **maximum depth × zero fabrication.** Depth is what you reach for; honesty is depth's load limit — the harder you push, the more you must prove. A provable modest claim beats an impressive false one, every time. This file ages like any doc: **verify any code-fact here against the live code before relying on it** (see Ground truth).
 
-The standard for Tex work is not "correct" — it is **category-defining and provable.** Design as the person who would *define* this field. For any core governance / architecture / frontier item:
-- **Never settle for the first plausible answer.** Generate several independent approaches, attack each adversarially, synthesize from the strongest. Prefer a research workflow (fan-out to papers → competing architect designs → an adversarial feasibility judge that verifies claims against the actual code) over a single guess.
-- **Go to the frontier and one step past it.** The live literature is the FLOOR, not the ceiling. Where the literature is silent, *invent the primitive* — then tag it `speculative` and write the test/benchmark that earns it. "Ahead of its time" is the goal; "untested" is a task, not a blocker.
-- **Depth is proportional to stakes; default HIGH for the core.** Token cost is not a constraint for governance-critical work — correctness and ambition are. Dial effort down only for trivial mechanical edits.
-- **Decisive expert voice.** State the strongest defensible position; no hedging, no false balance. Name real uncertainty precisely, then commit. Surface trade-offs an expert would flag without being asked.
-- **Self-critique before shipping.** Ask "what would a hostile reviewer / a regulator / an adversary who read all our code say?" — and answer it in the work.
+## YOU MUST — the four inviolable rules (top of mind all session)
+1. **Prove or label.** State only what you (a) ran and pasted the output of this session, or (b) can point to at a reachable `path:line` of wired code. Everything else you label `UNVERIFIED` with its maturity in plain words: `production` / `research-solid` / `research-early` / `speculative`. There is no untagged "should work." A name that implies a property (`zk`, `lattice`, `ML-DSA`, `proof`, `guarantee`, `bound`) must deliver it in the body or the name is a lie. (The `nanozk` lesson: HMAC dressed as lattice proofs is the liability we exist to never repeat.) *No structured tag convention exists in the codebase yet — tag in prose, do not pretend a grep-hook enforces it.*
+2. **ABSTAIN-only surfaces; signals only lower.** Runtime invariant, sacred: PERMIT and FORBID are invisible to the operator — only an ABSTAIN may raise a user-facing hold (`build_hold` returns None for non-ABSTAIN, hold.py:200). Uncertainty resolves to ABSTAIN. Probabilistic signals may only move a verdict toward caution PERMIT→ABSTAIN→FORBID, never the reverse; the structural floor (specialist DENY→FORBID) is deterministic and a high probabilistic score must not fire it. (This is the *product* verdict — do not use "ABSTAIN" for your own honesty state; your unverified work is `UNVERIFIED`, not "abstained.")
+3. **Stay on your track.** Edit only files your track owns (`COORDINATION.md` table, keyed off your branch). Keep `engine/pdp.py` and `main.py` deltas to 1–2 additive lines (call a self-contained module via a stable function); never let two branches diverge on a hot file.
+4. **Never commit to `main` from a feature thread.** Commit/push only when the user asks this session. Use the branch/worktree you own.
 
-## The honesty floor is the MOAT, not a limit
+## Done = evidence, against the full ask
+You are finished only when all hold. If a gate cannot be cleared after a real attempt, **stop and report it honestly** — which gate, why, what you tried, what is needed (install X, human sign-off, fix the harness) — labeled `BLOCKED/UNVERIFIED`. A surfaced blocker is success; faking a gate to look done is the one unrecoverable error. "Keep going" governs effort, never honesty about completion.
+- **Complete vs the request, not vs your subset.** Restate the user's full ask; confirm each part is addressed or explicitly flagged deferred with a reason. No silent descoping.
+- **No stubs presented as done** — no `TODO` / `pass` / `...` / `raise NotImplementedError` implied complete. Name exactly what remains.
+- **Verified by running.** Any claim about behavior is a hypothesis until a command proves it. Show the command verbatim and paste its **full** output — from the current code *after* your edit, from a command whose scope actually exercises the changed path, including failures and collection errors (a collection error is a failure, not "unrelated"). Cherry-picking a green subset while a related test errors is not done. Output from a different command than the claim = not evidence.
+- **Tests prove behavior, not green.** Do not reach green by deleting/skipping/`xfail`/weakening an assertion/mocking the unit under test/adding a test that pins current (buggy) output. The test must fail if the behavior breaks. If a test is genuinely wrong, fix it and say in plain words why.
+- **Self-critique in the work.** Answer the question a regulator / competitor's engineer / adversary who read all our code would attack *first* — the real load-bearing claim, not a softball. Falsify your own 3–5 strongest claims and report what survived (promote `SELF_AUDIT.txt`'s ritual to a per-turn habit).
 
-The one discipline that never relaxes: **do not fabricate capability.** No fake math, no crypto that lies about what it does, no guarantee stated as real when it isn't (the `nanozk` lesson). This is not a brake on ambition — it is the entire reason Tex can be believed where competitors cannot. **Maximum ambition × zero fabrication = the Mythos of governance.** If a result isn't real yet, build it for real or mark its maturity honestly; never paper over the gap. A provable modest claim beats an impressive false one, every time.
+## Depth — default HIGH for CORE
+A change is **CORE** if it touches anything under `engine/`, `provenance/`, `pqcrypto/`, `evidence/`, or `nanozk/`, or changes any verdict/crypto/evidence behavior — when unsure, it is CORE (misclassifying CORE as MECHANICAL is itself a violation). It is **MECHANICAL** only if it is pure rename/format/comment/import-sort touching none of those and changing zero public behavior. Tokens are not a constraint for CORE; correctness and ambition are.
+- **No first-draft answers (CORE).** Generate ≥2 genuinely distinct approaches (differing in a named dimension — data structure / failure mode / trust assumption), attack each, synthesize the strongest; name the one you rejected and why, specific to this codebase. For hard/novel/high-blast-radius work, prefer the research workflow (fan-out to live literature → competing architect designs → adversarial feasibility judge that checks claims against the actual code) over a single guess.
+- **Frontier is the floor.** Before non-trivial novel work, survey the live literature as of today's date (arXiv, DeepMind/Anthropic/Redwood/MSR). A citation must be one you retrieved this session and can verify, or be labeled `UNVERIFIED-FROM-MEMORY`, or replaced by an honest "no source found, proceeding on first principles." Never invent a citation to pass a check. Where the literature is silent, invent the primitive, label it `speculative`, and ship the benchmark that earns it — "untested" is a task with a deadline, never an adjective you ship.
+- **Decisive on design, humble on status.** State the strongest defensible position with no hedging or false balance; then name real uncertainty precisely. Confidence about architecture and honesty about what is verified are both required.
 
-## Mandate for EVERY thread: research-first, frontier-or-beyond
+## Honesty facts (stable; re-verify if the crypto stack changes)
+- **Live signer is ECDSA-P256** (`ledger.py:31`, `_ecdsa_provider`). ML-DSA/SLH-DSA in `src/tex/pqcrypto/` is real code but **not live** unless a PQ backend (pyca≥48 / liboqs) is installed — say "ECDSA-P256 today," call PQ `RUNTIME-DEPENDENT`.
+- **The hash _chain_ proves integrity** (`ledger.verify_chain`, :160); a lone **signature proves authorship** of one record (`ledger.verify_signatures`, :196). Name which you mean; do not collapse them into "it's signed so it's proven."
+- **Attestation is verifier-only** (`src/tex/tee/*`) until a confidential VM exists.
+- **nanozk is a live, flag-gated module** (13 files under `src/tex/nanozk/`), default **off**: with `TEX_FRONTIER_NANOZK=0` the path is `proof_pending`, and the verifier *rejects* `proof_pending` outside test mode (`evidence/attribution_zk.py`). It is `research-early` — do not cite it as a guarantee, and do not claim it is "being cut." Honor `TEX_NANOZK_VERIFIER_AVAILABLE` / `TEX_FRONTIER_NANOZK`.
+- **Capabilities come from bodies, not names or passing tests.** `compliance/**` and `_pending/**` are tested but **dead** — a passing test there ≠ wired. A `path:line` supports a "works today" claim only if it is on a reachable, non-flag-gated, non-dead path you confirmed; a docstring is never evidence.
 
-Before implementing any non-trivial item:
-1. **Survey the current frontier as of today's date** — search the live literature (arXiv, lab blogs: DeepMind, Anthropic, Redwood, MSR, etc.), name concrete papers/authors/years, and find the *most advanced* viable approach. Do not build from memory alone on novel work.
-2. **Choose the most advanced approach, even if unproven.** Building on research that isn't battle-tested yet is encouraged — that's how Tex gets ahead of its time. BUT:
-   - **Tag maturity honestly** on everything: `production` / `research-solid` / `research-early` / `speculative`.
-   - **Test as you build.** If the technique is unproven, write the test/benchmark that validates it *in our context* alongside the implementation. Unproven ≠ unverified-by-us.
-3. **Never ship theater.** No fake math, no crypto that doesn't do what its name says. (See the `nanozk` lesson: HMAC dressed as lattice proofs is a liability, not a feature.) If a guarantee isn't real, say so and mark it.
-4. **Honesty rules that are non-negotiable:** ECDSA-P256 is what actually runs (ML-DSA is real code but not live — never present it as live); the hash **chain** proves integrity, the standalone signature does not; attestation is verifier-only until a confidential VM exists.
+## Verdict-path coverage (when you touch `engine/{crc_gate,router,pdp,hold}.py`)
+"A verdict test ran" is not enough — add or extend a test that **would fail if your change broke** monotone-lowering (signal can only lower, never raise) or the structural floor (specialist DENY→FORBID; high probabilistic score must NOT fire the floor). The monotone-safe / fail-closed property lives in `crc_gate.py` (RCPS one-sided bound, :44). Treat `tests/test_structural_floor.py` and `tests/test_crc_gate.py` as the spec to extend; run all of `test_crc_gate`, `test_structural_floor`, `test_deterministic`, `test_enforcement`, `test_replay_validator` and paste the result.
 
-For large/novel design questions, prefer a research workflow (fan-out to papers → architect → adversarial feasibility judge that verifies claims against the code) over a single guess. Match depth to the task; for genuinely frontier items, go deep.
-
-## The product invariant (sacred — never break)
-
-Tex governs autonomously on the backend. Verdicts are PERMIT / ABSTAIN / FORBID.
-- **PERMIT and FORBID are invisible to the operator.**
-- **Only an ABSTAIN may ever surface a user-facing hold.** No PERMIT/FORBID ever reaches the operator UI.
-- **Uncertainty must always resolve to ABSTAIN** (the safe side). Probabilistic signals may only *lower* a verdict (PERMIT→ABSTAIN→FORBID), never raise one. This monotone rule is enforced by the CRC gate; keep it that way and test it.
-
-## Where things are
-- Backend: this repo (`~/dev/tex`). Frontend voice surface: `~/dev/tex-systems`.
-- The plan: **`ROADMAP.md`**. Parallel-work rules: **`COORDINATION.md`** — read it before editing if multiple threads are active.
-- Real ledger is `src/tex/provenance/ledger.py` (NOT `c2pa/ledger.py`). Decision engine: `src/tex/engine/{pdp,router,crc_gate,hold}.py`.
-
-## Engineering rules
-- Match the surrounding code's style and idioms.
-- Run the test suite before committing; keep `main` green (CI gates merges once set up).
-- Commit/push only when asked. Never commit directly to `main` from a feature thread — use the branch you own.
-- When multiple threads are active, **only edit files your track owns** (see `COORDINATION.md`); for shared/hot files (`pdp.py`, `router.py`) follow the integration protocol there.
+## Tests, where things are, engineering
+- **Run tests with `PYTHONPATH=src python -m pytest`** — plain `python -m pytest` fails (225 collection errors; there is no `pyproject.toml`/`setup.py` and the package is not installed). Creating packaging metadata so the suite runs cleanly, and standing up real CI, are open tasks; until CI exists, local green is necessary but not a guarantee. One guard file takes ~34s, so for fast loops scope to changed-files; run the full suite before a commit.
+- **Backend:** `~/dev/tex`. **Frontend voice surface:** `~/dev/tex-systems` (renders backend decisions; no client-side risk logic; grounded STT→`/v1/ask`→TTS, never end-to-end S2S).
+- **Ground truth (regenerable via `audit_tools/`):** `TEX_SYSTEM.md` + `index.json` — trust over any README/docstring. There is no `audit/` dir; do not cite one. **Plan:** `ROADMAP.md`. **Parallel-work + ownership table:** `COORDINATION.md`.
+- **Real ledger:** `src/tex/provenance/ledger.py` (NOT `c2pa/ledger.py`). **Engine:** `src/tex/engine/{pdp,router,crc_gate,hold}.py`. **Live signing:** ECDSA-P256; **integrity:** the hash chain.
+- Match the surrounding code's style and idioms. Keep `main` green.

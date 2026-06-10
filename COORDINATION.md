@@ -158,7 +158,7 @@ fans out. Never let two branches sit on divergent `pdp.py`/`router.py` edits.
 | Track | Branch | Leap | Status | Touches pdp.py/main.py? |
 |---|---|---|---|---|
 | wave2-seam | track/wave2-seam | M0 | not started — **prereq for L1/L3/L6/L7/L9/L12** | yes (owns DECISION-seal line) |
-| wave2-actionclass | track/wave2-actionclass | L4 | not started (`mythos-now`) | 1 line |
+| wave2-actionclass | track/wave2-actionclass | L4 | **PR open**: `contracts/action_class.py` — reversibility×blast IntEnum join-semilattice (UNKNOWN fail-closed tops, worst-step join), fixed FORBID/ABSTAIN/NEUTRAL cell map, opt-in `metadata['action_class']` (no-op absent; reads no envelope), single-hypothesis Hoeffding-Bentkus UCB on the **under-classification** rate (reuses `crc_gate`; `certified=False` until a *field* corpus — synthetic computes-but-abstains), anti-circular 300-cal/200-test corpus w/ tripwire. ONE additive call in `detect_structural_floor` (FORBID cell only; ABSTAIN recorded-only, rv4-recoverable precedent). Earnable tests green: 0.9 score forbids *via the lattice* / 0.1 can't silence / spoofed bundle can't fire. 111 passed (named verdict-path set + new). | **no** — 1 additive call in `detect_structural_floor`; zero pdp.py/main.py |
 | wave2-spine | track/wave2-spine | L9 | not started | 1 line |
 | wave2-pqlive | track/wave2-pqlive | L10 | not started | 1 line |
 | wave2-poguard | track/wave2-poguard | L2 | not started | 1 line (test-mode) |

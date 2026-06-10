@@ -54,6 +54,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from tex.contracts import rv4_path
+from tex.contracts.action_class import (
+    ACTION_CLASS_CODE,
+    ACTION_CLASS_SPECIALIST,
+    ActionClass,
+    evaluate_action_class,
+)
 from tex.contracts.rule_of_two import (
     RULE_OF_TWO_CODE,
     RULE_OF_TWO_SPECIALIST,
@@ -208,6 +214,27 @@ def _rule_of_two_deny(request: Any) -> StructuralDeny | None:
     )
 
 
+def _action_class_deny(request: Any) -> StructuralDeny | None:
+    """Action-class FORBID cell → a structural deny (irreversible × public blast).
+
+    Only the FORBID cell earns the floor. The ABSTAIN cell (one axis in its
+    dangerous tier) is uncertainty, not a proof — it is recorded in the outcome
+    but is NOT returned here (forbidding uncertainty would violate ABSTAIN-only
+    surfaces + monotone-lowering). Surfacing it as a hold is a future
+    predictive-holds wire (the RV4-recoverable precedent). The classifier reads
+    only ``request.metadata['action_class']``; it never reads ``risk_score``, so
+    a probabilistic score can neither fire nor silence it.
+    """
+    outcome = evaluate_action_class(request)
+    if outcome.action_class is not ActionClass.FORBID:
+        return None
+    return StructuralDeny(
+        specialist=ACTION_CLASS_SPECIALIST,
+        reason=outcome.reason,
+        codes=(ACTION_CLASS_CODE,),
+    )
+
+
 def _rv4_permanent_denies(request: Any) -> list[StructuralDeny]:
     """RV4 path policies that are PERMANENTLY violated (bad prefixes) → denies.
 
@@ -247,6 +274,10 @@ def detect_structural_floor(
       3. **RV4 permanent path violations** — an LTLf path policy that is a
          proven bad prefix (``tex.contracts.rv4_path``), when ``request``
          carries the ``rv4_path_policies`` metadata.
+      4. **Action-class FORBID cell** — an irreversible × public-blast action on
+         the reversibility×blast lattice (``tex.contracts.action_class``), when
+         ``request`` carries the ``action_class`` metadata. Only the FORBID cell
+         fires the floor; the ABSTAIN cell is recorded but not surfaced here.
 
     Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. ``request`` is optional
     so the pure specialist-bundle form (used widely in tests) keeps working; the
@@ -264,6 +295,9 @@ def detect_structural_floor(
         if rule_of_two is not None:
             denies.append(rule_of_two)
         denies.extend(_rv4_permanent_denies(request))
+        action_class = _action_class_deny(request)
+        if action_class is not None:
+            denies.append(action_class)
 
     if not denies:
         return NEUTRAL_STRUCTURAL_FLOOR

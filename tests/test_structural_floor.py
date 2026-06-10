@@ -146,3 +146,123 @@ def test_probabilistic_specialist_still_routes_normally() -> None:
     assert result.decision.metadata["pdp"]["structural_floor"]["fired"] is False
     # Not short-circuited — routed.
     assert "structural_floor" not in result.decision.scores
+
+
+# ── L4 action-class reversibility×blast floor ───────────────────────────
+
+
+def _action_class_request(steps, *, content="Routine status update.", **kw):
+    """A request carrying an opt-in action_class declaration."""
+    return make_request(content=content, metadata={"action_class": {"steps": steps}}, **kw)
+
+
+def test_action_class_no_metadata_does_not_fire() -> None:
+    # Opt-in: a benign bundle + a request with no action_class metadata is a no-op.
+    bundle = SpecialistBundle(results=(_result("secret_and_pii", 0.05),))
+    out = detect_structural_floor(bundle, request=make_request())
+    assert out.fired is False
+    assert "action_class" not in out.denying_specialists
+
+
+def test_action_class_irreversible_public_fires_floor() -> None:
+    bundle = SpecialistBundle(results=(_result("secret_and_pii", 0.05),))
+    req = _action_class_request([{"reversibility": "IRREVERSIBLE", "blast_radius": "PUBLIC"}])
+    out = detect_structural_floor(bundle, request=req)
+    assert out.fired is True
+    assert "action_class" in out.denying_specialists
+
+
+def test_action_class_abstain_cell_does_not_fire_floor() -> None:
+    # One axis hot (irreversible × tenant) → ABSTAIN cell, recorded only; the
+    # FORBID-only floor must NOT fire (forbidding uncertainty is forbidden).
+    bundle = SpecialistBundle(results=(_result("secret_and_pii", 0.05),))
+    req = _action_class_request([{"reversibility": "IRREVERSIBLE", "blast_radius": "TENANT"}])
+    assert detect_structural_floor(bundle, request=req).fired is False
+
+
+def test_action_class_unknown_corner_fires_floor() -> None:
+    # Uncharacterised reversibility + public blast → fail-closed FORBID.
+    bundle = SpecialistBundle(results=(_result("secret_and_pii", 0.05),))
+    req = _action_class_request([{"reversibility": "frobnicate", "blast_radius": "PUBLIC"}])
+    assert detect_structural_floor(bundle, request=req).fired is True
+
+
+def test_action_class_forbids_irreversible_public_end_to_end() -> None:
+    pdp = PolicyDecisionPoint(specialist_suite=_StubSuite(_result("secret_and_pii", 0.05)))
+    req = _action_class_request([{"reversibility": "IRREVERSIBLE", "blast_radius": "PUBLIC"}])
+    result = pdp.evaluate(request=req, policy=make_default_policy())
+
+    assert result.decision.verdict is Verdict.FORBID
+    sf = result.decision.metadata["pdp"]["structural_floor"]
+    assert sf["fired"] is True
+    assert "action_class" in sf["denying_specialists"]
+    # Attributed to the structural action_class tier, not a fused score.
+    assert result.decision.scores.get("structural_action_class") == 1.0
+
+
+def test_high_probabilistic_score_does_not_fire_action_class() -> None:
+    """EARNABLE #1 — a 0.9 score cannot conjure the lattice FORBID.
+
+    A high non-structural specialist score with a SAFE declared action (or no
+    declaration) must not fire the action_class floor: the lattice reads
+    structure, never risk_score.
+    """
+    # 0.9 mage + a safe (reversible×self) action: the score cannot push the
+    # NEUTRAL cell to FORBID.
+    bundle = SpecialistBundle(results=(_result("mage", 0.9, ("ASI08",)),))
+    safe = _action_class_request([{"reversibility": "REVERSIBLE", "blast_radius": "SELF"}])
+    out = detect_structural_floor(bundle, request=safe)
+    assert out.fired is False
+    assert "action_class" not in out.denying_specialists
+
+    # 0.9 mage + NO action_class metadata: still no action_class deny.
+    out2 = detect_structural_floor(bundle, request=make_request())
+    assert "action_class" not in out2.denying_specialists
+
+
+def test_spoofed_bundle_specialist_cannot_fire_action_class() -> None:
+    # Adversarial: a specialist literally named "action_class" at risk 1.0 in the
+    # bundle (with no opt-in metadata) must NOT fire the floor. The lattice deny
+    # is metadata-only — it cannot be conjured by a crafted bundle entry.
+    spoof = SpecialistBundle(
+        results=(_result("action_class", 1.0, ("action_class.irreversible_public",)),)
+    )
+    out = detect_structural_floor(spoof, request=make_request())
+    assert out.fired is False
+    assert "action_class" not in out.denying_specialists
+
+
+def test_low_probabilistic_score_cannot_silence_action_class() -> None:
+    """EARNABLE #2 — a 0.1 'looks-routine' score cannot silence the structural FORBID.
+
+    A declared irreversible×public action FORBIDs via the lattice even when every
+    probabilistic specialist scores it benign.
+    """
+    benign = SpecialistBundle(results=(_result("secret_and_pii", 0.1), _result("mage", 0.1)))
+    req = _action_class_request([{"reversibility": "IRREVERSIBLE", "blast_radius": "PUBLIC"}])
+    out = detect_structural_floor(benign, request=req)
+    assert out.fired is True
+    assert "action_class" in out.denying_specialists
+
+    # And end-to-end through the PDP: still FORBID despite the benign 0.1 score.
+    pdp = PolicyDecisionPoint(specialist_suite=_StubSuite(_result("secret_and_pii", 0.1)))
+    result = pdp.evaluate(request=req, policy=make_default_policy())
+    assert result.decision.verdict is Verdict.FORBID
+
+
+def test_action_class_only_lowers_never_relaxes() -> None:
+    """Monotone: the floor raises a would-be PERMIT to FORBID, and a NEUTRAL
+    declaration never raises a verdict (no spurious escalation)."""
+    # An otherwise-clean request that would PERMIT: a safe declaration leaves it
+    # un-escalated by this floor.
+    pdp = PolicyDecisionPoint(specialist_suite=_StubSuite(_result("secret_and_pii", 0.02)))
+    safe = _action_class_request([{"reversibility": "REVERSIBLE", "blast_radius": "SELF"}])
+    safe_result = pdp.evaluate(request=safe, policy=make_default_policy())
+    assert safe_result.decision.metadata["pdp"]["structural_floor"]["fired"] is False
+    assert safe_result.decision.verdict is not Verdict.FORBID
+
+    # The same clean content with an irreversible×public declaration is raised to
+    # FORBID — the floor only ever moves toward caution.
+    danger = _action_class_request([{"reversibility": "IRREVERSIBLE", "blast_radius": "PUBLIC"}])
+    danger_result = pdp.evaluate(request=danger, policy=make_default_policy())
+    assert danger_result.decision.verdict is Verdict.FORBID

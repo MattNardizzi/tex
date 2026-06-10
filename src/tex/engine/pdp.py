@@ -63,6 +63,7 @@ from tex.specialists.structural_floor import (
     StructuralFloorResult,
     detect_structural_floor,
 )
+from tex.pqcrypto.pq_durability import apply_pq_durability_hold
 from tex.systemic.probguard import apply_predictive_holds
 
 
@@ -388,6 +389,17 @@ class PolicyDecisionPoint:
             # (PERMIT→ABSTAIN only), each step sealed. Inert no-op when unwired.
             routing_result = apply_risk_spine(
                 self._risk_spine, base=routing_result, request=request
+            )
+            # PQ-maturity signal — soft, monotone-lowering (PERMIT→ABSTAIN only):
+            # if the request asserts a PQ-non-repudiation claim and the live signer
+            # is not PQ-durable, demote to ABSTAIN and seal a fail-closed
+            # PQ-durable=false fact. Opt-in via request.metadata["pq_non_repudiation"];
+            # zero-cost no-op otherwise. See pqcrypto/pq_durability.py (Wave 2 / L10).
+            # Both holds only ever lower a verdict, so their order is immaterial.
+            routing_result = apply_pq_durability_hold(
+                base=routing_result,
+                request=request,
+                decision_ledger=self._decision_ledger,
             )
             router_ms = _elapsed_ms(router_start)
 

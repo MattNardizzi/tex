@@ -1,4 +1,16 @@
 """
+==================== DEACTIVATED PLACEHOLDER (research-early) ====================
+This module is OFF by default and deliberately inert. It computes keyed-hash
+(HMAC / SHA-256) STAND-INS, not real cryptographic proofs. The symbol and type
+names here describe an INTENDED future proving backend, NOT what this code
+computes; nothing here is cryptographically binding. The verifier is hard-gated
+and fail-closed: tex.nanozk.verify_layer_proof_set() returns is_valid=False
+unless TEX_NANOZK_ALLOW_SHIM=1 is set (tests/dev only) -- so flipping
+TEX_FRONTIER_NANOZK alone can NEVER cause a stand-in to be trusted as a real
+proof. Kept in-tree, intentionally, so a real backend can be wired in later
+(see src/tex/nanozk/DEACTIVATED.md). Do NOT cite anything here as a guarantee.
+================================================================================
+
 NANOZK layerwise prover and verifier.
 
 Public surface
@@ -1253,6 +1265,20 @@ def prove_layer_set(
     )
 
 
+def _shim_enabled() -> bool:
+    """Whether the deactivated NanoZK placeholder may validate at all.
+
+    NanoZK computes HMAC/hash stand-ins, NOT cryptographic proofs (see the
+    module banner). It is OFF by default: ``verify_layer_proof_set`` refuses
+    to validate anything unless ``TEX_NANOZK_ALLOW_SHIM=1`` is set — an
+    explicit tests/dev opt-in. This is what makes the module *deactivated*
+    rather than merely *flag-gated*: flipping ``TEX_FRONTIER_NANOZK`` alone
+    can never cause a stand-in to be trusted as a real proof, because the
+    verifier still refuses without this second, explicit opt-in.
+    """
+    return os.environ.get("TEX_NANOZK_ALLOW_SHIM", "0") == "1"
+
+
 def verify_layer_proof_set(
     proof_set: LayerProofSet,
     *,
@@ -1269,6 +1295,21 @@ def verify_layer_proof_set(
     and confirms they match. A tampered accumulator fails the
     whole set.
     """
+    # --- DEACTIVATION GATE (see module banner) ---------------------------
+    # NanoZK is a deactivated placeholder. Unless TEX_NANOZK_ALLOW_SHIM=1 is
+    # set explicitly (tests/dev), the verifier refuses to validate anything,
+    # so no caller can mistake an HMAC/hash stand-in for a real proof. The
+    # production attribution path (tex.evidence.attribution_zk) therefore
+    # stays fail-closed even when TEX_FRONTIER_NANOZK=1.
+    if not _shim_enabled():
+        return LayerProofSetVerification(
+            is_valid=False,
+            set_root_consistent=False,
+            per_layer=(),
+            total_verifier_ms=0.0,
+            layer_count=len(proof_set.proofs),
+            reason="nanozk_deactivated_placeholder_not_a_real_proof",
+        )
     start_ms = time.perf_counter() * 1000.0
     # Reconstruct the set root using the kind stored on the set.
     from tex.nanozk.poseidon_chain import HashChainKind

@@ -26,13 +26,16 @@ from tex.provenance.engine import (
     REIDENTIFY_THRESHOLD,
     BehavioralProvenanceEngine,
 )
-from tex.provenance.ledger import BehavioralProvenanceLedger
+from tex.provenance.ledger import BehavioralProvenanceLedger, SealedFactLedger
 from tex.provenance.models import (
     BehavioralBirthCertificate,
     ProvenanceEventKind,
     ProvenanceMatch,
     ProvenanceRecord,
     ProvenanceResolution,
+    SealedFact,
+    SealedFactKind,
+    SealedFactRecord,
 )
 from tex.provenance.signature import (
     WARM_OBSERVATION_THRESHOLD,
@@ -49,6 +52,10 @@ __all__ = [
     "ProvenanceMatch",
     "ProvenanceRecord",
     "ProvenanceResolution",
+    "SealedFact",
+    "SealedFactKind",
+    "SealedFactRecord",
+    "SealedFactLedger",
     "WARM_OBSERVATION_THRESHOLD",
     "REIDENTIFY_THRESHOLD",
     "MERGE_REVIEW_LOWER",

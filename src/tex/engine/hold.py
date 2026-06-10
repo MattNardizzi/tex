@@ -85,6 +85,14 @@ class ResolutionMode(StrEnum):
 # sealed boundary (self-heal) rather than asking a person. Acquisition must
 # ONLY ever consume signals from inside the boundary — never the action's own
 # payload — or fact-fetching becomes the attack surface (doctrine §6, the limit).
+#
+# INVARIANT: every key here must be a string a deterministic in-repo code
+# path actually emits — a census entry no emitter can raise is a question
+# Tex can never truthfully ask (three such phantoms were reconciled
+# 2026-06-10: pending_lifecycle → agent_pending, low_evidence_sufficiency →
+# weak_semantic_evidence, semantic_low_confidence →
+# low_confidence_semantic_dimension). Guarded by
+# tests/test_two_sided_hold.py::test_every_flag_pivot_key_has_a_live_emitter.
 _FLAG_PIVOTS: dict[str, tuple[bool, str, bool]] = {
     # flag: (is_epistemic, question, self_heal_possible)
     "no_retrieval_context": (
@@ -102,17 +110,20 @@ _FLAG_PIVOTS: dict[str, tuple[bool, str, bool]] = {
         "how this agent has behaved before — there is no history yet",
         True,
     ),
-    "pending_lifecycle": (
+    # Emitted by agent/identity_evaluator.py for a PENDING lifecycle.
+    "agent_pending": (
         True,
         "whether this agent has finished onboarding and been admitted",
         True,
     ),
-    "low_evidence_sufficiency": (
+    # Emitted by engine/router.py when semantic evidence_sufficiency < 0.25.
+    "weak_semantic_evidence": (
         True,
         "whether there is enough sealed evidence to stand behind a call",
         True,
     ),
-    "semantic_low_confidence": (
+    # Emitted by engine/router.py when a semantic dimension is low-confidence.
+    "low_confidence_semantic_dimension": (
         False,
         "what this action actually intends — the reading is genuinely ambiguous",
         False,

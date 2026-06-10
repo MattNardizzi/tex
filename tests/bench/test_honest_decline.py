@@ -2,9 +2,11 @@
 Gate for the Honest-Decline demo (tex.bench.honest_decline).
 
 Asserts the decline is real engine output: Tex ABSTAINs on a moderate-stakes
-request from an agent it has no sealed history for, and the named missing fact is
-the genuine ``cold_start`` resolving question — NOT the never-emitted
-``low_evidence_sufficiency`` flag. The decline is sealed and offline-verifiable.
+request from an agent it has no sealed history for, and the named missing fact
+is the genuine ``cold_start`` resolving question — a flag the pipeline actually
+raised, never a census-only invention (the phantom-key failure mode is now
+guarded by the census tripwire in test_two_sided_hold.py). The decline is
+sealed and offline-verifiable.
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ def test_tex_declines_and_names_the_missing_fact(runtime, tmp_path) -> None:
     assert res.pivotal_flag == "cold_start"
     assert res.named_missing_fact is not None
     assert "history" in res.named_missing_fact
-    # We must never surface the phantom flag the design review flagged.
-    assert res.pivotal_flag != "low_evidence_sufficiency"
+    # The pivotal flag must be one the pipeline actually raised on THIS run —
+    # the general form of "never surface a census-only phantom".
+    assert res.pivotal_flag in {f.casefold() for f in res.uncertainty_flags}
 
     # The decline itself is sealed and court-grade verifiable.
     assert res.sealed_record_count >= 1

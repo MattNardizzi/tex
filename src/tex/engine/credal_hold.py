@@ -145,27 +145,25 @@ _WIRED_CONTENT_STREAMS: tuple[str, ...] = (
 )
 
 # Which confidence stream each epistemic pivotal flag of hold._FLAG_PIVOTS
-# interrogates. Today's epistemic flags reach only the semantic and agent
-# streams, so the wired ranking discriminates between exactly those two —
-# the deterministic/specialist confidences still shape the interval but no
-# current flag can ask about them. Two honest simplifications, named:
-# ``no_retrieval_context`` is emitted by the specialist judges
-# (specialists/judges.py) as well as the semantic layer; mapping it to
-# semantic alone (the larger retrieval consumer, weight .273 vs .195)
-# slightly UNDER-ranks it, which is the safe direction. And two census
-# entries (``low_evidence_sufficiency``, ``pending_lifecycle``) currently
-# have no live emitter in src/ (the router raises ``weak_semantic_evidence``
-# instead) — they rank correctly if they ever fire, but cannot appear in a
-# production hold today; renaming the census is the abstain track's call,
-# not ours. A flag missing from this map (or a stream missing from the
+# interrogates. Every key is a live emitted flag string (reconciled with the
+# actual emitters 2026-06-10; kept in lock-step with the census by
+# tests/test_two_sided_hold.py::test_epistemic_census_keys_are_known_to_the_credal_resolver).
+# Today's epistemic flags reach only the semantic and agent streams, so the
+# wired ranking discriminates between exactly those two — the deterministic/
+# specialist confidences still shape the interval but no current flag can
+# ask about them. One honest simplification, named: ``no_retrieval_context``
+# is emitted by the specialist judges (specialists/judges.py) as well as the
+# semantic layer; mapping it to semantic alone (the larger retrieval
+# consumer, weight .273 vs .195) slightly UNDER-ranks it, which is the safe
+# direction. A flag missing from this map (or a stream missing from the
 # supplied confidences) scores zero and keeps its fixed-order position —
 # fail-closed, never an exception.
 _FLAG_STREAMS: dict[str, str] = {
     "no_retrieval_context": "semantic",
-    "low_evidence_sufficiency": "semantic",
+    "weak_semantic_evidence": "semantic",
     "cold_start": "agent",
     "forbid_streak": "agent",
-    "pending_lifecycle": "agent",
+    "agent_pending": "agent",
 }
 
 _CONF_KEY_PREFIX = "conf_stream:"

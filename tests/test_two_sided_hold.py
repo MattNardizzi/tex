@@ -136,10 +136,14 @@ def test_epistemic_hold_names_the_pivotal_fact_and_self_heals():
 
 
 def test_aleatoric_hold_is_human_judgment_with_no_question():
+    # low_confidence_semantic_dimension is the flag the router ACTUALLY
+    # emits for a low-confidence semantic dimension (router.py); the census
+    # previously listed it under the never-emitted name
+    # "semantic_low_confidence" — reconciled 2026-06-10.
     h = build_hold(
         verdict=Verdict.ABSTAIN,
         final_score=0.5,
-        uncertainty_flags=("semantic_low_confidence",),
+        uncertainty_flags=("low_confidence_semantic_dimension",),
         certificate=None,
         confidence=0.4,
     )
@@ -195,3 +199,101 @@ def test_hold_is_deterministic():
         action_type="tool_call",
     )
     assert build_hold(**kw).model_dump() == build_hold(**kw).model_dump()
+
+
+# ── census ↔ emitters reconciliation (the phantom-flag tripwire) ─────────
+
+
+def test_every_flag_pivot_key_has_a_live_emitter():
+    """Every _FLAG_PIVOTS census key must be a string some deterministic
+    in-repo code path actually emits — a census entry no emitter can raise
+    is a resolving question Tex can never truthfully ask. This failed for
+    three keys before the 2026-06-10 reconciliation (pending_lifecycle,
+    low_evidence_sufficiency, semantic_low_confidence) and fails again if a
+    census key is added without an emitter, or an emitter is renamed out
+    from under the census.
+
+    Honest limit: this is a string-presence guard over source text (the
+    emitters all use quoted literals today). A quoted mention in a comment
+    would satisfy it; it cannot prove reachability — but it decisively
+    catches the observed failure mode, census/emitter name drift. Flags
+    originating from an LLM provider do NOT count as emitters: the census
+    must never depend on a model choosing to say a matching string.
+    """
+    from pathlib import Path
+
+    import tex
+    from tex.engine.hold import _FLAG_PIVOTS
+
+    src_root = Path(tex.__file__).parent
+    census_files = {
+        src_root / "engine" / "hold.py",
+        src_root / "engine" / "credal_hold.py",
+    }
+    sources = [
+        (path, path.read_text(encoding="utf-8"))
+        for path in sorted(src_root.rglob("*.py"))
+        if path not in census_files
+    ]
+    for flag in _FLAG_PIVOTS:
+        emitters = [
+            str(path.relative_to(src_root))
+            for path, text in sources
+            if f'"{flag}"' in text or f"'{flag}'" in text
+        ]
+        assert emitters, (
+            f"census key {flag!r} has no emitter anywhere in src/tex outside "
+            "the census files — either wire an emitter or remove/rename the "
+            "census entry (see _FLAG_PIVOTS invariant comment)"
+        )
+
+
+def test_epistemic_census_keys_are_known_to_the_credal_resolver():
+    """The L8 resolver's flag→stream map and the census must stay in
+    lock-step, both directions: an epistemic census key the resolver cannot
+    rank silently falls to fixed-order; a resolver key absent from the
+    census can never be a candidate at all."""
+    from tex.engine.credal_hold import _FLAG_STREAMS
+    from tex.engine.hold import _FLAG_PIVOTS
+
+    epistemic = {
+        flag for flag, (is_epi, _q, _sh) in _FLAG_PIVOTS.items() if is_epi
+    }
+    assert epistemic == set(_FLAG_STREAMS)
+
+
+def test_weak_semantic_evidence_hold_names_the_evidence_fact():
+    """The flag the router actually raises for evidence_sufficiency < 0.25
+    must map to a pivotal fact (it could not before the reconciliation —
+    the census listed it as the never-emitted low_evidence_sufficiency)."""
+    h = build_hold(
+        verdict=Verdict.ABSTAIN,
+        final_score=0.5,
+        uncertainty_flags=("weak_semantic_evidence",),
+        certificate=None,
+        confidence=0.4,
+    )
+    assert h is not None
+    assert h.hold_type is HoldType.EPISTEMIC
+    assert h.resolution_mode is ResolutionMode.SELF_HEAL
+    assert h.pivotal_flag == "weak_semantic_evidence"
+    assert h.resolving_question is not None
+    assert "evidence" in h.resolving_question
+
+
+def test_agent_pending_hold_names_the_onboarding_fact():
+    """Same reconciliation for the identity evaluator's PENDING-lifecycle
+    flag (census previously listed the never-emitted pending_lifecycle)."""
+    h = build_hold(
+        verdict=Verdict.ABSTAIN,
+        final_score=0.5,
+        uncertainty_flags=("agent_pending",),
+        certificate=None,
+        confidence=0.4,
+    )
+    assert h is not None
+    assert h.hold_type is HoldType.EPISTEMIC
+    assert h.resolution_mode is ResolutionMode.SELF_HEAL
+    assert h.pivotal_flag == "agent_pending"
+    assert h.resolving_question is not None
+    assert "onboarding" in h.resolving_question

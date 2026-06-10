@@ -65,5 +65,5 @@ stable function — so the `pdp.py` delta is one or two lines.
 | truth | track/truth | — | not started | maybe — evidence emit |
 | struct | track/struct | — | not started | yes — floor wiring |
 | durable | track/durable | — | not started | no |
-| voice | track/voice | — | not started | no (new routes) |
+| voice | track/voice | voice thread | spoken-voice loop built: `api/voice_routes.py` (/v1/voice/token, /v1/ask, /v1/speak) + `voice/` (deterministic verbalizer + exact-match faithfulness gate + ECDSA voice-attestation chain) + `gateway/` (self-hosted STT/TTS, offline backend runs; neural seams labeled). 40 voice/gateway tests green; verdict-path suites (crc_gate/structural_floor/deterministic/enforcement/replay_validator) still 72-green. tex-systems frontend already on-contract (builds green). PR open. | 1 line (include_router) |
 | proof | track/proof | — | not started | no |

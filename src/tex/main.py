@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 from tex.agent.suite import AgentEvaluationSuite
 from tex.api.agent_routes import build_agent_router
+from tex.api.cors import configure_cors  # CORS: safe origin/credentials policy
 from tex.api.discovery_routes import build_discovery_router
 from tex.api.tenant_routes import build_tenant_router
 from tex.api.guardrail import router as guardrail_router  # GUARDRAIL: canonical webhook
@@ -1288,13 +1288,9 @@ def create_app(
 
     _attach_runtime_to_app(app, resolved_runtime)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS: never wildcard-origins-with-credentials. Policy is resolved from
+    # TEX_CORS_ALLOW_ORIGINS in the self-contained tex.api.cors module.
+    configure_cors(app)
 
     app.include_router(build_api_router())
     app.include_router(build_incident_router())  # THREAD 3: CAUSAL ATTRIBUTION

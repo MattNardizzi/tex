@@ -58,9 +58,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.api.auth import RequireScope
 from tex.ecosystem.state import EcosystemState
 from tex.observability.telemetry import emit_event
 from tex.systemic.cascade_predictor import CascadePredictor, DependencyEdge
@@ -68,7 +69,13 @@ from tex.systemic.digital_twin import DEFAULT_HORIZON, EcosystemDigitalTwin, MAX
 from tex.systemic.trajectory import SimulationTrajectory, SystemicWeights
 
 
-_router = APIRouter()
+# Wave-0 credibility floor: the twin simulation reads live ecosystem
+# state, so it requires an authenticated principal carrying
+# ``evidence:read``. The forked simulation writes nothing back to live
+# state (only a telemetry record), so a read scope is the right gate.
+# Against a keyless dev backend (no ``TEX_API_KEYS``) the anonymous
+# principal carries every scope and dev workflows keep working.
+_router = APIRouter(dependencies=[Depends(RequireScope("evidence:read"))])
 
 
 class _TwinPerturbationRequest(BaseModel):

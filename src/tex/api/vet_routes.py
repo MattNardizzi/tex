@@ -20,9 +20,18 @@ Design properties
    path used internally.
 2. All response models are Pydantic v2 ``frozen=True, extra="forbid"``
    per Section 3.
-3. Endpoints are intentionally **not authenticated by default**; the
-   credentials themselves are the bearer of trust. Operators add auth
-   in their gateway. (Same policy as ``/v1/tee/*``.)
+3. **Authentication is required** (Wave-0 credibility floor). The whole
+   router carries a ``RequireScope("evidence:read")`` dependency, so
+   every endpoint — present and future — needs an authenticated
+   principal. State-mutating / credential-minting endpoints (``issue-aid``,
+   ``update-aid-status`` (revoke/suspend), ``notarize``,
+   ``issue-txn-token``, ``scitt/register-decision``) additionally
+   require ``evidence:write``. Against a keyless dev backend (no
+   ``TEX_API_KEYS``) the anonymous principal carries every scope, so
+   local/dev workflows keep working; once keys are configured the
+   surface is closed. The cryptographic envelope is still a bearer of
+   trust for downstream verification, but it is no longer the *only*
+   gate on the wire.
 4. Stub-mode Web Proofs are clearly surfaced in the response; callers
    set ``allow_stub`` only when explicitly opting in (tests / dev).
 """
@@ -33,9 +42,10 @@ import base64
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.api.auth import RequireScope
 from tex.pqcrypto.algorithm_agility import SignatureAlgorithm
 from tex.vet.agent_identity_document import (
     AgentIdentityDocument,
@@ -69,7 +79,22 @@ from tex.vet.web_proofs import (
 __all__ = ["router"]
 
 
-router = APIRouter(prefix="/v1/vet", tags=["vet"])
+# Baseline: every /v1/vet/* route requires an authenticated principal
+# carrying ``evidence:read``. Mutating endpoints elevate to
+# ``evidence:write`` per-route below. Wiring the read scope at the
+# router level makes "forgetting auth on a new route" impossible —
+# the route cannot be served without the dependency having run.
+router = APIRouter(
+    prefix="/v1/vet",
+    tags=["vet"],
+    dependencies=[Depends(RequireScope("evidence:read"))],
+)
+
+# Elevated dependency for endpoints that mutate registry state or mint a
+# signed credential/token. The unauthenticated identity-document
+# revocation that used to live on ``/update-aid-status`` is the exact
+# hole this closes.
+_REQUIRE_WRITE = Depends(RequireScope("evidence:write"))
 
 
 # --------------------------------------------------------------------------- #
@@ -211,6 +236,7 @@ def _b64u_decode(s: str) -> bytes:
     "/issue-aid",
     response_model=IssueAidResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[_REQUIRE_WRITE],
 )
 async def issue_aid(req: AidIssuanceRequest) -> IssueAidResponse:
     """Issue a fresh AID for an agent and register it in the default registry."""
@@ -289,6 +315,7 @@ async def get_aid(agent_id: str) -> AgentIdentityDocument:
     "/update-aid-status",
     response_model=AidStatusUpdateResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[_REQUIRE_WRITE],
 )
 async def update_aid_status(req: AidStatusUpdateRequest) -> AidStatusUpdateResponse:
     """Suspend or revoke an AID."""
@@ -318,6 +345,7 @@ async def update_aid_status(req: AidStatusUpdateRequest) -> AidStatusUpdateRespo
     "/notarize",
     response_model=NotarizeResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[_REQUIRE_WRITE],
 )
 async def notarize(req: NotarizeRequest) -> NotarizeResponse:
     """Notarize a TLS session and return a Web Proof."""
@@ -369,6 +397,7 @@ async def verify_web_proof_endpoint(
     "/issue-txn-token",
     response_model=IssueTxnTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[_REQUIRE_WRITE],
 )
 async def issue_txn_token_endpoint(
     req: IssueTxnTokenRequest,
@@ -504,6 +533,7 @@ class ArpReconcileResponse(BaseModel):
     "/scitt/register-decision",
     response_model=ScittRegisterDecisionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[_REQUIRE_WRITE],
 )
 async def scitt_register_decision_endpoint(
     req: ScittRegisterDecisionRequest,

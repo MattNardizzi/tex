@@ -60,7 +60,7 @@ stable function — so the `pdp.py` delta is one or two lines.
 ## Status table (each thread updates its row)
 | Track | Branch | Owner/thread | Status | Touches pdp.py/main.py? |
 |---|---|---|---|---|
-| unblock | track/unblock | — | not started | CORS in main.py |
+| unblock | track/unblock | unblock thread | Wave 0 done: CI workflow + auth on 4 routers + CORS lockdown; PR open. nanozk cut still pending. | CORS line only (1 call → tex.api.cors) |
 | abstain | track/abstain | — | not started | yes — verdict wiring |
 | truth | track/truth | — | not started | maybe — evidence emit |
 | struct | track/struct | — | not started | yes — floor wiring |

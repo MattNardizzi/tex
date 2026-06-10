@@ -61,7 +61,7 @@ stable function — so the `pdp.py` delta is one or two lines.
 | Track | Branch | Owner/thread | Status | Touches pdp.py/main.py? |
 |---|---|---|---|---|
 | unblock | track/unblock | unblock thread | Wave 0 done: CI workflow + auth on 4 routers + CORS lockdown; PR open. nanozk cut still pending. | CORS line only (1 call → tex.api.cors) |
-| abstain | track/abstain | — | not started | yes — verdict wiring |
+| abstain | track/abstain | abstain thread | act-vs-ask boundary built: WSR betting CS (ope.py) + LTT joint two-sided cert/ε-collar/SCRC (crc_gate.py) + R0–R4 unified rule (router.py) + e-detector (learning/drift.py). All behind behavior-preserving defaults; guard suite + monotone-lowering FAIL-test green. PR open. | **no** — CRC gate + router already wired in pdp.py; new params default to current behavior, so 0 hot-file edits |
 | truth | track/truth | truth thread | Interface PR open: TexEvidence/e-value type + EvidenceKind/EvidenceMaturity in domain/evidence.py (additive, alongside EvidenceRecord). 20 unit tests; 5 guard tests green. Spine/ledger/drift-wiring/bundle deferred to later PRs. | no |
 | struct | track/struct | — | not started | yes — floor wiring |
 | durable | track/durable | — | not started | no |

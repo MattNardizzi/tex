@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tex.deterministic.gate import DeterministicGateResult
@@ -26,6 +28,72 @@ _CONTENT_WEIGHT_KEYS: tuple[str, ...] = (
     "semantic",
     "criticality",
 )
+
+# Structural specialists whose mid-band firing promotes to ABSTAIN (R3). These
+# are structural defenders, not generic probabilistic scorers — a moderate
+# signal from one of them, corroborated by a matched policy clause, is enough
+# to withhold an auto-PERMIT. (Thread 4 + 4.5 frontier additions.)
+_DEFAULT_STRUCTURAL_SPECIALISTS: frozenset[str] = frozenset(
+    {
+        "clawguard",
+        "mcpshield",
+        "planguard",
+        "mage",
+        "agentarmor",
+        "argus",
+        "attriguard",
+        "vigil",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SelectiveRiskRule:
+    """The named constants of Tex's selective-risk verdict rule (R0–R4).
+
+    Every magic number the router used to bury inline lives here, each tied to
+    the branch it governs, so the verdict policy is one auditable object rather
+    than a scatter of literals. The verdict ladder is strictly precedence-
+    ordered and resolves uncertainty toward ABSTAIN:
+
+      * **R0 — structural / deterministic floor.** A deterministic block, an
+        agent capability violation (→ FORBID) or an agent quarantine
+        (→ ABSTAIN). A *proof over structure*, never a probabilistic score —
+        and never fired by a high probabilistic score alone.
+      * **R1 — semantic-dominance FORBID override.** A high-confidence semantic
+        FORBID on a strong dimension with sufficient evidence.
+      * **R2 — score / soft-semantic FORBID escalation.** A soft semantic
+        FORBID once the fused score clears PERMIT, or a fused score clearing
+        the FORBID threshold on its own.
+      * **R3 — ABSTAIN.** Every uncertainty trigger resolves here.
+      * **R4 — PERMIT.** Only when positively clean (score within the permit
+        region, confidence above the floor, semantic recommends PERMIT);
+        otherwise the verdict falls through to ABSTAIN — never a default PERMIT.
+
+    Probabilistic signals can only ever LOWER a verdict toward caution
+    (PERMIT → ABSTAIN → FORBID); they never raise one, and R0 stays
+    deterministic. This is the trust contract the gate downstream also enforces.
+    """
+
+    # R1 — semantic-dominance FORBID override bars.
+    semantic_override_confidence: float = 0.85
+    semantic_override_dimension: float = 0.90
+    semantic_override_evidence: float = 0.40
+
+    # R3 — abstention triggers.
+    low_evidence_floor: float = 0.25  # evidence_sufficiency below this (+ score>=permit) → ABSTAIN
+    specialist_abstain_risk: float = 0.60  # any specialist >= this (score<forbid) → ABSTAIN
+    structural_specialist_risk: float = 0.30  # structural specialist >= this (+clause, score<forbid) → ABSTAIN
+    agent_forbid_streak: int = 3  # behavioral forbid streak >= this → ABSTAIN
+    agent_cold_start_fraction: float = 0.8  # cold-start abstains at score >= permit * this
+    agent_pending_fraction: float = 0.5  # PENDING lifecycle abstains at score >= permit * this
+
+    structural_specialists: frozenset[str] = field(
+        default_factory=lambda: _DEFAULT_STRUCTURAL_SPECIALISTS
+    )
+
+
+DEFAULT_SELECTIVE_RISK_RULE = SelectiveRiskRule()
 
 
 class RoutingResult(BaseModel):
@@ -110,7 +178,15 @@ class DecisionRouter:
     - specialist and semantic signals are fused
     - policy criticality is added
     - abstention is treated as first-class, not an afterthought
+
+    The verdict decision itself is the unified R0–R4 selective-risk rule (see
+    ``SelectiveRiskRule``); its constants live in ``self._rule``.
     """
+
+    __slots__ = ("_rule",)
+
+    def __init__(self, *, rule: SelectiveRiskRule | None = None) -> None:
+        self._rule = rule or DEFAULT_SELECTIVE_RISK_RULE
 
     def route(
         self,
@@ -249,32 +325,34 @@ class DecisionRouter:
             semantic_dominance_override_fired=semantic_dominance_override_fired,
         )
 
-    @staticmethod
     def _semantic_dominance_override_fired(
+        self,
         *,
         semantic_analysis: SemanticAnalysis,
         deterministic_result: DeterministicGateResult,
     ) -> bool:
         """
-        Determine whether the semantic-dominance override path would fire.
+        Determine whether the R1 semantic-dominance override path would fire.
 
-        This mirrors the guard inside _determine_verdict exactly so
-        downstream consumers (ASI finding classification, reasons,
-        uncertainty flags) all agree on the same boolean.
+        This mirrors the R1 guard inside _determine_verdict exactly — both read
+        the same ``self._rule`` constants — so downstream consumers (ASI
+        finding classification, reasons, uncertainty flags) all agree on the
+        same boolean.
 
-        Returns False when the deterministic gate already blocked, since
-        in that case the deterministic path wins and the override is not
+        Returns False when the deterministic gate already blocked, since in
+        that case the deterministic floor (R0) wins and the override is not
         what moved the verdict.
         """
         if deterministic_result.blocked:
             return False
 
+        rule = self._rule
         recommendation = semantic_analysis.recommended_verdict
         return (
             recommendation.verdict == Verdict.FORBID
-            and recommendation.confidence >= 0.85
-            and semantic_analysis.max_dimension_score >= 0.90
-            and semantic_analysis.evidence_sufficiency >= 0.40
+            and recommendation.confidence >= rule.semantic_override_confidence
+            and semantic_analysis.max_dimension_score >= rule.semantic_override_dimension
+            and semantic_analysis.evidence_sufficiency >= rule.semantic_override_evidence
         )
 
     def _deterministic_score(self, deterministic_result: DeterministicGateResult) -> float:
@@ -437,53 +515,60 @@ class DecisionRouter:
         uncertainty_flags: tuple[str, ...],
         agent_bundle: AgentEvaluationBundle | None,
     ) -> Verdict:
+        """The unified R0–R4 selective-risk verdict rule.
+
+        A strict precedence ladder (see ``SelectiveRiskRule``). It resolves
+        uncertainty toward ABSTAIN: R0–R2 are the FORBID/quarantine escalations,
+        R3 is the catch-all ABSTAIN, and R4 emits PERMIT *only* when the
+        decision is positively clean — every other path falls through to
+        ABSTAIN, never to a default PERMIT.
+        """
+        rule = self._rule
+        semantic_recommendation = semantic_analysis.recommended_verdict
+
+        # ── R0 — structural / deterministic floor (a proof, not a score) ──
+        # A deterministic block is a structural FORBID. An agent quarantine
+        # routes everything that agent produces to human review (ABSTAIN) until
+        # cleared; an agent capability violation is the agent-surface analogue
+        # of a deterministic block (FORBID). None of these is a probabilistic
+        # score — they are deterministic and cannot be fired by a high score.
         if deterministic_result.blocked:
             return Verdict.FORBID
-
-        # Agent quarantine forces ABSTAIN regardless of content. This is
-        # a security primitive: when an operator quarantines an agent,
-        # everything it produces routes to human review until the
-        # quarantine is cleared.
         if agent_bundle is not None and agent_bundle.agent_present:
             if agent_bundle.identity.lifecycle_status == "QUARANTINED":
                 return Verdict.ABSTAIN
-
-            # Capability violations — structural FORBID. This is the
-            # equivalent of deterministic_result.blocked but for agent
-            # surface. We still respect the semantic-dominance override
-            # below for content side.
             if agent_bundle.has_capability_violations:
                 return Verdict.FORBID
 
-        # High-confidence semantic override.
-        #
+        # ── R1 — semantic-dominance FORBID override ──
         # When the semantic layer confidently recommends FORBID on a strong
-        # dimension signal, route to FORBID regardless of fused score. This
-        # prevents the "obvious violation buried in ABSTAIN" failure mode that
-        # occurred when deterministic and specialist layers both missed a
-        # novel attack (e.g. wire-fraud language with no keyword match) but
-        # the semantic layer correctly identified unauthorized_commitment
-        # at 0.97 with 0.92 recommendation confidence.
-        semantic_recommendation = semantic_analysis.recommended_verdict
+        # dimension with sufficient evidence, route to FORBID regardless of the
+        # fused score. This prevents the "obvious violation buried in ABSTAIN"
+        # failure mode where deterministic and specialist layers both miss a
+        # novel attack (e.g. wire-fraud language with no keyword match) that the
+        # semantic layer correctly flags at high confidence.
         if (
             semantic_recommendation.verdict == Verdict.FORBID
-            and semantic_recommendation.confidence >= 0.85
-            and semantic_analysis.max_dimension_score >= 0.90
-            and semantic_analysis.evidence_sufficiency >= 0.40
+            and semantic_recommendation.confidence >= rule.semantic_override_confidence
+            and semantic_analysis.max_dimension_score >= rule.semantic_override_dimension
+            and semantic_analysis.evidence_sufficiency >= rule.semantic_override_evidence
         ):
             return Verdict.FORBID
 
-        # Standard semantic-FORBID escalation for the softer case: semantic
-        # recommends FORBID but not at the override bar. Require the fused
-        # score to at least cross the permit threshold so that low-evidence
-        # semantic calls with weak corroboration still route to ABSTAIN.
-        if semantic_recommendation.verdict == Verdict.FORBID:
-            if final_score >= policy.permit_threshold:
-                return Verdict.FORBID
-
+        # ── R2 — score / soft-semantic FORBID escalation ──
+        # A softer semantic FORBID (below the R1 bar) escalates once the fused
+        # score clears the permit threshold; otherwise a low-evidence semantic
+        # FORBID with weak corroboration falls through to ABSTAIN. A fused score
+        # crossing the forbid threshold on its own is also a FORBID.
+        if (
+            semantic_recommendation.verdict == Verdict.FORBID
+            and final_score >= policy.permit_threshold
+        ):
+            return Verdict.FORBID
         if final_score >= policy.forbid_threshold:
             return Verdict.FORBID
 
+        # ── R3 — ABSTAIN (every uncertainty trigger resolves here) ──
         if self._should_abstain(
             semantic_analysis=semantic_analysis,
             specialist_bundle=specialist_bundle,
@@ -495,13 +580,13 @@ class DecisionRouter:
         ):
             return Verdict.ABSTAIN
 
+        # ── R4 — PERMIT only if positively clean; else ABSTAIN ──
         if (
             final_score <= policy.permit_threshold
             and confidence >= policy.minimum_confidence
-            and semantic_analysis.recommended_verdict.verdict == Verdict.PERMIT
+            and semantic_recommendation.verdict == Verdict.PERMIT
         ):
             return Verdict.PERMIT
-
         return Verdict.ABSTAIN
 
     def _should_abstain(
@@ -515,6 +600,14 @@ class DecisionRouter:
         uncertainty_flags: tuple[str, ...],
         agent_bundle: AgentEvaluationBundle | None,
     ) -> bool:
+        """R3 — the uncertainty triggers. Any one firing routes to ABSTAIN.
+
+        Every constant is named in ``self._rule``; the triggers themselves are
+        unchanged. They share one shape: a probabilistic or evidential signal
+        that is not strong enough to FORBID but too uncertain to auto-PERMIT.
+        """
+        rule = self._rule
+
         if semantic_analysis.recommended_verdict.verdict == Verdict.ABSTAIN:
             return True
 
@@ -524,32 +617,31 @@ class DecisionRouter:
         if semantic_analysis.has_low_confidence_dimension:
             return True
 
-        if semantic_analysis.evidence_sufficiency < 0.25 and final_score >= policy.permit_threshold:
+        if (
+            semantic_analysis.evidence_sufficiency < rule.low_evidence_floor
+            and final_score >= policy.permit_threshold
+        ):
             return True
 
-        if specialist_bundle.max_risk_score >= 0.60 and final_score < policy.forbid_threshold:
+        if (
+            specialist_bundle.max_risk_score >= rule.specialist_abstain_risk
+            and final_score < policy.forbid_threshold
+        ):
             return True
 
-        # Thread 4.5: frontier specialists firing in the [0.30, 0.60]
-        # band should promote to ABSTAIN even when other layers see
-        # nothing. The paper SOTA numerics (arxiv 2604.10134 §IV,
-        # 2605.03228 §5, 2603.10749, 2601.05755, 2605.03378, 2604.11790,
-        # 2604.05969) are specialist-level, not pipeline-fused. Without
-        # this rule the specialist signal is diluted to PERMIT by zero-
-        # scoring downstream layers. Calibration on benign traffic
-        # preserved because these specialists return floor (0.05) on
-        # benign content.
-        _STRUCTURAL_SPECIALISTS = {
-            # Thread 4 structural defenders
-            "clawguard", "mcpshield", "planguard", "mage", "agentarmor",
-            # Thread 4.5 frontier additions
-            "argus", "attriguard", "vigil",
-        }
-        for _spec in specialist_bundle.results:
+        # Frontier structural specialists firing in the mid-band should promote
+        # to ABSTAIN even when other layers see nothing. The paper SOTA numerics
+        # (arxiv 2604.10134 §IV, 2605.03228 §5, 2603.10749, 2601.05755,
+        # 2605.03378, 2604.11790, 2604.05969) are specialist-level, not
+        # pipeline-fused; without this rule the specialist signal is diluted to
+        # PERMIT by zero-scoring downstream layers. Benign-traffic calibration
+        # is preserved because these specialists return floor (0.05) on benign
+        # content and a matched policy clause is required.
+        for spec in specialist_bundle.results:
             if (
-                _spec.specialist_name in _STRUCTURAL_SPECIALISTS
-                and _spec.risk_score >= 0.30
-                and _spec.matched_policy_clause_ids
+                spec.specialist_name in rule.structural_specialists
+                and spec.risk_score >= rule.structural_specialist_risk
+                and spec.matched_policy_clause_ids
                 and final_score < policy.forbid_threshold
             ):
                 return True
@@ -563,22 +655,22 @@ class DecisionRouter:
 
         # Agent-side abstain triggers.
         if agent_bundle is not None and agent_bundle.agent_present:
-            # On a forbid streak, abstain even if content is clean —
-            # something upstream is wrong with the agent.
-            if agent_bundle.behavioral.forbid_streak >= 3:
+            # On a forbid streak, abstain even if content is clean — something
+            # upstream is wrong with the agent.
+            if agent_bundle.behavioral.forbid_streak >= rule.agent_forbid_streak:
                 return True
 
             # Cold-start agents on borderline content abstain.
             if (
                 agent_bundle.behavioral.cold_start
-                and final_score >= policy.permit_threshold * 0.8
+                and final_score >= policy.permit_threshold * rule.agent_cold_start_fraction
             ):
                 return True
 
             # PENDING lifecycle abstains on anything not clearly clean.
             if (
                 agent_bundle.identity.lifecycle_status == "PENDING"
-                and final_score >= policy.permit_threshold * 0.5
+                and final_score >= policy.permit_threshold * rule.agent_pending_fraction
             ):
                 return True
 

@@ -26,6 +26,7 @@ from tex.api.vet_routes import router as vet_router  # Thread 13: VET Web Proofs
 from tex.api.zkprov_routes import router as zkprov_router  # Thread 14: ZKPROV training-data provenance
 from tex.api.incident_routes import build_incident_router  # Thread 3: causal attribution
 from tex.api.vigil_routes import build_vigil_router  # VIGIL: surprise-selected voice (/v1/vigil)
+from tex.api.voice_routes import build_voice_router  # VOICE: grounded spoken cascade (/v1/ask, /v1/speak, /v1/voice/token)
 from tex.api.routes import build_api_router
 from tex.commands.activate_policy import ActivatePolicyCommand
 from tex.commands.calibrate_policy import CalibratePolicyCommand
@@ -1310,6 +1311,7 @@ def create_app(
     from tex.api.system_state_routes import build_system_state_router
     app.include_router(build_system_state_router())
     app.include_router(build_vigil_router())  # VIGIL: /v1/vigil surprise-selected voice
+    app.include_router(build_voice_router())  # VOICE: grounded spoken cascade (/v1/ask, /v1/speak, /v1/voice/token)
     app.include_router(build_provenance_router())  # PROVENANCE: identity-by-behaviour, sealed
     app.include_router(build_discovery_surface_router())  # PROVENANCE: count-once voice + pull-only
 

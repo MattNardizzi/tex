@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -14,6 +15,10 @@ __all__ = [
     "EvidenceKind",
     "EvidenceMaturity",
     "TexEvidence",
+    "CombinedEvidence",
+    "compose_arithmetic_mean",
+    "compose_product_independence",
+    "compose_spine",
 ]
 
 
@@ -458,3 +463,407 @@ class TexEvidence(BaseModel):
         chain layer links. Provided so the standalone offline verifier (a later
         PR) recomputes it the same way the sealer did."""
         return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+
+
+# ===========================================================================
+# The multiplicative e-value spine — composing many TexEvidence into one
+# ===========================================================================
+#
+# This is the spine the brief asks for: "compose CRC + OPE + drift + per-agent
+# + voice-error into one Ville-bounded sealed scalar." It is a PURE function
+# over ``TexEvidence`` values — no streaming state, no engine wiring — so it
+# stays on the truth track (the CRC/OPE -> TexEvidence adapters live in the
+# abstain track's files; the drift adapter is the truth track's, a later PR).
+#
+# What the combined scalar means
+# ------------------------------
+# Each component e-value ``E_k`` tests its own null ``H0_k`` (drift: "no regime
+# change"; per-agent: "on baseline"; ...). The combined scalar tests the
+# *conjunction*: ``H0 = ∩_k H0_k`` — "every monitored safety hypothesis holds
+# at once." That is exactly the governance question. The validity carries over
+# because the intersection is a subset of each null: for any ``P ∈ ∩_k H0_k``,
+# ``P ∈ H0_k`` so ``E_P[E_k] <= 1``. Hence:
+#
+#   * MEAN  (default):  ``E_P[(1/K)·Σ E_k] = (1/K)·Σ E_P[E_k] <= 1`` for
+#     ``P ∈ ∩_k H0_k`` — valid with NO dependence assumption (linearity of
+#     expectation). This is the only admissible symmetric merge of arbitrarily
+#     dependent e-values (Vovk–Wang). It is the safe default.
+#   * PRODUCT (opt-in): ``E_P[Π E_k] = Π E_P[E_k] <= 1`` for ``P ∈ ∩_k H0_k``
+#     *under independence* of the factors; GROW-optimal when it holds (Safe
+#     Testing). It accumulates evidence far faster than the mean but is invalid
+#     if the factors are dependent — so it requires an explicit, sealed
+#     ``justification`` asserting independence / sequential structure.
+#
+# Two honest guarantee levels (both sealed, never conflated)
+# ---------------------------------------------------------
+#   * ``is_true_e_value``: the combined scalar is itself an e-value
+#     (``E_{H0}[E] <= 1``). Markov then gives the fixed-look bound
+#     ``P(E >= 1/α) <= α`` — a valid test at the look.
+#   * ``anytime_valid``: the *stronger* sup-over-time Ville bound
+#     ``P(sup_t E_t >= 1/α) <= α`` holds. This needs the combined object to be
+#     an e-PROCESS on ONE filtration — i.e. every input is an ``E_PROCESS``,
+#     ``sequentially_predictable``, and shares the same ``filtration_id``.
+#     Combining across DIFFERENT stream filtrations cannot claim it without a
+#     Choe–Ramdas adjuster (a later PR); the spine sets ``anytime_valid=False``
+#     and refuses to pretend otherwise.
+#
+# Monotone-lowering, preserved
+# ----------------------------
+# Non-e-values (a confidence-sequence bound, a frozen calibration certificate)
+# are DROPPED from the math and only recorded in ``excluded_ids``. They may
+# gate a verdict elsewhere (deterministically, toward caution), but they can
+# never *inflate* the running evidence — a probabilistic signal only ever lowers
+# a verdict, never raises it. With zero true e-values the spine returns an
+# ABSTAIN result (no e-value claim), which the verdict layer surfaces as caution
+# — never as evidence of safety. The PERMIT/FORBID/ABSTAIN mapping itself lives
+# in the engine/abstain track; the spine only produces the honest sealed scalar.
+
+
+_MATURITY_RANK: dict[EvidenceMaturity, int] = {
+    EvidenceMaturity.SPECULATIVE: 0,
+    EvidenceMaturity.RESEARCH_EARLY: 1,
+    EvidenceMaturity.RESEARCH_SOLID: 2,
+    EvidenceMaturity.PRODUCTION: 3,
+}
+
+
+def _weakest_maturity(items: Sequence[TexEvidence]) -> EvidenceMaturity:
+    """The weakest-link maturity — a combined claim is only as mature as its
+    least-mature input, so a SPECULATIVE factor can never launder itself up."""
+    if not items:
+        return EvidenceMaturity.SPECULATIVE
+    return min(items, key=lambda it: _MATURITY_RANK[it.maturity]).maturity
+
+
+def _log_mean_exp(log_values: Sequence[float]) -> float:
+    """Numerically stable ``log( (1/K)·Σ exp(log_values) )`` via the max-shift
+    trick. Mirrors ``drift._anytime_valid._log_mean_exp`` (kept local to avoid
+    importing another module's private helper). All inputs are finite (validated
+    on ``TexEvidence.log_e_value``), so the result is finite."""
+    if not log_values:
+        raise ValueError("log_values must be non-empty")
+    m = max(log_values)
+    s = sum(math.exp(lv - m) for lv in log_values)
+    return m + math.log(s) - math.log(float(len(log_values)))
+
+
+def _joint_null(items: Sequence[TexEvidence]) -> str:
+    """A stable label for the conjunction ``∩_k H0_k`` the combined scalar
+    tests. A single shared null passes through unchanged; multiple distinct
+    nulls become ``AND(<sorted, unique>)`` so the seal names exactly what was
+    jointly tested."""
+    nulls = sorted({it.null_hypothesis_id for it in items})
+    if not nulls:
+        return "none"
+    if len(nulls) == 1:
+        return nulls[0]
+    return "AND(" + ",".join(nulls) + ")"
+
+
+def _shared_filtration(items: Sequence[TexEvidence]) -> str | None:
+    """The one filtration all inputs share, or ``None`` if they differ — the
+    gate for whether the anytime-valid (sup_t) bound may be claimed."""
+    filtrations = {it.filtration_id for it in items}
+    if len(filtrations) == 1:
+        return next(iter(filtrations))
+    return None
+
+
+def _is_anytime_valid(items: Sequence[TexEvidence]) -> bool:
+    """True iff the combined object is an e-PROCESS on ONE filtration: every
+    input is a sequentially-predictable e-process sharing a filtration. Only
+    then does Ville's sup-over-time bound carry to the combination."""
+    if _shared_filtration(items) is None:
+        return False
+    return all(
+        it.kind is EvidenceKind.E_PROCESS and it.sequentially_predictable
+        for it in items
+    )
+
+
+def _require_true_e_values(items: Sequence[TexEvidence], op: str) -> None:
+    """A combiner may only ever touch true e-values. A confidence-sequence
+    bound or a frozen certificate must be calibrated to an e-value (or excluded)
+    BEFORE it reaches here — refusing it is the whole point."""
+    if not items:
+        raise ValueError(f"{op} requires at least one e-value")
+    bad = [it for it in items if not it.is_true_e_value]
+    if bad:
+        kinds = ", ".join(sorted({it.kind.value for it in bad}))
+        raise ValueError(
+            f"{op} refuses non-e-values ({kinds}); calibrate or exclude them "
+            "first — a bound or a certificate may gate a verdict but must never "
+            "inflate the combined evidence."
+        )
+
+
+class CombinedEvidence(BaseModel):
+    """One sealed scalar combining several ``TexEvidence`` — the spine's output.
+
+    Frozen + ledger-sealable, exactly like ``TexEvidence``. ``combiner`` records
+    *which* merge produced it, ``is_true_e_value`` / ``anytime_valid`` record
+    *what guarantee survived*, and ``component_ids`` / ``excluded_ids`` record
+    *what went in and what was dropped* — so an offline verifier can replay the
+    composition and re-confirm it was legal from the sealed bytes alone.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    combination_id: UUID = Field(default_factory=uuid4)
+    decision_id: UUID | None = None
+
+    # "arithmetic_mean" | "product_independence" | "abstain".
+    combiner: str
+
+    # The combined scalar in log space (sum of logs for a product; log-mean-exp
+    # for a mean; 0.0 — i.e. E=1, neutral — for an abstain).
+    log_e_value: float
+
+    # The combined object is itself an e-value for the joint null (Markov gives
+    # P(E >= 1/α) <= α at the look). False for an abstain.
+    is_true_e_value: bool
+    # The stronger sup-over-time Ville bound holds (one filtration, e-processes).
+    anytime_valid: bool
+
+    # The conjunction of component nulls this scalar tests, and the shared
+    # filtration ("mixed" when inputs span filtrations, "none" for abstain).
+    joint_null_hypothesis_id: str = Field(min_length=1, max_length=2000)
+    filtration_id: str = Field(min_length=1, max_length=200)
+
+    # Weakest-link maturity of the inputs.
+    maturity: EvidenceMaturity
+
+    # The true-e-value inputs that were combined, and the non-e-values dropped.
+    component_ids: tuple[UUID, ...] = ()
+    excluded_ids: tuple[UUID, ...] = ()
+    n_components: int = Field(default=0, ge=0)
+
+    # The independence/sequential assertion sealed alongside a product; None for
+    # a mean or an abstain.
+    justification: str | None = Field(default=None, max_length=500)
+
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    # ------------------------------------------------------------- validators
+    @field_validator("log_e_value")
+    @classmethod
+    def _finite_combined_log_e(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("combined log_e_value must be finite.")
+        return float(value)
+
+    @field_validator("combiner")
+    @classmethod
+    def _known_combiner(cls, value: str) -> str:
+        allowed = {"arithmetic_mean", "product_independence", "abstain"}
+        if value not in allowed:
+            raise ValueError(f"combiner must be one of {sorted(allowed)}, got {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _combined_honesty_invariants(self) -> "CombinedEvidence":
+        if self.anytime_valid and not self.is_true_e_value:
+            raise ValueError(
+                "anytime_valid cannot be True unless is_true_e_value is True — "
+                "you cannot have a sup-time Ville bound without an e-value."
+            )
+        if self.combiner == "abstain" and self.is_true_e_value:
+            raise ValueError("an abstain result cannot be a true e-value.")
+        if self.combiner == "product_independence" and self.justification is None:
+            raise ValueError(
+                "a product combiner must seal its independence/sequential "
+                "justification."
+            )
+        if self.combiner != "product_independence" and self.justification is not None:
+            raise ValueError(
+                "only a product combiner may carry a justification; a mean is "
+                "valid under arbitrary dependence and an abstain claims nothing."
+            )
+        return self
+
+    # ------------------------------------------------------------- derived API
+    @property
+    def e_value(self) -> float:
+        """``E = exp(log_e_value)``. For an abstain this is 1.0 (neutral)."""
+        return math.exp(self.log_e_value)
+
+    @property
+    def ville_p_value(self) -> float | None:
+        """``min(1, 1/E)`` — only when the combination is a true e-value; ``None``
+        for an abstain (no e-value claim, so no p-value to fabricate)."""
+        if not self.is_true_e_value:
+            return None
+        if self.log_e_value <= 0.0:
+            return 1.0
+        return min(1.0, math.exp(-self.log_e_value))
+
+    def is_ville_significant_at(self, alpha: float) -> bool:
+        """True iff the combined evidence rejects the joint null at level
+        ``alpha``. Raises for an abstain (nothing to test)."""
+        if not 0.0 < alpha < 1.0:
+            raise ValueError(f"alpha must be in (0, 1), got {alpha!r}")
+        p = self.ville_p_value
+        if p is None:
+            raise ValueError("abstain result carries no e-value to test.")
+        return p < alpha
+
+    # ------------------------------------------------------------- sealing
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "combination_id": str(self.combination_id),
+            "decision_id": str(self.decision_id) if self.decision_id else None,
+            "combiner": self.combiner,
+            "log_e_value": self.log_e_value,
+            "is_true_e_value": self.is_true_e_value,
+            "anytime_valid": self.anytime_valid,
+            "joint_null_hypothesis_id": self.joint_null_hypothesis_id,
+            "filtration_id": self.filtration_id,
+            "maturity": self.maturity.value,
+            "component_ids": [str(c) for c in self.component_ids],
+            "excluded_ids": [str(c) for c in self.excluded_ids],
+            "n_components": self.n_components,
+            "justification": self.justification,
+            "recorded_at": self.recorded_at.isoformat(),
+        }
+
+    def canonical_json(self) -> str:
+        """Stable serialization for the hash chain (same idiom as
+        ``TexEvidence.canonical_json``)."""
+        return json.dumps(
+            self.canonical_payload(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    def payload_sha256(self) -> str:
+        return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+
+
+def compose_arithmetic_mean(
+    items: Sequence[TexEvidence],
+    *,
+    decision_id: UUID | None = None,
+    excluded_ids: tuple[UUID, ...] = (),
+) -> CombinedEvidence:
+    """Merge true e-values by the weighted arithmetic MEAN — the only admissible
+    symmetric merge of arbitrarily dependent e-values (Vovk–Wang). Always a
+    valid e-value for the joint (conjunction) null; ``anytime_valid`` only when
+    the inputs are sequentially-predictable e-processes on one filtration.
+
+    Raises if ``items`` is empty or contains any non-e-value.
+    """
+    _require_true_e_values(items, "compose_arithmetic_mean")
+    log_e = _log_mean_exp([it.log_e_value for it in items])
+    shared = _shared_filtration(items)
+    return CombinedEvidence(
+        decision_id=decision_id,
+        combiner="arithmetic_mean",
+        log_e_value=log_e,
+        is_true_e_value=True,
+        anytime_valid=_is_anytime_valid(items),
+        joint_null_hypothesis_id=_joint_null(items),
+        filtration_id=shared if shared is not None else "mixed",
+        maturity=_weakest_maturity(items),
+        component_ids=tuple(it.evidence_id for it in items),
+        excluded_ids=excluded_ids,
+        n_components=len(items),
+        justification=None,
+    )
+
+
+def compose_product_independence(
+    items: Sequence[TexEvidence],
+    *,
+    justification: str,
+    decision_id: UUID | None = None,
+    excluded_ids: tuple[UUID, ...] = (),
+) -> CombinedEvidence:
+    """Merge true e-values by the PRODUCT (sum of logs) — GROW-optimal but valid
+    *only under the asserted independence / sequential structure*, which is
+    sealed verbatim in ``justification`` so an auditor can attack it. Use the
+    mean unless you can defend independence.
+
+    ``anytime_valid`` is set True only for the rigorous case — every input a
+    sequentially-predictable e-process on one filtration, where the running
+    product is a test supermartingale (Safe Testing, Prop. 2). Otherwise the
+    product is a valid fixed-look e-value under the asserted independence but
+    not the sup-time object, so ``anytime_valid`` is False.
+
+    Raises if ``items`` is empty, contains a non-e-value, or ``justification``
+    is blank.
+    """
+    if not justification or not justification.strip():
+        raise ValueError(
+            "compose_product_independence requires a non-empty justification "
+            "for the independence/sequential assumption."
+        )
+    _require_true_e_values(items, "compose_product_independence")
+    log_e = math.fsum(it.log_e_value for it in items)
+    shared = _shared_filtration(items)
+    return CombinedEvidence(
+        decision_id=decision_id,
+        combiner="product_independence",
+        log_e_value=log_e,
+        is_true_e_value=True,
+        anytime_valid=_is_anytime_valid(items),
+        joint_null_hypothesis_id=_joint_null(items),
+        filtration_id=shared if shared is not None else "mixed",
+        maturity=_weakest_maturity(items),
+        component_ids=tuple(it.evidence_id for it in items),
+        excluded_ids=excluded_ids,
+        n_components=len(items),
+        justification=justification.strip(),
+    )
+
+
+def compose_spine(
+    items: Sequence[TexEvidence],
+    *,
+    decision_id: UUID | None = None,
+    prefer_product: bool = False,
+    independence_justification: str | None = None,
+) -> CombinedEvidence:
+    """The high-level spine: take every ``TexEvidence`` for a decision, drop the
+    non-e-values (recording them as ``excluded_ids``), and combine the rest into
+    one honest sealed scalar.
+
+    Default combiner is the always-valid arithmetic mean. Pass
+    ``prefer_product=True`` with an ``independence_justification`` to use the
+    product instead (it raises without the justification). With zero true
+    e-values the result is an ABSTAIN — no e-value claim, surfaced as caution.
+    """
+    kept = [it for it in items if it.is_true_e_value]
+    excluded = tuple(it.evidence_id for it in items if not it.is_true_e_value)
+
+    if not kept:
+        return CombinedEvidence(
+            decision_id=decision_id,
+            combiner="abstain",
+            log_e_value=0.0,
+            is_true_e_value=False,
+            anytime_valid=False,
+            joint_null_hypothesis_id=_joint_null(items) if items else "none",
+            filtration_id="none",
+            maturity=_weakest_maturity(items),
+            component_ids=(),
+            excluded_ids=excluded,
+            n_components=0,
+            justification=None,
+        )
+
+    if prefer_product:
+        if not independence_justification:
+            raise ValueError(
+                "prefer_product=True requires independence_justification."
+            )
+        return compose_product_independence(
+            kept,
+            justification=independence_justification,
+            decision_id=decision_id,
+            excluded_ids=excluded,
+        )
+
+    return compose_arithmetic_mean(
+        kept, decision_id=decision_id, excluded_ids=excluded
+    )

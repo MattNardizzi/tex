@@ -1,0 +1,58 @@
+# Proposed CI job — adaptive red-team gate (proof track)
+# ======================================================
+# OWNERSHIP: .github/ belongs to the `unblock` track, so the proof track does
+# NOT edit ci.yml. This is a ready-to-paste job for whoever owns CI to add.
+#
+# It is OPTIONAL for "wired into CI": the gate already runs today inside the
+# existing `full-suite` job (it is plain pytest). This job exists to make the
+# gate a *required* check and to archive the sealed campaign bundle as a CI
+# artifact — so the adaptive-ASR result is itself a sealed, downloadable fact.
+#
+# Add it under `jobs:` in .github/workflows/ci.yml and mark it Required in
+# branch protection if you want the structural moat enforced as a blocking gate.
+
+  adaptive-redteam-gate:
+    name: adaptive red-team gate (proof track)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # The honest regression gate: structural moat == 0, attacker explored,
+      # campaign seals + verifies (integrity + Tex-key authorship), tamper caught.
+      # Does NOT gate on lexical/overall ASR (those are evadable by design).
+      - name: Structural moat + sealed-campaign gate
+        run: |
+          PYTHONPATH=src python -m pytest -q \
+            tests/adversarial/test_adaptive_gate.py \
+            tests/adversarial/test_adaptive_seal.py \
+            tests/bench/test_evidence_bundle.py \
+            tests/bench/test_replay_trial.py \
+            tests/bench/test_honest_decline.py
+
+      # Run the live campaign and SEAL the result into a signed, offline-verifiable
+      # evidence bundle. Exits non-zero if the structural moat moves or the seal
+      # fails to verify. Prints adaptive ASR per class (reported, not gated).
+      - name: Adaptive campaign (sealed into the evidence chain)
+        run: |
+          PYTHONPATH=src python -m tex.adversarial \
+            --budget 80 --seal-dir "$RUNNER_TEMP/redteam"
+
+      - name: Archive the sealed campaign bundle (court-exhibit artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-redteam-bundle
+          path: ${{ runner.temp }}/redteam/campaign.bundle.jsonl

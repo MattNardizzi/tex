@@ -66,4 +66,4 @@ stable function — so the `pdp.py` delta is one or two lines.
 | struct | track/struct | — | not started | yes — floor wiring |
 | durable | track/durable | — | not started | no |
 | voice | track/voice | — | not started | no (new routes) |
-| proof | track/proof | — | not started | no |
+| proof | track/proof | proof thread | Wave G done: adaptive red-team (attacker-moves-second) → real ASR (static 0% / adaptive 80% / lexical 100% / **structural 0%**), sealed into ECDSA-signed offline-verifiable bundles; Replay Trial + honest-decline demos; CLI no-op gate bug fixed. Gate runs in existing pytest CI (no `.github/` edit — snippet for unblock in `scripts/ci_adaptive_gate.example.yml`). PR pending. | no |

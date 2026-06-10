@@ -11,11 +11,43 @@ image:
   pullPolicy: IfNotPresent
 
 pdp:
-  replicas: 2
+  # 1 ON PURPOSE — single-writer evidence hash-chain + process-local caches.
+  # Do NOT raise without a single-writer evidence service (see README "Durability").
+  replicas: 1
   port: 8080
   # Set to enable the 24/7 standing watch that seals newly discovered agents.
   scanIntervalSeconds: 3600
-  env: production
+  # The app reads TEX_APP_ENV (NOT TEX_ENV). A production-like value turns on
+  # fail-closed startup guards AND requires evidenceSummarySecret + apiKeys below.
+  appEnv: production
+
+  # ── Durability ────────────────────────────────────────────────────────────
+  # Postgres write-through for all durable SHARED state (decisions, policies,
+  # evidence mirror, agent registry, discovery ledger, ...). Without it the PDP
+  # runs pure in-memory and a restart erases everything. Stored in a Secret.
+  databaseUrl: ""              # postgres://user:pass@host:5432/tex
+
+  # The evidence hash-chain JSONL AND the evidence-seal signing key ride this
+  # per-instance volume so both survive pod restarts. The mount is the PARENT
+  # var/tex dir (image WORKDIR=/app) so it covers BOTH var/tex/evidence (chain)
+  # and var/tex/keys (signing key — regenerated if lost, which would break
+  # signature-authorship continuity across restarts).
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""           # "" = cluster default
+    mountPath: /app/var/tex
+
+  # ── Required when appEnv is production-like (else the app fails closed) ──────
+  evidenceSummarySecret: ""    # high-entropy >=32B; HMAC key for evidence signing
+  apiKeys: ""                  # TEX_API_KEYS; without it every authed route → 401
+
+  # Prometheus scrape annotations for the live /metrics endpoint.
+  metrics:
+    enabled: true
+    path: /metrics
+
+  resources: {}
 
 operator:
   enabled: true

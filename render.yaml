@@ -40,6 +40,55 @@
 # the two are the same field under different spec versions.
 
 services:
+  # ── The WEB service (the PDP) ───────────────────────────────────────────────
+  # Built from the repo Dockerfile (single-process, single-worker, non-root).
+  # numInstances is 1 and the service carries a persistent disk, which Render
+  # pins to a single instance anyway — and that matches Tex's single-writer
+  # evidence-chain posture exactly (see deploy/DURABILITY.md). Do NOT scale this
+  # past 1 without a single-writer evidence service; two instances fork the
+  # hash-chained evidence log.
+  #
+  # Note: if your Render account rejects `runtime:`, use `env: docker` instead.
+  - type: web
+    name: tex-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: false
+    numInstances: 1
+    healthCheckPath: /health
+    # Durable home for the evidence-chain JSONL (var/tex/evidence) AND the
+    # evidence-seal signing key (var/tex/keys). WORKDIR is /app, so mount the
+    # parent. A Render disk forces a single instance — the single writer.
+    disk:
+      name: tex-state
+      mountPath: /app/var/tex
+      sizeGB: 10
+    envVars:
+      # The app reads TEX_APP_ENV (NOT TEX_ENV). production turns on fail-closed
+      # startup guards, which then REQUIRE the secret + keys below.
+      - key: TEX_APP_ENV
+        value: production
+      # Postgres write-through for all durable shared state. Without it the PDP
+      # runs in-memory and a restart erases everything.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tex-postgres
+          property: connectionString
+      # HMAC signing key for evidence-bundle manifests. Required in a
+      # production-like env or create_app() raises at startup. Render generates a
+      # high-entropy value and keeps it stable across deploys.
+      - key: TEX_EVIDENCE_SUMMARY_SECRET
+        generateValue: true
+      # API keys (<key>[:<tenant>[:<scopes>]], comma-separated). WITHOUT this,
+      # every authenticated route fails closed with 401. Set it in the dashboard
+      # (sync:false keeps the secret out of this file).
+      - key: TEX_API_KEYS
+        sync: false
+
   - type: worker
     name: tex-sim-driver
     runtime: python
@@ -63,3 +112,11 @@ services:
     envVars:
       - key: TEX_BASE_URL
         value: https://tex-uh4j.onrender.com
+
+# Managed Postgres backing the web service's write-through stores. DATABASE_URL
+# is injected into tex-web via fromDatabase above. Schema is bootstrapped
+# idempotently by the stores on boot (no manual migration step).
+databases:
+  - name: tex-postgres
+    plan: starter
+    region: oregon

@@ -1,0 +1,12 @@
+# Optional OpenTelemetry OTLP push export for /metrics-equivalent data.
+#
+# Install ONLY if you want metrics pushed to an OTel collector:
+#     pip install -r requirements-otel.txt
+# and set OTEL_EXPORTER_OTLP_ENDPOINT (+ optional OTEL_SERVICE_NAME).
+#
+# Tex's pull-based GET /metrics (Prometheus text-exposition) needs none of this
+# and is always on with zero extra deps. The OTLP bridge in
+# src/tex/observability/metrics.py is gated + fail-open: absent these packages it
+# is a silent no-op. See that module's _maybe_start_otlp_exporter docstring.
+opentelemetry-sdk>=1.27
+opentelemetry-exporter-otlp-proto-grpc>=1.27

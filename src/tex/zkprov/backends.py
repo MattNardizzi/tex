@@ -11,10 +11,16 @@ Why a dispatcher
 The May-2026 ZKML landscape is moving fast. Each backend below has
 a documented role and a known-good upstream:
 
-- ``halo2-ipa-2026``   — ezkl 10.x on PyPI, BN254, IPA polynomial
-  commitment, **no trusted setup**, Halo2 Plonkish arithmetization.
-  Reference: ezkl docs + zkonduit/ezkl GitHub (May 2026, copyright
-  2026 Zkonduit Inc).
+- ``halo2-ipa-2026``   — ezkl on PyPI (v23.0.5, released 2026-02-20),
+  Halo2 Plonkish arithmetization. **The "ipa" in the id is a
+  historical label, not a property claim**: upstream ezkl has removed
+  the IPA commitment — main is KZG-only (``DEFAULT_COMMITMENT =
+  "kzg"``, src/commands.rs:73), and KZG relies on a universal,
+  circuit-independent SRS from a trusted-setup ceremony, so the
+  earlier "no trusted setup" claim no longer holds. The id string is
+  serialized into existing proofs (wire format), so it is kept and
+  documented rather than renamed. Verified against
+  github.com/zkonduit/ezkl + docs.ezkl.xyz on 2026-06-10.
 - ``deepprove-2026``   — Lagrange Labs DeepProve, Rust crate
   released Feb 23 2026, 158x faster than ezkl on MLP/CNN, GPT-2 /
   LLAMA / Gemma3 inference proofs. Backed by GKR sumcheck + lookup
@@ -69,6 +75,10 @@ class ProofBackendId(str, Enum):
     round-trip through the evidence chain.
     """
 
+    # NOTE: "ipa" here is a historical label — upstream ezkl is KZG-only
+    # as of v23.0.5 (verified 2026-06-10; see Halo2IpaBackend). The value
+    # is serialized into existing proof envelopes, so renaming it would
+    # be a wire-format break; it stays as a label, not a property claim.
     HALO2_IPA_2026 = "halo2-ipa-2026"
     DEEPPROVE_2026 = "deepprove-2026"
     JOLT_SUMCHECK_2026 = "jolt-sumcheck-2026"
@@ -277,15 +287,21 @@ class DeterministicShimBackend:
 
 
 # --------------------------------------------------------------------------- #
-# Halo2-IPA backend (via ezkl)                                                #
+# Halo2 backend (via ezkl) — id "halo2-ipa-2026" is a historical label        #
 # --------------------------------------------------------------------------- #
 #
-# ezkl 10.x ships on PyPI (copyright 2026 Zkonduit Inc) and uses
-# Halo2 with the inner-product-argument polynomial commitment. IPA
-# requires no trusted setup, which is critical: a SNARK that needed
-# trusted setup for the per-deployment proving key would be a
-# governance liability that the EU AI Office would not consider
-# regulator-grade.
+# ezkl ships on PyPI (v23.0.5 as of 2026-02-20; verified against
+# github.com/zkonduit/ezkl and docs.ezkl.xyz on 2026-06-10) and uses
+# Halo2 as its proving system. Commitments: upstream is now KZG-only
+# (DEFAULT_COMMITMENT = "kzg", src/commands.rs:73); the IPA variant
+# this backend was named after has been removed, and no IPA references
+# remain on main. KZG relies on a UNIVERSAL (circuit-independent)
+# structured reference string produced by a trusted-setup ceremony —
+# universal, not per-deployment/per-circuit, so no per-customer
+# ceremony is needed, but "no trusted setup" is no longer true of this
+# backend and must not be claimed. (The original rationale — avoiding
+# a per-deployment proving-key ceremony as a governance liability —
+# survives under a universal SRS; the blanket claim does not.)
 #
 # The full ezkl integration writes the circuit description and
 # witness to disk, runs the ezkl CLI, and reads back the proof
@@ -301,7 +317,16 @@ class BackendUnavailable(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class Halo2IpaBackend:
-    """Halo2-IPA backend (ezkl 10.x).
+    """Halo2 backend via ezkl — the "IPA" in the name is historical.
+
+    Upstream status (verified 2026-06-10): ezkl v23.0.5, Halo2 proving
+    system, KZG-only commitments — the IPA option this class was named
+    after was removed upstream, and with it the "no trusted setup"
+    property the old docstring claimed. KZG uses a universal
+    (circuit-independent) trusted-setup SRS, not a per-deployment
+    ceremony. The class and id keep their names because
+    ``halo2-ipa-2026`` is serialized into existing proof envelopes;
+    treat both as labels, not commitment-scheme claims.
 
     The wire format of ``proof_bytes`` is::
 
@@ -337,14 +362,15 @@ class Halo2IpaBackend:
         # rest of the build, this function raises BackendUnavailable
         # with a clear remediation message. The wiring around it is
         # complete: route → store → evidence chain hook all exercise
-        # via the shim, and switching to Halo2-IPA is a one-line
-        # change in the manifest.
+        # via the shim, and switching to this Halo2 backend is a
+        # one-line change in the manifest.
         self._require_ezkl()
         raise BackendUnavailable(
             "halo2-ipa-2026 requires the bundled ZKPROV circuit at "
             "tex/zkprov/circuits/zkprov_v1.onnx, which is built "
             "out-of-band from the ML manifest. Ship the artifact, "
-            "then this backend produces real Halo2-IPA proofs. The "
+            "then this backend produces real Halo2 (KZG) proofs via "
+            "ezkl — note the id's 'ipa' suffix is historical. The "
             "deterministic shim handles wiring end-to-end in the "
             "meantime; the Article 53(1)(d) regulator-grade verifier "
             "rejects shim proofs (see is_regulator_grade)."
@@ -524,8 +550,9 @@ class VeilHashBasedZkBackend:
     Why it matters for ZKPROV
     -------------------------
     Today's ZKPROV statement is bound to an ML-DSA-65-signed
-    commitment (PQ for signing) and a Halo2-IPA proof (classical
-    pre-quantum on the SNARK side). VEIL closes the SNARK-side
+    commitment (PQ for signing) and a Halo2/KZG proof via ezkl
+    (classical pre-quantum on the SNARK side; the "halo2-ipa-2026"
+    id is a historical label). VEIL closes the SNARK-side
     PQ gap by giving the manifest a backend whose security is
     purely hash-based. This is what makes "ZKPROV survives Q-Day"
     true at every layer of the stack, not just at the signing

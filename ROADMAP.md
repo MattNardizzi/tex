@@ -31,9 +31,9 @@ selector (`vigil/`) · Vigil hold/seal surface (`tex-systems`).
 ## A. Credibility floor — do first  `[today]`
 - [ ] Add CI (GitHub Actions) running the ~242 existing tests — none exists today · S
 - [ ] Close the 4 no-auth route groups: `ecosystem_twin / tee / vet / zkprov` (incl. unauthenticated identity-doc revocation, `vet_routes.py:288`) · S
-- [ ] Flip auth fail-closed — no `_ANONYMOUS`-gets-all-scopes default in prod · S
+- [x] Flip auth fail-closed — no `_ANONYMOUS`-gets-all-scopes default in prod · S — done: the anonymous everything-allowed fallback is reachable ONLY in a non-production `TEX_APP_ENV`; production-like env (or `TEX_REQUIRE_AUTH=1`) with no keys fails closed (401). `api/auth.py:_is_production_like`. Tests: `tests/test_unblock_auth_failclosed.py`.
 - [ ] Lock down CORS — `allow_origins=["*"]` + `allow_credentials=True` (`main.py:1291`) · S
-- [ ] Fix brittle/leaky tests (exact-count assertions, shared in-memory-singleton leakage); delete stale `_pending` test · S
+- [~] delete stale `_pending` test — **done** (`tests/_pending/` removed: imported nonexistent `tex.pitch`, wired nowhere; −23 failures). Fix brittle/leaky tests — **partly deferred**: root cause is the discovery scheduler auto-starting + seeding stores during the test app lifespan (fresh stores are independent — verified), not simple cross-instance leakage; `governance_history`(5)/`discovery`(4) + order-dependent `causal/`(1) need the scheduler quiesced / store-lifecycle reset, which is discovery/durable-track architecture. · S
 
 ## B. Cut the theater / honesty  `[cut]`
 - [ ] Delete `nanozk` (`nanozk/layerwise_prover.py` + `latticefold_plus.py`) — HMAC-as-lattice + fabricated norm; replace source-label need with real HMAC-SHA-256 trust tags · S

@@ -3,13 +3,19 @@ API-key authentication for Tex's external integration surface.
 
 Design properties:
 
-1. **Production-mode enforcement.** When ``TEX_REQUIRE_AUTH=1`` is set,
-   every request MUST present a valid key. The "off when no keys are
-   configured" path is disabled. This is the production posture.
+1. **Production-mode enforcement.** When ``TEX_REQUIRE_AUTH=1`` is set
+   **or** ``TEX_APP_ENV`` names a production-like environment, every
+   request MUST present a valid key; the "anonymous when no keys are
+   configured" fallback is disabled. A production deployment that forgets
+   to configure ``TEX_API_KEYS`` therefore fails closed (401) rather than
+   serving every scope to everyone. This is the production posture.
 
-2. **Backwards-compatible default.** When ``TEX_REQUIRE_AUTH`` is unset
-   AND no keys are configured, requests pass through anonymously. Local
-   development and the existing smoke harness keep working.
+2. **Development passthrough.** In a non-production ``TEX_APP_ENV`` (the
+   default ``development``) with no keys configured and
+   ``TEX_REQUIRE_AUTH`` unset, requests pass through anonymously so local
+   development and the test suite keep working. The anonymous-all-scopes
+   principal is reachable ONLY in that explicit non-production posture, so
+   it can never be the silent production default.
 
 3. **Constant-time comparison.** Key matching uses hmac.compare_digest
    to avoid timing-side-channel leakage.
@@ -125,6 +131,25 @@ def _require_auth_enforced() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+# Mirrors ``tex.config._NON_PRODUCTION_APP_ENVS`` — keep in sync. We read the
+# env directly (rather than via the cached ``get_settings``) so this
+# per-request check always reflects the live ``TEX_APP_ENV`` and never goes
+# stale against a cached Settings object.
+_NON_PRODUCTION_APP_ENVS: Final[frozenset[str]] = frozenset(
+    {"dev", "development", "test", "testing", "local"}
+)
+
+
+def _is_production_like() -> bool:
+    """True when ``TEX_APP_ENV`` names a production-like environment.
+
+    Production-like deployments must not fall back to the anonymous
+    everything-allowed principal: see ``authenticate_request``.
+    """
+    raw = os.environ.get("TEX_APP_ENV", "development").strip().lower()
+    return raw not in _NON_PRODUCTION_APP_ENVS
+
+
 def _load_keys_from_env() -> dict[str, tuple[str, frozenset[str]]]:
     """
     Parse ``TEX_API_KEYS`` into ``{key: (tenant, scopes)}``.
@@ -188,20 +213,28 @@ def authenticate_request(request: Request) -> TexPrincipal:
     """
     Authenticate one inbound request.
 
-    - Production posture (``TEX_REQUIRE_AUTH=1``):
-        keys MUST be configured AND a valid one MUST be presented;
-        otherwise 401.
+    - Production-like posture (``TEX_REQUIRE_AUTH=1`` **or** a production
+      ``TEX_APP_ENV``): keys MUST be configured AND a valid one MUST be
+      presented; otherwise 401. There is no anonymous-all-scopes fallback
+      in production — a deployment that forgets to configure auth fails
+      closed rather than serving every scope to everyone.
 
-    - Development posture (default):
+    - Development posture (non-production ``TEX_APP_ENV``, default):
         if no keys configured, anonymous; otherwise enforce.
     """
     configured_keys = _load_keys_from_env()
     require_auth = _require_auth_enforced()
 
     if not configured_keys:
-        if require_auth:
+        # Fail closed when auth is explicitly required OR we are in a
+        # production-like environment. The anonymous everything-allowed
+        # principal is reachable ONLY in a non-production env with auth
+        # not explicitly required.
+        if require_auth or _is_production_like():
             _logger.error(
-                "TEX_REQUIRE_AUTH=1 but %s is unset. Refusing all requests.",
+                "No API keys configured (%s unset) while authentication is "
+                "required (TEX_REQUIRE_AUTH=1 or production TEX_APP_ENV). "
+                "Refusing all requests.",
                 _ENV_KEYS,
             )
             raise HTTPException(

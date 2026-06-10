@@ -1,8 +1,20 @@
 """
+==================== DEACTIVATED PLACEHOLDER (research-early) ====================
+This module is OFF by default and deliberately inert. It computes keyed-hash
+(HMAC / SHA-256) STAND-INS, not real cryptographic proofs. The symbol and type
+names here describe an INTENDED future proving backend, NOT what this code
+computes; nothing here is cryptographically binding. The verifier is hard-gated
+and fail-closed: tex.nanozk.verify_layer_proof_set() returns is_valid=False
+unless TEX_NANOZK_ALLOW_SHIM=1 is set (tests/dev only) -- so flipping
+TEX_FRONTIER_NANOZK alone can NEVER cause a stand-in to be trusted as a real
+proof. Kept in-tree, intentionally, so a real backend can be wired in later
+(see src/tex/nanozk/DEACTIVATED.md). Do NOT cite anything here as a guarantee.
+================================================================================
+
 GaugeZKP — symmetry-aware canonicalisation for zero-knowledge
 proofs of Transformer inference.
 
-Faithful implementation of the protocol shape from:
+Structural scaffold modeled on the SHAPE of (a placeholder, NOT a real implementation of):
 
   Anonymous (ICLR 2026 submission), *Gauge Symmetries for
   Efficient Zero-Knowledge Proofs of Transformers*, OpenReview

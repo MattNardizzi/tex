@@ -63,7 +63,22 @@ stable function — so the `pdp.py` delta is one or two lines.
 | unblock | track/unblock | unblock thread | Wave 0 done: CI workflow + auth on 4 routers + CORS lockdown; PR open. nanozk cut still pending. | CORS line only (1 call → tex.api.cors) |
 | abstain | track/abstain | — | not started | yes — verdict wiring |
 | truth | track/truth | truth thread | **All 5 PRs merged** (#5 TexEvidence type, #6 e-value spine, #9 SealedFacts/PCVR ledger, #11 drift e-process wiring, #13 offline bundle+standalone verifier). Additive only; 65 truth-track + 5 guard tests green. NOT YET WIRED into the live PDP verdict — that 1–2 line `pdp.py` call belongs to the engine/abstain track. | no |
-| struct | track/struct | — | not started | yes — floor wiring |
+| struct | track/struct | struct thread | **MERGED (#17)**: Pro2Guard predictive ABSTAIN dim + RV4 four-valued LTLf (perm→FORBID / recoverable→ABSTAIN) + FIDES dual-axis camel lattice + Rule-of-Two contract + CaMeL-denial→FORBID. All in owned files (probguard.py, structural_floor.py, capability.py, ltlf.py, contracts/{rule_of_two,rv4_path}.py). | yes — 2 additive lines: `detect_structural_floor(.., request=request)` + `apply_predictive_holds(..)` on the routed branch; +1 import |
 | durable | track/durable | — | not started | no |
 | voice | track/voice | — | not started | no (new routes) |
 | proof | track/proof | — | not started | no |
+
+## Cross-track notes (struct → others)
+
+**New opt-in `request.metadata` keys (all zero-cost no-ops when absent):**
+- `systemic_lookahead` → Pro2Guard DTMC predictive ABSTAIN (`systemic/probguard.py`).
+- `rv4_path_policies` → four-valued RV4 path policies; permanent→FORBID, recoverable→ABSTAIN (`contracts/rv4_path.py`).
+- `rule_of_two` → untrusted ∧ sensitive ∧ state-change → FORBID (`contracts/rule_of_two.py`).
+
+**For the `abstain` track (owns `engine/hold.py`):** the predictive holds raise two
+uncertainty flags that `hold._FLAG_PIVOTS` has no tailored pivot for yet —
+`systemic_lookahead_risk` (aleatoric: a forward-looking probability → HUMAN_JUDGMENT)
+and `rv4_recoverable_violation` (epistemic: a pending future step would resolve it →
+SELF_HEAL/HUMAN_FACT). `build_hold` degrades gracefully today (verdict is still ABSTAIN
+and a hold is still built); adding those two pivots would give each a precise resolving
+question. Non-blocking.

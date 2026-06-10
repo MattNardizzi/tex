@@ -19,12 +19,17 @@ deterministically over structure:
                    counterfactual test proved the decision was driven by
                    injected observation content, not by the user.
 
-These are the *system-level structural mitigations* that the field's strongest
-adversarial-robustness result — Nasr et al., "The Attacker Moves Second"
-(arXiv:2510.09023) — identifies as the actual answer to adaptive attackers,
-in contrast to stacking probabilistic detectors (which that paper shows do
-**not** solve robustness). A surface paraphrase cannot change a Datalog deny or
-an IFC type violation; that is exactly what makes them robust.
+These are *system-level structural mitigations*. Nasr et al., "The Attacker
+Moves Second: Stronger Adaptive Attacks Bypass Defenses Against LLM Jailbreaks
+and Prompt Injections" (arXiv:2510.09023, 2025), is an attack-demonstration
+paper: a general adaptive-attack framework bypasses 12 recent jailbreak /
+prompt-injection defenses — many of them detector- or filter-based — at >90%
+success, despite their near-zero reported rates. Its lesson is that defenses
+must be evaluated against *adaptive* attackers, not static strings; the
+directional implication we lean on (a probabilistic detector that a stronger
+optimizer can route around is not a robustness guarantee) is our inference, not
+the paper's stated thesis. What makes a Datalog deny or an IFC type violation
+robust is independent: a surface paraphrase cannot change them by construction.
 
 Yet until now these four ran as ordinary *voting* specialists: a PCAS deny at
 ``risk_score = 1.0`` entered the router's weighted sum at the specialists
@@ -46,7 +51,14 @@ relax a verdict.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
+from tex.contracts import rv4_path
+from tex.contracts.rule_of_two import (
+    RULE_OF_TWO_CODE,
+    RULE_OF_TWO_SPECIALIST,
+    evaluate_rule_of_two,
+)
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
 from tex.specialists.base import SpecialistBundle, SpecialistResult
@@ -78,8 +90,22 @@ _ARGUS_HARD_CODES = frozenset({"ARGUS_DECISION_OBSERVATION_DRIVEN"})
 
 # PCAS / CaMeL deny sentinel: their FORBID verdict maps to exactly risk 1.0
 # (ABSTAIN → 0.5, PERMIT → 0.0). We compare with a tolerance.
+#
+# The CaMeL contract (specialists/camel_specialist.py): the interpreter is
+# capability-deterministic — risk == 1.0 IFF the plan HALTED on a tool-policy
+# capability check or a fail-closed interpreter error (a genuine *denial*),
+# risk == 0.5 is "completed but UNTRUSTED-tainted" (not a deny), risk == 0.0 is
+# clean. So 1.0 uniquely identifies a deterministic CaMeL denial — never a
+# probabilistic high score. (DeepMind CaMeL, "Defeating Prompt Injections by
+# Design," arXiv:2503.18813: a denied tool call fails closed.) A regression test
+# pins this 1.0 ⟺ denial contract so a future probabilistic CaMeL variant cannot
+# silently start firing the floor.
 _DENY_RISK = 1.0
 _EPS = 1e-9
+
+# Forward-compatible: if the CaMeL specialist ever annotates a denial with an
+# explicit clause id, recognise it directly (a code is sturdier than a score).
+_CAMEL_DENY_CODES = frozenset({"camel.capability_denied", "camel.interpreter_halt"})
 
 FINDING_SOURCE = "structural_floor"
 
@@ -128,7 +154,10 @@ def _classify(result: SpecialistResult) -> StructuralDeny | None:
             codes=clause_ids,
         )
 
-    if name == _CAMEL and result.risk_score >= _DENY_RISK - _EPS:
+    if name == _CAMEL and (
+        result.risk_score >= _DENY_RISK - _EPS
+        or any(c in _CAMEL_DENY_CODES for c in clause_ids)
+    ):
         return StructuralDeny(
             specialist=_CAMEL,
             reason=(
@@ -167,37 +196,92 @@ def _classify(result: SpecialistResult) -> StructuralDeny | None:
     return None
 
 
-def detect_structural_floor(bundle: SpecialistBundle) -> StructuralFloorResult:
-    """Scan the specialist bundle for deterministic structural denies.
+def _rule_of_two_deny(request: Any) -> StructuralDeny | None:
+    """Rule-of-Two trifecta → a structural deny (untrusted ∧ sensitive ∧ state-change)."""
+    outcome = evaluate_rule_of_two(request)
+    if not outcome.fired:
+        return None
+    return StructuralDeny(
+        specialist=RULE_OF_TWO_SPECIALIST,
+        reason=outcome.reason,
+        codes=(RULE_OF_TWO_CODE,),
+    )
 
-    Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. When one or more fire,
-    the PDP short-circuits the evaluation to FORBID, attributing the verdict to
-    the proving specialist(s).
+
+def _rv4_permanent_denies(request: Any) -> list[StructuralDeny]:
+    """RV4 path policies that are PERMANENTLY violated (bad prefixes) → denies.
+
+    Only the permanent (⊥) verdict earns a structural FORBID — it is a proof
+    that no extension of the path can satisfy the policy. Recoverable (⊥_p)
+    violations are NOT here; they are soft holds handled by
+    ``systemic.probguard.apply_predictive_holds`` (PERMIT→ABSTAIN).
+    """
+    outcome = rv4_path.classify(request)
+    denies: list[StructuralDeny] = []
+    for v in outcome.permanent:
+        denies.append(
+            StructuralDeny(
+                specialist="rv4_path",
+                reason=v.reason,
+                codes=(v.policy_id,),
+            )
+        )
+    return denies
+
+
+def detect_structural_floor(
+    bundle: SpecialistBundle,
+    *,
+    request: Any | None = None,
+) -> StructuralFloorResult:
+    """Scan for deterministic structural denies that short-circuit to FORBID.
+
+    Three deterministic sources, each a *proof* of a violation (never a high
+    probabilistic score):
+
+      1. **Specialist proofs** — a PCAS / CaMeL / IFC / ARGUS deny signature in
+         the specialist bundle (the original floor).
+      2. **Rule-of-Two trifecta** — untrusted-input ∧ sensitive-access ∧
+         state-change with no human oversight (``tex.contracts.rule_of_two``),
+         when ``request`` carries the ``rule_of_two`` metadata.
+      3. **RV4 permanent path violations** — an LTLf path policy that is a
+         proven bad prefix (``tex.contracts.rv4_path``), when ``request``
+         carries the ``rv4_path_policies`` metadata.
+
+    Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. ``request`` is optional
+    so the pure specialist-bundle form (used widely in tests) keeps working; the
+    label-driven sources are simply skipped when it is absent.
     """
     denies: list[StructuralDeny] = []
-    findings: list[Finding] = []
 
     for result in bundle.results:
         deny = _classify(result)
-        if deny is None:
-            continue
-        denies.append(deny)
-        findings.append(
-            Finding(
-                source=f"{FINDING_SOURCE}.{deny.specialist}",
-                rule_name=f"{deny.specialist}_structural_deny",
-                severity=Severity.CRITICAL,
-                message=deny.reason,
-                metadata={
-                    "specialist": deny.specialist,
-                    "codes": ",".join(deny.codes) if deny.codes else "",
-                    "tier": "structural_floor",
-                },
-            )
-        )
+        if deny is not None:
+            denies.append(deny)
+
+    if request is not None:
+        rule_of_two = _rule_of_two_deny(request)
+        if rule_of_two is not None:
+            denies.append(rule_of_two)
+        denies.extend(_rv4_permanent_denies(request))
 
     if not denies:
         return NEUTRAL_STRUCTURAL_FLOOR
+
+    findings = [
+        Finding(
+            source=f"{FINDING_SOURCE}.{deny.specialist}",
+            rule_name=f"{deny.specialist}_structural_deny",
+            severity=Severity.CRITICAL,
+            message=deny.reason,
+            metadata={
+                "specialist": deny.specialist,
+                "codes": ",".join(deny.codes) if deny.codes else "",
+                "tier": "structural_floor",
+            },
+        )
+        for deny in denies
+    ]
 
     return StructuralFloorResult(
         fired=True,

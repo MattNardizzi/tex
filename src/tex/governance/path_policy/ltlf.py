@@ -1,18 +1,22 @@
 """
 Finite-trace Linear Temporal Logic (LTLf) evaluator for path policies.
 
-Reference: Kaptein et al. arXiv:2603.16586 (Mar 2026), Sections 3.5 and 4.2.
+Reference: Kaptein, Khan & Podstavnychy, "Runtime Governance for AI Agents:
+Policies on Paths," arXiv:2603.16586 (Mar 2026).
 
-The Kaptein paper's Section 3.5 catalogues eight concrete policies and
-notes that "in practice, the large majority of organizationally relevant
-policies are binary threshold rules on path state: has a particular step
-type appeared, has a sensitivity level been exceeded, has the step count
-reached a limit." LTLf captures exactly that class compactly and
-auditably.
+The Kaptein paper catalogues concrete path policies and observes that in
+practice the large majority of organizationally relevant policies are binary
+threshold rules on path state: has a particular step type appeared, has a
+sensitivity level been exceeded, has the step count reached a limit. The paper
+itself frames policies as a violation-*probability* function, not in temporal
+logic. Encoding that policy class as **LTLf is this module's own design
+choice** (LTLf expresses exactly those binary path predicates compactly and
+gives the audit trail a formal anchor — the formula text, not opaque Python);
+it is not a construction the paper prescribes.
 
-This module implements LTLf over a finite trace (paper Section 3.1: "we
-assume throughout that each execution path terminates"), with the
-following operators and atoms:
+This module implements LTLf over a finite trace (the paper assumes each
+execution path terminates, which is what makes finite-trace LTL the right fit),
+with the following operators and atoms:
 
 Atoms
 -----
@@ -66,6 +70,7 @@ Priority: P1.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Mapping, Sequence
 
 from tex.governance.path_policy.policy import PathStep
@@ -458,3 +463,272 @@ def compile_formula(formula: str) -> _Node:
 def evaluate_compiled(ast: _Node, trace: Sequence[PathStep]) -> bool:
     """Evaluate a pre-compiled formula AST against ``trace`` at position 0."""
     return _eval_at(ast, trace, 0)
+
+
+# ---------------------------------------------------------------------------
+# RV4 — four-valued runtime-verification semantics (RV-LTL)
+# ---------------------------------------------------------------------------
+#
+# Bauer, Leucker & Schallhart, "Runtime Verification for LTL and TLTL"
+# (ACM TOSEM 20(4), Article 14, 2011; DOI 10.1145/2000799.2000800) define
+# RV-LTL, a four-valued verdict over a finite, still-extensible trace. It
+# refines the three-valued LTL3 by splitting its single inconclusive verdict
+# into "presumably true" / "presumably false":
+#
+#   ⊤   (PERMANENTLY_SATISFIED) — true now and on EVERY extension. A "good
+#                                 prefix": nothing the agent does next can
+#                                 break it.
+#   ⊤_p (CURRENTLY_SATISFIED)   — true now, but some extension violates it.
+#   ⊥_p (CURRENTLY_VIOLATED)    — false now, but some extension satisfies it.
+#                                 RECOVERABLE.
+#   ⊥   (PERMANENTLY_VIOLATED)  — false now and on every extension. A "bad
+#                                 prefix": no future step can cure it.
+#
+# Why this matters for governance (the task this implements):
+#   * ⊥  (permanent violation)  → a deterministic PROOF that the policy can
+#                                 never be satisfied → FORBID, on the
+#                                 structural floor.
+#   * ⊥_p (recoverable)         → the policy is currently unmet but a future
+#                                 step (e.g. a pending approval) could meet it
+#                                 → UNCERTAINTY → ABSTAIN (a hold), never a
+#                                 fabricated FORBID.
+#
+# Doctrine alignment (the load-bearing soundness requirement)
+# -----------------------------------------------------------
+# FORBID demands a proof; uncertainty resolves to ABSTAIN. So the permanence
+# classifier MUST be SOUND for the ⊥ verdict: when ``evaluate_rv4`` returns
+# PERMANENTLY_VIOLATED it must be *impossible* for any extension of the trace
+# to satisfy the formula. We get this from two mutually-recursive functions
+# that SOUNDLY OVER-APPROXIMATE "could some extension flip the value":
+#
+#   _can_become_true(node, trace, i)  — True if SOME finite extension makes
+#       ``node`` true at position ``i``. It may return True spuriously, but it
+#       never returns False when satisfaction is actually still possible.
+#   _can_become_false(node, trace, i) — the dual.
+#
+# Therefore ``not _can_become_true(...)`` is a *proof of impossibility* — the
+# only thing that earns the permanent ⊥ verdict. A presumptive ⊥_p is the
+# fail-safe default whenever recovery cannot be ruled out. (The companion
+# heuristic ``contracts._ltl._is_definite`` is explicitly loose; this is the
+# tightened classifier the FORBID path needs. Soundness is checked by
+# brute-force extension enumeration in tests/governance/test_ltlf_rv4.py.)
+#
+# Trace convention is unchanged from ``evaluate``: the formula is evaluated at
+# position 0 over the full prefix (the candidate action is the last position).
+# Extensions append positions at indices >= len(trace).
+
+
+class RV4Verdict(StrEnum):
+    """RV-LTL four-valued verdict (Bauer/Leucker/Schallhart 2011).
+
+    Names and the ``is_satisfied`` / ``is_permanent`` projections mirror
+    ``tex.contracts._ltl.RVVerdict`` so the codebase speaks one RV vocabulary.
+    """
+
+    PERMANENTLY_SATISFIED = "permanently_satisfied"
+    CURRENTLY_SATISFIED = "currently_satisfied"
+    CURRENTLY_VIOLATED = "currently_violated"
+    PERMANENTLY_VIOLATED = "permanently_violated"
+
+    @property
+    def is_satisfied(self) -> bool:
+        return self in (
+            RV4Verdict.PERMANENTLY_SATISFIED,
+            RV4Verdict.CURRENTLY_SATISFIED,
+        )
+
+    @property
+    def is_permanent(self) -> bool:
+        return self in (
+            RV4Verdict.PERMANENTLY_SATISFIED,
+            RV4Verdict.PERMANENTLY_VIOLATED,
+        )
+
+    @property
+    def is_permanent_violation(self) -> bool:
+        """⊥ — a proven bad prefix. Maps to a structural FORBID."""
+        return self is RV4Verdict.PERMANENTLY_VIOLATED
+
+    @property
+    def is_recoverable_violation(self) -> bool:
+        """⊥_p — violated but still curable. Maps to an ABSTAIN (a hold)."""
+        return self is RV4Verdict.CURRENTLY_VIOLATED
+
+
+def _can_become_true(node: _Node, trace: Sequence[PathStep], i: int) -> bool:
+    """Sound over-approximation of "∃ extension making ``node`` true at ``i``".
+
+    Returns True whenever satisfaction is still possible (and may return True
+    conservatively); only returns False when no extension can satisfy ``node``.
+    Hence ``not _can_become_true`` is a sound proof of permanent violation.
+    """
+    n = len(trace)
+    op = node.op
+
+    if op == "const":
+        return node.value == "true"
+
+    if op == "atom":
+        # An observed position is fixed: its truth cannot change. A position at
+        # or beyond the current end can be realised by some appended step.
+        if i < n:
+            return _eval_at(node, trace, i)
+        return True
+
+    if op == "!":
+        return _can_become_false(node.children[0], trace, i)
+
+    if op == "&":
+        # Both conjuncts must be satisfiable (possibly by different extensions —
+        # over-approximating, which only loosens toward True; still sound).
+        return _can_become_true(node.children[0], trace, i) and _can_become_true(
+            node.children[1], trace, i
+        )
+
+    if op == "|":
+        return _can_become_true(node.children[0], trace, i) or _can_become_true(
+            node.children[1], trace, i
+        )
+
+    if op == "->":
+        # a -> b  ≡  (!a) | b
+        return _can_become_false(node.children[0], trace, i) or _can_become_true(
+            node.children[1], trace, i
+        )
+
+    if op == "X":
+        # Strong next: true iff its operand can hold at i+1 (observed or an
+        # appended position).
+        return _can_become_true(node.children[0], trace, i + 1)
+
+    if op == "G":
+        # G arg can become true iff arg can be made true at EVERY observed
+        # position in [i, n). (Appended positions we are free to satisfy.)
+        # A single fixed observed violation makes G permanently false.
+        for k in range(i, n):
+            if not _can_become_true(node.children[0], trace, k):
+                return False
+        return True
+
+    if op == "F":
+        # F arg can become true iff arg can hold at some observed position in
+        # [i, n) OR at a freshly appended position. The appendable slot is
+        # ``max(i, n)`` — NOT ``n`` — because an enclosing X-chain can advance i
+        # past n, and the next realisable position is then i, not n. (Anchoring
+        # to n made an empty range when i > n and falsely proved a bad prefix.)
+        for k in range(i, n):
+            if _can_become_true(node.children[0], trace, k):
+                return True
+        return _can_become_true(node.children[0], trace, max(i, n))
+
+    if op == "U":
+        # a U b can become true iff we can reach a position where b holds while
+        # a holds at every position before it. Walk the fixed observed prefix:
+        # at each position satisfy b (done) or keep a alive (continue); if
+        # neither is possible at an observed position, no extension can pass it.
+        # Past the end we can always append a b-satisfying step (at max(i, n)).
+        left, right = node.children
+        for k in range(i, n):
+            if _can_become_true(right, trace, k):
+                return True
+            if not _can_become_true(left, trace, k):
+                return False
+        return _can_become_true(right, trace, max(i, n))
+
+    raise LtlfParseError(f"unknown AST op in RV4 analysis: {node.op!r}")
+
+
+def _can_become_false(node: _Node, trace: Sequence[PathStep], i: int) -> bool:
+    """Sound over-approximation of "∃ extension making ``node`` false at ``i``".
+
+    The dual of ``_can_become_true``. ``not _can_become_false`` is a sound proof
+    of permanent satisfaction.
+    """
+    n = len(trace)
+    op = node.op
+
+    if op == "const":
+        return node.value != "true"
+
+    if op == "atom":
+        if i < n:
+            return not _eval_at(node, trace, i)
+        # Off the end: an appended step can violate the atom, or the trace can
+        # simply end (atoms are false past the end).
+        return True
+
+    if op == "!":
+        return _can_become_true(node.children[0], trace, i)
+
+    if op == "&":
+        return _can_become_false(node.children[0], trace, i) or _can_become_false(
+            node.children[1], trace, i
+        )
+
+    if op == "|":
+        return _can_become_false(node.children[0], trace, i) and _can_become_false(
+            node.children[1], trace, i
+        )
+
+    if op == "->":
+        # a -> b false iff a true and b false.
+        return _can_become_true(node.children[0], trace, i) and _can_become_false(
+            node.children[1], trace, i
+        )
+
+    if op == "X":
+        # Strong next is false at end (empty extension), and otherwise false iff
+        # the operand can be false at i+1.
+        if i + 1 >= n:
+            return True
+        return _can_become_false(node.children[0], trace, i + 1)
+
+    if op == "G":
+        # G arg can become false iff arg can be made false at some observed
+        # position in [i, n) OR at a freshly appended position max(i, n) (a
+        # violating step always suffices unless arg is un-falsifiable
+        # everywhere). The appendable slot is max(i, n), not n — see the F
+        # branch of _can_become_true for the off-by-one this corrects.
+        for k in range(i, n):
+            if _can_become_false(node.children[0], trace, k):
+                return True
+        return _can_become_false(node.children[0], trace, max(i, n))
+
+    if op == "F":
+        # F arg can become false iff arg can be false at EVERY position in
+        # [i, n] (a single fixed satisfying observation makes F permanently
+        # true).
+        for k in range(i, n + 1):
+            if not _can_become_false(node.children[0], trace, k):
+                return False
+        return True
+
+    if op == "U":
+        # Over-approximate toward "can be violated" (keeps U out of the
+        # permanently-satisfied verdict, the safe default).
+        return True
+
+    raise LtlfParseError(f"unknown AST op in RV4 analysis: {node.op!r}")
+
+
+def evaluate_rv4_compiled(ast: _Node, trace: Sequence[PathStep]) -> RV4Verdict:
+    """Four-valued RV-LTL verdict for a pre-compiled formula at position 0."""
+    holds = _eval_at(ast, trace, 0)
+    if holds:
+        if _can_become_false(ast, trace, 0):
+            return RV4Verdict.CURRENTLY_SATISFIED
+        return RV4Verdict.PERMANENTLY_SATISFIED
+    if _can_become_true(ast, trace, 0):
+        return RV4Verdict.CURRENTLY_VIOLATED
+    return RV4Verdict.PERMANENTLY_VIOLATED
+
+
+def evaluate_rv4(formula: str, trace: Sequence[PathStep]) -> RV4Verdict:
+    """Four-valued RV-LTL verdict for ``formula`` against ``trace``.
+
+    A PERMANENTLY_VIOLATED result is a sound proof that **no extension of the
+    trace can satisfy the formula** — a bad prefix — and is what the structural
+    floor turns into a FORBID. A CURRENTLY_VIOLATED result means the policy is
+    unmet but still curable by a future step, and resolves to ABSTAIN.
+    """
+    return evaluate_rv4_compiled(_parse(formula), trace)

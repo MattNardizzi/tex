@@ -34,11 +34,19 @@ in a finite state space of size 3 × 3 × 3 = 27.
 
 The DTMC's transition matrix is built from the **history of
 ecosystem-state snapshots** the evaluator has observed. Without
-history (cold start) we use a uniform prior weighted by the AAF
-arxiv 2512.18561 v3 §6 baseline rates.
+history (cold start) we use a uniform Laplace prior plus a self-loop
+prior (both project-chosen defaults — see ``DTMCModel``), not a prior
+lifted from any paper.
 
-Unsafe states are the 9 states in the (high_compromise) band — the
-ecosystem has crossed the AAF §3.1.4 bounded-compromise threshold.
+Unsafe states are the 9 states in the (high_compromise) band — our
+operational definition of "the ecosystem has crossed into a
+compromised regime." This operationalises the bounded-compromise
+concern that AAF (Adaptive Accountability Framework; Alqithami,
+"Adaptive Accountability in Networked MAS," arXiv:2512.18561) studies,
+where it is framed as a convergence *guarantee* (the long-run fraction
+of compromised interactions stays strictly below one when intervention
+cost exceeds adversary payoff) — NOT a numeric threshold the paper
+prescribes; the band cut-points here are ours.
 
 PCTL computation
 ----------------
@@ -60,9 +68,8 @@ dependency added). Verified by the test suite.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from tex.ecosystem.state import EcosystemState
 
@@ -130,9 +137,10 @@ _ALL_STATES: tuple[str, ...] = tuple(
 )
 _STATE_INDEX: dict[str, int] = {s: i for i, s in enumerate(_ALL_STATES)}
 
-# Unsafe states = any state in the high-compromise band. This is the
-# AAF §3.1.4 bounded-compromise threshold operationalised on the
-# DTMC abstraction.
+# Unsafe states = any state in the high-compromise band. This is our
+# operational "compromised regime" definition on the DTMC abstraction
+# (the band cut-points are ours), operationalising the bounded-compromise
+# concern AAF (Alqithami, arXiv:2512.18561) frames as a convergence guarantee.
 _UNSAFE_STATES: frozenset[str] = frozenset(
     s for s in _ALL_STATES if s.endswith("compromise_high")
 )
@@ -147,34 +155,42 @@ class DTMCModel:
     Operators tune ``smoothing_alpha`` (Laplace add-α smoothing) for
     cold-start.
 
-    Cold-start calibration
-    ----------------------
-    The default α = 0.05 is calibrated so that under zero
-    observations, the prior puts ≈3.7% mass on each transition
-    (1/27 ≈ uniform but lightly so). Combined with the absorbing-
-    state structure (9 of 27 states are unsafe), the cold-start
-    reachability over k=10 steps lands near 0.30 — a "no information,
-    expect baseline drift toward unsafe regions" prior. Higher α
-    drives toward the uniform-completeness ceiling (≈1.0 at k≥5);
-    lower α makes the model trust early observations more
-    aggressively. AAF §6 calibration on 87,480-run simulation
-    benchmarks puts α ∈ [0.01, 0.1] as the operationally sweet
-    band.
+    Cold-start defaults (project-chosen — ``research-early``, not from a
+    published calibration)
+    ----------------------------------------------------------------------
+    ``smoothing_alpha = 0.05`` and ``self_loop_prior = 50.0`` are defaults
+    chosen and verified *in this repo*, NOT values recommended by any cited
+    paper. Treat them as ``research-early``: a sensible prior pending a real
+    per-tenant calibration study.
 
-    Hansson-Jonsson 1994 PCTL §5 recommends α=1.0 for "uniform
-    completeness" but that's calibrated for general DTMCs, not the
-    absorbing-state structure ProbGuard uses where 1/3 of states are
-    sinks. We use α=0.05 by default.
+    What they buy, measured on the live model (``tests/systemic/``):
+
+      * From a clearly-safe state, cold-start reachability over k=10 is
+        **0.084** (< 0.10) — the self-loop prior dominates the uniform
+        Laplace floor so "no information" reads as "expect to stay put",
+        not "expect drift to unsafe". (The mean over all 27 states is
+        ~0.39, but that average is inflated by the 9 absorbing unsafe
+        states pinned at 1.0; it is not a "drift-from-safe" figure.)
+      * A larger α flattens toward the uniform prior (reachability climbs
+        as more mass leaks toward the unsafe band); a smaller α makes the
+        model trust early observations sooner.
+
+    The only published anchor used here is the bounded-until PCTL
+    *semantics* (Hansson-Jonsson 1994) in ``reachability_probability`` —
+    PCTL is a specification logic and says nothing about Laplace smoothing,
+    so no α value is attributed to it.
     """
 
     smoothing_alpha: float = 0.05
-    # Self-loop prior weight. With no observations the Bayesian prior
-    # for any state is "stays put" (no transition is the expected
-    # transition). This pseudo-count is added ONLY to the diagonal
-    # P[i][i], dominating the uniform Laplace floor at cold start.
-    # Calibrated so the cold-start reachability under k=10 from a
-    # safe state is < 0.10 (matches AAF §6 baseline). When real
-    # transitions are observed they outweigh this prior linearly.
+    # Self-loop prior weight. With no observations the prior for any state
+    # is "stays put" (no transition is the expected transition). This
+    # pseudo-count is added ONLY to the diagonal P[i][i], dominating the
+    # uniform Laplace floor at cold start. Chosen so cold-start reachability
+    # under k=10 from a safe state is < 0.10 (measured: 0.084; guarded by
+    # tests/systemic/test_probguard_lookahead.py
+    # ::test_cold_start_safe_state_reachability_under_0_10, which asserts the
+    # < 0.10 bound this default targets). When real transitions are observed
+    # they outweigh this prior linearly.
     self_loop_prior: float = 50.0
     # Raw count matrix indexed [from_state_idx][to_state_idx].
     _counts: list[list[float]] = field(default_factory=list)
@@ -318,3 +334,278 @@ def all_states() -> tuple[str, ...]:
 def unsafe_states() -> frozenset[str]:
     """Read-only view of the unsafe-state set."""
     return _UNSAFE_STATES
+
+
+def abstract_features(
+    *,
+    agent_count: float,
+    capability_grant_rate: float,
+    compromise_ratio: float,
+) -> str:
+    """Abstraction id directly from raw features (no ``EcosystemState`` needed).
+
+    Same projection as ``abstract_state`` but takes the three scalars on their
+    own, so the PDP lookahead can build the current state from request metadata
+    without manufacturing a full (timestamped) ecosystem snapshot — keeping the
+    lookahead a pure, clock-free function for determinism.
+    """
+    return ":".join(
+        (
+            _band(float(agent_count), _AGENT_COUNT_BANDS),
+            _band(float(capability_grant_rate), _CAPABILITY_PRESSURE_BANDS),
+            _band(float(compromise_ratio), _COMPROMISE_BANDS),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pro2Guard predictive ABSTAIN dimension — PDP wiring
+# ---------------------------------------------------------------------------
+#
+# Pro2Guard (Wang, Poskitt, Sun & Wei, "Pro2Guard: Proactive Runtime
+# Enforcement of LLM Agent Safety via Probabilistic Model Checking",
+# arXiv:2508.00500) is PROACTIVE: it learns a DTMC over a symbolic state
+# abstraction and intervenes when the *predicted* probability of reaching an
+# unsafe state exceeds a user threshold θ — before the unsafe behaviour
+# happens, not after. The DTMC + PCTL bounded-reachability machinery above is
+# our operationalisation (the bounded-k PCTL reading follows Hansson-Jonsson
+# 1994); this section wires that score into the PDP as a predictive signal.
+#
+# Two doctrinal constraints make this safe to wire onto a live verdict:
+#
+#   1. SIGNALS ONLY LOWER. A probabilistic lookahead may move a verdict toward
+#      caution (PERMIT → ABSTAIN) and NOTHING ELSE. It must never raise a
+#      verdict to FORBID, never relax FORBID/ABSTAIN, and never fire the
+#      deterministic structural floor (a high probability is not a proof).
+#      ``apply_predictive_holds`` enforces this by acting only when the routed
+#      verdict is PERMIT and only ever producing ABSTAIN.
+#
+#   2. DETERMINISM. The PDP carries a determinism fingerprint; a signal that
+#      depended on a mutable, history-accumulating global model would make the
+#      same request resolve differently across calls. So the lookahead is a
+#      PURE function of the request metadata: it builds a FRESH ``DTMCModel``
+#      each call (optionally seeded from caller-supplied transition counts) and
+#      never touches the module-level ``_DEFAULT_MODEL``.
+#
+# Opt-in (``request.metadata["systemic_lookahead"]``)::
+#
+#     {"agent_count": 12, "capability_grant_rate": 4.0, "compromise_ratio": 0.3,
+#      "horizon_k": 10, "threshold": 0.5,
+#      "transition_counts": [["agent_few:cap_low:compromise_low",
+#                             "agent_few:cap_med:compromise_med", 7], ...]}
+#
+# or pass a precomputed ``"abstraction_id"`` instead of the three features.
+# When the key is absent the dimension is a zero-cost no-op.
+
+_LOOKAHEAD_METADATA_KEY = "systemic_lookahead"
+_DEFAULT_LOOKAHEAD_THRESHOLD = 0.5
+_DEFAULT_LOOKAHEAD_HORIZON = 10
+
+# Uncertainty flags the lookahead / RV4-recoverable holds raise. They are
+# descriptive; ``engine.hold`` degrades gracefully on flags it does not have a
+# tailored pivot for (the verdict is still ABSTAIN and a hold is still built).
+SYSTEMIC_LOOKAHEAD_FLAG = "systemic_lookahead_risk"
+RV4_RECOVERABLE_FLAG = "rv4_recoverable_violation"
+
+
+@dataclass(frozen=True, slots=True)
+class SystemicLookaheadOutcome:
+    """Pure result of the Pro2Guard predictive lookahead for one request."""
+
+    checked: bool
+    predictive_risk: float
+    threshold: float
+    horizon_k: int
+    initial_state: str
+    exceeds: bool
+    reason: str
+
+
+NEUTRAL_LOOKAHEAD = SystemicLookaheadOutcome(
+    checked=False,
+    predictive_risk=0.0,
+    threshold=_DEFAULT_LOOKAHEAD_THRESHOLD,
+    horizon_k=_DEFAULT_LOOKAHEAD_HORIZON,
+    initial_state="",
+    exceeds=False,
+    reason="",
+)
+
+
+def _model_from_counts(raw: Any) -> DTMCModel:
+    """Build a fresh DTMC seeded from optional caller-supplied transition counts.
+
+    Accepts a list of ``[from_state, to_state, count]`` triples. Unknown state
+    ids are silently dropped by ``observe_transition``. A fresh model with no
+    counts is the cold-start prior — deterministic and side-effect free.
+    """
+    model = DTMCModel()
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        for triple in raw:
+            if not isinstance(triple, (list, tuple)) or len(triple) != 3:
+                continue
+            frm, to, count = triple
+            try:
+                n = int(count)
+            except (TypeError, ValueError):
+                continue
+            for _ in range(max(0, min(n, 100_000))):
+                model.observe_transition(from_state=str(frm), to_state=str(to))
+    return model
+
+
+def evaluate_systemic_lookahead(request: Any) -> SystemicLookaheadOutcome:
+    """Compute the Pro2Guard predictive reachability for a PDP request.
+
+    Pure and deterministic: identical request metadata yields an identical
+    outcome. Returns ``NEUTRAL_LOOKAHEAD`` (zero cost) when the request carries
+    no ``systemic_lookahead`` metadata.
+    """
+    metadata = getattr(request, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return NEUTRAL_LOOKAHEAD
+    raw = metadata.get(_LOOKAHEAD_METADATA_KEY)
+    if not isinstance(raw, Mapping):
+        return NEUTRAL_LOOKAHEAD
+
+    # Current abstraction: an explicit id, else built from the three features.
+    initial_state = raw.get("abstraction_id")
+    if not isinstance(initial_state, str) or initial_state not in _STATE_INDEX:
+        initial_state = abstract_features(
+            agent_count=_as_float(raw.get("agent_count"), 0.0),
+            capability_grant_rate=_as_float(raw.get("capability_grant_rate"), 0.0),
+            compromise_ratio=_as_float(raw.get("compromise_ratio"), 0.0),
+        )
+
+    horizon_k = raw.get("horizon_k", _DEFAULT_LOOKAHEAD_HORIZON)
+    if not isinstance(horizon_k, int) or horizon_k < 1:
+        horizon_k = _DEFAULT_LOOKAHEAD_HORIZON
+    threshold = _as_float(raw.get("threshold"), _DEFAULT_LOOKAHEAD_THRESHOLD)
+    threshold = max(0.0, min(1.0, threshold))
+
+    model = _model_from_counts(raw.get("transition_counts"))
+    risk = reachability_probability(
+        model=model, initial_state=initial_state, horizon_k=horizon_k
+    )
+    exceeds = risk >= threshold
+
+    reason = (
+        f"Pro2Guard predictive lookahead: P[reach unsafe ≤{horizon_k} steps | "
+        f"{initial_state}] = {risk:.3f} ≥ θ={threshold:.3f} — forward-looking "
+        "systemic risk; holding for review (PERMIT→ABSTAIN)."
+        if exceeds
+        else ""
+    )
+    return SystemicLookaheadOutcome(
+        checked=True,
+        predictive_risk=risk,
+        threshold=threshold,
+        horizon_k=horizon_k,
+        initial_state=initial_state,
+        exceeds=exceeds,
+        reason=reason,
+    )
+
+
+def _as_float(value: Any, default: float) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def apply_predictive_holds(*, base: "Any", request: Any) -> "Any":
+    """Apply the soft, predictive ABSTAIN signals onto a routed result.
+
+    Two sources, both opt-in via request metadata:
+      * Pro2Guard DTMC lookahead (``systemic_lookahead``) — forward-looking
+        reachability of an unsafe ecosystem state.
+      * RV4 recoverable path violations (``rv4_path_policies``) — a path policy
+        that is currently unmet but still curable by a future step.
+
+    Both can only ever demote a **PERMIT** to **ABSTAIN**. If the routed verdict
+    is already FORBID or ABSTAIN, the result is returned unchanged — a
+    probabilistic / recoverable signal never raises a verdict, never relaxes
+    one, and never fires the deterministic structural floor. This is the
+    monotone-lowering invariant, enforced here at the single guard below.
+
+    Returns the (possibly demoted) ``RoutingResult``, rebuilt immutably so the
+    determinism fingerprint is preserved.
+    """
+    # Lazy imports keep systemic/ decoupled from engine/ at module-load time
+    # (and avoid any import cycle through the PDP). Verdict is needed for the
+    # guard; the rest only if we actually demote.
+    from tex.domain.verdict import Verdict
+    from tex.contracts import rv4_path
+
+    # Monotone-lowering guard: only a PERMIT may be demoted. Everything else is
+    # returned untouched — signals lower, never raise. This single check is the
+    # whole monotonicity invariant.
+    if base.verdict is not Verdict.PERMIT:
+        return base
+
+    lookahead = evaluate_systemic_lookahead(request)
+    recoverable = rv4_path.classify(request).recoverable
+
+    if not lookahead.exceeds and not recoverable:
+        return base
+
+    from tex.domain.finding import Finding
+    from tex.domain.severity import Severity
+    from tex.engine.router import RoutingResult
+
+    reasons = list(base.reasons)
+    flags = list(base.uncertainty_flags)
+    findings = list(base.findings)
+    scores = dict(base.scores)
+
+    if lookahead.exceeds:
+        reasons.append(lookahead.reason)
+        flags.append(SYSTEMIC_LOOKAHEAD_FLAG)
+        scores["systemic_lookahead"] = max(0.0, min(1.0, lookahead.predictive_risk))
+        findings.append(
+            Finding(
+                source="systemic.probguard",
+                rule_name="systemic_lookahead_predictive_risk",
+                severity=Severity.WARNING,
+                message=lookahead.reason,
+                metadata={
+                    "predictive_risk": round(lookahead.predictive_risk, 6),
+                    "threshold": lookahead.threshold,
+                    "horizon_k": lookahead.horizon_k,
+                    "initial_state": lookahead.initial_state,
+                    "tier": "predictive_hold",
+                },
+            )
+        )
+
+    if recoverable:
+        flags.append(RV4_RECOVERABLE_FLAG)
+        for v in recoverable:
+            reasons.append(v.reason)
+            findings.append(
+                Finding(
+                    source="contracts.rv4_path",
+                    rule_name=f"rv4_recoverable:{v.policy_id}",
+                    severity=Severity.WARNING,
+                    message=v.reason,
+                    metadata={
+                        "policy_id": v.policy_id,
+                        "rv4_verdict": v.verdict.value,
+                        "tier": "predictive_hold",
+                    },
+                )
+            )
+        scores["rv4_recoverable"] = 1.0
+
+    return RoutingResult(
+        verdict=Verdict.ABSTAIN,
+        confidence=base.confidence,
+        final_score=base.final_score,
+        reasons=tuple(reasons),
+        findings=tuple(findings),
+        scores=scores,
+        uncertainty_flags=tuple(flags),
+        asi_findings=base.asi_findings,
+        semantic_dominance_override_fired=base.semantic_dominance_override_fired,
+    )

@@ -21,7 +21,7 @@ selector (`vigil/`) · Vigil hold/seal surface (`tex-systems`).
 
 ## Top 5 (start here)
 - [ ] Phase 0 credibility floor — CI + close the no-auth routes (§A)
-- [ ] Cut `nanozk` — the one reputation-risky thing in the repo (§B)
+- [x] **Deactivate** `nanozk` (decision: keep, don't delete) — the one reputation-risky thing in the repo (§B)
 - [ ] WSR bound + LTT joint certificate — the publishable guarantee, ~1–2 days (§E)
 - [ ] Durability — wire Postgres so a restart doesn't erase the evidence chain (§C)
 - [ ] The spoken-voice loop — keystone demo, client already written (§F)
@@ -36,7 +36,7 @@ selector (`vigil/`) · Vigil hold/seal surface (`tex-systems`).
 - [ ] Fix brittle/leaky tests (exact-count assertions, shared in-memory-singleton leakage); delete stale `_pending` test · S
 
 ## B. Cut the theater / honesty  `[cut]`
-- [ ] Delete `nanozk` (`nanozk/layerwise_prover.py` + `latticefold_plus.py`) — HMAC-as-lattice + fabricated norm; replace source-label need with real HMAC-SHA-256 trust tags · S
+- [x] **Deactivate (not delete)** `nanozk` — decision June 2026: keep in-tree for a future real backend, but make it inert + honest. Done: hard-gated fail-closed verifier (`verify_layer_proof_set` returns `is_valid=False` unless `TEX_NANOZK_ALLOW_SHIM=1`); `DEACTIVATED PLACEHOLDER (research-early)` banner on all 13 files; removed false claims ("first to wire LatticeFold+", "faithful implementation"); `src/tex/nanozk/DEACTIVATED.md` documents how to wire a real backend (DeepProve/EZKL). Regression guard: `tests/nanozk/test_deactivated.py`. NOTE: still trips the repo's fabrication tripwire (HMAC named next to intended-ZK vocab) — accepted false-positive on marked-dead code; resolve later via a narrow tripwire carve-out for `DEACTIVATED`-marked files. · done
 - [ ] Quarantine `synthesize_test_eat_jwt` to tests only · S
 - [ ] Stop presenting ML-DSA as live (ECDSA-P256 actually runs) and attestation as producing real tokens (verifier-only) · doc
 - [ ] Fix factual errors: `c2pa/ledger.py` does not exist → it's `provenance/ledger.py`; say "the **chain** proves integrity," not the standalone signature · doc

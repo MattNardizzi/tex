@@ -2282,10 +2282,18 @@ class TestThread15NanozkLayerwiseAttribution:
 
     @pytest.fixture
     def thread15_client(self, monkeypatch):
-        """Build a fresh app with Thread 15 NANOZK flag on."""
+        """Build a fresh app with the Thread 15 NANOZK scaffold enabled.
+
+        NanoZK is a DEACTIVATED placeholder: its verifier is fail-closed
+        unless ``TEX_NANOZK_ALLOW_SHIM=1`` is set explicitly. This fixture
+        opts in, because the tests below exercise the *structural scaffold*.
+        The default-OFF behaviour (flag on, shim NOT opted in → fail-closed)
+        is asserted in ``test_shim_deactivated_by_default_even_with_flag``.
+        """
         monkeypatch.delenv("TEX_API_KEYS", raising=False)
         monkeypatch.setenv("TEX_FRONTIER_NANOZK", "1")
         monkeypatch.setenv("TEX_PTV_VERIFY_MODE", "test")
+        monkeypatch.setenv("TEX_NANOZK_ALLOW_SHIM", "1")
         from tex.main import create_app
 
         return TestClient(create_app())
@@ -2461,6 +2469,45 @@ class TestThread15NanozkLayerwiseAttribution:
         assert body["ptv_envelope"]["method"] == "proof_pending"
         assert "zk_pending" in body["attribution_method"]
         assert "zk_layerwise" not in body["attribution_method"]
+
+    def test_shim_deactivated_by_default_even_with_flag(self, monkeypatch):
+        """DEACTIVATION guard (end-to-end): with TEX_FRONTIER_NANOZK=1 but
+        WITHOUT the explicit TEX_NANOZK_ALLOW_SHIM opt-in, the live verifier
+        must REJECT the envelope. The HMAC stand-in is never trusted as a real
+        proof in production — flipping the frontier flag alone is not enough.
+        This test would fail if anyone re-activated the shim by default.
+        """
+        monkeypatch.delenv("TEX_API_KEYS", raising=False)
+        monkeypatch.setenv("TEX_FRONTIER_NANOZK", "1")
+        monkeypatch.setenv("TEX_PTV_VERIFY_MODE", "test")
+        monkeypatch.delenv("TEX_NANOZK_ALLOW_SHIM", raising=False)
+        from tex.evidence.attribution_zk import PTVEnvelope, verify_ptv_envelope
+        from tex.main import create_app
+
+        client = TestClient(create_app())
+        decision_id = self._trigger_decision(client)
+        resp = client.post(
+            f"/v1/incidents/{decision_id}/attribute",
+            json={"include_zk_envelope": True},
+        )
+        env_dto = resp.json()["ptv_envelope"]
+        # The envelope is still BUILT as layerwise (building is not gated),
+        # but VERIFYING it must fail-closed because the shim is deactivated.
+        envelope = PTVEnvelope(
+            method=env_dto["method"],
+            proof=env_dto["proof"],
+            model_hash=env_dto["model_hash"],
+            input_hash=env_dto["input_hash"],
+            output_hash=env_dto["output_hash"],
+        )
+        result = verify_ptv_envelope(
+            envelope,
+            expected_model_hash=env_dto["model_hash"],
+            expected_input_hash=env_dto["input_hash"],
+            expected_output_hash=env_dto["output_hash"],
+        )
+        assert not result.ok
+        assert "deactivated" in (result.reason or ""), result.reason
 
 
 class TestEcosystemEightAxisPipeline:

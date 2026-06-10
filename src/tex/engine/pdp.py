@@ -25,6 +25,8 @@ from tex.domain.latency import LatencyBreakdown
 from tex.domain.policy import PolicySnapshot
 from tex.domain.retrieval import RetrievalContext
 from tex.domain.verdict import Verdict
+from tex.provenance.decision_seal import seal_decision
+from tex.provenance.ledger import SealedFactLedger
 from tex.engine.contract_bridge import (
     ContractEvaluationOutcome,
     NEUTRAL_OUTCOME,
@@ -152,6 +154,7 @@ class PolicyDecisionPoint:
         "_contract_session_registry",
         "_contract_action_ledger",
         "_crc_gate",
+        "_decision_ledger",
     )
 
     def __init__(
@@ -167,6 +170,7 @@ class PolicyDecisionPoint:
         contract_session_registry: SessionEnforcerRegistry | None = None,
         contract_action_ledger: object | None = None,
         crc_gate: ConformalRiskGate | None = None,
+        decision_ledger: SealedFactLedger | None = None,
     ) -> None:
         self._deterministic_gate = (
             deterministic_gate or build_default_deterministic_gate()
@@ -202,6 +206,11 @@ class PolicyDecisionPoint:
         # PERMIT to ABSTAIN — never relax a verdict — so wiring it in cannot
         # introduce a new false-permit. See engine/crc_gate.py.
         self._crc_gate = crc_gate or build_default_crc_gate()
+        # DECISION-sealing seam (Wave 2 / M0). When a SealedFactLedger is wired,
+        # each finalized verdict is sealed as one canonical SealedFact(DECISION)
+        # — the leaf six Wave-2 leaps consume. ``None`` (the default) is a
+        # zero-cost no-op that reproduces today's behaviour bit-for-bit.
+        self._decision_ledger = decision_ledger
 
     def evaluate(
         self,
@@ -446,6 +455,12 @@ class PolicyDecisionPoint:
             crc_ms=crc_ms,
             hold=hold,
         )
+
+        # ── DECISION seal (Wave 2 / M0) ───────────────────────────────────
+        # The verdict is final. Seal it as one SealedFact(DECISION) when a
+        # ledger is wired. Observation-only: this never alters the verdict and
+        # never raises into the request path (seal_decision is fail-closed).
+        seal_decision(self._decision_ledger, decision)
 
         response = self._build_response(
             decision=decision,

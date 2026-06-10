@@ -82,3 +82,97 @@ and `rv4_recoverable_violation` (epistemic: a pending future step would resolve 
 SELF_HEAL/HUMAN_FACT). `build_hold` degrades gracefully today (verdict is still ABSTAIN
 and a hold is still built); adding those two pivots would give each a precise resolving
 question. Non-blocking.
+
+---
+
+# WAVE 2 — Mythos tier track breakdown (the only forward priority)
+
+Wave 2 builds the one never-built **capstone** verdict object (see `ROADMAP.md` → THE CAPSTONE): a single PERMIT/ABSTAIN/FORBID
+that is simultaneously ZK-proof-carrying, hardware-attested-to-policy, post-quantum-signed, anytime-valid, reversibility-floored,
+negative-knowledge-bearing, inter-org-witnessed, and self-governed. The twelve leaps are its load-bearing pieces. Same
+mechanism as Waves 0–1: **one worktree + one branch per track, zero file collisions, green `main` always.** Every leap is a
+**self-contained new module** that `pdp.py`/`main.py` calls in **1–2 additive lines** — no two tracks edit a hot file on
+divergent lines. Every leap **fails closed to today's verdict** when its backend/corpus/seam is absent (inert certificate,
+ABSTAIN-only surface, monotone-lowering preserved). The four non-negotiables (ABSTAIN-only surface · monotone-lowering ·
+fail-closed · zero fabrication) are invariants no track may weaken.
+
+## The one hard dependency — land FIRST
+**`wave2-seam` (M0)** is a hard prerequisite for **L1, L3, L6, L7, L9, L12.** Today `SealedFactLedger`
+(`provenance/ledger.py`) is *tested-but-dead* and `engine/pdp.py` appends **no** `DECISION` SealedFact — so every "seal the
+verdict, then prove a property of it" leap is built on a leaf that is never produced on the live path. M0 instantiates the
+ledger on the live runtime and appends one canonical `SealedFact(DECISION)` per verdict (the constitution's 1–2 additive
+`pdp.py` lines into a self-contained module). **No Wave-2 leap that consumes a sealed decision may claim its `pdp.py` wiring is
+"one line" until M0 merges** — several designs asserted a seam that does not exist yet.
+
+## Worktree / branch setup (run once, from `~/dev/tex`)
+```bash
+git worktree add ../tex-w2-seam        -b track/wave2-seam        # M0: DECISION-sealing + corpus harness + fail-closed backend probes
+git worktree add ../tex-w2-actionclass -b track/wave2-actionclass # L4  (mythos-now)
+git worktree add ../tex-w2-spine       -b track/wave2-spine       # L9
+git worktree add ../tex-w2-pqlive      -b track/wave2-pqlive      # L10
+git worktree add ../tex-w2-poguard     -b track/wave2-poguard     # L2
+git worktree add ../tex-w2-zkpdp       -b track/wave2-zkpdp       # L1
+git worktree add ../tex-w2-advcomplete -b track/wave2-advcomplete # L7
+git worktree add ../tex-w2-credal      -b track/wave2-credal      # L8
+git worktree add ../tex-w2-vcert       -b track/wave2-vcert       # L12
+git worktree add ../tex-w2-reflexive   -b track/wave2-reflexive   # L5
+git worktree add ../tex-w2-interchange -b track/wave2-interchange # L6
+git worktree add ../tex-w2-negknow     -b track/wave2-negknow     # L3  (research-grade)
+git worktree add ../tex-w2-spokenproof -b track/wave2-spokenproof # L11 (research-grade)
+```
+
+## File-ownership map (DO NOT edit outside your track's paths)
+
+| Track | Leap | Owns these paths (new unless noted) | `pdp.py`/`main.py` delta |
+|---|---|---|---|
+| **wave2-seam** | M0 | `engine/pdp.py` DECISION-seal call (owns the shared seam), `provenance/ledger.py` live-instantiation wiring, `bench/wave2_corpus/` (labelled-corpus harness), `pqcrypto/_backend_probe.py` + `tee/_mode_probe.py` (fail-closed RUNTIME-DEPENDENT probes) | **owns** the 1–2 line DECISION-seal in `pdp.py` — everyone else rebases onto it |
+| **wave2-actionclass** | L4 | `contracts/action_class.py` (mirrors `rule_of_two.py`/`rv4_path.py`), `tests/test_action_class.py` | 1 line in `detect_structural_floor` (opt-in via `request.metadata['action_class']`) |
+| **wave2-spine** | L9 | `engine/risk_spine.py`, `tests/test_risk_spine.py` (reuses `drift/_anytime_valid.py` verbatim) | 1 line: `risk_spine.apply(...)` monotone-lowering hook on the routed branch |
+| **wave2-pqlive** | L10 | `pqcrypto/pq_durability.py`, `tests/test_pq_durability.py` (reads `ml_dsa.active_backend_id()`, composite via `algorithm_agility`) | 1 line: emit `PQ-durable` SealedFact + maturity→ABSTAIN signal |
+| **wave2-poguard** | L2 | `tee/verdict_binding.py`, `tests/tee/test_verdict_binding.py` (mirrors `decision_bound_nonce`; **fix verifier to check TDX `user_data`, not `eat_nonce`**) | 1 line at the `commands/evaluate_action` seam (test-mode) |
+| **wave2-zkpdp** | L1 | `zkpdp/arbiter.py` (reuses `zkprov/backends.py` dispatcher + hard-gate), `tests/zkpdp/` | 0 lines (consumes M0's sealed decision; opt-in proof emission) |
+| **wave2-advcomplete** | L7 | `adversarial/completeness.py`, `tests/adversarial/test_completeness.py` (drives `adversarial/adaptive.py`; binary martingale sibling of `drift/_anytime_valid.py`) | 0 lines (Layer-4/5 eval tooling, off the per-request path) |
+| **wave2-credal** | L8 | `engine/credal_hold.py`, `tests/test_credal_hold.py`; **+ refactor `engine/router.py:_compute_confidence`** to emit per-stream confidences (coordinate w/ `abstain`-track owner of `router.py` verdict rule) | 1–2 lines threading per-stream confidences into `build_hold` |
+| **wave2-vcert** | L12 | `engine/verdict_certificate.py`, `tests/test_verdict_certificate.py`; upgrades `bench/replay_trial.py` (robustness half) | 0–1 line (opt-in cert emission; QIF half ships as labeled point-estimate only) |
+| **wave2-reflexive** | L5 | `selfgov/governor.py`, `specialists/metaguard.py`, `tests/test_reflexive_gov.py`; **must enumerate the FULL mutation surface** (`commands/{activate,calibrate}_policy.py`, `governance/standing.py`, `feedback_loop.py:669/:721`, `memory/system.py:337`, `policy_snapshot_store.py:157`, key rotation) | 1 line: route controller mutations through `gate_controller_mutation` |
+| **wave2-interchange** | L6 | `interchange/gix.py`, `interchange/gix_witness.py`, `interchange/gix_merge.py`, `tests/interchange/` (RFC-9162 Merkle over `record_hash`; C2SP witness semantics in-tree, live OmniWitness behind a flag) | 1 line (publish-checkpoint hook); **hard-gated on M0** |
+| **wave2-negknow** | L3 | `evidence/negative_knowledge.py`, `tests/test_negative_knowledge.py` (sorted accumulator reuses `zkprov/commitment.py`); **blocked on an upstream attempt-sealing hook (M0 extension) — build the crypto half, gate the completeness claim** | 0 lines until the attempt-sealing hook is scoped |
+| **wave2-spokenproof** | L11 | `voice/entailment_cert.py`, `tests/voice/test_entailment_cert.py`; ship the **seal half now** (commit `model_id`+`λ̂`+manifest into the ECDSA voice chain), entailment half research-grade until `transformers`/`torch`/GPU land | 0 lines (wires at the existing `voice/voice_gate.py` NLI seam) |
+
+## Hot/shared files — serialized, never edited in parallel
+As in Waves 0–1: `engine/pdp.py` and `main.py` are integration points. **`wave2-seam` owns the DECISION-seal `pdp.py` line;**
+all other tracks keep their `pdp.py`/`main.py` touch to a single additive call into their self-contained module and rebase
+onto `wave2-seam` once it lands. **`engine/router.py`** is shared between `wave2-credal` (the `_compute_confidence` refactor)
+and the existing `abstain` track's verdict rule — serialize that one refactor through a small fast PR before `wave2-credal`
+fans out. Never let two branches sit on divergent `pdp.py`/`router.py` edits.
+
+## Suggested order (mirrors `ROADMAP.md` → Build order)
+1. **wave2-seam (M0)** — unblocks six leaps; nothing sealed-decision-dependent is honest until it merges.
+2. **First-green on-ramps:** wave2-spine (L9) · wave2-actionclass (L4) · wave2-pqlive (L10) · wave2-poguard (L2).
+3. **Frontier certificates:** wave2-zkpdp (L1) · wave2-advcomplete (L7) · wave2-credal (L8, after the `router.py` refactor) · wave2-vcert (L12 robustness half).
+4. **Reflexive + interchange:** wave2-reflexive (L5, after the full chokepoint enumeration) · wave2-interchange (L6).
+5. **Research-grade (scope as projects, fail closed):** wave2-negknow (L3) · wave2-spokenproof (L11, entailment half) · wave2-vcert QIF half (labeled point-estimate only).
+6. **Capstone composition** — once ≥6 of the eight capstone properties are green, compose them onto one sealed verdict object + ship the replay-proof demo.
+
+## Status table (each Wave-2 thread updates its row)
+| Track | Branch | Leap | Status | Touches pdp.py/main.py? |
+|---|---|---|---|---|
+| wave2-seam | track/wave2-seam | M0 | not started — **prereq for L1/L3/L6/L7/L9/L12** | yes (owns DECISION-seal line) |
+| wave2-actionclass | track/wave2-actionclass | L4 | not started (`mythos-now`) | 1 line |
+| wave2-spine | track/wave2-spine | L9 | not started | 1 line |
+| wave2-pqlive | track/wave2-pqlive | L10 | not started | 1 line |
+| wave2-poguard | track/wave2-poguard | L2 | not started | 1 line (test-mode) |
+| wave2-zkpdp | track/wave2-zkpdp | L1 | not started — needs M0 + real ezkl/Halo2 backend for the regulator-grade path | 0 lines |
+| wave2-advcomplete | track/wave2-advcomplete | L7 | not started — needs correct binary martingale | 0 lines |
+| wave2-credal | track/wave2-credal | L8 | not started — needs `_compute_confidence` refactor first | 1–2 lines |
+| wave2-vcert | track/wave2-vcert | L12 | not started — robustness half earnable; QIF half = labeled point-estimate | 0–1 line |
+| wave2-reflexive | track/wave2-reflexive | L5 | not started — needs FULL mutation-surface enumeration | 1 line |
+| wave2-interchange | track/wave2-interchange | L6 | not started — hard-gated on M0 | 1 line |
+| wave2-negknow | track/wave2-negknow | L3 | not started — blocked on attempt-sealing hook | 0 lines |
+| wave2-spokenproof | track/wave2-spokenproof | L11 | not started — seal half now; entailment needs torch/GPU + corpus | 0 lines |
+
+## Citation discipline (Wave 2)
+Citations in `ROADMAP.md` were retrieved by the `tex-wave2-mythos` workflow on 2026-06-10. The adversarial judge flagged a
+handful of designer-supplied ePrint IDs as misattributed and a few IETF drafts as `UNVERIFIED-FROM-MEMORY` (carried from
+`tee/` docstrings). **Before any citation lands in code, a docstring, or a customer-facing claim, the owning track
+re-verifies it against the primary source.** No Wave-2 *capability* claim rests on a citation — only on a green benchmark.

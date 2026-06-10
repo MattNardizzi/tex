@@ -160,7 +160,7 @@ fans out. Never let two branches sit on divergent `pdp.py`/`router.py` edits.
 | wave2-seam | track/wave2-seam | M0 | not started — **prereq for L1/L3/L6/L7/L9/L12** | yes (owns DECISION-seal line) |
 | wave2-actionclass | track/wave2-actionclass | L4 | not started (`mythos-now`) | 1 line |
 | wave2-spine | track/wave2-spine | L9 | not started | 1 line |
-| wave2-pqlive | track/wave2-pqlive | L10 | not started | 1 line |
+| wave2-pqlive | track/wave2-pqlive | L10 | **built (PR open)**: `pqcrypto/pq_durability.py` — fail-closed maturity probe (`active_backend_id`→DURABLE/RESEARCH_ONLY/NONE; any unrecognized id→NONE), monotone-lowering ABSTAIN signal (PQ-non-repudiation claim + non-durable signer ⇒ PERMIT→ABSTAIN, opt-in `metadata["pq_non_repudiation"]`), sealed `PQ-durable=false` fact (fail-closed), and a REAL composite ML-DSA-87+ECDSA-P384 chain-head round-trip via the OpenSSL-3.5 CLI (good verifies, 1-bit-flip fails). Nanozk trap pinned: CLI shim does NOT raise live maturity. 40 track + 138 verdict-path/M0/integration tests green; 0 new failures (21 pre-existing). | 1 line (+1 import): `apply_pq_durability_hold(...)` on the routed branch, after `apply_predictive_holds` |
 | wave2-poguard | track/wave2-poguard | L2 | not started | 1 line (test-mode) |
 | wave2-zkpdp | track/wave2-zkpdp | L1 | not started — needs M0 + real ezkl/Halo2 backend for the regulator-grade path | 0 lines |
 | wave2-advcomplete | track/wave2-advcomplete | L7 | not started — needs correct binary martingale | 0 lines |

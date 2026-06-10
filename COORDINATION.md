@@ -161,7 +161,7 @@ fans out. Never let two branches sit on divergent `pdp.py`/`router.py` edits.
 | wave2-actionclass | track/wave2-actionclass | L4 | not started (`mythos-now`) | 1 line |
 | wave2-spine | track/wave2-spine | L9 | not started | 1 line |
 | wave2-pqlive | track/wave2-pqlive | L10 | not started | 1 line |
-| wave2-poguard | track/wave2-poguard | L2 | not started | 1 line (test-mode) |
+| wave2-poguard | track/wave2-poguard | L2 | **PR open**: `tee/verdict_binding.py` folds categorical verdict + policy-bundle digest + decision-input hash + prior ledger hash into the composite-attestation `report_data` (`verdict_bound_nonce`→`recompute_expected_nonce`, SHA-256[:32] mirroring `decision_bound_nonce`). **Bug fixed**: verifier gates on TDX `tdx_report_data`, NOT `eat_nonce` — `eat_nonce` demoted to a fail-closed consistency check (can only lower, never forge). 45 tests green (verdict-swap→`verdict_nonce_mismatch`, forgery=0, hollow-`eat_nonce` regression proves the fix is load-bearing); 107 existing TEE tests still green. `research-early`; report_data unforgeability is RUNTIME-DEPENDENT on real TDX. **Deferred (honest):** the 1-line `commands/evaluate_action` seam wiring waits on M0 (DECISION-sealing supplies `ledger_prev_hash` on the live path). | not yet — seam wiring deferred to post-M0 |
 | wave2-zkpdp | track/wave2-zkpdp | L1 | not started — needs M0 + real ezkl/Halo2 backend for the regulator-grade path | 0 lines |
 | wave2-advcomplete | track/wave2-advcomplete | L7 | not started — needs correct binary martingale | 0 lines |
 | wave2-credal | track/wave2-credal | L8 | not started — needs `_compute_confidence` refactor first | 1–2 lines |

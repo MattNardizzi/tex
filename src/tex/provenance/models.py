@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.domain.evidence import CombinedEvidence, EvidenceMaturity
 from tex.domain.signal_trust import SignalTrustTier
 
 
@@ -176,3 +177,102 @@ class CoverageBoundary(BaseModel):
 
     observation_count: int = Field(ge=0, default=0)
     warm: bool = False
+
+
+# ===========================================================================
+# SealedFact — the typed, proof-carrying truth object (PCVR)
+# ===========================================================================
+#
+# ``ProvenanceRecord`` above seals one *behavioural-identity* event. A
+# ``SealedFact`` generalizes that to any governance action Tex must be able to
+# prove later: a verdict, an enforcement, a drift alarm, a blame attribution,
+# an identity event, a spoken answer. It is the "sealed truth object" — one
+# canonical, typed record per action, and (this is the point) it can *carry its
+# own proof*: an optional ``CombinedEvidence`` e-value scalar with its honest
+# validity labels.
+#
+# Sealed into the hash-chained, signed ``SealedFactLedger`` (provenance/
+# ledger.py), each fact becomes a Proof-Carrying Verdict Record (PCVR): the
+# claim, the proof, and the cryptographic linkage, verifiable offline by anyone
+# holding the public key. ``BehavioralProvenanceLedger`` is now one
+# domain-specific instance of the same construction, kept intact.
+#
+# Honest limit: ``claim`` and ``maturity`` are producer-asserted descriptive
+# fields; the ledger proves the fact was sealed unaltered and authored by Tex,
+# and ``evidence`` (when present) carries its own machine-checkable validity —
+# but the type does not verify that the prose ``claim`` matches the ``evidence``.
+# The seal records both so an auditor checks the linkage.
+
+
+class SealedFactKind(StrEnum):
+    """What a sealed truth object asserts. The six governance actions Tex must
+    be able to prove after the fact (ROADMAP §D)."""
+
+    DECISION = "decision"        # a verdict was produced (PERMIT/ABSTAIN/FORBID)
+    ENFORCEMENT = "enforcement"  # an action was allowed/blocked at the PEP
+    DRIFT = "drift"              # a drift e-process crossed / was observed
+    BLAME = "blame"              # responsibility/attribution was assigned
+    IDENTITY = "identity"        # an agent identity event (birth / re-id)
+    ANSWER = "answer"            # a grounded/spoken answer was sealed
+
+
+class SealedFact(BaseModel):
+    """One typed, sealable governance fact — optionally proof-carrying.
+
+    Frozen + ``extra="forbid"`` like every sealed model. ``evidence`` is the
+    proof-carrying part: a ``CombinedEvidence`` scalar (from the e-value spine)
+    whose own ``is_true_e_value`` / ``anytime_valid`` labels say exactly what is
+    proven. A fact with no e-value (e.g. an IDENTITY birth) simply omits it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fact_id: UUID = Field(default_factory=uuid4)
+    kind: SealedFactKind
+    # What this fact concerns: a decision_id / agent_id / request_id, as a
+    # string so the fact is agnostic to the subject's id type. None when the
+    # subject is implicit.
+    subject_id: str | None = Field(default=None, max_length=200)
+    # The human-readable assertion being sealed (descriptive; the proof is
+    # ``evidence``).
+    claim: str = Field(min_length=1, max_length=2000)
+    # The proof-carrying e-value, when the fact rests on one.
+    evidence: CombinedEvidence | None = None
+    # Honesty tag for the whole fact.
+    maturity: EvidenceMaturity
+    # Structured, JSON-native supporting detail.
+    detail: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    def canonical_payload(self) -> dict[str, Any]:
+        """The ordered, JSON-safe dict the ledger seals. Embeds the evidence's
+        own canonical payload so the proof is sealed inside the fact."""
+        return {
+            "fact_id": str(self.fact_id),
+            "kind": self.kind.value,
+            "subject_id": self.subject_id,
+            "claim": self.claim,
+            "evidence": self.evidence.canonical_payload() if self.evidence else None,
+            "maturity": self.maturity.value,
+            "detail": self.detail,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+class SealedFactRecord(BaseModel):
+    """One sealed, hash-chained, signed entry in the ``SealedFactLedger`` — the
+    PCVR. Anyone holding the public key can verify the chain and the signature
+    offline; the wrapped ``fact`` (with its embedded proof) is what was sealed.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    sequence: int = Field(ge=0)
+    fact: SealedFact
+
+    payload_sha256: str
+    previous_hash: str | None = None
+    record_hash: str
+    signature_b64: str
+    signing_key_id: str
+    sealed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

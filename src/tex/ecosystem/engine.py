@@ -84,7 +84,6 @@ from tex.events.exceptions import LedgerAppendError
 from tex.events.ledger import InMemoryLedger
 from tex.graph.exceptions import GraphMutationError, UnknownActorError
 from tex.graph.projection import StateProjection
-from tex.graph.temporal_kg import InMemoryTemporalKG
 from tex.intervention.kinds import InterventionKind
 from tex.observability.telemetry import emit_event
 from tex.ontology.validator import OntologyValidator
@@ -97,6 +96,19 @@ if TYPE_CHECKING:
     # annotation is quoted at the call site so this import is purely a
     # type-checker hint.
     from tex.events.crypto_provenance import CryptoProvenance
+
+    # ``InMemoryTemporalKG`` is hoisted here for the same reason: it is used
+    # ONLY as the parameter annotation ``graph: InMemoryTemporalKG | None`` on
+    # ``__init__`` (quoted at runtime via ``from __future__ import annotations``),
+    # so a runtime import is unnecessary — and it closed a real cycle:
+    #   tex.graph.temporal_kg -> tex.events._canonical (triggers tex.events
+    #   __init__ -> crypto_provenance) -> tex.ecosystem.proposed_event (triggers
+    #   tex.ecosystem __init__ -> bridge) -> tex.ecosystem.engine -> back to
+    #   tex.graph.temporal_kg (still mid-init) -> ImportError. Deferring this one
+    #   import to TYPE_CHECKING breaks the back-edge so temporal_kg imports
+    #   standalone again. (The deeper smell is tex.events.__init__ eagerly
+    #   importing crypto_provenance; left for the events track.)
+    from tex.graph.temporal_kg import InMemoryTemporalKG
 
     # Thread 2 institutional collaborators. Imported under TYPE_CHECKING
     # so the engine remains importable when liboqs is absent (the lazy

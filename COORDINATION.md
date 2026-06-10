@@ -61,7 +61,7 @@ stable function — so the `pdp.py` delta is one or two lines.
 | Track | Branch | Owner/thread | Status | Touches pdp.py/main.py? |
 |---|---|---|---|---|
 | unblock | track/unblock | unblock thread | Wave 0 done: CI workflow + auth on 4 routers + CORS lockdown; PR open. nanozk cut still pending. | CORS line only (1 call → tex.api.cors) |
-| abstain | track/abstain | — | not started | yes — verdict wiring |
+| abstain | track/abstain | abstain thread | **MERGED (#14)**: act-vs-ask boundary — WSR betting CS (ope.py) + LTT joint two-sided cert/ε-collar/SCRC (crc_gate.py) + R0–R4 unified rule (router.py) + e-detector (learning/drift.py). All behind behavior-preserving defaults; guard suite + monotone-lowering FAIL-test green. | **no** — CRC gate + router already wired in pdp.py; new params default to current behavior, so 0 hot-file edits |
 | truth | track/truth | truth thread | **All 5 PRs merged** (#5 TexEvidence type, #6 e-value spine, #9 SealedFacts/PCVR ledger, #11 drift e-process wiring, #13 offline bundle+standalone verifier). Additive only; 65 truth-track + 5 guard tests green. NOT YET WIRED into the live PDP verdict — that 1–2 line `pdp.py` call belongs to the engine/abstain track. | no |
 | struct | track/struct | struct thread | **MERGED (#17)**: Pro2Guard predictive ABSTAIN dim + RV4 four-valued LTLf (perm→FORBID / recoverable→ABSTAIN) + FIDES dual-axis camel lattice + Rule-of-Two contract + CaMeL-denial→FORBID. All in owned files (probguard.py, structural_floor.py, capability.py, ltlf.py, contracts/{rule_of_two,rv4_path}.py). | yes — 2 additive lines: `detect_structural_floor(.., request=request)` + `apply_predictive_holds(..)` on the routed branch; +1 import |
 | durable | track/durable | — | not started | no |

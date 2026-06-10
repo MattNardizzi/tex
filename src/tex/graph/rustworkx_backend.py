@@ -193,14 +193,15 @@ def _rx_bfs(
             break
         next_frontier: list[int] = []
         for n in frontier:
-            for u, v in view.graph.out_edges(n):
-                # rustworkx out_edges yields (u, v) tuples; edge data
-                # lives in parallel edge_kinds list
-                if edge_kind_set is not None:
-                    # locate the edge label for (u, v)
-                    label = view.graph.get_edge_data(u, v)
-                    if label not in edge_kind_set:
-                        continue
+            # rustworkx ``out_edges`` yields (source, target, weight) triples;
+            # ``_build_rx_view`` stores the edge KIND string as that weight, so
+            # the kind travels with each edge. Using it directly (instead of
+            # ``get_edge_data(u, v)``) is also correct for a MultiDiGraph, where
+            # parallel edges between the same pair can have different kinds and a
+            # single ``get_edge_data`` lookup would collapse them.
+            for _u, v, kind in view.graph.out_edges(n):
+                if edge_kind_set is not None and kind not in edge_kind_set:
+                    continue
                 if v in visited:
                     continue
                 visited.add(v)

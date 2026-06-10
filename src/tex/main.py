@@ -38,6 +38,7 @@ from tex.contracts import BehavioralContract, ContractEnforcer
 from tex.engine.contract_bridge import SessionEnforcerRegistry
 from tex.provenance import build_default_provenance_engine  # PROVENANCE
 from tex.provenance.delegation import SealedDelegationGraph  # PROVENANCE: delegation edges
+from tex.provenance.ledger import SealedFactLedger  # PROVENANCE: Wave-2 DECISION seal (M0)
 from tex.provenance.feed import (  # PROVENANCE: continuous feed
     ContinuousProvenanceFeed,
     HeldDecisionSink,
@@ -857,12 +858,24 @@ def build_runtime(
             )
             contract_action_ledger = action_ledger
 
+    # DECISION-sealing ledger (Wave 2 / M0). Opt-in via TEX_SEAL_DECISIONS=1.
+    # Default OFF: an in-memory SealedFactLedger grows one record per verdict,
+    # so default-on is deferred until the durable (Postgres write-through) track
+    # backs it — keeping a long-running process from accumulating unbounded
+    # state. When unset, decision_ledger is None and the PDP seals nothing,
+    # reproducing today's behaviour exactly.
+    seal_decisions = os.environ.get(
+        "TEX_SEAL_DECISIONS", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    decision_ledger = SealedFactLedger() if seal_decisions else None
+
     pdp = PolicyDecisionPoint(
         retrieval_orchestrator=retrieval_orchestrator,
         agent_evaluator=agent_suite,
         contract_enforcer=contract_enforcer,
         contract_session_registry=contract_session_registry,
         contract_action_ledger=contract_action_ledger,
+        decision_ledger=decision_ledger,
     )
     calibrator = build_default_calibrator()
 

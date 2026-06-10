@@ -44,6 +44,7 @@ from tex.engine.path_policy_bridge import (
     PathPolicyOutcome,
     evaluate_path_policies_for_request,
 )
+from tex.engine.risk_spine import RiskSpine, apply_risk_spine
 from tex.engine.router import RoutingResult, build_default_router
 from tex.retrieval.orchestrator import (
     RetrievalOrchestrator,
@@ -155,6 +156,7 @@ class PolicyDecisionPoint:
         "_contract_action_ledger",
         "_crc_gate",
         "_decision_ledger",
+        "_risk_spine",
     )
 
     def __init__(
@@ -171,6 +173,7 @@ class PolicyDecisionPoint:
         contract_action_ledger: object | None = None,
         crc_gate: ConformalRiskGate | None = None,
         decision_ledger: SealedFactLedger | None = None,
+        risk_spine: RiskSpine | None = None,
     ) -> None:
         self._deterministic_gate = (
             deterministic_gate or build_default_deterministic_gate()
@@ -211,6 +214,11 @@ class PolicyDecisionPoint:
         # — the leaf six Wave-2 leaps consume. ``None`` (the default) is a
         # zero-cost no-op that reproduces today's behaviour bit-for-bit.
         self._decision_ledger = decision_ledger
+        # Live multiplicative e-value spine (Wave 2 / L9). When wired, the routed
+        # branch advances per-stream drift e-processes from opt-in request
+        # observations, seals each composite step, and may demote PERMIT→ABSTAIN
+        # on an anytime-valid breach. ``None`` (default) is a zero-cost no-op.
+        self._risk_spine = risk_spine
 
     def evaluate(
         self,
@@ -375,6 +383,11 @@ class PolicyDecisionPoint:
             # deterministic floor. See systemic/probguard.py.
             routing_result = apply_predictive_holds(
                 base=routing_result, request=request
+            )
+            # Live multiplicative e-value spine (L9) — monotone-lowering
+            # (PERMIT→ABSTAIN only), each step sealed. Inert no-op when unwired.
+            routing_result = apply_risk_spine(
+                self._risk_spine, base=routing_result, request=request
             )
             router_ms = _elapsed_ms(router_start)
 

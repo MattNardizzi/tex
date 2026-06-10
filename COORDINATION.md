@@ -159,7 +159,7 @@ fans out. Never let two branches sit on divergent `pdp.py`/`router.py` edits.
 |---|---|---|---|---|
 | wave2-seam | track/wave2-seam | M0 | not started — **prereq for L1/L3/L6/L7/L9/L12** | yes (owns DECISION-seal line) |
 | wave2-actionclass | track/wave2-actionclass | L4 | not started (`mythos-now`) | 1 line |
-| wave2-spine | track/wave2-spine | L9 | not started | 1 line |
+| wave2-spine | track/wave2-spine | L9 | **PR open**: `engine/risk_spine.py` — streaming `AnytimeValidEProcess` per stream_id (drift `_anytime_valid.py` reused VERBATIM) → multiplicative composite via truth-track `compose_spine`, monotone-lowering PERMIT→ABSTAIN, each step sealed `SealedFact(DRIFT)`. **Earned:** Ville false-hold 0.029≤α under continuous peeking (N=2000,T=500) at the abs-corrected `2^K/α` level (naive `1/α` over-fires at 0.059 — the `\|S_t\|` two-sided construction needs the 2^K correction); μ=0.5 drift detects 100% ≤167 steps; K=2 product 0.0185. Only drift e-processes multiplied (per-agent/CRC/OPE excluded). Inert by default (no main.py). 16 new + 72 verdict-path tests green; adversarial review: 4 non-negotiables held. | **1 line** on routed branch (`apply_risk_spine`) + self-contained-module injection mirroring M0's `_decision_ledger` |
 | wave2-pqlive | track/wave2-pqlive | L10 | not started | 1 line |
 | wave2-poguard | track/wave2-poguard | L2 | not started | 1 line (test-mode) |
 | wave2-zkpdp | track/wave2-zkpdp | L1 | not started — needs M0 + real ezkl/Halo2 backend for the regulator-grade path | 0 lines |

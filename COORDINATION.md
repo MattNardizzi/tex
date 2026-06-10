@@ -62,7 +62,7 @@ stable function — so the `pdp.py` delta is one or two lines.
 |---|---|---|---|---|
 | unblock | track/unblock | unblock thread | Wave 0 done: CI workflow + auth on 4 routers + CORS lockdown; PR open. nanozk cut still pending. | CORS line only (1 call → tex.api.cors) |
 | abstain | track/abstain | — | not started | yes — verdict wiring |
-| truth | track/truth | — | not started | maybe — evidence emit |
+| truth | track/truth | truth thread | Interface PR open: TexEvidence/e-value type + EvidenceKind/EvidenceMaturity in domain/evidence.py (additive, alongside EvidenceRecord). 20 unit tests; 5 guard tests green. Spine/ledger/drift-wiring/bundle deferred to later PRs. | no |
 | struct | track/struct | — | not started | yes — floor wiring |
 | durable | track/durable | — | not started | no |
 | voice | track/voice | — | not started | no (new routes) |

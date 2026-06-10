@@ -38,4 +38,8 @@ tex_build_master_prompt.md
 # var/tex/keys/      = the evidence-seal signing key, incl. PRIVATE key material
 #                      (regenerated on a fresh deploy; must never be committed)
 var/
+# Same runtime state when the app runs with the package root (src/) as CWD. The
+# bare `var/` above is root-anchored and does NOT match `src/var/`, so a second
+# copy of the PRIVATE seal key + evidence chain slipped past #12.
+src/var/
 data/

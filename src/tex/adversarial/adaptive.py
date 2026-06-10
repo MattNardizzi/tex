@@ -33,7 +33,11 @@ quantifies that gap.
 Determinism
 -----------
 The search uses a seeded RNG, so a campaign is fully reproducible — required
-for use as a CI regression gate (`python -m tex.adversarial.adaptive`).
+for use as a CI regression gate. Run the gate with ``python -m tex.adversarial``
+(the package entrypoint in ``__main__.py``); running this *submodule* directly
+also works — see the ``__main__`` guard at the bottom, which delegates to the
+same gate so the historically-documented ``python -m tex.adversarial.adaptive``
+can never silently no-op (exit 0 without running anything).
 
 This is not a gradient/GCG attack (Tex exposes no model gradients on the
 decision path); it is the random-search / human-guided-mutation class from the
@@ -334,3 +338,14 @@ __all__ = [
     "AdaptiveAttacker",
     "run_adaptive_campaign",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - thin delegation
+    # Guard against a fake gate. This submodule has no runnable body of its own;
+    # the gate lives in ``tex.adversarial.__main__``. Without this block,
+    # ``python -m tex.adversarial.adaptive`` imported the module and exited 0
+    # WITHOUT running the campaign — a CI gate that always "passes" by doing
+    # nothing. Delegate to the real entrypoint so both invocations run the gate.
+    from tex.adversarial.__main__ import main as _gate_main
+
+    raise SystemExit(_gate_main())

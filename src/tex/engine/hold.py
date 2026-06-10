@@ -189,6 +189,7 @@ def build_hold(
     confidence: float = 0.5,
     agent_id: str | None = None,
     action_type: str | None = None,
+    stream_confidences: dict[str, float] | None = None,
 ) -> Hold | None:
     """Build the Hold for an ABSTAIN. Returns None for any non-ABSTAIN verdict.
 
@@ -196,6 +197,13 @@ def build_hold(
     so the PDP determinism fingerprint is preserved. No I/O, no clocks, no
     randomness — the resolution path is a fixed function of the flags and the
     certificate.
+
+    ``stream_confidences`` carries the per-stream confidence components the
+    router fused (the ``conf_stream:*`` keys the router now surfaces in
+    ``RoutingResult.scores``). Accepted-but-unconsumed in this commit: it is
+    the seam for the credal hold (L8), which will use it to rank the
+    resolving question information-optimally. When None (every pre-existing
+    caller), behavior is identical to before the parameter existed.
     """
     if verdict is not Verdict.ABSTAIN:
         return None

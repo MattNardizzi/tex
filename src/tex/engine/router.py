@@ -313,6 +313,21 @@ class DecisionRouter:
             scores["agent_capability"] = round(agent_capability_score, 4)
             scores["agent_behavioral"] = round(agent_behavioral_score, 4)
 
+        # Per-stream confidences, surfaced under reserved ``conf_stream:*``
+        # keys so downstream consumers (the credal hold) can read the
+        # components the fused confidence was built from. Same helper as
+        # ``_compute_confidence`` — these are observations of the fusion
+        # inputs, never a second computation that could drift. The fused
+        # ``confidence`` float above is untouched by this surfacing.
+        stream_confidences = self._per_stream_confidences(
+            deterministic_result=deterministic_result,
+            specialist_bundle=specialist_bundle,
+            semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
+        )
+        for stream_name, stream_confidence in stream_confidences.items():
+            scores[f"conf_stream:{stream_name}"] = round(stream_confidence, 4)
+
         return RoutingResult(
             verdict=verdict,
             confidence=round(confidence, 4),
@@ -454,14 +469,21 @@ class DecisionRouter:
 
         return weights
 
-    def _compute_confidence(
-        self,
+    @staticmethod
+    def _per_stream_confidences(
         *,
         deterministic_result: DeterministicGateResult,
         specialist_bundle: SpecialistBundle,
         semantic_analysis: SemanticAnalysis,
         agent_bundle: AgentEvaluationBundle | None,
-    ) -> float:
+    ) -> dict[str, float]:
+        """Per-stream confidences, unrounded, before fusion.
+
+        Pure. This is the single source ``_compute_confidence`` fuses from,
+        so the components surfaced to consumers (the ``conf_stream:*`` score
+        keys) can never drift from the fused float. The ``agent`` key is
+        present only when an agent stream actually contributed.
+        """
         deterministic_confidence = 0.95 if deterministic_result.blocked else (
             0.75 if deterministic_result.findings else 0.85
         )
@@ -473,13 +495,35 @@ class DecisionRouter:
                 result.confidence for result in specialist_bundle.results
             ) / len(specialist_bundle.results)
 
-        semantic_confidence = semantic_analysis.overall_confidence
+        confidences: dict[str, float] = {
+            "deterministic": deterministic_confidence,
+            "specialist": specialist_confidence,
+            "semantic": semantic_analysis.overall_confidence,
+        }
+        if agent_bundle is not None and agent_bundle.agent_present:
+            confidences["agent"] = agent_bundle.aggregate_confidence
+        return confidences
+
+    def _compute_confidence(
+        self,
+        *,
+        deterministic_result: DeterministicGateResult,
+        specialist_bundle: SpecialistBundle,
+        semantic_analysis: SemanticAnalysis,
+        agent_bundle: AgentEvaluationBundle | None,
+    ) -> float:
+        streams = self._per_stream_confidences(
+            deterministic_result=deterministic_result,
+            specialist_bundle=specialist_bundle,
+            semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
+        )
 
         # Content-layer base. Identical to pre-fusion behavior.
         base = (
-            deterministic_confidence * 0.25
-            + specialist_confidence * 0.20
-            + semantic_confidence * 0.55
+            streams["deterministic"] * 0.25
+            + streams["specialist"] * 0.20
+            + streams["semantic"] * 0.55
         )
 
         if semantic_analysis.has_low_confidence_dimension:
@@ -494,9 +538,8 @@ class DecisionRouter:
         # *boost* because we are highly certain a structural mismatch
         # is real.
         if agent_bundle is not None and agent_bundle.agent_present:
-            agent_conf = agent_bundle.aggregate_confidence
             # 80% content / 20% agent contribution.
-            base = base * 0.80 + agent_conf * 0.20
+            base = base * 0.80 + streams["agent"] * 0.20
 
             if agent_bundle.has_capability_violations:
                 base = min(1.0, base + 0.10)

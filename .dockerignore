@@ -1,0 +1,50 @@
+# Keep the build context (and image) to the runtime surface only.
+.git
+.github
+.gitignore
+.claude
+
+# Tests, audit tooling, docs, diagrams, notebooks — not needed at runtime.
+tests
+audit_tools
+diagrams
+cpsa_models
+examples
+sdks
+sim_cockpit
+scripts
+vendor
+*.md
+!requirements.txt
+
+# Deploy manifests describe how to run the image; they are not inside it.
+deploy
+render.yaml
+Dockerfile
+.dockerignore
+
+# Frontend bundles and archives.
+tex-frontend
+tex-frontend*.zip
+
+# Local data / evidence — the image creates a fresh empty chain dir.
+var
+data
+*.jsonl
+
+# Python / OS noise.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.env.*
+.DS_Store
+.vscode/
+.idea/
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

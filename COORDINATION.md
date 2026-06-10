@@ -64,6 +64,6 @@ stable function — so the `pdp.py` delta is one or two lines.
 | abstain | track/abstain | — | not started | yes — verdict wiring |
 | truth | track/truth | — | not started | maybe — evidence emit |
 | struct | track/struct | — | not started | yes — floor wiring |
-| durable | track/durable | — | not started | no |
+| durable | track/durable | durable thread | Done: Postgres write-through verified default-on (+ DB-gated restart-survival test); Helm replicas 2→1 + Recreate + evidence/keys PVC + DATABASE_URL/prod-secret env + TEX_ENV→TEX_APP_ENV fix + probes + scrape; real Dockerfile + .dockerignore; render.yaml web svc + Postgres + disk; .env.example; live OpenMetrics /metrics (+ optional OTLP). PR open. | **1 line**: `install_metrics(app)` in create_app (self-contained `observability/metrics.py`) — serialize on integration |
 | voice | track/voice | — | not started | no (new routes) |
 | proof | track/proof | — | not started | no |

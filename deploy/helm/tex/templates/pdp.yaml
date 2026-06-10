@@ -1,26 +1,109 @@
 # The PDP — Tex itself. Decides; never in the path.
+#
+# replicas is 1 ON PURPOSE. Tex's authoritative evidence record is a hash-CHAINED
+# append-only JSONL file that the recorder continues from on boot
+# (src/tex/evidence/recorder.py:_load_last_record_hash). Two pods would each write
+# their own file → two divergent chains, and the in-process caches/telemetry/
+# discovery scheduler would diverge too. Durable SHARED state is written through to
+# Postgres (DATABASE_URL); the chain itself rides a per-instance PVC below. Safe
+# multi-replica needs a single-writer evidence service — tracked, not shipped.
+# See deploy/DURABILITY.md and deploy/helm/tex/README.md "Durability".
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: tex, namespace: {{ include "tex.namespace" . }} }
+metadata:
+  name: tex
+  namespace: {{ include "tex.namespace" . }}
 spec:
   replicas: {{ .Values.pdp.replicas }}
+  # Recreate, not RollingUpdate: a ReadWriteOnce evidence PVC cannot be held by
+  # an old and a new pod at once. Trade-off: a brief restart gap on redeploy.
+  strategy:
+    type: Recreate
   selector: { matchLabels: { app: tex } }
   template:
-    metadata: { labels: { app: tex } }
+    metadata:
+      labels: { app: tex }
+      {{- if .Values.pdp.metrics.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.pdp.port }}"
+        prometheus.io/path: "{{ .Values.pdp.metrics.path }}"
+      {{- end }}
     spec:
       containers:
         - name: tex
           image: {{ .Values.image.pdp }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["uvicorn", "tex.main:app", "--host", "0.0.0.0", "--port", "{{ .Values.pdp.port }}"]
+          command: ["uvicorn", "tex.main:app", "--host", "0.0.0.0", "--port", "{{ .Values.pdp.port }}", "--workers", "1"]
           env:
             - { name: TEX_DISCOVERY_SCAN_INTERVAL_SECONDS, value: "{{ .Values.pdp.scanIntervalSeconds }}" }
-            - { name: TEX_ENV, value: {{ .Values.pdp.env | quote }} }
+            # The app reads TEX_APP_ENV (config.py). The old chart set TEX_ENV,
+            # which nothing reads — so it silently ran in 'development' mode
+            # (fail-closed guards off, auth open). This is the real var.
+            - { name: TEX_APP_ENV, value: {{ .Values.pdp.appEnv | quote }} }
+            {{- if .Values.pdp.databaseUrl }}
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: tex-app-secret, key: databaseUrl } }
+            {{- end }}
+            {{- if .Values.pdp.evidenceSummarySecret }}
+            - name: TEX_EVIDENCE_SUMMARY_SECRET
+              valueFrom: { secretKeyRef: { name: tex-app-secret, key: evidenceSummarySecret } }
+            {{- end }}
+            {{- if .Values.pdp.apiKeys }}
+            - name: TEX_API_KEYS
+              valueFrom: { secretKeyRef: { name: tex-app-secret, key: apiKeys } }
+            {{- end }}
           ports: [ { containerPort: {{ .Values.pdp.port }}, name: http } ]
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          {{- with .Values.pdp.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.pdp.persistence.enabled }}
+          volumeMounts:
+            - name: evidence
+              mountPath: {{ .Values.pdp.persistence.mountPath | quote }}
+          {{- end }}
+      {{- if .Values.pdp.persistence.enabled }}
+      volumes:
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: tex-evidence
+      {{- end }}
+{{- if .Values.pdp.persistence.enabled }}
+---
+# Durable home for the evidence hash-chain JSONL. ReadWriteOnce — exactly one
+# writer, which is why replicas is pinned to 1.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tex-evidence
+  namespace: {{ include "tex.namespace" . }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.pdp.persistence.storageClass }}
+  storageClassName: {{ .Values.pdp.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pdp.persistence.size | quote }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: tex, namespace: {{ include "tex.namespace" . }} }
+metadata:
+  name: tex
+  namespace: {{ include "tex.namespace" . }}
 spec:
   selector: { app: tex }
   ports: [ { port: {{ .Values.pdp.port }}, targetPort: http, name: http } ]

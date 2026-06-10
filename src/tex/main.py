@@ -1342,6 +1342,12 @@ def create_app(
     from tex.api.ecosystem_twin_routes import build_twin_router
     app.include_router(build_twin_router())
 
+    # Durable track: top-level OpenMetrics GET /metrics (+ optional OTLP push).
+    # Self-contained; the only wiring this track adds to main.py. See
+    # tex.observability.metrics and COORDINATION.md (serialize on integration).
+    from tex.observability.metrics import install_metrics
+    install_metrics(app)
+
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:
         active_policy = resolved_runtime.policy_store.get_active()

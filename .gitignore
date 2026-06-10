@@ -30,3 +30,11 @@ build/
 *.log
 logs/
 tex_build_master_prompt.md
+
+# Runtime state — written by the app at boot; never belongs in version control.
+# var/tex/evidence/  = the hash-chained evidence JSONL (EvidenceRecorder continues
+#                      it from the file on boot; in prod it rides a persistent volume)
+# var/tex/keys/      = the evidence-seal signing key, incl. PRIVATE key material
+#                      (regenerated on a fresh deploy; must never be committed)
+var/
+data/

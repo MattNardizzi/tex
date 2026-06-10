@@ -60,6 +60,7 @@ from tex.specialists.structural_floor import (
     StructuralFloorResult,
     detect_structural_floor,
 )
+from tex.systemic.probguard import apply_predictive_holds
 
 
 @runtime_checkable
@@ -289,8 +290,13 @@ class PolicyDecisionPoint:
         # rather than being diluted into the router's weighted sum (where a
         # proven deny on otherwise-clean content used to land at ABSTAIN).
         # Only deterministic-deny SIGNATURES qualify — never a merely high
-        # probabilistic score. See specialists/structural_floor.py.
-        structural_floor = detect_structural_floor(specialist_bundle)
+        # probabilistic score. See specialists/structural_floor.py. Passing the
+        # request also activates the label-driven structural proofs (Rule-of-Two
+        # trifecta + RV4 permanent path violations) when their opt-in metadata
+        # is present.
+        structural_floor = detect_structural_floor(
+            specialist_bundle, request=request
+        )
 
         hard_violation = (
             contract_outcome.has_hard_violation
@@ -354,6 +360,13 @@ class PolicyDecisionPoint:
                     base=routing_result,
                     path_outcome=path_outcome,
                 )
+            # Predictive holds — soft, monotone-lowering (PERMIT→ABSTAIN only):
+            # Pro2Guard DTMC lookahead + RV4 recoverable path violations. Acts
+            # only on a PERMIT; never raises a verdict, never fires the
+            # deterministic floor. See systemic/probguard.py.
+            routing_result = apply_predictive_holds(
+                base=routing_result, request=request
+            )
             router_ms = _elapsed_ms(router_start)
 
         # ── Conformal Risk Control verdict gate — the last touch ──────────

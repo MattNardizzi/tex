@@ -58,8 +58,11 @@ def test_clean_bundle_valid_when_pinned() -> None:
     assert v.chain_intact
     assert v.signatures_self_verify
     assert v.authorship_ok is True
-    # The seal is the live classical signer today — assert it is labelled honestly.
-    assert set(v.signature_algorithms) == {"ecdsa-p256"}
+    # The label must match whatever live signer actually signed — ECDSA-P256 on a
+    # box with no ML-DSA backend, composite ML-DSA-65 + Ed25519 where one is
+    # installed (e.g. CI). Assert the honest property: label == reality, not a
+    # hardcoded algorithm that would be wrong in the other environment.
+    assert set(v.signature_algorithms) == {signer.algorithm.value}
 
 
 def test_unpinned_is_integrity_only_not_court_grade() -> None:

@@ -70,12 +70,13 @@ def test_summary_roundtrips_the_reported_asr() -> None:
     assert summary.n_seeds == len(report.results)
 
 
-def test_seal_records_are_signed_classical_today() -> None:
+def test_seal_records_label_matches_the_live_signer() -> None:
     report = _report()
     signer = build_evidence_chain_signer(key_dir=tempfile.mkdtemp())
     records = seal_campaign(report, signer=signer)
     v = verify_bundle(records, pinned_public_key_b64=trusted_public_key_b64(signer))
-    # Honest label: ECDSA-P256 unless an ML-DSA backend is installed. We assert it
-    # is *some* live signer and that the label matches what actually signed.
+    # The honest property is label == reality: ECDSA-P256 with no ML-DSA backend,
+    # composite ML-DSA-65 + Ed25519 where one is installed (e.g. CI). Assert the
+    # label equals whatever actually signed — never a hardcoded algorithm.
     assert v.signature_algorithms  # not empty
-    assert all(a for a in v.signature_algorithms)
+    assert set(v.signature_algorithms) == {signer.algorithm.value}

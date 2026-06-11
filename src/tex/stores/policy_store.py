@@ -4,6 +4,13 @@ from collections.abc import Iterable
 from threading import RLock
 
 from tex.domain.policy import PolicySnapshot
+from tex.selfgov.governor import (
+    describe_policy_activate,
+    describe_policy_clear,
+    describe_policy_delete,
+    describe_policy_save,
+    gate_controller_mutation,
+)
 
 
 class InMemoryPolicyStore:
@@ -44,6 +51,8 @@ class InMemoryPolicyStore:
         Ordering is preserved by last save, so the most recently saved policy
         version appears last in global listings and policy-family listings.
         """
+        if not gate_controller_mutation(lambda: describe_policy_save(self, policy)).allowed:
+            return
         with self._lock:
             existing = self._by_version.get(policy.version)
             if existing is not None:
@@ -143,6 +152,8 @@ class InMemoryPolicyStore:
         Because PolicySnapshot is immutable, activation produces replacement
         snapshots rather than mutating the existing objects in place.
         """
+        if not gate_controller_mutation(lambda: describe_policy_activate(self, version)).allowed:
+            return self.require(version)
         with self._lock:
             target = self._by_version.get(version)
             if target is None:
@@ -168,6 +179,8 @@ class InMemoryPolicyStore:
         This is useful for local development/testing only. In a real durable
         system, policy deletion might be disallowed or replaced by archival.
         """
+        if not gate_controller_mutation(lambda: describe_policy_delete(self, version)).allowed:
+            return
         with self._lock:
             policy = self._by_version.get(version)
             if policy is None:
@@ -181,6 +194,8 @@ class InMemoryPolicyStore:
 
     def clear(self) -> None:
         """Removes all stored policies."""
+        if not gate_controller_mutation(lambda: describe_policy_clear(self)).allowed:
+            return
         with self._lock:
             self._by_version.clear()
             self._ordered_versions.clear()

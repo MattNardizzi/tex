@@ -75,6 +75,7 @@ from tex.pqcrypto.algorithm_agility import (
     SignatureKeyPair,
     get_signature_provider,
 )
+from tex.selfgov.governor import describe_key_mutation, gate_controller_mutation
 
 
 # COSE header parameter labels (per IANA COSE Header Parameters registry).
@@ -104,12 +105,16 @@ def register_signing_key(key: SignatureKeyPair) -> None:
     production deployment should call ``set_keystore`` with an HSM or
     KMS-backed lookup instead.
     """
+    if not gate_controller_mutation(lambda: describe_key_mutation("c2pa.signer.register_signing_key", key_id=key.key_id)).allowed:
+        return
     with _KEY_LOCK:
         _LOCAL_KEYSTORE[key.key_id] = key
 
 
 def clear_signing_keys() -> None:
     """Drop all keys from the process-local keystore (test hygiene)."""
+    if not gate_controller_mutation(lambda: describe_key_mutation("c2pa.signer.clear_signing_keys")).allowed:
+        return
     with _KEY_LOCK:
         _LOCAL_KEYSTORE.clear()
 
@@ -118,6 +123,8 @@ def set_keystore(lookup: KeystoreLookup | None) -> None:
     """Install a custom keystore lookup; ``None`` reverts to the
     in-memory store."""
     global _KEYSTORE_LOOKUP
+    if not gate_controller_mutation(lambda: describe_key_mutation("c2pa.signer.set_keystore")).allowed:
+        return
     _KEYSTORE_LOOKUP = lookup
 
 

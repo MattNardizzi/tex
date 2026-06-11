@@ -62,6 +62,7 @@ from tex.pqcrypto.algorithm_agility import (
     SignatureKeyPair,
     get_signature_provider,
 )
+from tex.selfgov.governor import describe_key_mutation, gate_controller_mutation
 
 _logger = logging.getLogger(__name__)
 
@@ -189,6 +190,8 @@ def _load_key(path: Path) -> SignatureKeyPair | None:
 
 
 def _persist_key(path: Path, key: SignatureKeyPair) -> None:
+    if not gate_controller_mutation(lambda: describe_key_mutation("evidence.seal._persist_key", key_id=key.key_id)).allowed:
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(

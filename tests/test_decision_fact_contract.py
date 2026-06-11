@@ -31,9 +31,12 @@ This file makes the convention fail loudly instead of silently:
   (c) the PQ-before-decision-seal append ordering flipping,
       breaks the behavioural pins.
 
-This is a pin, not a fix — the contract-level fix (a distinct kind; the
-``ATTEMPT`` precedent proposed in negative_knowledge.py's hook scoping doc)
-is a seam-track decision. Census residual, stated honestly: the source scan
+This is a pin, not a fix — the contract-level fix (a distinct kind) now has
+its first instance: the attempt hook (provenance/attempt_seal.py) seals
+``SealedFactKind.ATTEMPT`` at evaluate() entry — a third producer on the
+same ledger, deliberately a distinct kind so neither consumer's DECISION
+filter ever sees it. Its pins live below alongside the original two.
+Census residual, stated honestly: the source scan
 matches the two textual construction forms (``kind=SealedFactKind.DECISION``
 and positional ``SealedFact(SealedFactKind.DECISION``); an aliased or
 dynamically-built kind evades it — enumerated, not proven, the same residual
@@ -72,6 +75,12 @@ SRC_TEX = REPO_ROOT / "src" / "tex"
 # declared role. A new mention means a new producer or consumer entered the
 # namespace: enumerate it here AND extend the behavioural pins below.
 _MENTION_ALLOWLIST = {
+    "provenance/attempt_seal.py": (
+        "producer of a DISTINCT kind (ATTEMPT, pre-verdict, evaluate() entry) "
+        "— mentions DECISION only to declare its contract: detail MUST NOT "
+        "carry a verdict key, and the ATTEMPT appends FIRST for a request "
+        "(before the PQ fact and the M0 decision seal)"
+    ),
     "provenance/decision_seal.py": (
         "producer — THE verdict-bearing DECISION fact (M0); detail carries "
         "the verdict key the consumers key on"
@@ -265,3 +274,32 @@ def test_conservation_counts_exactly_one_verdict_per_request(
     assert (cons.n_permit, cons.n_abstain, cons.n_forbid) == (0, 1, 0)
     assert cons.status == "GATED-HOLDS"
     assert cons.holds is True
+
+
+def test_attempt_fact_is_a_distinct_kind_invisible_to_both_consumers(
+    sealed_flow,
+) -> None:
+    """The third producer's side of the contract: the attempt hook seals a
+    DISTINCT kind (ATTEMPT), strictly FIRST for the request, with no verdict
+    detail key — so L1's DECISION-kind filter and L3's verdict-key filter
+    both exclude it by construction, not by luck."""
+    records = sealed_flow.ledger.list_all()
+    attempts = [r for r in records if r.fact.kind is SealedFactKind.ATTEMPT]
+    assert len(attempts) == 1, (
+        "one evaluate() must seal exactly one ATTEMPT fact (entry placement)"
+    )
+    attempt = attempts[0]
+
+    # Same request as both DECISION facts; appended strictly first.
+    assert attempt.fact.subject_id == str(sealed_flow.decision.request_id)
+    decision_records = [
+        r for r in records if r.fact.kind is SealedFactKind.DECISION
+    ]
+    assert all(attempt.sequence < r.sequence for r in decision_records)
+
+    # The contract: never a verdict key (L3), never DECISION-kind (L1).
+    assert "verdict" not in attempt.fact.detail
+    assert attempt.fact.kind is not SealedFactKind.DECISION
+    assert attempt not in sealed_flow.ledger.list_by_kind(
+        SealedFactKind.DECISION
+    )

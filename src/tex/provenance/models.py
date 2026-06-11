@@ -205,9 +205,12 @@ class CoverageBoundary(BaseModel):
 
 
 class SealedFactKind(StrEnum):
-    """What a sealed truth object asserts. The six governance actions Tex must
-    be able to prove after the fact (ROADMAP §D)."""
+    """What a sealed truth object asserts. The seven governance actions Tex
+    must be able to prove after the fact (ROADMAP §D; ATTEMPT is the Wave-2
+    attempt-hook addition — pre-verdict by definition, so L3's count
+    conservation derives from sealed facts instead of trust-me inputs)."""
 
+    ATTEMPT = "attempt"          # an evaluation was begun (pre-verdict, evaluate() entry)
     DECISION = "decision"        # a verdict was produced (PERMIT/ABSTAIN/FORBID)
     ENFORCEMENT = "enforcement"  # an action was allowed/blocked at the PEP
     DRIFT = "drift"              # a drift e-process crossed / was observed

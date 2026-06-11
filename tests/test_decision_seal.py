@@ -86,9 +86,12 @@ def test_pdp_seals_one_decision_per_verdict() -> None:
         sealed_verdicts.append(result.decision.verdict.value)
 
     # Exactly one DECISION fact per evaluate() call, in order, chain intact.
+    # (Total ledger length is 2× since the Wave-2 attempt hook also seals one
+    # ATTEMPT fact per evaluate() at entry — recomposed consciously here; the
+    # DECISION-kind count is the pin this test owns.)
     records = ledger.list_by_kind(SealedFactKind.DECISION)
     assert len(records) == len(_CONTENTS)
-    assert len(ledger) == len(_CONTENTS)
+    assert len(ledger) == 2 * len(_CONTENTS)
     assert [r.fact.detail["verdict"] for r in records] == sealed_verdicts
     assert ledger.verify_chain()["intact"] is True
     assert ledger.verify_signatures()["valid"] is True

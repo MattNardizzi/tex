@@ -18,15 +18,17 @@ batch-3 merge and that no per-leap suite covers (COORDINATION.md
      proof SPANNING the gate event verifies — the chain is append-only
      across all four fact kinds, and ``tree_size`` counts leaves of every
      kind (never cite it as "number of decisions").
-  3. An L3 certificate + count-conservation over the same epoch. This pins
-     CURRENT behaviour deliberately: the reflexive gate evaluation seals an
-     M0 DECISION fact carrying the PDP's OWN verdict (PERMIT) — metaguard
-     demoted the composed ruling to ABSTAIN only in the ENFORCEMENT fact —
-     so conservation counts a PERMIT for a mutation that was DENIED, and a
-     customer-only attempt count reports GATED-BROKEN. The future
-     attempt-sealing hook must confront exactly this scoping question
-     (negative_knowledge.py § ATTEMPT-SEALING HOOK); when it lands and
-     changes these counts, this test failing is the design surface speaking.
+  3. An L3 certificate + count-conservation over the same epoch. RECOMPOSED
+     CONSCIOUSLY at the attempt-hook landing (provenance/attempt_seal.py):
+     every evaluate() now seals one ATTEMPT fact at entry — customer
+     requests AND the reflexive gate evaluation alike, per the hook's
+     declared count-scoping contract (gate evals COUNT as attempts; the
+     identity stays global and symmetric). The reflexive evaluation still
+     seals an M0 DECISION fact carrying the PDP's OWN verdict (PERMIT) —
+     metaguard demoted the composed ruling to ABSTAIN only in the
+     ENFORCEMENT fact — and it balances exactly because its ATTEMPT is
+     counted too. A customer-only attempt count still reports GATED-BROKEN,
+     pinned below as the misscoping alarm.
 
 M0b stays out of scope: a bench harness with zero runtime seam.
 
@@ -124,14 +126,19 @@ def _weak_policy(version: str) -> PolicySnapshot:
 
 # The composed epoch, built once: every test reads the same flow. Indices
 # into ledger.list_all() — the strict sequence pinned by the first test.
-_IDX_PQ_FACT = 0          # L10 PQ-durable=false (request A, sealed in routing)
-_IDX_DECISION_A = 1       # M0 customer decision A
-_IDX_BIND = 2             # L5 bind (protective pass)
-_IDX_REFLEXIVE = 3        # M0 fact of the reflexive gate evaluation
-_IDX_RULING = 4           # L5 denied weakening activation (ENFORCEMENT)
-_IDX_DRIFT = 5            # L9 spine step (request B)
-_IDX_DECISION_B = 6       # M0 customer decision B
-_IDX_UNBIND = 7           # L5 unbind
+# Recomposed at the attempt-hook landing: every evaluate() seals one ATTEMPT
+# at entry (requests A and B, and the reflexive gate evaluation).
+_IDX_ATTEMPT_A = 0        # attempt hook (request A, sealed at evaluate() entry)
+_IDX_PQ_FACT = 1          # L10 PQ-durable=false (request A, sealed in routing)
+_IDX_DECISION_A = 2       # M0 customer decision A
+_IDX_BIND = 3             # L5 bind (protective pass)
+_IDX_ATTEMPT_GATE = 4     # attempt hook (reflexive gate evaluation)
+_IDX_REFLEXIVE = 5        # M0 fact of the reflexive gate evaluation
+_IDX_RULING = 6           # L5 denied weakening activation (ENFORCEMENT)
+_IDX_ATTEMPT_B = 7        # attempt hook (request B)
+_IDX_DRIFT = 8            # L9 spine step (request B)
+_IDX_DECISION_B = 9       # M0 customer decision B
+_IDX_UNBIND = 10          # L5 unbind
 
 
 @pytest.fixture(scope="module")
@@ -196,16 +203,19 @@ def epoch():
 
 def test_one_chain_holds_all_four_kinds_and_stays_verifiable(epoch) -> None:
     """The foundational claim of the batch-3 merge: one SealedFactLedger
-    chain interleaves DECISION (customer, PQ-variant, reflexive),
-    ENFORCEMENT and DRIFT producers without breaking integrity or
-    authorship, and the denied gate event mutated nothing."""
+    chain interleaves ATTEMPT (entry hook), DECISION (customer, PQ-variant,
+    reflexive), ENFORCEMENT and DRIFT producers without breaking integrity
+    or authorship, and the denied gate event mutated nothing."""
     kinds = [r.fact.kind for r in epoch.ledger.list_all()]
     assert kinds == [
+        SealedFactKind.ATTEMPT,       # _IDX_ATTEMPT_A (entry hook, request A)
         SealedFactKind.DECISION,      # _IDX_PQ_FACT
         SealedFactKind.DECISION,      # _IDX_DECISION_A
         SealedFactKind.ENFORCEMENT,   # _IDX_BIND
+        SealedFactKind.ATTEMPT,       # _IDX_ATTEMPT_GATE (reflexive eval)
         SealedFactKind.DECISION,      # _IDX_REFLEXIVE
         SealedFactKind.ENFORCEMENT,   # _IDX_RULING
+        SealedFactKind.ATTEMPT,       # _IDX_ATTEMPT_B (entry hook, request B)
         SealedFactKind.DRIFT,         # _IDX_DRIFT
         SealedFactKind.DECISION,      # _IDX_DECISION_B
         SealedFactKind.ENFORCEMENT,   # _IDX_UNBIND
@@ -279,10 +289,12 @@ def test_l6_consistency_proof_spans_the_gate_event(epoch) -> None:
     under the pinned log key, take (size, root) jointly from the note."""
     before = epoch.checkpoint_before
     after = epoch.checkpoint_after
-    assert before.checkpoint.tree_size == 2   # PQ fact + customer decision A
-    assert after.checkpoint.tree_size == 8
+    # attempt A + PQ fact + customer decision A
+    assert before.checkpoint.tree_size == 3
+    assert after.checkpoint.tree_size == 11
 
-    # tree_size counts leaves of EVERY kind — it is not a decision count
+    # tree_size counts leaves of EVERY kind — it is not a decision count,
+    # and since the attempt hook it is not an attempt count either
     # (COORDINATION.md batch-3 note: never cite it as one).
     n_decisions = sum(
         1
@@ -299,7 +311,7 @@ def test_l6_consistency_proof_spans_the_gate_event(epoch) -> None:
     )
     assert verified_names, "log-signed note failed under the pinned key"
     parsed = Checkpoint.parse(split_signed_note(after.signed_note)[0])
-    assert parsed.tree_size == 8
+    assert parsed.tree_size == 11
     assert parsed.root_hash_hex == after.checkpoint.root_hash_hex
 
     proof = consistency_path(
@@ -317,7 +329,7 @@ def test_l6_consistency_proof_spans_the_gate_event(epoch) -> None:
     real = before.checkpoint.root_hash_hex
     forged = ("0" if real[0] != "0" else "1") + real[1:]
     assert not verify_consistency(
-        2, forged, 8, after.checkpoint.root_hash_hex, proof
+        3, forged, 11, after.checkpoint.root_hash_hex, proof
     )
 
 
@@ -330,12 +342,12 @@ def test_l3_certificate_and_conservation_count_reflexive_traffic(epoch) -> None:
     records = epoch.ledger.list_all()
 
     # Non-membership over the full epoch: every record of every kind is an
-    # accumulator leaf (record_count == 8), while conservation below scopes
+    # accumulator leaf (record_count == 11), while conservation below scopes
     # to DECISION-kind facts — two scopes inside one certificate.
     absent_key = "7" * 64
     cert = issue_certificate_with_records(records, absent_key)
     assert verify_certificate(cert).ok is True
-    assert cert.commitment.record_count == 8
+    assert cert.commitment.record_count == 11
     assert cert.vacuous is False
     assert cert.complete is False
     # Issued without an attempt count: UNGATED, holds=None — never a pass.

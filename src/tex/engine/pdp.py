@@ -25,6 +25,7 @@ from tex.domain.latency import LatencyBreakdown
 from tex.domain.policy import PolicySnapshot
 from tex.domain.retrieval import RetrievalContext
 from tex.domain.verdict import Verdict
+from tex.provenance.attempt_seal import seal_attempt
 from tex.provenance.decision_seal import seal_decision
 from tex.provenance.ledger import SealedFactLedger
 from tex.engine.contract_bridge import (
@@ -236,6 +237,11 @@ class PolicyDecisionPoint:
         and a deterministic input fingerprint suitable for stability audit.
         """
         pipeline_start = time.perf_counter()
+
+        # ── ATTEMPT seal (Wave 2 / attempt hook) ──────────────────────────
+        # Entry is the only point every evaluate() passes exactly once before
+        # anything can raise. Fail-closed, observation-only (attempt_seal.py).
+        seal_attempt(self._decision_ledger, request=request, policy=policy)
 
         deterministic_start = time.perf_counter()
         deterministic_result = self._deterministic_gate.evaluate(

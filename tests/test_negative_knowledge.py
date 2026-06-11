@@ -418,8 +418,10 @@ def test_epoch_over_real_pdp_sealed_decisions() -> None:
     ):
         pdp.evaluate(request=make_request(content=content), policy=policy)
 
+    # 2 evaluations × (1 ATTEMPT at entry + 1 DECISION at finalize) — the
+    # attempt hook landed; every record of every kind is an accumulator leaf.
     records = ledger.list_all()
-    assert len(records) == 2
+    assert len(records) == 4
 
     present = recompute_key(records[0].fact)
     with pytest.raises(KeyPresentError):

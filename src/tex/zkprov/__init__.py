@@ -14,8 +14,10 @@ backends listed below.
 What this thread ships (Thread 14, May 2026 frontier)
 -----------------------------------------------------
 1. **ZKPROV core** (arxiv 2506.20915) — DatasetCommitment over
-   records, ML-DSA-65 CA signature via algorithm_agility, Halo2-IPA
-   default backend (no trusted setup).
+   records, ML-DSA-65 CA signature via algorithm_agility, Halo2
+   default backend via ezkl (KZG commitments, universal trusted-setup
+   SRS — the "halo2-ipa-2026" id is a historical label; upstream
+   removed IPA. See tex.zkprov.backends, verified 2026-06-10).
 2. **VFT extensions** (arxiv 2510.16830 v3, Dec 29 2025) — Merkle
    manifest binding sources / preprocessing / licenses / per-epoch
    quotas; verifiable index-hiding sampler; recursive aggregation

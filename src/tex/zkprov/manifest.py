@@ -293,7 +293,9 @@ class DatasetManifest(BaseModel):
         max_length=128,
         description=(
             "Identifier for the SNARK proving system used downstream. "
-            "Halo2-IPA is no-trusted-setup; LatticeFold+ (eprint "
+            "'halo2-ipa-2026' is a historical label — upstream ezkl is "
+            "KZG-only as of v23.0.5 (universal trusted-setup SRS; see "
+            "tex.zkprov.backends.Halo2IpaBackend). LatticeFold+ (eprint "
             "2026/721, Apr 2026) is the post-quantum path. The actual "
             "backend resolution lives in tex.zkprov.backends."
         ),

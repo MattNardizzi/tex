@@ -509,6 +509,39 @@ def test_omission_attack_closes_end_to_end_with_derived_attempts() -> None:
     # cause. (tests/test_attempt_seal.py pins the crash variant.)
 
 
+def test_symmetric_deletion_games_derived_counts_but_not_the_root() -> None:
+    """The first attack on "the omission attack closes": delete one ATTEMPT
+    *and* its matching verdict-DECISION — the derived counts re-balance, so
+    the identity alone reads GATED-HOLDS. The count identity is one LAYER;
+    the accumulator root is the BINDING, and it betrays the rebuild. (Same
+    class as the relabel variant above, now pinned for the derived path.)"""
+    _, records = _live_epoch()
+    sealed = build_epoch_accumulator(records).commitment
+
+    drop_attempt = next(
+        i
+        for i, r in enumerate(records)
+        if r.fact.kind is SealedFactKind.ATTEMPT
+    )
+    drop_decision = next(
+        i
+        for i, r in enumerate(records)
+        if r.fact.kind is SealedFactKind.DECISION
+        and "verdict" in r.fact.detail
+    )
+    hidden = tuple(
+        r
+        for i, r in enumerate(records)
+        if i not in (drop_attempt, drop_decision)
+    )
+
+    gamed = check_count_conservation(hidden)
+    assert gamed.status == "GATED-HOLDS"  # counts alone CAN be gamed this way...
+    assert gamed.n_attempts == 1
+    # ...which is exactly why the certificate also seals the accumulator root:
+    assert verify_epoch_commitment(hidden, sealed).ok is False
+
+
 def test_supplied_count_contradicting_sealed_attempts_is_the_alarm() -> None:
     """Sealed facts outrank externally supplied counts: a contradicting
     n_attempts over a hook-era epoch is GATED-BROKEN by itself."""

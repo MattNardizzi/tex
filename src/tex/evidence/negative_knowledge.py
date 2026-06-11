@@ -89,66 +89,55 @@ adds ~256-level default-node-cache machinery as fresh unaudited surface; and
 by rebuild-audit. Revisit the SMT if the North-Star Module-SIS accumulator
 track (ROADMAP.md — `speculative`, out of scope here) ever lands.
 
-ATTEMPT-SEALING HOOK — SCOPING PROPOSAL (deliverable, not code)
----------------------------------------------------------------
-This section is the L3 scoping doc for the **seam track** (owner of
-``engine/pdp.py`` and ``provenance/models.py`` hot lines). Nothing below is
-implemented here; this track's pdp.py budget is 0 lines.
+ATTEMPT-SEALING HOOK — LANDED (provenance/attempt_seal.py)
+----------------------------------------------------------
+This section was the L3 scoping doc for the **seam track**; the seam track
+landed the hook against it. What stands today, with the two deliberately
+open decisions now DECLARED in the hook's own contract
+(``attempt_seal.py`` module docstring is the authority):
 
-* **Seal point**: entry of ``PolicyDecisionPoint.evaluate()``, between
-  ``pipeline_start = time.perf_counter()`` (pdp.py:238 at 554585a) and the
-  deterministic-gate call (pdp.py:240). Only ``request`` and ``policy`` exist
-  there, so the attempt fact must be derivable from those two alone
-  (request_id, action_type, content_sha256 if cheap, policy id/version).
-* **Slot reuse**: reuse the existing ``_decision_ledger`` slot (pdp.py:218).
-  No new constructor parameter, no new wiring in main.py beyond what M0 built.
-* **Shape**: 1-2 additive lines calling a self-contained
-  ``seal_attempt(self._decision_ledger, request, policy)`` that mirrors
-  ``seal_decision``'s fail-closed contract exactly (decision_seal.py:94-104):
-  ``ledger is None`` → no-op ``None``; append failure → logged, ``None``,
-  never raises into the request path; never alters the verdict.
-* **Model question (flagged, seam-track decision)**: ``SealedFactKind``
-  (models.py:207-216) has NO ATTEMPT member. Detail-typing the attempt as a
-  DECISION fact would misname a pre-verdict fact — DECISION's documented
-  meaning is "a verdict was produced" (models.py:211) and at evaluate() entry
-  it wasn't yet. Proposal: a new enum member ``ATTEMPT = "attempt"`` ("an
-  evaluation was begun; pre-verdict") as a seam-track-owned models.py change.
-* **Conservation linkage once the hook lands**: ``n_attempts`` := count of
-  ATTEMPT facts in the epoch. ``n_error`` has no independent seal even then —
-  the seam must either (a) also seal an error-outcome fact at the exception
-  boundary of evaluate(), or (b) define error := attempt with no matching
-  DECISION ``subject_id``, which makes the count identity definitionally
-  one-sided (it can then only catch missing/fabricated DECISIONs, not missing
-  attempts). That choice changes what the omission attack proves; it belongs
-  to the seam track and is deliberately NOT decided here.
-* **Count scoping (batch-3 caution 3, folded in 2026-06-11)**: once the hook
-  lands, L5 reflexive gate evaluations (policy ``reflexive-governor``,
-  governor.py:594-601) and any other non-customer DECISION traffic enter the
-  conservation identity. The reflexive evaluation's M0 DECISION fact carries
-  the PDP's OWN verdict — a PERMIT even when metaguard demoted the composed
-  ruling to ABSTAIN, because the demotion lives only in the ENFORCEMENT
-  fact — so an attempt count scoped to customer traffic alone reports a
-  spurious GATED-BROKEN (tests/test_wave2_twelveleap_composition.py pins
-  exactly these counts live). The hook must either filter by action_type or
-  explicitly count gate evaluations as attempts — decided at hook-design
-  time, and the choice must be declared in the hook's contract so the
-  composition test is recomposed consciously, not silently re-pinned.
-* **Honest residual blind spot**: an entry-hook bounds, but does not
-  eliminate, uncounted work — anything that dies before evaluate() is entered
-  (transport layer, non-PDP traffic) remains invisible. The hook turns
-  ``n_attempts`` from trust-me into sealed-at-entry; it does not make it total.
-* **What flips when it lands**: ``ATTEMPT_HOOK_PRESENT`` below becomes True
-  (this track's change, after verifying the seam), certificates gain
-  ``complete=True`` *only for the conservation dimension*, and
-  ``check_count_conservation`` starts deriving ``n_attempts`` from ATTEMPT
-  facts instead of requiring it as an externally supplied (trust-me) input.
+* ``seal_attempt`` seals one ``SealedFact(ATTEMPT)`` at evaluate() entry
+  (between ``pipeline_start`` and the deterministic gate — the only point
+  every evaluation passes exactly once), reusing the ``_decision_ledger``
+  slot, mirroring ``seal_decision``'s fail-closed contract exactly.
+* **Count scoping (decided): gate evaluations COUNT as attempts.** The
+  identity is global and symmetric — L5 reflexive gate evaluations seal one
+  ATTEMPT and one verdict-keyed DECISION each and balance; fast-paths never
+  call evaluate() and produce neither fact.
+* **n_error (decided): derivable and ONE-SIDED.** No error-outcome fact is
+  sealed; error := ATTEMPT with no matching verdict-keyed DECISION. The
+  identity catches missing/fabricated DECISIONs (the omission attack); a
+  mid-pipeline death is indistinguishable from an omission — both surface
+  as GATED-BROKEN, failing closed.
+* **What flipped at landing**: :data:`ATTEMPT_HOOK_PRESENT` is True
+  (codebase-level); ``check_count_conservation`` derives ``n_attempts``
+  from sealed ATTEMPT facts whenever the epoch holds any (a contradicting
+  supplied count is itself GATED-BROKEN); certificates carry
+  ``attempt_hook_present``/``complete=True`` *only for the
+  count-conservation dimension and only on EPOCH-level evidence* (derived
+  source) — pre-hook epochs honestly stay incomplete, and the verifier
+  rejects hook-present claims whose conservation shows no derived source.
+
+* **Honest residual blind spot (unchanged by the landing)**: an entry-hook
+  bounds, but does not eliminate, uncounted work — anything that dies before
+  evaluate() is entered (transport layer, non-PDP traffic) remains
+  invisible. The hook turns ``n_attempts`` from trust-me into
+  sealed-at-entry; it does not make it total. Reflexive fast-paths (the
+  saves/denials before governor.py's gate calls evaluate()) consistently
+  produce neither an ATTEMPT nor a DECISION fact, so the identity stays
+  balanced on both sides of that boundary.
 
 Maturity
 --------
 ``research_early`` (ROADMAP wave-class "research-grade"; the nearest
 ``EvidenceMaturity`` member is ``RESEARCH_EARLY`` — there is no
-"research_grade" member and this module does not invent one). The crypto half
-is real and tested; the completeness claim is BLOCKED on the attempt hook.
+"research_grade" member and this module does not invent one). The crypto
+half is real and tested; the conservation claim is now GATED on sealed
+ATTEMPT facts for epochs the hook ran over — scoped to the
+count-conservation dimension, one-sided per the declared n_error contract,
+and still bounded by the residual blind spot above. The hook itself is
+``research-solid`` plumbing (live ECDSA-P256 + hash chain); this module's
+certificate claims inherit ``research_early``.
 """
 
 from __future__ import annotations
@@ -189,11 +178,15 @@ __all__ = [
     "verify_epoch_commitment",
 ]
 
-# The upstream attempt-sealing hook does not exist (grep for seal_attempt is
-# empty outside this module). This constant is flipped by THIS track only
-# after the seam track lands the hook and we verify it live. Until then every
-# certificate carries attempt_hook_present=False and complete=False.
-ATTEMPT_HOOK_PRESENT: bool = False
+# The upstream attempt-sealing hook EXISTS: provenance/attempt_seal.py seals
+# one SealedFact(ATTEMPT) at PolicyDecisionPoint.evaluate() entry (the call
+# sits between pipeline_start and the deterministic gate in engine/pdp.py),
+# verified live by tests/test_attempt_seal.py before this flip. This constant
+# is a CODEBASE-level fact; certificates additionally require EPOCH-level
+# evidence — a cert claims attempt_hook_present/complete only when its own
+# conservation check derived n_attempts from sealed ATTEMPT facts in the
+# epoch (pre-hook epochs and non-PDP ledgers stay incomplete, honestly).
+ATTEMPT_HOOK_PRESENT: bool = True
 
 # Explicit representation of the empty epoch ("zero sealed facts"). The
 # reused primitive build_merkle_root REJECTS empty input by design, so the
@@ -587,6 +580,11 @@ class ConservationCheck:
     n_forbid: int
     n_error: int | None
     note: str
+    # Where n_attempts came from: "derived" (counted from sealed ATTEMPT
+    # facts in the epoch — the only source that can support a completeness
+    # claim), "supplied" (externally provided, trust-me — pre-hook epochs),
+    # or None (UNGATED). The verifier keys on this field.
+    attempts_source: Literal["derived", "supplied"] | None = None
 
 
 def check_count_conservation(
@@ -596,19 +594,33 @@ def check_count_conservation(
     n_error: int | None = None,
 ) -> ConservationCheck:
     """Evaluate ``attempts == permits + abstains + forbids + errors`` over the
-    epoch's sealed DECISION facts.
+    epoch's sealed facts.
 
-    The right-hand side is computed from records actually in the chain (the
-    only honest source). The left-hand side, ``n_attempts``, has NO sealed
-    source today — sealing happens only after a verdict (pdp.py:490), so
-    crashes and non-PDP traffic are never counted. When ``n_attempts`` is not
-    supplied the result is ``UNGATED`` (``holds=None``), never a vacuous pass.
+    Both sides now come from records actually in the chain: the right-hand
+    side from verdict-keyed DECISION facts, and — since the attempt hook
+    landed (provenance/attempt_seal.py, sealed at evaluate() entry) — the
+    left-hand side from ATTEMPT facts. When the epoch holds ATTEMPT facts
+    they ARE ``n_attempts`` (``attempts_source="derived"``); a supplied
+    ``n_attempts`` that contradicts the sealed count is the fabrication
+    alarm and returns GATED-BROKEN. Epochs with no ATTEMPT facts (sealed
+    before the hook, or by a non-PDP producer) fall back to the supplied
+    value (``attempts_source="supplied"``, trust-me) or UNGATED
+    (``holds=None``), never a vacuous pass.
 
-    ``n_error`` likewise has no sealed source (no error-outcome fact exists);
-    when omitted while gated it is treated as 0 and the note says so.
+    The identity is ONE-SIDED by the hook's declared n_error contract: no
+    error-outcome fact is sealed, so an attempt with no matching verdict —
+    an omitted/fabricated DECISION or a mid-pipeline death alike — surfaces
+    as GATED-BROKEN; the two causes are indistinguishable here, and work
+    dying before evaluate() entry is never counted at all. ``n_error``
+    remains an external input; when omitted while gated it is treated as 0
+    and the note says so.
     """
     n_permit = n_abstain = n_forbid = 0
+    n_attempt_facts = 0
     for rec in records:
+        if rec.fact.kind is SealedFactKind.ATTEMPT:
+            n_attempt_facts += 1
+            continue
         if rec.fact.kind is not SealedFactKind.DECISION:
             continue
         verdict = rec.fact.detail.get("verdict")
@@ -619,7 +631,35 @@ def check_count_conservation(
         elif verdict == "FORBID":
             n_forbid += 1
 
-    if n_attempts is None:
+    attempts_source: Literal["derived", "supplied"] | None
+    if n_attempt_facts > 0:
+        attempts_source = "derived"
+        if n_attempts is not None and n_attempts != n_attempt_facts:
+            return ConservationCheck(
+                status="GATED-BROKEN",
+                holds=False,
+                n_attempts=n_attempt_facts,
+                n_permit=n_permit,
+                n_abstain=n_abstain,
+                n_forbid=n_forbid,
+                n_error=n_error,
+                note=(
+                    f"supplied n_attempts={n_attempts} contradicts the "
+                    f"{n_attempt_facts} sealed ATTEMPT facts in the epoch — "
+                    "the sealed facts are the only honest source; a "
+                    "conflicting external count is itself the alarm"
+                ),
+                attempts_source=attempts_source,
+            )
+        n_attempts = n_attempt_facts
+        source_note = f" (n_attempts derived from {n_attempt_facts} sealed ATTEMPT facts)"
+    elif n_attempts is not None:
+        attempts_source = "supplied"
+        source_note = (
+            " (n_attempts externally supplied — trust-me; this epoch holds "
+            "no sealed ATTEMPT facts)"
+        )
+    else:
         return ConservationCheck(
             status="UNGATED",
             holds=None,
@@ -629,10 +669,12 @@ def check_count_conservation(
             n_forbid=n_forbid,
             n_error=n_error,
             note=(
-                "attempt-sealing hook absent — n_attempts has no sealed "
-                "source and was not supplied; identity NOT evaluated "
-                "(UNGATED is not HOLDS)"
+                "no sealed ATTEMPT facts in this epoch and n_attempts not "
+                "supplied; identity NOT evaluated (UNGATED is not HOLDS) — "
+                "the hook exists but did not run over these records "
+                "(pre-hook epoch, or a non-PDP ledger)"
             ),
+            attempts_source=None,
         )
 
     err = 0 if n_error is None else n_error
@@ -642,10 +684,11 @@ def check_count_conservation(
         f"gated check: {n_attempts} attempts vs {n_permit}+{n_abstain}+"
         f"{n_forbid}+{err} = {rhs}"
     )
+    note += source_note
     if n_error is None:
         note += (
-            " (n_error unsupplied, counted as 0 — no error seal exists; "
-            "see scoping doc)"
+            " (n_error unsupplied, counted as 0 — no error seal exists by "
+            "the hook's declared one-sided contract)"
         )
     return ConservationCheck(
         status="GATED-HOLDS" if holds else "GATED-BROKEN",
@@ -656,6 +699,7 @@ def check_count_conservation(
         n_forbid=n_forbid,
         n_error=n_error,
         note=note,
+        attempts_source=attempts_source,
     )
 
 
@@ -674,11 +718,15 @@ class NegativeKnowledgeCertificate:
     """A non-membership certificate over one sealed ledger epoch.
 
     Claims exactly: "no sealed fact with key ``key`` exists in the epoch
-    committed by ``commitment``" — scoped, in-memory, opt-in, incomplete.
+    committed by ``commitment``" — scoped, in-memory, opt-in.
     The honesty pins are first-class fields, not prose:
 
-    * ``complete`` / ``attempt_hook_present`` — False until the attempt hook
-      lands; without it the epoch's attempt count is trust-me.
+    * ``complete`` / ``attempt_hook_present`` — EPOCH-level claims, True only
+      when this epoch's conservation check derived ``n_attempts`` from sealed
+      ATTEMPT facts (the attempt hook ran over these records). ``complete``
+      is scoped to the COUNT-CONSERVATION dimension only — the entry hook
+      bounds, never eliminates, uncounted work. Defaults stay False so a
+      hand-built certificate under-claims rather than over-claims.
     * ``vacuous`` — True when the epoch holds zero sealed facts (including
       every unsealed deployment, where TEX_SEAL_DECISIONS is unset).
     * ``ledger_in_memory`` / ``ledger_opt_in`` — structural facts of today's
@@ -695,23 +743,39 @@ class NegativeKnowledgeCertificate:
     vacuous: bool
     hash_backend: str
     complete: bool = False
-    attempt_hook_present: bool = ATTEMPT_HOOK_PRESENT
+    attempt_hook_present: bool = False
     ledger_in_memory: bool = True
     ledger_opt_in: bool = True
     maturity: str = field(default=_MATURITY.value)
 
 
-def _claim_text(key: str, commitment: EpochCommitment) -> str:
+def _claim_text(
+    key: str, commitment: EpochCommitment, conservation: ConservationCheck
+) -> str:
     head = commitment.epoch_head_hash or "none"
     base = (
         f"no sealed fact with key {key} exists in THIS ledger epoch "
         f"(head={head}, records={commitment.record_count}, "
         f"hash={commitment.hash_backend}). Scope: a hash-chained, in-memory, "
         f"opt-in sealed epoch — erased on restart, empty unless "
-        f"TEX_SEAL_DECISIONS=1. Completeness is NOT claimed: the "
-        f"attempt-sealing hook is absent, so unsealed attempts are invisible "
-        f"to this certificate."
+        f"TEX_SEAL_DECISIONS=1."
     )
+    if conservation.attempts_source == "derived":
+        base += (
+            f" Completeness is claimed for the COUNT-CONSERVATION dimension "
+            f"only: the attempt-sealing hook sealed "
+            f"{conservation.n_attempts} ATTEMPT fact(s) at evaluate() entry "
+            f"in this epoch. The identity is ONE-SIDED — an omitted DECISION "
+            f"and a mid-pipeline death are indistinguishable (both surface "
+            f"as GATED-BROKEN) — and work dying before evaluate() entry "
+            f"remains invisible."
+        )
+    else:
+        base += (
+            " Completeness is NOT claimed: no ATTEMPT facts are sealed in "
+            "this epoch, so unsealed attempts are invisible to this "
+            "certificate."
+        )
     if commitment.record_count == 0:
         base += (
             " The epoch contains ZERO sealed facts: non-membership is "
@@ -731,9 +795,16 @@ def issue_certificate_with_records(
     certificate whose conservation check is computed over those same records.
 
     Raises :class:`KeyPresentError` when the key IS sealed in the epoch —
-    the certificate cannot be issued for a present key. Conservation inputs
-    ``n_attempts``/``n_error`` are optional pass-throughs for the future
-    hook (today: a test standing in for it); omitted → UNGATED.
+    the certificate cannot be issued for a present key. ``n_attempts`` is
+    derived from sealed ATTEMPT facts when the epoch holds any (a supplied
+    value that contradicts them yields GATED-BROKEN); for pre-hook epochs it
+    remains an optional trust-me pass-through; omitted → UNGATED.
+
+    ``attempt_hook_present`` / ``complete`` are set from EPOCH-level
+    evidence: True only when conservation derived its count from sealed
+    ATTEMPT facts. The codebase-level :data:`ATTEMPT_HOOK_PRESENT` alone is
+    never enough — a hook that exists but did not run over these records
+    supports no completeness claim.
     """
     key = _normalize_key(key)
     accumulator = build_epoch_accumulator(records)
@@ -742,14 +813,19 @@ def issue_certificate_with_records(
         records, n_attempts=n_attempts, n_error=n_error
     )
     commitment = accumulator.commitment
+    hook_ran = (
+        ATTEMPT_HOOK_PRESENT and conservation.attempts_source == "derived"
+    )
     return NegativeKnowledgeCertificate(
         key=key,
         commitment=commitment,
         proof=proof,
         conservation=conservation,
-        claim_text=_claim_text(key, commitment),
+        claim_text=_claim_text(key, commitment, conservation),
         vacuous=commitment.is_empty,
         hash_backend=commitment.hash_backend,
+        complete=hook_ran,
+        attempt_hook_present=hook_ran,
     )
 
 
@@ -759,16 +835,35 @@ def verify_certificate(
     """Offline check of a certificate against its own commitment.
 
     Verifies the adjacency proof (inclusions, adjacency, order) and the
-    honesty pins (a certificate that claims completeness, or hides
-    vacuousness, while the hook is absent is REJECTED — over-claiming is a
-    verification failure here, not a style issue). Does NOT re-audit
-    sortedness — that needs the records (verify_epoch_commitment).
+    honesty pins — over-claiming is a verification failure here, not a
+    style issue. A hook-present / complete claim is accepted ONLY when the
+    certificate's own conservation check shows the hook ran over this epoch
+    (``attempts_source == "derived"`` from sealed ATTEMPT facts); claimed
+    without that evidence it is REJECTED in both forms. Honest limit: these
+    fields are internal-consistency checks over the certificate object —
+    a conservation block fabricated wholesale is caught only at the records
+    level (``verify_epoch_commitment``), same trust shape as every other
+    cert field. Does NOT re-audit sortedness — that needs the records
+    (verify_epoch_commitment).
     """
-    if cert.complete or cert.attempt_hook_present:
+    hook_evidence = (
+        cert.conservation.attempts_source == "derived"
+        and cert.conservation.status != "UNGATED"
+        and (cert.conservation.n_attempts or 0) > 0
+    )
+    if cert.attempt_hook_present and not hook_evidence:
         return VerificationResult(
             ok=False,
-            reason="certificate claims completeness but the attempt-sealing "
-                   "hook does not exist — over-claim rejected",
+            reason="certificate claims the attempt-sealing hook ran over "
+                   "this epoch, but its conservation check shows no sealed "
+                   "ATTEMPT source (n_attempts not derived) — over-claim "
+                   "rejected",
+        )
+    if cert.complete and not cert.attempt_hook_present:
+        return VerificationResult(
+            ok=False,
+            reason="certificate claims complete=True without "
+                   "attempt_hook_present — over-claim rejected",
         )
     if cert.commitment.is_empty and not cert.vacuous:
         return VerificationResult(

@@ -297,13 +297,18 @@ def test_empty_proof_shape_rejected_against_non_empty_epoch() -> None:
 
 # --------------------------------------------------------- honesty pins -------
 
-def test_certificate_carries_incompleteness_pins() -> None:
+def test_certificate_carries_incompleteness_pins_for_hookless_epochs() -> None:
+    """RECOMPOSED at the attempt-hook landing: the codebase-level constant is
+    now True, but an epoch with NO sealed ATTEMPT facts (this fixture appends
+    DECISION facts directly — a pre-hook shape) must still carry every
+    incompleteness pin: the hook existing is not the hook having RUN."""
     _, records = _epoch(_MIX)
     cert = issue_certificate_with_records(records, "0" * 64)
 
-    assert ATTEMPT_HOOK_PRESENT is False  # flips only when the seam lands the hook
+    assert ATTEMPT_HOOK_PRESENT is True  # the seam landed; flipped after live verify
     assert cert.complete is False
     assert cert.attempt_hook_present is False
+    assert cert.conservation.attempts_source is None
     assert cert.ledger_in_memory is True
     assert cert.ledger_opt_in is True
     assert cert.maturity == EvidenceMaturity.RESEARCH_EARLY.value
@@ -316,10 +321,31 @@ def test_certificate_carries_incompleteness_pins() -> None:
 
 
 def test_overclaiming_certificate_is_rejected_by_the_verifier() -> None:
-    _, records = _epoch(_MIX)
+    """The rejection direction survives the hook landing: a hook-present /
+    complete claim over an epoch whose conservation shows NO sealed ATTEMPT
+    source is an over-claim, rejected in every combination."""
+    _, records = _epoch(_MIX)  # no ATTEMPT facts: attempts_source is None
     cert = issue_certificate_with_records(records, "0" * 64)
     assert verify_certificate(replace(cert, complete=True)).ok is False
     assert verify_certificate(replace(cert, attempt_hook_present=True)).ok is False
+    assert (
+        verify_certificate(
+            replace(cert, attempt_hook_present=True, complete=True)
+        ).ok
+        is False
+    )
+    # Supplied (trust-me) counts cannot support a hook claim either.
+    gated_trustme = issue_certificate_with_records(
+        records, "0" * 64, n_attempts=len(_MIX)
+    )
+    assert gated_trustme.conservation.attempts_source == "supplied"
+    assert gated_trustme.attempt_hook_present is False
+    assert (
+        verify_certificate(
+            replace(gated_trustme, attempt_hook_present=True)
+        ).ok
+        is False
+    )
 
     empty_cert = issue_certificate_with_records((), "0" * 64)
     assert verify_certificate(replace(empty_cert, vacuous=False)).ok is False
@@ -403,9 +429,9 @@ def test_cross_backend_verification_names_the_mismatch() -> None:
 
 # ------------------------------------------------- live-seam integration ------
 
-def test_epoch_over_real_pdp_sealed_decisions() -> None:
-    """End-to-end over the M0 seam: real PDP verdicts sealed via seal_decision,
-    then a non-membership certificate over that live epoch."""
+def _live_epoch() -> tuple[SealedFactLedger, tuple]:
+    """A real hook-era epoch: live PDP evaluations over a wired ledger —
+    each seals 1 ATTEMPT (entry hook) + 1 DECISION (M0 finalize)."""
     from tex.engine.pdp import PolicyDecisionPoint
     from tests.factories import make_default_policy, make_request
 
@@ -417,10 +443,16 @@ def test_epoch_over_real_pdp_sealed_decisions() -> None:
         "Here is our production api key sk-abcdef1234567890abcdef please use it.",
     ):
         pdp.evaluate(request=make_request(content=content), policy=policy)
+    return ledger, ledger.list_all()
+
+
+def test_epoch_over_real_pdp_sealed_decisions() -> None:
+    """End-to-end over the M0 seam: real PDP verdicts sealed via seal_decision,
+    then a non-membership certificate over that live epoch."""
+    ledger, records = _live_epoch()
 
     # 2 evaluations × (1 ATTEMPT at entry + 1 DECISION at finalize) — the
     # attempt hook landed; every record of every kind is an accumulator leaf.
-    records = ledger.list_all()
     assert len(records) == 4
 
     present = recompute_key(records[0].fact)
@@ -431,3 +463,91 @@ def test_epoch_over_real_pdp_sealed_decisions() -> None:
     cert = issue_certificate_with_records(records, absent)
     assert verify_certificate(cert).ok is True
     assert cert.commitment.epoch_head_hash == records[-1].record_hash
+
+
+def test_conservation_derives_from_sealed_attempts_and_gates_live() -> None:
+    """The completeness earn, first half: over a hook-era epoch the identity
+    is GATED with NO externally supplied count — n_attempts comes from the
+    sealed ATTEMPT facts themselves, and an honest epoch HOLDS."""
+    _, records = _live_epoch()
+    cons = check_count_conservation(records)  # no n_attempts argument at all
+    assert cons.status == "GATED-HOLDS"
+    assert cons.holds is True
+    assert cons.attempts_source == "derived"
+    assert cons.n_attempts == 2
+    assert cons.n_permit + cons.n_abstain + cons.n_forbid == 2
+
+
+def test_omission_attack_closes_end_to_end_with_derived_attempts() -> None:
+    """The completeness earn, second half (the L3 earn condition, finally
+    gated): delete one verdict-DECISION from a rebuilt hook-era epoch and the
+    DERIVED identity breaks — no trust-me input anywhere in the loop. The
+    ATTEMPT facts the adversary cannot account for are the alarm."""
+    _, records = _live_epoch()
+    sealed = build_epoch_accumulator(records).commitment
+
+    victim_idx = next(
+        i
+        for i, r in enumerate(records)
+        if r.fact.kind is SealedFactKind.DECISION
+        and "verdict" in r.fact.detail
+    )
+    hidden = tuple(r for i, r in enumerate(records) if i != victim_idx)
+
+    broken = check_count_conservation(hidden)  # derived, zero external inputs
+    assert broken.status == "GATED-BROKEN"
+    assert broken.holds is False
+    assert broken.attempts_source == "derived"
+    assert broken.n_attempts == 2  # both sealed attempts survive...
+    assert broken.n_permit + broken.n_abstain + broken.n_forbid == 1  # ...one verdict gone
+
+    # And the accumulator root still betrays the rebuilt epoch independently.
+    assert verify_epoch_commitment(hidden, sealed).ok is False
+
+    # Declared one-sidedness, stated honestly: the SAME signature appears if
+    # an evaluation died mid-pipeline — GATED-BROKEN names the gap, not the
+    # cause. (tests/test_attempt_seal.py pins the crash variant.)
+
+
+def test_supplied_count_contradicting_sealed_attempts_is_the_alarm() -> None:
+    """Sealed facts outrank externally supplied counts: a contradicting
+    n_attempts over a hook-era epoch is GATED-BROKEN by itself."""
+    _, records = _live_epoch()
+    cons = check_count_conservation(records, n_attempts=999)
+    assert cons.status == "GATED-BROKEN"
+    assert cons.holds is False
+    assert cons.attempts_source == "derived"
+    assert cons.n_attempts == 2  # the sealed count, not the supplied one
+    assert "contradicts" in cons.note
+
+    # A CONSISTENT supplied count is not punished (idempotent with derived).
+    consistent = check_count_conservation(records, n_attempts=2)
+    assert consistent.status == "GATED-HOLDS"
+    assert consistent.attempts_source == "derived"
+
+
+def test_hook_present_certificate_is_accepted_with_epoch_evidence() -> None:
+    """The acceptance direction (the verifier relaxation, both ways): a
+    hook-era certificate carries attempt_hook_present=True and complete=True
+    — scoped to the conservation dimension — and VERIFIES. The claim text
+    names the one-sidedness and the pre-entry blind spot."""
+    _, records = _live_epoch()
+    cert = issue_certificate_with_records(records, "0" * 64)
+
+    assert cert.attempt_hook_present is True
+    assert cert.complete is True
+    assert cert.conservation.status == "GATED-HOLDS"
+    assert cert.conservation.attempts_source == "derived"
+    result = verify_certificate(cert)
+    assert result.ok is True, result.reason
+
+    assert "COUNT-CONSERVATION dimension only" in cert.claim_text
+    assert "ONE-SIDED" in cert.claim_text
+    assert "before evaluate() entry" in cert.claim_text
+
+    # Stripping the evidence flips it back to a rejected over-claim — the
+    # fields are load-bearing, not decorative.
+    stripped = replace(
+        cert, conservation=replace(cert.conservation, attempts_source=None)
+    )
+    assert verify_certificate(stripped).ok is False

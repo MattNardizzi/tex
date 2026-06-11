@@ -349,10 +349,15 @@ def test_l3_certificate_and_conservation_count_reflexive_traffic(epoch) -> None:
     assert verify_certificate(cert).ok is True
     assert cert.commitment.record_count == 11
     assert cert.vacuous is False
-    assert cert.complete is False
-    # Issued without an attempt count: UNGATED, holds=None — never a pass.
-    assert cert.conservation.status == "UNGATED"
-    assert cert.conservation.holds is None
+    # Hook-era epoch: conservation derives n_attempts from the 3 sealed
+    # ATTEMPT facts (A, gate eval, B) with no external input — GATED, and
+    # complete=True scoped to the count-conservation dimension only.
+    assert cert.complete is True
+    assert cert.attempt_hook_present is True
+    assert cert.conservation.status == "GATED-HOLDS"
+    assert cert.conservation.holds is True
+    assert cert.conservation.attempts_source == "derived"
+    assert cert.conservation.n_attempts == 3
 
     # What conservation sees vs what actually happened: the reflexive
     # evaluation's M0 fact carries the PDP's own verdict (PERMIT) — the
@@ -367,18 +372,25 @@ def test_l3_certificate_and_conservation_count_reflexive_traffic(epoch) -> None:
     assert ruling.detail["allowed"] is False
 
     # The counts: 1 PERMIT (reflexive eval) + 2 ABSTAIN (customers). The PQ
-    # fact (DECISION-kind, no verdict key) and the three ENFORCEMENT facts
-    # (verdict key present, wrong kind) are both excluded — each exclusion
+    # fact (DECISION-kind, no verdict key), the three ENFORCEMENT facts
+    # (verdict key present, wrong kind) and the three ATTEMPT facts (distinct
+    # kind, the LHS) are all excluded from the verdict side — each exclusion
     # is load-bearing for these numbers.
+    # A customer-only count (2) now CONTRADICTS the 3 sealed ATTEMPT facts —
+    # the misscoping alarm fires as a fabrication alarm, by construction.
     customer_only = check_count_conservation(records, n_attempts=2)
-    assert (
-        customer_only.n_permit,
-        customer_only.n_abstain,
-        customer_only.n_forbid,
-    ) == (1, 2, 0)
     assert customer_only.status == "GATED-BROKEN"
+    assert customer_only.attempts_source == "derived"
+    assert "contradicts" in customer_only.note
 
-    # The identity holds only when gate evaluations count as attempts.
-    gate_inclusive = check_count_conservation(records, n_attempts=3)
+    # The declared scoping (gate evals COUNT) is what the sealed facts
+    # themselves encode: derived = 3 attempts vs 1 PERMIT + 2 ABSTAIN.
+    gate_inclusive = check_count_conservation(records)
+    assert (
+        gate_inclusive.n_permit,
+        gate_inclusive.n_abstain,
+        gate_inclusive.n_forbid,
+    ) == (1, 2, 0)
     assert gate_inclusive.status == "GATED-HOLDS"
     assert gate_inclusive.holds is True
+    assert gate_inclusive.n_attempts == 3

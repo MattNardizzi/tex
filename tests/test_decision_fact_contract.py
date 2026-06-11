@@ -267,13 +267,20 @@ def test_conservation_counts_exactly_one_verdict_per_request(
 ) -> None:
     """The L3 half on the live path: one PQ-lowered request leaves TWO
     DECISION facts but exactly ONE counted verdict (the ABSTAIN). If the PQ
-    fact ever grows a verdict key, the identity breaks at n_attempts=1."""
-    cons = check_count_conservation(
-        sealed_flow.ledger.list_all(), n_attempts=1
-    )
+    fact ever grows a verdict key, the identity breaks at 1 attempt.
+    RECOMPOSED at the attempt-hook landing: n_attempts now DERIVES from the
+    sealed ATTEMPT fact — no external count needed; a supplied count that
+    agrees is idempotent."""
+    records = sealed_flow.ledger.list_all()
+    cons = check_count_conservation(records)  # derived from the ATTEMPT fact
+    assert cons.attempts_source == "derived"
+    assert cons.n_attempts == 1
     assert (cons.n_permit, cons.n_abstain, cons.n_forbid) == (0, 1, 0)
     assert cons.status == "GATED-HOLDS"
     assert cons.holds is True
+
+    consistent = check_count_conservation(records, n_attempts=1)
+    assert consistent.status == "GATED-HOLDS"
 
 
 def test_attempt_fact_is_a_distinct_kind_invisible_to_both_consumers(

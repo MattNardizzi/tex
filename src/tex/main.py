@@ -38,6 +38,7 @@ from tex.contracts import BehavioralContract, ContractEnforcer
 from tex.engine.contract_bridge import SessionEnforcerRegistry
 from tex.provenance import build_default_provenance_engine  # PROVENANCE
 from tex.provenance.delegation import SealedDelegationGraph  # PROVENANCE: delegation edges
+from tex.interchange.gix import build_checkpoint_publisher as build_gix_checkpoint_publisher  # Wave-2 L6: GIX transparency-log seam
 from tex.provenance.ledger import SealedFactLedger  # PROVENANCE: Wave-2 DECISION seal (M0)
 from tex.provenance.feed import (  # PROVENANCE: continuous feed
     ContinuousProvenanceFeed,
@@ -868,6 +869,7 @@ def build_runtime(
         "TEX_SEAL_DECISIONS", ""
     ).strip().lower() in {"1", "true", "yes"}
     decision_ledger = SealedFactLedger() if seal_decisions else None
+    build_gix_checkpoint_publisher(decision_ledger)  # Wave-2 L6: inert None unless TEX_GIX_WITNESS=1 AND the ledger exists; pull-based, never touches the verdict path
 
     pdp = PolicyDecisionPoint(
         retrieval_orchestrator=retrieval_orchestrator,

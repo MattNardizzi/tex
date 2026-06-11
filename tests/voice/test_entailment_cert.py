@@ -75,7 +75,7 @@ def test_commitment_round_trip_in_a_mixed_chain() -> None:
 
     res = verify_entailment_commitment(at.records(), expected_model_id=MODEL_A)
     assert res.chain_intact is True
-    assert res.chain_checked == 2
+    assert res.record_count == 2
     assert res.signatures_valid is True
     assert len(res.commitments) == 1
     assert res.model_id_ok is True
@@ -424,6 +424,12 @@ def test_verification_of_an_empty_or_commitment_free_chain_is_not_ok() -> None:
     res = verify_entailment_commitment(at.records(), expected_model_id=MODEL_A)
     assert res.chain_intact is True  # the chain is fine; the COMMITMENT is absent
     assert res.ok is False and "no_entailment_commitment_in_records" in res.issues
+    # An expected digest against a commitment-free chain is a FAILED check,
+    # never a vacuous pass.
+    res = verify_entailment_commitment(
+        at.records(), expected_model_id=MODEL_A, expected_manifest_sha256="a" * 64
+    )
+    assert res.manifest_ok is False and res.ok is False
 
 
 def test_schema_pin_is_part_of_the_sealed_bytes() -> None:

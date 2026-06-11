@@ -349,7 +349,7 @@ class EntailmentCommitmentVerification:
     """
 
     chain_intact: bool
-    chain_checked: int
+    record_count: int
     signatures_valid: bool
     authorship_ok: bool | None
     commitments: tuple[EntailmentCommitment, ...]
@@ -463,11 +463,15 @@ def verify_entailment_commitment(
     if not commitments:
         model_id_ok = False
         hashes_ok = False
+        if expected_manifest_sha256 is not None:
+            # The caller expected a digest and NOTHING carried one — that is a
+            # failed check, never a vacuous pass.
+            manifest_ok = False
         issues.append("no_entailment_commitment_in_records")
 
     return EntailmentCommitmentVerification(
         chain_intact=chain_intact,
-        chain_checked=len(records),
+        record_count=len(records),
         signatures_valid=signatures_valid,
         authorship_ok=authorship_ok,
         commitments=tuple(commitments),

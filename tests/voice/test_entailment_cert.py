@@ -13,6 +13,7 @@ what the missing scorer cannot deliver.
 from __future__ import annotations
 
 import hashlib
+import warnings
 from pathlib import Path
 
 import pytest
@@ -351,6 +352,48 @@ def test_error_messages_do_not_overpromise() -> None:
     for msg in messages:
         for word in ("guarantee", "coverage", "1-alpha"):
             assert word not in msg, f"error message claims {word!r}: {msg}"
+
+
+def test_a_model_construct_forged_calibrated_true_is_rejected_at_replay() -> None:
+    # pydantic's model_construct() skips validation — an in-process liar can
+    # BUILD a calibrated=True object and seal its dump. Replay must refuse it:
+    # the verifier re-validates every embedded commitment against schema v1.
+    forged = EntailmentCommitment.model_construct(
+        schema_version=COMMITMENT_SCHEMA,
+        model_id=MODEL_A,
+        model_loaded=False,
+        threshold_label=THRESHOLD_LABEL,
+        lambda_hat=0.87,
+        calibrated=True,
+        calibration_manifest_sha256=None,
+        calibration_corpus_id=None,
+        calibration_corpus_kind=None,
+        created_at="2026-06-11T00:00:00+00:00",
+    )
+    with warnings.catch_warnings():
+        # The forge's dump legitimately mismatches the schema — that IS the
+        # attack; silence pydantic's serializer note for this deliberate act.
+        warnings.simplefilter("ignore", UserWarning)
+        forged_dump = forged.model_dump()
+        forged_hash = forged.commitment_sha256()
+    at = VoiceAttestor()
+    at.seal(
+        transcript="",
+        routed_dimension="entailment-commitment",
+        verdict=NO_VERDICT_MARKER,
+        answer="",
+        object_=None,
+        proof_ref=None,
+        gate={
+            GATE_COMMITMENT_KEY: forged_dump,
+            GATE_COMMITMENT_HASH_KEY: forged_hash,
+        },
+    )
+    res = verify_entailment_commitment(at.records(), expected_model_id=MODEL_A)
+    assert res.chain_intact is True  # the chain is honest about what was sealed…
+    assert res.commitment_hashes_ok is False  # …but the CLAIM does not validate
+    assert res.ok is False
+    assert any(i.startswith("commitment_payload_invalid_at:0") for i in res.issues)
 
 
 # ── hash discipline ──────────────────────────────────────────────────────────

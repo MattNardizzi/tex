@@ -51,6 +51,14 @@ from tex.bench.evidence_bundle import (
 )
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.verdict import Verdict
+from tex.engine.verdict_certificate import (
+    NEIGHBORHOOD_FAMILY,
+    RobustnessObservation,
+    VerdictCertificate,
+    certify_verdict,
+    generate_neighborhood,
+    stability_p_low,
+)
 from tex.evidence.seal import build_evidence_chain_signer
 
 # The structural constraint: a refund is only allowed once identity is confirmed.
@@ -248,9 +256,100 @@ def _flip_one_char(text: str) -> str:
     return text
 
 
+# ── Wave 2 / L12: the robustness half — a seeded neighborhood, not a fixed list ──
+#
+# Re-running the ten FIXED paraphrases above through a deterministic PDP has
+# zero statistical content (it is the boolean ``all_forbid``, nothing more).
+# The upgrade: SAMPLE a seeded neighborhood from the named perturbation family
+# in ``engine/verdict_certificate.py``, run every sample through the real
+# runtime, and compute a genuine one-sided lower confidence bound ``p_low`` on
+# the FORBID-stability rate. The claim is distributional over that family —
+# named in the result — not worst-case. The fixed-10 trial above is untouched.
+
+
+@dataclass(frozen=True, slots=True)
+class NeighborhoodTrialResult:
+    """Outcome of one seeded-neighborhood robustness trial."""
+
+    family: str
+    seed: int
+    n_samples: int
+    samples: tuple[str, ...]
+    verdicts: tuple[str, ...]
+    target_verdict: str
+    n_stable: int
+    stability_rate: float
+    p_low: float  # 1-delta lower confidence bound on stability over the family
+    delta: float
+    all_stable: bool
+    certificate: VerdictCertificate
+
+
+def run_seeded_neighborhood_trial(
+    runtime,
+    *,
+    seed: int,
+    n_samples: int = 40,
+    delta: float = 0.05,
+    base_texts: tuple[str, ...] = PARAPHRASES,
+) -> NeighborhoodTrialResult:
+    """Run the seeded-neighborhood robustness trial against the real runtime.
+
+    Draws ``n_samples`` intent-preserving perturbations of ``base_texts``
+    (same structural metadata — the action graph carries the FORBID, the
+    content is what the attacker varies), evaluates each through the live
+    PDP, and returns the stability count with its Hoeffding–Bentkus
+    ``p_low`` and the resulting (synthetic-kind, ``certified=False``)
+    ``VerdictCertificate``. Deterministic given the seed.
+
+    The statistics assume the draws are iid from the family and the verdict
+    is a fixed function of the input across the trial — use a fresh runtime
+    (as the fixed-10 trial does) so cross-request state cannot couple the
+    evaluations.
+    """
+    samples = generate_neighborhood(
+        base_texts=base_texts, seed=seed, n_samples=n_samples
+    )
+    verdicts: list[str] = []
+    for content in samples:
+        result = runtime.evaluate_action_command.execute(_make_request(content))
+        verdicts.append(result.response.verdict.value)
+
+    target = Verdict.FORBID.value
+    n_stable = sum(1 for v in verdicts if v == target)
+    p_low = stability_p_low(n_stable, n_samples, delta)
+    certificate = certify_verdict(
+        robustness=RobustnessObservation(
+            n_samples=n_samples,
+            n_stable=n_stable,
+            delta=delta,
+            seed=seed,
+            family=NEIGHBORHOOD_FAMILY,
+            neighborhood_kind="synthetic",
+            target_verdict=target,
+        )
+    )
+    return NeighborhoodTrialResult(
+        family=NEIGHBORHOOD_FAMILY,
+        seed=seed,
+        n_samples=n_samples,
+        samples=samples,
+        verdicts=tuple(verdicts),
+        target_verdict=target,
+        n_stable=n_stable,
+        stability_rate=n_stable / n_samples,
+        p_low=p_low,
+        delta=delta,
+        all_stable=n_stable == n_samples,
+        certificate=certificate,
+    )
+
+
 __all__ = [
     "PARAPHRASES",
     "STRUCTURAL_METADATA",
+    "NeighborhoodTrialResult",
     "ReplayTrialResult",
     "run_replay_trial",
+    "run_seeded_neighborhood_trial",
 ]

@@ -46,6 +46,7 @@ from tex.engine.path_policy_bridge import (
 )
 from tex.engine.risk_spine import RiskSpine, apply_risk_spine
 from tex.engine.router import RoutingResult, build_default_router
+from tex.engine.verdict_certificate import verdict_certificate_metadata
 from tex.retrieval.orchestrator import (
     RetrievalOrchestrator,
     build_noop_retrieval_orchestrator,
@@ -938,6 +939,7 @@ class PolicyDecisionPoint:
                 if crc_certificate is not None
                 else {"enabled": False, "certified": False}
             ),
+            "verdict_certificate": verdict_certificate_metadata(),
             "hold": (hold.model_dump() if hold is not None else None),
             "policy": {
                 "policy_id": policy.policy_id,

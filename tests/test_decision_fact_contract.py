@@ -95,6 +95,28 @@ _MENTION_ALLOWLIST = {
     "zkpdp/arbiter.py": (
         "consumer — seal binding resolves matching[-1] per subject_id"
     ),
+    # The capstone composition layer (Wave 2 capstone thread) — four
+    # CONSUMER files, zero new DECISION producers. Its one new fact is
+    # kind=ANSWER (the sealed manifest digest), appended strictly AFTER the
+    # pre-seal epoch with subject_id "capstone:<request_id>" so it can never
+    # shadow the M0 decision's matching[-1] resolution, and with no verdict
+    # key in a DECISION-kind fact (L3's counts are untouched).
+    "capstone/compose.py": (
+        "consumer — locates the M0/PQ facts for the manifest's identity "
+        "cross-checks and per-leap verification snapshots"
+    ),
+    "capstone/verify.py": (
+        "consumer — offline re-checks: identity, L3 conservation slice, "
+        "L12 segment verdict multiset, M0 per-request order"
+    ),
+    "capstone/flow.py": (
+        "consumer — locates the capstone DECISION fact to build the voice "
+        "proof_ref cross-chain reference"
+    ),
+    "capstone/tamper.py": (
+        "consumer — ATTACK SIMULATION ONLY: locates PERMIT DECISION facts "
+        "to rebuild omission variants the L3 checks must catch"
+    ),
 }
 
 # The only construction sites allowed for kind=DECISION. A producer added

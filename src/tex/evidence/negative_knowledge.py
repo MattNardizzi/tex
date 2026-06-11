@@ -26,9 +26,10 @@ certificate vocabulary never uses it. Three structural facts bound the claim:
    records actually in the chain.
 
 The certificate carries ``complete=False`` and ``attempt_hook_present=False``
-until the upstream attempt-sealing hook lands (see the scoping proposal below).
-Until then ``n_attempts`` has no sealed source — it is trust-me — so the
-count-conservation predicate reports ``UNGATED`` rather than pretending to hold.
+over any epoch holding no sealed ATTEMPT facts (sealed before the hook landed,
+or by a non-PDP producer): there ``n_attempts`` has no sealed source — it is
+trust-me — so the count-conservation predicate reports ``UNGATED`` rather than
+pretending to hold. Hook-era epochs derive it (§ATTEMPT-SEALING HOOK — LANDED).
 
 Construction (research-early; not ZK, not lattice-based)
 --------------------------------------------------------
@@ -59,9 +60,10 @@ Construction (research-early; not ZK, not lattice-based)
 * **Count-conservation predicate** (ROADMAP.md L3, verbatim identity):
   ``attempts = permits + abstains + forbids + errors`` per epoch. The
   right-hand side is computed from sealed DECISION facts only; the left-hand
-  side has NO live source today (sealing happens only after a verdict,
-  pdp.py:490 — crashes and non-PDP traffic are never counted), so the
-  predicate is real code whose ``n_attempts`` input is gated on the hook.
+  side derives from sealed ATTEMPT facts where the landed attempt hook ran
+  (provenance/attempt_seal.py, sealed at evaluate() entry — work dying
+  before entry is never counted), and is otherwise an externally supplied
+  trust-me input or UNGATED.
 * **Anchoring caveat (a reviewer attacks this first)**: omission detection
   compares a rebuilt epoch against the *original* commitment — which the
   relying party must hold from outside the adversary's control (obtained

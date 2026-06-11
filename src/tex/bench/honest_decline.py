@@ -21,9 +21,11 @@ not a script: for a never-before-seen agent it is the ``cold_start`` flag —
 
 Honesty notes that keep this from being theater:
 - The resolving question is whatever the *real* pipeline raised; we do not
-  hand-pick a flag. (We deliberately do NOT claim ``low_evidence_sufficiency`` —
-  that flag exists in the hold pivot map but no evaluator emits it today, so
-  surfacing its question would be fabricating the very artifact we are proving.)
+  hand-pick a flag. (Historical note: the pivot census used to carry phantom
+  keys no evaluator emitted — e.g. ``low_evidence_sufficiency`` — which this
+  bench deliberately refused to claim. The census was reconciled with the
+  live emitters on 2026-06-10 and is now guarded by a tripwire test, so every
+  census question is one the pipeline can genuinely raise.)
 - The decline is itself sealed into the evidence chain, so "Tex declined, here is
   why" is a tamper-evident, offline-verifiable fact — not a transient UI string.
 """

@@ -439,6 +439,7 @@ class PolicyDecisionPoint:
             confidence=routing_result.confidence,
             agent_id=(str(request.agent_id) if request.agent_id is not None else None),
             action_type=request.action_type,
+            stream_confidences={k: v for k, v in routing_result.scores.items() if k.startswith("conf_stream:")} or None,
         )
 
         latency = LatencyBreakdown(

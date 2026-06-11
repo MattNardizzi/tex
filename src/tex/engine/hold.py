@@ -28,13 +28,16 @@ Three properties, each grounded in the research the doctrine cites
 
   3. RESOLVING — for an epistemic hold we name the single pivotal fact (the
      value-of-information move; decision-targeted, EPIG-style — Bickford Smith
-     2023 — not parameter-targeted BALD). Here that is implemented as a
-     deterministic map from the *uncertainty flags the pipeline already
-     produced* to a human-readable question. This is the honest seam: a real
-     EPIG ranking needs a posterior good enough to estimate predictive
-     information gain (a Layer-6 dependency, exactly like the certificate's live
-     guarantee). The seam is real and wired; the organ behind it grows when the
-     data does. The same posture as the vigil v2–v5 scaffolds.
+     2023 — not parameter-targeted BALD). Implemented as a deterministic map
+     from the *uncertainty flags the pipeline already produced* to a
+     human-readable question; when the PDP threads per-stream confidences,
+     the L8 credal resolver (engine/credal_hold.py) re-ranks the candidate
+     flags by closed-form EPIG over a SYNTHETIC posterior — still short of
+     the North-Star: a real EPIG ranking needs a posterior good enough to
+     estimate predictive information gain (a Layer-6 dependency, exactly like
+     the certificate's live guarantee). The seam is real and wired; the organ
+     behind it grows when the data does. The same posture as the vigil v2–v5
+     scaffolds.
 
 The Hold is attached to a Decision's metadata whenever the final verdict is
 ABSTAIN, and travels to the voice surface (the ``human_decision`` channel) so
@@ -48,6 +51,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from tex.domain.verdict import Verdict
+from tex.engine.credal_hold import rank_pivotal_flags
 from tex.engine.crc_gate import CRCCertificate
 
 __all__ = [
@@ -81,6 +85,14 @@ class ResolutionMode(StrEnum):
 # sealed boundary (self-heal) rather than asking a person. Acquisition must
 # ONLY ever consume signals from inside the boundary — never the action's own
 # payload — or fact-fetching becomes the attack surface (doctrine §6, the limit).
+#
+# INVARIANT: every key here must be a string a deterministic in-repo code
+# path actually emits — a census entry no emitter can raise is a question
+# Tex can never truthfully ask (three such phantoms were reconciled
+# 2026-06-10: pending_lifecycle → agent_pending, low_evidence_sufficiency →
+# weak_semantic_evidence, semantic_low_confidence →
+# low_confidence_semantic_dimension). Guarded by
+# tests/test_two_sided_hold.py::test_every_flag_pivot_key_has_a_live_emitter.
 _FLAG_PIVOTS: dict[str, tuple[bool, str, bool]] = {
     # flag: (is_epistemic, question, self_heal_possible)
     "no_retrieval_context": (
@@ -98,17 +110,20 @@ _FLAG_PIVOTS: dict[str, tuple[bool, str, bool]] = {
         "how this agent has behaved before — there is no history yet",
         True,
     ),
-    "pending_lifecycle": (
+    # Emitted by agent/identity_evaluator.py for a PENDING lifecycle.
+    "agent_pending": (
         True,
         "whether this agent has finished onboarding and been admitted",
         True,
     ),
-    "low_evidence_sufficiency": (
+    # Emitted by engine/router.py when semantic evidence_sufficiency < 0.25.
+    "weak_semantic_evidence": (
         True,
         "whether there is enough sealed evidence to stand behind a call",
         True,
     ),
-    "semantic_low_confidence": (
+    # Emitted by engine/router.py when a semantic dimension is low-confidence.
+    "low_confidence_semantic_dimension": (
         False,
         "what this action actually intends — the reading is genuinely ambiguous",
         False,
@@ -189,6 +204,7 @@ def build_hold(
     confidence: float = 0.5,
     agent_id: str | None = None,
     action_type: str | None = None,
+    stream_confidences: dict[str, float] | None = None,
 ) -> Hold | None:
     """Build the Hold for an ABSTAIN. Returns None for any non-ABSTAIN verdict.
 
@@ -196,6 +212,15 @@ def build_hold(
     so the PDP determinism fingerprint is preserved. No I/O, no clocks, no
     randomness — the resolution path is a fixed function of the flags and the
     certificate.
+
+    ``stream_confidences`` carries the per-stream confidence components the
+    router fused (the ``conf_stream:*`` keys the router surfaces in
+    ``RoutingResult.scores``). When present with more than one epistemic
+    candidate flag, the L8 credal/EPIG resolver (engine/credal_hold.py)
+    re-ranks WHICH resolving question is named first — over a synthetic
+    posterior, observation-only, still pure and deterministic. When None
+    (every pre-existing caller), behavior is identical to before the
+    parameter existed.
     """
     if verdict is not Verdict.ABSTAIN:
         return None
@@ -244,20 +269,36 @@ def build_hold(
         hold_type = HoldType.MIXED
 
     # ── resolving: pick the pivotal fact (decision-targeted VOI seam) ─────
-    # Among the epistemic flags present, choose the first by the fixed pivot
-    # order — a deterministic stand-in for an EPIG ranking. The chosen flag's
-    # question is the single thing Tex would need to know.
+    # Among the epistemic flags present, choose by the fixed pivot order —
+    # unless the PDP threaded per-stream confidences, in which case the L8
+    # credal/EPIG resolver re-ranks the candidates over its SYNTHETIC
+    # posterior (engine/credal_hold.py — not a live Layer-6 posterior).
+    # Observation-only: this can only reorder WHICH epistemic fact is named
+    # first; with no usable signal the ranking is the identity, and the
+    # verdict is never touched. The chosen flag's question is the single
+    # thing Tex would need to know.
+    epistemic_candidates = tuple(
+        f for f in _FLAG_PIVOTS if f in flags_cf and _FLAG_PIVOTS[f][0]
+    )
+    if stream_confidences and len(epistemic_candidates) > 1:
+        band = (
+            (certificate.hold_band_lower, certificate.hold_band_upper)
+            if certificate is not None
+            else None
+        )
+        epistemic_candidates = rank_pivotal_flags(
+            candidate_flags=epistemic_candidates,
+            stream_confidences=stream_confidences,
+            final_score=final_score,
+            band=band,
+        )
+
     pivotal_flag: str | None = None
     resolving_question: str | None = None
     self_heal_possible = False
-    for f in _FLAG_PIVOTS:  # fixed dict order == fixed priority
-        if f in flags_cf:
-            is_epi, question, can_self_heal = _FLAG_PIVOTS[f]
-            if is_epi:
-                pivotal_flag = f
-                resolving_question = question
-                self_heal_possible = can_self_heal
-                break
+    if epistemic_candidates:
+        pivotal_flag = epistemic_candidates[0]
+        _is_epi, resolving_question, self_heal_possible = _FLAG_PIVOTS[pivotal_flag]
 
     # ── resolution mode ──────────────────────────────────────────────────
     if hold_type is HoldType.ALEATORIC or resolving_question is None:

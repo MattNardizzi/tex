@@ -27,6 +27,13 @@ from psycopg.types.json import Jsonb
 
 from tex.domain.policy import PolicySnapshot
 from tex.memory._db import connect, database_url, ensure_memory_schema
+from tex.selfgov.governor import (
+    describe_policy_activate,
+    describe_policy_clear,
+    describe_policy_delete,
+    describe_policy_save,
+    gate_controller_mutation,
+)
 from tex.stores.policy_store import InMemoryPolicyStore
 
 _logger = logging.getLogger(__name__)
@@ -88,6 +95,8 @@ class DurablePolicyStore:
     # ---- write path ---------------------------------------------------
 
     def save(self, policy: PolicySnapshot) -> None:
+        if not gate_controller_mutation(lambda: describe_policy_save(self, policy)).allowed:
+            return
         if self._postgres_enabled:
             self._write_postgres(policy)
         self._cache.save(policy)
@@ -100,6 +109,8 @@ class DurablePolicyStore:
         guaranteed to exist for replay (spec § "Policy snapshot not
         strictly enforced" → fixed).
         """
+        if not gate_controller_mutation(lambda: describe_policy_save(self, policy, method="save_in_tx")).allowed:
+            return
         if self._postgres_enabled:
             config = policy.model_dump(mode="json")
             cursor.execute(
@@ -139,6 +150,8 @@ class DurablePolicyStore:
         The orchestrator's ``ActivatePolicyCommand`` relies on both
         guarantees.
         """
+        if not gate_controller_mutation(lambda: describe_policy_activate(self, version)).allowed:
+            return self.require(version)
         if self._postgres_enabled:
             try:
                 self._activate_postgres(version)
@@ -163,6 +176,8 @@ class DurablePolicyStore:
         does not exist is a no-op at the cache layer (delegates to
         ``InMemoryPolicyStore.delete``).
         """
+        if not gate_controller_mutation(lambda: describe_policy_delete(self, version)).allowed:
+            return
         if self._postgres_enabled:
             try:
                 with connect() as conn:
@@ -188,6 +203,8 @@ class DurablePolicyStore:
 
     def clear(self) -> None:
         """Empties the in-memory cache. Postgres is left untouched."""
+        if not gate_controller_mutation(lambda: describe_policy_clear(self)).allowed:
+            return
         if hasattr(self._cache, "clear"):
             self._cache.clear()
 

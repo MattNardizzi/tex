@@ -17,6 +17,11 @@ from threading import RLock
 from uuid import UUID
 
 from tex.domain.agent import AgentIdentity, AgentLifecycleStatus
+from tex.selfgov.governor import (
+    describe_agent_save,
+    describe_lifecycle,
+    gate_controller_mutation,
+)
 
 
 class AgentNotFoundError(LookupError):
@@ -62,6 +67,8 @@ class InMemoryAgentRegistry:
         Returns the AgentIdentity that was actually persisted (the
         revision number on the return value is authoritative).
         """
+        if not gate_controller_mutation(lambda: describe_agent_save(self, agent)).allowed:
+            return self.get(agent.agent_id) or agent
         with self._lock:
             existing = self._by_id.get(agent.agent_id)
 
@@ -101,6 +108,8 @@ class InMemoryAgentRegistry:
         Lifecycle changes are first-class and produce a new revision so
         the audit trail captures when QUARANTINED or REVOKED happened.
         """
+        if not gate_controller_mutation(lambda: describe_lifecycle(self, agent_id, status)).allowed:
+            return self.require(agent_id)
         with self._lock:
             existing = self._by_id.get(agent_id)
             if existing is None:

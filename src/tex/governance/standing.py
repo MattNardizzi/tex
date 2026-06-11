@@ -83,6 +83,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from tex.domain.verdict import Verdict
+from tex.selfgov.governor import describe_standing_activate, gate_controller_mutation
 
 __all__ = [
     "DecisionOutcome",
@@ -226,6 +227,11 @@ class StandingGovernance:
         tid = (tenant or "").strip().casefold()
         if not tid:
             return GovernedPosture(tenant="", governed=0, observed=0, active_since=None)
+        # Reflexive gate: deny by NOT mutating (the only caller swallows
+        # exceptions — api/discovery_surface_routes.py — so a raise-based deny
+        # would be invisible AND fragile). Denial returns the live posture.
+        if not gate_controller_mutation(lambda: describe_standing_activate(tid)).allowed:
+            return self.posture(tid)
         with self._lock:
             if tid not in self._active:
                 self._active[tid] = datetime.now(UTC)

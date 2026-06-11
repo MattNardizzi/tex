@@ -68,6 +68,11 @@ from tex.learning.poisoning_detector import (
 )
 from tex.learning.replay import ReplayReport, ReplayValidator
 from tex.learning.reporter_reputation import ReporterReputationStore
+from tex.selfgov.governor import (
+    describe_proposal_apply,
+    describe_proposal_rollback,
+    gate_controller_mutation,
+)
 from tex.stores.calibration_proposal_store import CalibrationProposalStore
 from tex.stores.decision_store import InMemoryDecisionStore
 from tex.stores.outcome_store import InMemoryOutcomeStore
@@ -649,7 +654,13 @@ class FeedbackLoopOrchestrator:
         """
         Approve a pending proposal, save the new policy snapshot, activate
         it, commit the safety budget, and mark the proposal APPLIED.
+
+        The reflexive gate unit is this METHOD (not the activate line): a
+        denial returns the proposal unchanged before ANY of approve / save /
+        activate / safety-commit run — all-or-nothing by construction.
         """
+        if not gate_controller_mutation(lambda: describe_proposal_apply(self._proposals.require(proposal_id), self._policies)).allowed:
+            return self._proposals.require(proposal_id)
         approved = self._proposals.approve(
             proposal_id=proposal_id,
             approver=approver,
@@ -718,6 +729,8 @@ class FeedbackLoopOrchestrator:
             raise RuntimeError(
                 "proposal has no rollback target; only APPLIED proposals carry one"
             )
+        if not gate_controller_mutation(lambda: describe_proposal_rollback(proposal, self._policies)).allowed:
+            return proposal
         self._policies.activate(proposal.rollback_target_version)
         rolled = self._proposals.mark_rolled_back(
             proposal_id=proposal_id,

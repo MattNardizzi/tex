@@ -121,6 +121,18 @@ implemented here; this track's pdp.py budget is 0 lines.
   one-sided (it can then only catch missing/fabricated DECISIONs, not missing
   attempts). That choice changes what the omission attack proves; it belongs
   to the seam track and is deliberately NOT decided here.
+* **Count scoping (batch-3 caution 3, folded in 2026-06-11)**: once the hook
+  lands, L5 reflexive gate evaluations (policy ``reflexive-governor``,
+  governor.py:594-601) and any other non-customer DECISION traffic enter the
+  conservation identity. The reflexive evaluation's M0 DECISION fact carries
+  the PDP's OWN verdict — a PERMIT even when metaguard demoted the composed
+  ruling to ABSTAIN, because the demotion lives only in the ENFORCEMENT
+  fact — so an attempt count scoped to customer traffic alone reports a
+  spurious GATED-BROKEN (tests/test_wave2_twelveleap_composition.py pins
+  exactly these counts live). The hook must either filter by action_type or
+  explicitly count gate evaluations as attempts — decided at hook-design
+  time, and the choice must be declared in the hook's contract so the
+  composition test is recomposed consciously, not silently re-pinned.
 * **Honest residual blind spot**: an entry-hook bounds, but does not
   eliminate, uncounted work — anything that dies before evaluate() is entered
   (transport layer, non-PDP traffic) remains invisible. The hook turns

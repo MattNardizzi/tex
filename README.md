@@ -117,14 +117,6 @@ chains, with an eleven-row tamper matrix:
 python scripts/verify_it_yourself.py --capstone
 ```
 
-Known issue (June 2026): on environments where `pip` resolves
-`cryptography >= 48`, the capstone demo currently exits 1 — its post-quantum
-scenario asserts the outcome for environments *without* a PQ backend, and
-newer `cryptography` provides one. The engine's maturity gate behaves
-correctly in both cases; the demo's assertion is what's environment-pinned,
-and a fix is tracked. The replay trial above is unaffected and passes on a
-fresh install.
-
 ## What we claim — and what we don't yet
 
 Honesty is load-bearing here: a claim that would not survive an adversary

@@ -18,9 +18,14 @@ composition suite and the zkpdp live cross-check use (see
 The epoch this flow drives, in order (each step's facts land on ONE
 ``SealedFactLedger`` chain):
 
-  1. request A — a PQ-non-repudiation claim the live ECDSA-P256 signer
-     cannot honor: L10 lowers PERMIT→ABSTAIN, seals the PQ-durable=false
-     fact; the ABSTAIN carries the L8 hold.
+  1. request A — a PQ-non-repudiation claim, resolved by the live L10
+     maturity probe (environment-dependent, both outcomes asserted
+     exactly): with no durable ML-DSA backend the signal lowers
+     PERMIT→ABSTAIN and seals the PQ-durable=false fact, and the ABSTAIN
+     carries the L8 hold; with a durable backend (pyca cryptography>=48)
+     the claim is honorable, the verdict stays PERMIT, no fact is sealed
+     (the engine seals only when the signal fires) and the L8 hold rides
+     the drift ABSTAIN of step 3 instead.
   2. pre checkpoint, cosigned by three in-process witnesses (L6).
   3. the reflexive governor binds; a weakening activation through the real
      policy-store chokepoint is DENIED (L5); customer traffic continues
@@ -68,6 +73,7 @@ from tex.evidence.seal import build_evidence_chain_signer
 from tex.interchange.gix import CheckpointPublisher, Ed25519NoteSigner
 from tex.interchange.gix_witness import Witness, gather_cosignatures
 from tex.policies.defaults import build_default_policy
+from tex.pqcrypto.pq_durability import PQ_NON_REPUDIATION_FLAG, assess
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFactKind
 from tex.selfgov.governor import bound_reflexive_governor
@@ -272,17 +278,27 @@ def _run(
     store.activate("v1")
     store.save(_weak_policy("v2"))
 
-    # 1) request A — the PQ-non-repudiation claim (L10 + L8). Benign content
-    # on purpose: the baseline must be a real PERMIT for the maturity signal
-    # to be the thing that lowers it (monotone-lowering, PERMIT→ABSTAIN only).
-    pq_result = pdp.evaluate(
-        request=_make_request(
-            "Quarterly customer newsletter draft for review.",
-            {"pq_non_repudiation": True},
-        ),
-        policy=policy,
+    # 1) request A — the PQ-non-repudiation claim (L10). Benign content on
+    # purpose: the baseline must be a real PERMIT so that IF the live signer
+    # is not PQ-durable, the maturity signal is the thing that lowers it
+    # (monotone-lowering, PERMIT→ABSTAIN only). The outcome is environment-
+    # dependent and each environment has exactly ONE acceptable outcome:
+    # a durable ML-DSA backend (pyca cryptography>=48) must leave the PERMIT
+    # untouched with no flag; anything less must lower to ABSTAIN.
+    pq_request = _make_request(
+        "Quarterly customer newsletter draft for review.",
+        {"pq_non_repudiation": True},
     )
-    assert pq_result.decision.verdict is Verdict.ABSTAIN
+    # The same assessment the engine computes inside evaluate() — one source
+    # of truth, so the branch below can never disagree with the verdict path.
+    pq_assessment = assess(pq_request)
+    pq_result = pdp.evaluate(request=pq_request, policy=policy)
+    if pq_assessment.pq_durable:
+        assert pq_result.decision.verdict is Verdict.PERMIT
+        assert PQ_NON_REPUDIATION_FLAG not in pq_result.decision.uncertainty_flags
+    else:
+        assert pq_result.decision.verdict is Verdict.ABSTAIN
+        assert PQ_NON_REPUDIATION_FLAG in pq_result.decision.uncertainty_flags
 
     # 2) pre checkpoint (L6).
     cp_pre = gather_cosignatures(
@@ -399,6 +415,7 @@ def _run(
         alpha=0.05,
         capstone_result=capstone_result,
         pq_result=pq_result,
+        pq_assessment=pq_assessment,
         drift_result=drift_result,
         bind_sequence=bind_sequence,
         gate_attempt_sequence=gate_attempt_sequence,

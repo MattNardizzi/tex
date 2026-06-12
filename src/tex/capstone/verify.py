@@ -801,16 +801,34 @@ def verify_capstone(
     l10_detail = ""
     try:
         l10_prop = manifest.property_for("L10")
-        pq = records[l10_prop.ledger_sequences[0]].fact
         pq_doc = json.loads(raw["decision_pq"])
-        l10_ok = (
-            pq.kind is SealedFactKind.DECISION
-            and pq.detail.get("pq_durable") is False
-            and "verdict" not in pq.detail
-            and pq.detail.get("pq_non_repudiation_claim_honored") is False
-            and "pq_non_repudiation_unavailable" in pq_doc.get("uncertainty_flags", [])
-            and pq_doc.get("verdict") == "ABSTAIN"
-        )
+        outcome = l10_prop.verification.get("maturity_outcome")
+        if outcome == "lowered_to_abstain":
+            pq = records[l10_prop.ledger_sequences[0]].fact
+            l10_ok = (
+                pq.kind is SealedFactKind.DECISION
+                and pq.detail.get("pq_durable") is False
+                and "verdict" not in pq.detail
+                and pq.detail.get("pq_non_repudiation_claim_honored") is False
+                and "pq_non_repudiation_unavailable" in pq_doc.get("uncertainty_flags", [])
+                and pq_doc.get("verdict") == "ABSTAIN"
+            )
+        elif outcome == "durable_not_lowered":
+            # The engine seals the PQ fact only when the signal fires, so a
+            # durable run's evidence is the (chain-sealed) manifest plus the
+            # digest-bound decision doc: PERMIT, no maturity flag, and no
+            # sealed-fact claim. The manifest validators already require the
+            # coherent durable record (claim_honored + named backend).
+            l10_ok = (
+                l10_prop.ledger_sequences == ()
+                and l10_prop.verification.get("pq_durable") is True
+                and l10_prop.verification.get("claim_honored") is True
+                and "pq_non_repudiation_unavailable"
+                not in pq_doc.get("uncertainty_flags", [])
+                and pq_doc.get("verdict") == "PERMIT"
+            )
+        else:
+            l10_detail = f"unknown maturity_outcome: {outcome!r}"
         if l10_ok:
             out.offline_status["L10"] = "green"
     except Exception as exc:  # noqa: BLE001
@@ -820,13 +838,21 @@ def verify_capstone(
     l8_ok = False
     l8_detail = ""
     try:
-        pq_doc = json.loads(raw["decision_pq"])
-        hold = (pq_doc.get("metadata") or {}).get("pdp", {}).get("hold")
+        # The hold rides whichever ABSTAIN companion the epoch produced;
+        # the manifest names the carrier artifact (decision_pq when the PQ
+        # signal fired, decision_drift on a durable-backend run).
+        l8_prop = manifest.property_for("L8")
+        carrier = l8_prop.artifacts[0] if l8_prop.artifacts else ""
+        if carrier not in ("decision_pq", "decision_drift"):
+            raise ValueError(f"unknown L8 hold carrier: {carrier!r}")
+        carrier_doc = json.loads(raw[carrier])
+        hold = (carrier_doc.get("metadata") or {}).get("pdp", {}).get("hold")
         capstone_hold = (decision_doc.get("metadata") or {}).get("pdp", {}).get("hold")
         l8_ok = (
-            pq_doc.get("verdict") == "ABSTAIN"
+            carrier_doc.get("verdict") == "ABSTAIN"
             and isinstance(hold, dict)
             and bool(hold.get("hold_type"))
+            and l8_prop.verification.get("hold_carrier") == carrier
             and decision_doc.get("verdict") in ("PERMIT", "FORBID")
             and capstone_hold is None
         )

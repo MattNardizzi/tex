@@ -389,11 +389,38 @@ class CapstoneVerdict(BaseModel):
 
         l10 = by["L10"]
         _require(
-            l10.halves.get("pq_signing") == "runtime_dependent"
-            and l10.verification.get("pq_durable") is False,
-            "L10: the live signer is ECDSA-P256 — the signal is the honest "
-            "report of that gap; pq_durable=True is unconstructible here",
+            l10.halves.get("pq_signing") == "runtime_dependent",
+            "L10: the pq_signing half stays runtime_dependent — it is a "
+            "property of the runtime, never of this manifest",
         )
+        l10_outcome = l10.verification.get("maturity_outcome")
+        if l10_outcome == "lowered_to_abstain":
+            _require(
+                l10.verification.get("pq_durable") is False,
+                "L10: a lowered outcome records the non-durable signer it "
+                "lowered for — pq_durable=True is unconstructible here",
+            )
+        elif l10_outcome == "durable_not_lowered":
+            # pq_durable=True is constructible ONLY as this coherent record:
+            # an honored claim against a durable, named backend. Durability
+            # without coherence stays unconstructible, and the offline
+            # verifier additionally requires the PERMIT/no-flag decision doc.
+            _require(
+                l10.verification.get("pq_durable") is True
+                and l10.verification.get("claim_honored") is True
+                and l10.verification.get("signer_maturity") == "durable"
+                and bool(l10.verification.get("active_backend_id"))
+                and l10.ledger_sequences == (),
+                "L10: a durable outcome is constructible only as the "
+                "coherent claim-honored record (durable maturity + named "
+                "backend + no sealed-fact claim)",
+            )
+        else:
+            _require(
+                False,
+                "L10 must record maturity_outcome: 'lowered_to_abstain' "
+                "or 'durable_not_lowered'",
+            )
 
         l11 = by["L11"]
         _require(

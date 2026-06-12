@@ -22,8 +22,17 @@ from tex.capstone.verify import CapstonePins, verify_capstone
 
 @pytest.fixture(scope="session")
 def capstone_flow(tmp_path_factory) -> CapstoneFlowResult:
+    """The lowered-branch epoch, pinned: the PQ-maturity probe is forced to
+    'no backend' so the composed shape is deterministic on every box
+    (cryptography>=48 ships a durable pyca ML-DSA backend that would
+    otherwise flip the PQ scenario to its PERMIT branch — that branch has
+    its own pinned fixture in test_pq_maturity_branches.py)."""
     logging.disable(logging.CRITICAL)
+    mp = pytest.MonkeyPatch()
     try:
+        from tex.pqcrypto import ml_dsa
+
+        mp.setattr(ml_dsa, "active_backend_id", lambda: None)
         work = tmp_path_factory.mktemp("capstone-flow")
         return run_capstone_flow(
             work,
@@ -32,6 +41,7 @@ def capstone_flow(tmp_path_factory) -> CapstoneFlowResult:
             campaign_query_budget=12,
         )
     finally:
+        mp.undo()
         logging.disable(logging.NOTSET)
 
 

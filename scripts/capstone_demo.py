@@ -9,8 +9,10 @@ Run::
 One run does all of it (see ``tex.capstone`` for the importable core):
 
   1. drives the full mixed epoch through a REAL ledger-wired PDP
-     (PQ-claim ABSTAIN, denied reflexive weakening, drift-breach ABSTAIN,
-     the action-class FORBID, the seeded paraphrase neighborhood, the
+     (the PQ-claim resolution — env-dependent: ABSTAIN where no durable
+     ML-DSA backend exists, PERMIT where pyca cryptography>=48 provides
+     one; denied reflexive weakening, drift-breach ABSTAIN, the
+     action-class FORBID, the seeded paraphrase neighborhood, the
      adaptive adversary campaign, the spoken seal) — only the LLM-provider
      seam is stubbed;
   2. composes the eight properties onto ONE sealed ``CapstoneVerdict``
@@ -72,6 +74,11 @@ def main() -> int:
     )
     print(f"    manifest sha256  : {flow.compose.manifest_sha256}")
     print(f"    bundle dir       : {flow.bundle_dir}")
+    l10 = manifest.property_for("L10")
+    print(
+        f"    PQ maturity      : {l10.verification.get('maturity_outcome')} "
+        f"(backend {l10.verification.get('active_backend_id')!r})"
+    )
 
     print("\n[2] The eight properties (honest split, machine-readable)")
     for status, leaps in manifest.honest_split.items():

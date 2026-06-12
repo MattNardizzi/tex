@@ -67,7 +67,10 @@ from tex.interchange.gix_witness import (
     gather_cosignatures,
     verify_cosigned_checkpoint,
 )
-from tex.pqcrypto.pq_durability import PQ_NON_REPUDIATION_FLAG
+from tex.pqcrypto.pq_durability import (
+    PQ_NON_REPUDIATION_FLAG,
+    PQDurabilityAssessment,
+)
 from tex.provenance.bundle import export_sealed_fact_bundle
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFact, SealedFactKind, SealedFactRecord
@@ -156,6 +159,10 @@ class CapstoneMaterials:
 
     capstone_result: PDPResult
     pq_result: PDPResult
+    # The flow's own run of pq_durability.assess() on request A — the same
+    # pure assessment the engine computed inside evaluate(). It names which
+    # maturity outcome this epoch took (lowered vs durable-not-lowered).
+    pq_assessment: PQDurabilityAssessment
     drift_result: PDPResult
 
     # ledger sequences recorded by the flow as the epoch was driven
@@ -437,22 +444,55 @@ def compose_capstone(
     )
 
     # ------------------------------------------------------------- L8/L9/L10
+    # The PQ scenario is environment-dependent (the live maturity probe is
+    # the branch variable, carried in materials.pq_assessment): with no
+    # durable backend the signal fires (ABSTAIN + flag + sealed fact); with
+    # a durable backend (pyca cryptography>=48) the claim is honorable and
+    # the engine — correctly — neither lowers nor seals. Each branch checks
+    # the EXACT coherent outcome; a mixed outcome is a composition error.
     pq_decision = materials.pq_result.decision
     drift_decision = materials.drift_result.decision
-    if PQ_NON_REPUDIATION_FLAG not in pq_decision.uncertainty_flags:
-        raise CompositionError("the PQ companion decision did not carry the maturity flag")
+    pq_lowered = materials.pq_assessment.lowers_verdict
+    if pq_lowered:
+        if PQ_NON_REPUDIATION_FLAG not in pq_decision.uncertainty_flags:
+            raise CompositionError("the PQ companion decision did not carry the maturity flag")
+        if pq_decision.verdict.value != "ABSTAIN":
+            raise CompositionError("the maturity signal fired but the companion is not ABSTAIN")
+    else:
+        if not materials.pq_assessment.claim_honored:
+            raise CompositionError(
+                "a non-lowering PQ outcome requires a requested claim and a durable signer"
+            )
+        if pq_decision.verdict.value != "PERMIT":
+            raise CompositionError("a durable signer must leave the PERMIT companion untouched")
+        if PQ_NON_REPUDIATION_FLAG in pq_decision.uncertainty_flags:
+            raise CompositionError("a durable-backend run must not carry the maturity flag")
     if RISK_SPINE_FLAG not in drift_decision.uncertainty_flags:
         raise CompositionError("the drift companion decision did not carry the spine flag")
     pq_facts = [
         r for r in records
         if r.fact.kind is SealedFactKind.DECISION
         and r.fact.subject_id == str(pq_decision.request_id)
+        and "pq_durable" in r.fact.detail
     ]
-    pq_durability_rec = pq_facts[0]  # PQ fact is appended FIRST, M0 second
-    if "verdict" in pq_durability_rec.fact.detail:
-        raise CompositionError("the PQ-durability fact must carry no verdict key")
-    if pq_durability_rec.fact.detail.get("pq_durable") is not False:
-        raise CompositionError("the PQ-durability fact must report pq_durable=False")
+    if pq_lowered:
+        if not pq_facts:
+            raise CompositionError("the fired maturity signal sealed no PQ-durability fact")
+        # Selected by shape (the pq_durable detail key, which the M0 seal
+        # never carries) — the append-order pin (PQ first, M0 second) stays
+        # tested in tests/capstone/test_sequencing.py.
+        pq_durability_rec = pq_facts[0]
+        if "verdict" in pq_durability_rec.fact.detail:
+            raise CompositionError("the PQ-durability fact must carry no verdict key")
+        if pq_durability_rec.fact.detail.get("pq_durable") is not False:
+            raise CompositionError("the PQ-durability fact must report pq_durable=False")
+    else:
+        if pq_facts:
+            raise CompositionError(
+                "the engine seals the PQ fact only when the signal fires — a "
+                "durable run must not have one"
+            )
+        pq_durability_rec = None
     drift_recs = [
         r for r in records if r.fact.kind is SealedFactKind.DRIFT
     ]
@@ -461,7 +501,11 @@ def compose_capstone(
     drift_rec = drift_recs[-1]
     if drift_rec.fact.detail.get("acted") is not True:
         raise CompositionError("the sealed spine step did not act")
-    hold = pq_decision.metadata["pdp"].get("hold")
+    # L8 rides whichever ABSTAIN companion this epoch produced: the PQ
+    # ABSTAIN when the signal fired, else the drift ABSTAIN (always present).
+    hold_carrier = "decision_pq" if pq_lowered else "decision_drift"
+    hold_decision = pq_decision if pq_lowered else drift_decision
+    hold = hold_decision.metadata["pdp"].get("hold")
     if hold is None:
         raise CompositionError("the ABSTAIN companion carries no hold (L8)")
     if decision.metadata["pdp"].get("hold") is not None:
@@ -555,7 +599,7 @@ def compose_capstone(
         l4_outcome=l4_outcome, l4_cert=l4_cert, ruling_detail=ruling.detail,
         l6_pre=l6_pre, l6_post=l6_post, cp_pre=cp_pre, cp_post=cp_post,
         l7_payload=l7_payload, l7_bundle_check=l7_bundle_check,
-        hold=hold,
+        hold=hold, hold_carrier=hold_carrier,
         drift_rec=drift_rec, pq_durability_rec=pq_durability_rec,
         l11=l11, voice_decision_hash=decision_rec.record_hash,
         attempt_sequence=attempt_rec.sequence,
@@ -751,8 +795,8 @@ def _build_property_attestations(
     l4_outcome: Any, l4_cert: dict[str, Any], ruling_detail: dict[str, Any],
     l6_pre: Any, l6_post: Any, cp_pre: Checkpoint, cp_post: Checkpoint,
     l7_payload: dict[str, Any], l7_bundle_check: Any,
-    hold: dict[str, Any],
-    drift_rec: SealedFactRecord, pq_durability_rec: SealedFactRecord,
+    hold: dict[str, Any], hold_carrier: str,
+    drift_rec: SealedFactRecord, pq_durability_rec: SealedFactRecord | None,
     l11: Any, voice_decision_hash: str,
     attempt_sequence: int, decision_sequence: int,
 ) -> tuple[PropertyAttestation, ...]:
@@ -762,7 +806,13 @@ def _build_property_attestations(
     trial = materials.trial
     campaign = materials.campaign
     drift_detail = drift_rec.fact.detail
-    pq_detail = pq_durability_rec.fact.detail
+    # ``pq_durability_rec`` is None on a durable-backend run — the engine
+    # seals the fact only when the signal fires; the assessment is then the
+    # L10 evidence and rides the sealed manifest itself.
+    pq_assessment = materials.pq_assessment
+    pq_detail = (
+        pq_durability_rec.fact.detail if pq_durability_rec is not None else None
+    )
 
     def attn(leap: str, **kwargs: Any) -> PropertyAttestation:
         return PropertyAttestation(
@@ -974,8 +1024,9 @@ def _build_property_attestations(
                 "resolution_mode": hold.get("resolution_mode"),
                 "band_certified": hold.get("band_certified"),
                 "capstone_hold_is_none": True,
+                "hold_carrier": hold_carrier,
             },
-            artifacts=("decision_pq",),
+            artifacts=(hold_carrier,),
         ),
         attn(
             "L9",
@@ -1005,27 +1056,65 @@ def _build_property_attestations(
         ),
         attn(
             "L10",
-            title="PQ-maturity probe: the signal lowered the companion verdict",
+            title=(
+                "PQ-maturity probe: the signal lowered the companion verdict"
+                if pq_durability_rec is not None
+                else "PQ-maturity probe: durable backend present — the claim "
+                     "was not lowered"
+            ),
             scope="epoch",
             status="green",
             runtime_dependent=False,
             maturity="research_early",
             halves={"maturity_signal": "green", "pq_signing": "runtime_dependent"},
             caveats=(
-                "the live signer is ECDSA-P256 — the signal is the honest "
-                "report of that gap: an unhonorable non-repudiation claim "
-                "lowers PERMIT to ABSTAIN and seals the fail-closed fact",
+                (
+                    "the live signer is ECDSA-P256 — the signal is the honest "
+                    "report of that gap: an unhonorable non-repudiation claim "
+                    "lowers PERMIT to ABSTAIN and seals the fail-closed fact",
+                )
+                if pq_durability_rec is not None
+                else (
+                    "the maturity probe reports a durable ML-DSA backend, so "
+                    "the signal correctly did not fire; the engine seals the "
+                    "PQ fact only when it fires, so this outcome's evidence "
+                    "is this manifest (itself sealed into the chain)",
+                    "the epoch's chain-1 seals still verify under the "
+                    "ECDSA-P256 provider against the pinned key — "
+                    "claim_honored records the module's assessment of the "
+                    "live backend, not a PQ property of this epoch's "
+                    "signatures",
+                )
             ),
-            verification={
-                "pq_durable": pq_detail.get("pq_durable"),
-                "signer_maturity": pq_detail.get("signer_maturity"),
-                "claim_requested": pq_detail.get("pq_non_repudiation_claim_requested"),
-                "claim_honored": pq_detail.get("pq_non_repudiation_claim_honored"),
-                "flag": PQ_NON_REPUDIATION_FLAG,
-                "fact_has_no_verdict_key": "verdict" not in pq_detail,
-            },
+            verification=(
+                {
+                    "pq_durable": pq_detail.get("pq_durable"),
+                    "signer_maturity": pq_detail.get("signer_maturity"),
+                    "claim_requested": pq_detail.get("pq_non_repudiation_claim_requested"),
+                    "claim_honored": pq_detail.get("pq_non_repudiation_claim_honored"),
+                    "flag": PQ_NON_REPUDIATION_FLAG,
+                    "fact_has_no_verdict_key": "verdict" not in pq_detail,
+                    "active_backend_id": pq_detail.get("active_backend_id"),
+                    "maturity_outcome": "lowered_to_abstain",
+                }
+                if pq_detail is not None
+                else {
+                    "pq_durable": pq_assessment.pq_durable,
+                    "signer_maturity": pq_assessment.signer_maturity.value,
+                    "claim_requested": pq_assessment.claim_requested,
+                    "claim_honored": pq_assessment.claim_honored,
+                    "flag": PQ_NON_REPUDIATION_FLAG,
+                    "flag_absent_on_decision": True,
+                    "active_backend_id": pq_assessment.active_backend_id,
+                    "maturity_outcome": "durable_not_lowered",
+                }
+            ),
             artifacts=("decision_pq",),
-            ledger_sequences=(pq_durability_rec.sequence,),
+            ledger_sequences=(
+                (pq_durability_rec.sequence,)
+                if pq_durability_rec is not None
+                else ()
+            ),
         ),
         attn(
             "L11",

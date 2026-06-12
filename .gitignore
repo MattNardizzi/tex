@@ -21,6 +21,10 @@ node_modules/
 dist/
 build/
 
+# Build artifacts of the marketing site (tex-frontend/): near-duplicate zip
+# exports that bloat the public repo. Kept locally, untracked (see CURATION.md).
+tex-frontend*.zip
+
 # OS / editor
 .DS_Store
 .vscode/

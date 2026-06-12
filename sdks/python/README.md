@@ -2,9 +2,16 @@
 
 Official Python SDK for [Tex](https://tex.systems) — the gate between AI and the real world.
 
+> **Status (June 2026):** this SDK is a **remote-only client** for a hosted Tex API that is
+> **not yet live**, and the package is **not yet published to PyPI** — `pip install
+> tex-guardrail` will not work today. To run a real verdict right now, use the local
+> quickstart at the repo root instead: `python scripts/quickstart.py` (no server, no key).
+> The examples below document the client's interface for when a hosted endpoint exists.
+
 ## Installation
 
 ```bash
+# Not yet published — this will 404 today. Local path: see the repo-root README.
 pip install tex-guardrail
 ```
 
@@ -97,4 +104,4 @@ except TexError as exc:
 
 ## Why Tex
 
-Tex returns a three-way verdict (PERMIT / ABSTAIN / FORBID) — not just a binary block — so high-stakes actions can be routed to human review instead of silently dropped. Every decision produces a hash-chained, tamper-evident evidence record mapped to OWASP ASI 2026 findings, suitable for SOC 2, FINRA, HIPAA, and EU AI Act audit trails.
+Tex returns a three-way verdict (PERMIT / ABSTAIN / FORBID) — not just a binary block — so high-stakes actions can be routed to human review instead of silently dropped. Every decision produces a hash-chained evidence record mapped to OWASP ASI findings; the hash chain proves integrity, and a signature proves authorship of one record (ECDSA-P256 today). Tex has **zero production deployments today** — the evidence pipeline is built for audit-trail use cases (e.g. EU AI Act Art. 12 logging), but no claim of SOC 2 / FINRA / HIPAA suitability is made until it has survived field validation.

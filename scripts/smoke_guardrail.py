@@ -17,8 +17,9 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-# Local import so the smoke can run from a fresh checkout.
-sys.path.insert(0, str(Path(__file__).resolve().parents[0] / "src"))
+# Local import so the smoke can run from a fresh checkout. This file
+# lives in scripts/, so parents[1] is the repo root that contains src/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 

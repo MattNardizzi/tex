@@ -48,12 +48,18 @@ def _disable_semantic_provider_for_tests(tmp_path_factory: pytest.TempPathFactor
         "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY"),
         "TEX_ALLOW_SEMANTIC_FALLBACK": os.environ.get("TEX_ALLOW_SEMANTIC_FALLBACK"),
         "TEX_EVIDENCE_PATH": os.environ.get("TEX_EVIDENCE_PATH"),
+        "TEX_DISCOVERY_DEMO_SEED": os.environ.get("TEX_DISCOVERY_DEMO_SEED"),
     }
 
     os.environ.pop("TEX_SEMANTIC_PROVIDER", None)
     os.environ.pop("OPENAI_API_KEY", None)
     os.environ["TEX_ALLOW_SEMANTIC_FALLBACK"] = "true"
     os.environ["TEX_EVIDENCE_PATH"] = str(evidence_path)
+    # Discovery connectors expose the documented "empty by default" surface to
+    # tests; the first-run demo seed (Entra/OCSF fixtures) is suppressed so
+    # exact-count discovery assertions are not polluted by demo agents. Tests
+    # that want the seed set TEX_DISCOVERY_DEMO_SEED=1 explicitly.
+    os.environ["TEX_DISCOVERY_DEMO_SEED"] = "0"
 
     # Clear cached settings so the new env vars take effect if anything
     # imported tex.config before this fixture ran.

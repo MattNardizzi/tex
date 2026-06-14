@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -1231,10 +1233,84 @@ def build_runtime(
     )
 
 
+def _should_defer_runtime() -> bool:
+    """Defer the heavy runtime build to a background thread?
+
+    ``build_runtime()`` imports the scientific stack and constructs the whole
+    governance runtime. Doing that at import time (``app = create_app()`` at
+    module scope) means uvicorn cannot bind its port until it finishes — which
+    is exactly what trips Render's port-scan timeout and the OOM/restart loop.
+    When we defer, the FastAPI app is built immediately (port binds, /health
+    goes green) and the runtime lands a few seconds later on a background
+    thread, gated by :class:`_WarmupGateMiddleware`.
+
+    Deferral is enabled ONLY for a real production-like server boot. It is
+    DISABLED under pytest (the suite builds the app synchronously and asserts
+    against a fully wired app) and overridable explicitly with
+    ``TEX_DEFER_RUNTIME=1`` / ``0``.
+    """
+    override = os.environ.get("TEX_DEFER_RUNTIME")
+    if override is not None:
+        return override.strip().lower() in {"1", "true", "yes", "on"}
+    if "pytest" in sys.modules:
+        return False
+    try:
+        return get_settings().is_production_like()
+    except Exception:  # pragma: no cover - settings already validated by caller
+        return False
+
+
+class _WarmupGateMiddleware:
+    """While a deferred runtime is still building, answer real routes with a
+    clean ``503`` instead of an ``AttributeError`` on unset ``app.state``.
+
+    Liveness/discovery probes (``/health``, ``/``) and the docs pass through, so
+    Render's health check goes green the instant the port binds and the deploy
+    is marked live. Pure ASGI — it never buffers a response body, so once the
+    runtime is ready it is a transparent pass-through that does not interfere
+    with the SSE streaming routes. Only mounted in deferred mode.
+    """
+
+    _PASS_THROUGH_EXACT = ("/health", "/")
+    _PASS_THROUGH_PREFIX = ("/docs", "/openapi", "/redoc")
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") == "http":
+            state = getattr(scope.get("app"), "state", None)
+            if state is not None and not getattr(state, "runtime_ready", True):
+                path = scope.get("path", "")
+                if not (
+                    path in self._PASS_THROUGH_EXACT
+                    or path.startswith(self._PASS_THROUGH_PREFIX)
+                ):
+                    if getattr(state, "runtime_error", None):
+                        body = b'{"status":"error","detail":"tex runtime failed to start; see server logs"}'
+                    else:
+                        body = b'{"status":"warming","detail":"tex runtime is starting"}'
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 503,
+                            "headers": [
+                                (b"content-type", b"application/json"),
+                                (b"retry-after", b"5"),
+                                (b"cache-control", b"no-store"),
+                            ],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": body})
+                    return
+        await self.app(scope, receive, send)
+
+
 def create_app(
     *,
     runtime: TexRuntime | None = None,
     evidence_path: str | Path = DEFAULT_EVIDENCE_PATH,
+    defer_runtime: bool | None = None,
 ) -> FastAPI:
     """
     Create and configure the FastAPI application for Tex.
@@ -1267,28 +1343,72 @@ def create_app(
             f"fail-closed validation.\n\n{exc}"
         ) from exc
 
-    resolved_runtime = runtime or build_runtime(evidence_path=evidence_path)
+    # Synchronous by default (every test + programmatic caller relies on a
+    # fully wired app the instant create_app returns). Deferred ONLY for a real
+    # production server boot, so uvicorn binds its port before the heavy build.
+    if defer_runtime is None:
+        defer_runtime = runtime is None and _should_defer_runtime()
 
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        _attach_runtime_to_app(app, resolved_runtime)
+    resolved_runtime: TexRuntime | None
+    if runtime is not None:
+        resolved_runtime = runtime
+    elif defer_runtime:
+        resolved_runtime = None
+    else:
+        resolved_runtime = build_runtime(evidence_path=evidence_path)
+
+    def _start_scheduler(rt: TexRuntime) -> Any:
         # V15: start the background discovery scheduler. ``start()`` is
-        # idempotent and a no-op when no tenants are configured, so
-        # local-dev boots stay quiet.
-        scheduler = getattr(resolved_runtime, "scan_scheduler", None)
+        # idempotent and a no-op when no tenants are configured, so local-dev
+        # boots stay quiet.
+        scheduler = getattr(rt, "scan_scheduler", None)
         if scheduler is not None:
             try:
                 scheduler.start()
             except Exception as exc:  # pragma: no cover
                 _logger.warning("discovery scheduler start failed: %s", exc)
+        return scheduler
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        scheduler = None
+        if resolved_runtime is not None:
+            # Synchronous path — runtime already built; attach + start now.
+            _attach_runtime_to_app(app, resolved_runtime)
+            app.state.runtime_ready = True
+            scheduler = _start_scheduler(resolved_runtime)
+        else:
+            # Deferred path — build off the event loop so the port is already
+            # bound. Until the build lands, _WarmupGateMiddleware answers 503.
+            app.state.runtime_ready = False
+            app.state.runtime_error = None
+
+            def _build_runtime_in_background() -> None:
+                try:
+                    rt = build_runtime(evidence_path=evidence_path)
+                    _attach_runtime_to_app(app, rt)
+                    _start_scheduler(rt)
+                    app.state.runtime_ready = True  # last — gate opens only now
+                    _logger.info("tex runtime ready (deferred build complete)")
+                except Exception as exc:  # pragma: no cover - reported via /health
+                    app.state.runtime_error = repr(exc)
+                    _logger.exception("tex runtime deferred build FAILED")
+
+            threading.Thread(
+                target=_build_runtime_in_background,
+                name="tex-runtime-build",
+                daemon=True,
+            ).start()
         try:
             yield
         finally:
-            # Tear down the scheduler on shutdown so the daemon
-            # thread exits cleanly.
-            if scheduler is not None:
+            # Tear down the scheduler on shutdown so the daemon thread exits
+            # cleanly (resolve it from app.state too, for the deferred case).
+            rt = getattr(app.state, "runtime", None)
+            stop_target = scheduler if scheduler is not None else getattr(rt, "scan_scheduler", None)
+            if stop_target is not None:
                 try:
-                    scheduler.stop()
+                    stop_target.stop()
                 except Exception as exc:  # pragma: no cover
                     _logger.warning("discovery scheduler stop failed: %s", exc)
 
@@ -1302,7 +1422,17 @@ def create_app(
         lifespan=lifespan,
     )
 
-    _attach_runtime_to_app(app, resolved_runtime)
+    if resolved_runtime is not None:
+        # Eager attach so the no-`with` TestClient path (TestClient(create_app())
+        # without entering the lifespan) still sees a fully wired app — unchanged.
+        _attach_runtime_to_app(app, resolved_runtime)
+        app.state.runtime_ready = True
+    else:
+        # Deferred: nothing is wired yet. The gate guards real routes; the
+        # background thread (started in lifespan) attaches the runtime.
+        app.state.runtime_ready = False
+        app.state.runtime_error = None
+        app.add_middleware(_WarmupGateMiddleware)
 
     # CORS: never wildcard-origins-with-credentials. Policy is resolved from
     # TEX_CORS_ALLOW_ORIGINS in the self-contained tex.api.cors module.
@@ -1367,7 +1497,15 @@ def create_app(
 
     @app.get("/", tags=["tex"], summary="Tex service metadata")
     def root() -> dict[str, object]:
-        active_policy = resolved_runtime.policy_store.get_active()
+        rt = getattr(app.state, "runtime", None)
+        if rt is None:
+            # Deferred runtime still warming (or failed) — answer liveness only.
+            return {
+                "service": APP_TITLE,
+                "version": APP_VERSION,
+                "status": "error" if getattr(app.state, "runtime_error", None) else "warming",
+            }
+        active_policy = rt.policy_store.get_active()
 
         return {
             "service": APP_TITLE,
@@ -1375,9 +1513,9 @@ def create_app(
             "status": "ok",
             "active_policy_version": active_policy.version if active_policy else None,
             "retrieval_enabled": True,
-            "precedent_count": len(resolved_runtime.precedent_store.list_all()),
-            "entity_count": len(resolved_runtime.entity_store.list_all()),
-            "evidence_path": str(resolved_runtime.evidence_recorder.path),
+            "precedent_count": len(rt.precedent_store.list_all()),
+            "entity_count": len(rt.entity_store.list_all()),
+            "evidence_path": str(rt.evidence_recorder.path),
             "integrations": {
                 "canonical_guardrail": "POST /v1/guardrail",
                 "guardrail_formats": "GET /v1/guardrail/formats",
@@ -1675,6 +1813,20 @@ def _build_discovery_connectors() -> list:
         from tex.sim.connectors import build_sandbox_connectors
         return build_sandbox_connectors()
 
+    # Demo seed (Entra consent-graph + OCSF audit fixtures) lets the first-run
+    # "click Begin" map a believable estate when no live cloud credentials are
+    # configured. ON by default — the demo/first-run experience depends on it.
+    # Set TEX_DISCOVERY_DEMO_SEED=0 to suppress it: a production deploy that
+    # must never surface fixture agents, or the test suite, which relies on the
+    # documented "empty connectors" surface. The connector logic, reconciliation
+    # and ledger are identical either way — only the transport's seed differs.
+    _demo_seed = os.environ.get("TEX_DISCOVERY_DEMO_SEED", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
     connectors: list = [
         MicrosoftGraphConnector(),
         SalesforceConnector(),
@@ -1722,29 +1874,29 @@ def _build_discovery_connectors() -> list:
             )
     else:
         from tex.discovery.demo_seed import entra_pages
+        _entra_pages = entra_pages() if _demo_seed else {}
         connectors.append(
-            EntraConsentGraphConnector(transport=FixtureGraphTransport(entra_pages()))
+            EntraConsentGraphConnector(transport=FixtureGraphTransport(_entra_pages))
         )
 
     # Root two — the OCSF audit plane (the agentless, tamper-resistant
     # catch). A real deployment points it at Security Lake / CloudTrail; with
-    # no source it runs against the demo seed of shadow-agent activity.
+    # no source it runs against the demo seed of shadow-agent activity (or
+    # stands ready but empty when the demo seed is suppressed).
     from tex.discovery.connectors.cloud_audit_ocsf import OcsfAuditConnector
+    from tex.discovery.demo_seed import cloudtrail_records
 
     audit_query = os.environ.get("TEX_DISCOVERY_AUDIT_QUERY", "").strip()
     if audit_query:
         # A live deployment supplies its own reader (Athena/CloudTrail Lake
         # query, Security Lake S3). Left as the seam to implement per estate.
         _logger.info("discovery: audit query configured; live reader is deployment-supplied")
-        from tex.discovery.demo_seed import cloudtrail_records
-        connectors.append(
-            OcsfAuditConnector(source=lambda ctx: cloudtrail_records(), source_format="cloudtrail")
+    connectors.append(
+        OcsfAuditConnector(
+            source=(lambda ctx: cloudtrail_records()) if _demo_seed else (lambda ctx: []),
+            source_format="cloudtrail",
         )
-    else:
-        from tex.discovery.demo_seed import cloudtrail_records
-        connectors.append(
-            OcsfAuditConnector(source=lambda ctx: cloudtrail_records(), source_format="cloudtrail")
-        )
+    )
 
     # OpenAI Assistants
     openai_key = os.environ.get("TEX_DISCOVERY_OPENAI_API_KEY", "").strip()

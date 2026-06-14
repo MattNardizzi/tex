@@ -58,6 +58,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tex.voice.entailment_cert import (
+    ENTAILMENT_HALF_BLOCKED,
+    ENTAILMENT_HALF_GREEN,
+)
+from tex.voice.voice_gate import ENTAILMENT_BACKEND_NEURAL
+
 SCHEMA_VERSION = "tex.capstone/verdict.v1"
 
 # The chain labels — exactly the three cryptographically separate chains.
@@ -439,17 +445,38 @@ class CapstoneVerdict(BaseModel):
 
         l11 = by["L11"]
         _require(
-            l11.halves.get("seal") == "green"
-            and l11.halves.get("entailment") == "blocked",
-            "L11: only the seal half composes; the entailment half is "
-            "BLOCKED (torch/GPU + field corpus)",
+            l11.halves.get("seal") == "green",
+            "L11: the seal half always composes (the commitment is sealed "
+            "into the ECDSA voice chain)",
         )
-        _require(
-            l11.verification.get("lambda_hat") is None
-            and l11.verification.get("calibrated") is False,
-            "L11 seals the ABSENCE of lambda-hat; a calibrated commitment "
-            "is unconstructible in this schema",
-        )
+        l11_ent = l11.halves.get("entailment")
+        l11v = l11.verification
+        if l11_ent == ENTAILMENT_HALF_BLOCKED:
+            _require(
+                l11v.get("lambda_hat") is None
+                and l11v.get("calibrated") is False,
+                "L11 blocked ⟹ the commitment seals the ABSENCE of lambda-hat "
+                "(lambda_hat=None, calibrated=False)",
+            )
+        elif l11_ent == ENTAILMENT_HALF_GREEN:
+            lam = l11v.get("lambda_hat")
+            _require(
+                isinstance(lam, (int, float))
+                and not isinstance(lam, bool)
+                and 0.0 <= float(lam) <= 1.0
+                and l11v.get("calibrated") is True
+                and l11v.get("model_loaded") is True
+                and l11v.get("scorer_backend") == ENTAILMENT_BACKEND_NEURAL
+                and l11v.get("calibration_corpus_kind") == "field",
+                "L11 green ⟹ a real field calibration: a lambda-hat in [0,1] "
+                "from the loaded neural backend over a FIELD corpus. A stub or "
+                "synthetic calibration is unconstructible as green",
+            )
+        else:
+            _require(
+                False,
+                "L11 entailment half must be 'blocked' or 'green'",
+            )
 
         l12 = by["L12"]
         cert = l12.verification.get("certificate", {})

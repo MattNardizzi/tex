@@ -66,6 +66,20 @@ def _l1_not_stand_in(doc):
 def _l1_promoted(doc):
     _prop(doc, "L1")["status"] = "green"
 
+def _l2_hardware_promoted(doc):
+    # Claim the hardware-rooted measurement is green (it is runtime-dependent
+    # off real TDX) — the L2 honesty pin must refuse it.
+    _prop(doc, "L2")["halves"]["hardware_measurement"] = "green"
+
+def _l2_alg_none(doc):
+    # Claim the token rode the alg=none test-mode bypass yet is green — the
+    # L2 pin requires a real verified signature (alg != none).
+    _prop(doc, "L2")["verification"]["alg"] = "none"
+
+def _l2_signature_unverified(doc):
+    # Claim green without the signature actually verifying — unconstructible.
+    _prop(doc, "L2")["verification"]["signature_verified"] = False
+
 def _l4_certified(doc):
     _prop(doc, "L4")["verification"]["certificate"]["certified"] = True
 
@@ -91,6 +105,9 @@ def _a_leap_dropped(doc):
         _l11_lambda_present,
         _l1_not_stand_in,
         _l1_promoted,
+        _l2_hardware_promoted,
+        _l2_alg_none,
+        _l2_signature_unverified,
         _l4_certified,
         _l10_pq_durable,
         _summary_overclaims,
@@ -168,6 +185,7 @@ def test_honest_split_is_exactly_the_expected_one(capstone_flow) -> None:
         "blocked": ("L11.entailment",),
         "estimate_only": ("L12.qif",),
         "green": (
+            "L2.signature",
             "L3",
             "L4.floor",
             "L5",
@@ -178,8 +196,8 @@ def test_honest_split_is_exactly_the_expected_one(capstone_flow) -> None:
             "L10.maturity_signal",
             "L11.seal",
         ),
-        "green_test_mode": ("L1", "L2"),
-        "runtime_dependent": ("L10.pq_signing",),
+        "green_test_mode": ("L1",),
+        "runtime_dependent": ("L2.hardware_measurement", "L10.pq_signing"),
         "uncertified": ("L4.certificate", "L12.robustness"),
     }
 

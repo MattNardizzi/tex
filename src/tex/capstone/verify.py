@@ -25,11 +25,20 @@ final ANSWER fact must carry the recomputed manifest digest), and comparing
 the manifest's claimed per-property statuses against what the module
 verifiers say offline (no status drift).
 
-Two flags mirror the composition's honest test-mode halves: ``allow_shim``
-(L1's keyed-hash stand-in is refused fail-closed without it — that refusal is
-the module's own ``zkpdp_shim_not_a_real_proof`` gate, demonstrably intact)
-and ``tee_test_mode`` (the alg=none JWT verifies only in test mode). Both are
-recorded in the result; neither is ever silently assumed.
+L1's honest test-mode half is gated by ``allow_shim`` (L1's keyed-hash
+stand-in is refused fail-closed without it — that refusal is the module's own
+``zkpdp_shim_not_a_real_proof`` gate, demonstrably intact), recorded in the
+result and never silently assumed.
+
+L2 is NOT a test-mode half: the composite attestation is a real signed JWS
+(``alg != none``), so the verifier checks its signature against the relying
+party's out-of-band ``CapstonePins.ita_public_key_pem`` under a production
+posture (no ``alg=none`` bypass) and accepts it only when the signature
+validates and the verdict-bound ``report_data`` matches. The hardware-rooted
+measurement remains runtime-dependent — the signature proves authorship by
+the pinned key (Intel's ITA key in production, a stand-in offline), not that
+Intel TDX hardware executed the guardrail. ``tee_test_mode`` is retained for
+API compatibility but no longer gates L2.
 """
 
 from __future__ import annotations
@@ -99,6 +108,11 @@ class CapstonePins:
     ledger_public_key_pem: bytes
     evidence_public_key_b64: str
     voice_public_key_b64: str
+    # The L2 composite-attestation signing key, pinned out-of-band: Intel
+    # Trust Authority's published key in production, a local stand-in in the
+    # offline demo. The signed token verifies against THIS key, never one
+    # carried inside the bundle under verification.
+    ita_public_key_pem: bytes
     log_name: str
     log_public_key_raw_hex: str
     witness_roster: tuple[tuple[str, str, str], ...]  # (name, pk_hex, provenance)
@@ -111,6 +125,7 @@ class CapstonePins:
             ledger_public_key_pem=data["ledger_public_key_pem"].encode("ascii"),
             evidence_public_key_b64=data["evidence_public_key_b64"],
             voice_public_key_b64=data["voice_public_key_b64"],
+            ita_public_key_pem=data["ita_public_key_pem"].encode("ascii"),
             log_name=data["log_name"],
             log_public_key_raw_hex=data["log_public_key_raw_hex"],
             witness_roster=tuple(
@@ -451,6 +466,8 @@ def verify_capstone(
         == manifest.pins.evidence_public_key_b64_sha256
         and sha256_hex_bytes(pins.voice_public_key_b64.encode("ascii"))
         == manifest.pins.voice_public_key_b64_sha256
+        and sha256_hex_bytes(pins.ita_public_key_pem)
+        == manifest.pins.ita_public_key_pem_sha256
         and sha256_hex_bytes(bytes.fromhex(pins.log_public_key_raw_hex))
         == manifest.pins.log_public_key_raw_sha256
         and pins.nli_model_id == manifest.pins.nli_model_id
@@ -536,8 +553,18 @@ def verify_capstone(
     out.add("L1.relation", l1_ok, l1_detail)
     out.add("L1.seal_binding", l1_seal_ok, l1_detail)
 
-    # 8) L2 — verdict binding, inputs re-derived from SEALED data -------------
-    tee_env = {"TEX_TEE_ATTESTATION_MODE": "test" if tee_test_mode else None}
+    # 8) L2 — verdict binding over a REAL signed token, fail-closed ----------
+    # Verify the composite attestation through the real signature path: a
+    # PRODUCTION posture (test mode unset) so a bad/missing signature fails
+    # closed, with the relying party's out-of-band ITA public key pinned for
+    # the verifier. ``tee_test_mode`` is retained for API compatibility but no
+    # longer gates L2 — the capstone token is a real JWS, not an alg=none
+    # bypass. The hardware-rooted measurement stays runtime-dependent (the
+    # signature proves authorship by the pinned key, not that Intel TDX ran).
+    tee_env = {
+        "TEX_TEE_ATTESTATION_MODE": None,
+        "TEX_ITA_PUBLIC_KEY_PEM": pins.ita_public_key_pem.decode("ascii"),
+    }
     l2_ok = False
     l2_detail = ""
     try:
@@ -553,10 +580,14 @@ def verify_capstone(
                 decision_input_sha256=sealed["content_sha256"],
                 ledger_prev_hash=records[decision_seq].record_hash,
             )
-        l2_ok = l2.ok and l2.test_mode
-        l2_detail = f"reason={l2.reason!r} test_mode={l2.test_mode}"
+        # Green requires a real, validated signature and NO test-mode bypass.
+        l2_ok = l2.ok and not l2.test_mode and l2.signature_verified
+        l2_detail = (
+            f"reason={l2.reason!r} alg={l2.signature_alg!r} "
+            f"signature_verified={l2.signature_verified} test_mode={l2.test_mode}"
+        )
         if l2_ok:
-            out.offline_status["L2"] = "green_test_mode"
+            out.offline_status["L2"] = "green"
     except Exception as exc:  # noqa: BLE001
         l2_detail = f"{type(exc).__name__}: {exc}"
     out.add("L2.verdict_binding", l2_ok, l2_detail)
@@ -904,7 +935,7 @@ def verify_capstone(
     # 15) no status drift: manifest claims == offline findings ----------------
     expected_status = {
         "L1": "green_test_mode",
-        "L2": "green_test_mode",
+        "L2": "green",
         "L3": "green",
         "L4": "green",
         "L5": "green",

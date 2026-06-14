@@ -371,6 +371,64 @@ def tamper_verdict_swap(bundle_dir: Path, scratch: Path) -> TamperRow:
     )
 
 
+# ── forged L2 signature: the JWS check refuses ───────────────────────────
+
+
+def tamper_jwt_signature_forged(bundle_dir: Path, scratch: Path) -> TamperRow:
+    """Flip a byte of the L2 token's JWS signature. The verdict-bound
+    report_data is left intact, so the catch is specifically the SIGNATURE:
+    under a production posture with the pinned ITA key, the verifier refuses
+    the forged signature fail-closed — there is no alg=none bypass to fall
+    back on (this is what moving L2 off test-mode bought)."""
+    from tex.capstone.verify import _scoped_env
+
+    work = bundle_dir
+    pins = _pins(work)
+    manifest = json.loads((work / MANIFEST_FILE).read_text(encoding="utf-8"))
+    bundle = SealedFactBundle.from_json(
+        (work / LEDGER_BUNDLE_FILE).read_text(encoding="utf-8")
+    )
+    decision_seq = manifest["decision"]["decision_fact_sequence"]
+    sealed = bundle.records[decision_seq].fact.detail
+    policy_digest = sha256_hex_bytes((work / "policy_snapshot.json").read_bytes())
+
+    jwt = (work / "tee_verdict_binding.jwt").read_text(encoding="utf-8")
+    header_b64, payload_b64, sig_b64 = jwt.split(".")
+    # Flip the first base64url char of the signature to another valid char so
+    # decoding still succeeds (the catch is signature_invalid, not a parse
+    # error) but the signature bytes no longer match the key.
+    flipped_first = "B" if sig_b64[0] != "B" else "A"
+    forged = f"{header_b64}.{payload_b64}.{flipped_first}{sig_b64[1:]}"
+
+    with _scoped_env(
+        {
+            "TEX_TEE_ATTESTATION_MODE": None,
+            "TEX_ITA_PUBLIC_KEY_PEM": pins.ita_public_key_pem.decode("ascii"),
+        }
+    ):
+        l2 = verify_verdict_binding(
+            forged,
+            sealed_verdict=sealed["verdict"],
+            policy_bundle_digest=policy_digest,
+            decision_input_sha256=sealed["content_sha256"],
+            ledger_prev_hash=bundle.records[decision_seq].record_hash,
+        )
+    caught = (
+        not l2.ok
+        and l2.reason == "signature_invalid"
+        and l2.signature_verified is False
+    )
+    return TamperRow(
+        name="forged L2 attestation signature (verdict binding intact)",
+        caught=caught,
+        caught_by=("L2.signature_invalid",),
+        detail=(
+            f"l2_reason={l2.reason!r} signature_verified={l2.signature_verified} "
+            f"alg={l2.signature_alg!r}"
+        ),
+    )
+
+
 # ── forked checkpoint: the witnesses refuse ──────────────────────────────
 
 
@@ -530,6 +588,7 @@ def run_tamper_matrix(
         tamper_evidence_resign(bundle_dir, scratch_dir),
         tamper_voice_remint(bundle_dir, scratch_dir),
         tamper_verdict_swap(bundle_dir, scratch_dir),
+        tamper_jwt_signature_forged(bundle_dir, scratch_dir),
         tamper_checkpoint_fork(flow),
         tamper_epoch_minus_permit(bundle_dir, scratch_dir),
         tamper_artifact_swap(bundle_dir, scratch_dir),
@@ -545,6 +604,7 @@ __all__ = [
     "tamper_epoch_minus_permit",
     "tamper_evidence_byteflip",
     "tamper_evidence_resign",
+    "tamper_jwt_signature_forged",
     "tamper_ledger_byteflip",
     "tamper_ledger_resign",
     "tamper_manifest_edit",

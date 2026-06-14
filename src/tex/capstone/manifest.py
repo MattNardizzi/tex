@@ -41,9 +41,10 @@ How the manifest becomes ONE object rather than twelve receipts:
 
 Maturity of the COMPOSITION itself: ``research-early`` — the composition is
 real and replayable today with test-mode/shim halves honestly labelled
-(L1 stand-in, L2 test-mode, L4/L12 certificates uncertified, L11 entailment
-half BLOCKED, L12 QIF estimate-only); it is promoted only as each
-RUNTIME-DEPENDENT half lands. The per-property ``status`` fields below are
+(L1 stand-in, L2 real signature over a stand-in ITA key with the
+hardware-measurement half runtime-dependent, L4/L12 certificates
+uncertified, L11 entailment half BLOCKED, L12 QIF estimate-only); it is
+promoted only as each RUNTIME-DEPENDENT half lands. The per-property ``status`` fields below are
 receipts, not hedges: over-claiming combinations are rejected at construction
 by the validators in ``CapstoneVerdict`` (the L12 ``Literal[False]`` pattern,
 applied at composition level).
@@ -68,7 +69,7 @@ CHAIN_VOICE = "voice_attestation"
 # by leap pairs (L7+L9 -> 4, L5+L12 -> 8), so indices repeat across leaps but
 # the SET over all twelve entries must be exactly {1..8}.
 PROPERTY_INDEX: dict[str, int] = {
-    "L2": 1,   # attestation-bound to the exact guardrail (test-mode)
+    "L2": 1,   # attestation-bound to the exact guardrail (real signature)
     "L1": 2,   # ZK-relation proof-carrying (stand-in backend)
     "L10": 3,  # PQ-maturity probed; signal lowers the verdict
     "L7": 4,   # anytime-valid adversary-completeness (with L9)
@@ -212,6 +213,11 @@ class PinDigests(BaseModel):
     ledger_public_key_pem_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     evidence_public_key_b64_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     voice_public_key_b64_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # The L2 composite-attestation signing key the relying party pins
+    # out-of-band (Intel Trust Authority's published key in production; a
+    # local stand-in in the offline demo). The signed token verifies against
+    # THIS key — never one shipped inside the bundle under verification.
+    ita_public_key_pem_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     log_name: str = Field(min_length=1)
     log_public_key_raw_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     witness_roster_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -341,13 +347,22 @@ class CapstoneVerdict(BaseModel):
 
         l2 = by["L2"]
         _require(
-            l2.status == "green_test_mode" and l2.runtime_dependent,
-            "L2 attestation is test-mode: only green_test_mode + "
-            "runtime_dependent is constructible",
+            l2.status == "green"
+            and l2.runtime_dependent
+            and l2.halves.get("signature") == "green"
+            and l2.halves.get("hardware_measurement") == "runtime_dependent",
+            "L2: the verdict-binding signature half is green (a real JWS, "
+            "alg != none, verified fail-closed against a pinned key); the "
+            "hardware-rooted measurement half stays runtime_dependent — "
+            "claiming it green is unconstructible here",
         )
         _require(
-            l2.verification.get("test_mode") is True,
-            "L2 verification must carry test_mode=True",
+            l2.verification.get("test_mode") is False
+            and l2.verification.get("signature_verified") is True
+            and str(l2.verification.get("alg", "")).lower() not in ("", "none"),
+            "L2 verification must carry a real verified signature "
+            "(test_mode=False, signature_verified=True, alg != none) — the "
+            "alg=none test-mode bypass is unconstructible for the capstone",
         )
 
         l3 = by["L3"]

@@ -77,13 +77,32 @@ def test_l1_fails_closed_without_the_shim_opt_in(
         assert closed.check(name).ok, name
 
 
-def test_l2_fails_closed_without_test_mode(capstone_flow, capstone_pins) -> None:
-    """Withdraw TEX_TEE_ATTESTATION_MODE=test: the alg=none JWT must not
-    verify under a production posture."""
-    closed = verify_capstone(
+def test_l2_verifies_under_production_posture(capstone_flow, capstone_pins) -> None:
+    """L2 is a real signed token, NOT a test-mode half: it must verify even
+    with the (legacy, now inert) tee_test_mode flag off — no alg=none bypass
+    is involved — and report a validated signature with test_mode=False."""
+    res = verify_capstone(
         capstone_flow.bundle_dir, capstone_pins, tee_test_mode=False
     )
+    assert res.check("L2.verdict_binding").ok
+    assert "signature_verified=True" in res.check("L2.verdict_binding").detail
+
+
+def test_l2_fails_closed_on_wrong_ita_key(capstone_flow, capstone_pins) -> None:
+    """The signature is load-bearing: pin the WRONG ITA public key and L2
+    fails closed (the JWS does not verify against it), while the chains and
+    L1 are untouched. The pin-digest check independently flags the swap."""
+    import dataclasses
+
+    from tex.tee.attestation_client import generate_standin_ita_keypair
+
+    _priv, wrong_pub = generate_standin_ita_keypair()
+    wrong_ita = dataclasses.replace(capstone_pins, ita_public_key_pem=wrong_pub)
+    closed = verify_capstone(capstone_flow.bundle_dir, wrong_ita)
     assert not closed.check("L2.verdict_binding").ok
+    assert "signature_invalid" in closed.check("L2.verdict_binding").detail
+    assert not closed.check("pins.digest").ok  # the swap is also pinned out
+    # L2's failure does not contaminate the chains or L1.
     assert closed.check("chain1.integrity").ok
     assert closed.check("L1.relation").ok
 
@@ -99,7 +118,12 @@ def test_compose_consumed_module_verifiers_not_reimplementations(
     assert l1["reason"] is None and l1["stand_in"] is True
     assert l1["seal_status"] == "sealed_match"
     l2 = manifest.property_for("L2").verification
-    assert l2["reason"] == "ok_test_mode"
+    # A real signed token (no alg=none bypass): the verifier reported a
+    # validated signature, not test mode.
+    assert l2["reason"] == "ok"
+    assert l2["test_mode"] is False
+    assert l2["signature_verified"] is True
+    assert str(l2["alg"]).lower() not in ("", "none")
     l3 = manifest.property_for("L3").verification
     assert l3["conservation_status"] == "GATED-HOLDS"
     assert l3["attempts_source"] == "derived"

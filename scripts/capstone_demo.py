@@ -18,7 +18,7 @@ One run does all of it (see ``tex.capstone`` for the importable core):
   2. composes the eight properties onto ONE sealed ``CapstoneVerdict``
      manifest, sealed into the verdict's own chain and witness-cosigned;
   3. re-verifies EVERYTHING offline from the bundle files + pins alone;
-  4. runs the TAMPER MATRIX — eleven adversary rows, each caught and
+  4. runs the TAMPER MATRIX — twelve adversary rows, each caught and
      attributed to the RIGHT proof;
   5. folds in the Replay Trial and the Honest Decline as sub-demos.
 
@@ -26,11 +26,14 @@ Exit code 0 iff every positive claim verifies AND every tamper is caught
 AND both sub-demos pass.
 
 Honesty header: the composition is research-early. L1 rides a keyed-hash
-stand-in under TEX_ZKPDP_ALLOW_SHIM=1 (never a proof); L2 is a test-mode
-alg=none JWT; the L4/L12 certificates are certified=False pending a field
-corpus; L12's QIF figure is a point estimate; L11's entailment half is
-BLOCKED. The manifest carries each of those labels machine-readably — that
-labelling IS the product bar, not a disclaimer.
+stand-in under TEX_ZKPDP_ALLOW_SHIM=1 (never a proof); L2 is a REAL signed
+composite token (PS384 JWS, verified fail-closed against a pinned key — a
+local STAND-IN for Intel's ITA key offline) whose hardware-rooted
+measurement stays runtime-dependent; the L4/L12 certificates are
+certified=False pending a field corpus; L12's QIF figure is a point
+estimate; L11's entailment half is BLOCKED. The manifest carries each of
+those labels machine-readably — that labelling IS the product bar, not a
+disclaimer.
 """
 
 from __future__ import annotations
@@ -44,11 +47,13 @@ def main() -> int:
     logging.disable(logging.CRITICAL)
 
     # The honest opt-ins, all named: M0 sealing + witness wiring for the
-    # runtime sub-demos; shim/test-mode for the L1/L2 halves.
+    # runtime sub-demos; the keyed-hash shim for the L1 stand-in. L2 needs
+    # NO test-mode opt-in — its token is a real signed JWS verified
+    # fail-closed against a pinned key (offline verification + the tamper
+    # matrix below run with no TEX_TEE_ATTESTATION_MODE set at all).
     os.environ["TEX_SEAL_DECISIONS"] = "1"
     os.environ["TEX_GIX_WITNESS"] = "1"
     os.environ["TEX_ZKPDP_ALLOW_SHIM"] = "1"
-    os.environ["TEX_TEE_ATTESTATION_MODE"] = "test"
 
     from tex.capstone.flow import run_capstone_flow
     from tex.capstone.tamper import run_tamper_matrix

@@ -25,10 +25,12 @@ Sealing order (the circularity-breaker, see manifest.py):
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from tex.adversarial.completeness import (
     CLAIM,
@@ -74,8 +76,9 @@ from tex.pqcrypto.pq_durability import (
 from tex.provenance.bundle import export_sealed_fact_bundle
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFact, SealedFactKind, SealedFactRecord
+from tex.tee.attestation_client import generate_standin_ita_keypair
 from tex.tee.verdict_binding import (
-    build_verdict_bound_test_jwt,
+    build_verdict_bound_signed_jwt,
     verify_verdict_binding,
 )
 from tex.voice.attestation import VoiceAttestationRecord, VoiceAttestor
@@ -207,6 +210,30 @@ class ComposeResult:
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
+
+
+@contextmanager
+def _scoped_env(updates: dict[str, str | None]) -> Iterator[None]:
+    """Temporarily set/unset env vars (``None`` ⇒ unset), restoring on exit.
+
+    Used to verify the freshly-signed L2 token under a production posture
+    (test mode unset) with the stand-in ITA public key pinned, without
+    leaking either into the rest of composition. Mirrors ``verify._scoped_env``
+    (kept local — ``verify`` imports ``compose``, so importing back would cycle)."""
+    saved = {k: os.environ.get(k) for k in updates}
+    try:
+        for k, v in updates.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _parse_note(cosigned: CosignedCheckpoint) -> Checkpoint:
@@ -361,23 +388,43 @@ def compose_capstone(
     bind_artifact("zkpdp_envelope", ZK_ENVELOPE_FILE, digest, "json", None)
 
     # ---------------------------------------------------------------- L2
-    jwt = build_verdict_bound_test_jwt(
+    # A genuinely SIGNED composite attestation (alg != none), bound to the
+    # verdict. Production pins Intel Trust Authority's published signing key
+    # via TEX_ITA_PUBLIC_KEY_PEM and Intel holds the private half; offline we
+    # generate a STAND-IN keypair so the SIGNATURE PATH is exercised for real
+    # (fail-closed, no alg=none bypass) and pin its public half out-of-band.
+    # The hardware-rooted measurement stays runtime-dependent (dev-stub
+    # evidence off real TDX) — see tee/verdict_binding.py and NOTES.md.
+    ita_private_pem, ita_public_pem = generate_standin_ita_keypair()
+    jwt = build_verdict_bound_signed_jwt(
         sealed_verdict=decision.verdict,
         policy_bundle_digest=policy_digest,
         decision_input_sha256=decision.content_sha256,
         ledger_prev_hash=decision_rec.record_hash,
+        signing_key_pem=ita_private_pem,
     )
-    l2 = verify_verdict_binding(
-        jwt,
-        sealed_verdict=decision.verdict,
-        policy_bundle_digest=policy_digest,
-        decision_input_sha256=decision.content_sha256,
-        ledger_prev_hash=decision_rec.record_hash,
-    )
-    if not l2.ok or not l2.test_mode:
+    # Verify the freshly-signed token through the real signature path under a
+    # PRODUCTION posture (test mode popped) so a bad/missing signature fails
+    # closed, with the stand-in public key pinned for the verifier to check.
+    with _scoped_env(
+        {
+            "TEX_TEE_ATTESTATION_MODE": None,
+            "TEX_ITA_PUBLIC_KEY_PEM": ita_public_pem.decode("ascii"),
+        }
+    ):
+        l2 = verify_verdict_binding(
+            jwt,
+            sealed_verdict=decision.verdict,
+            policy_bundle_digest=policy_digest,
+            decision_input_sha256=decision.content_sha256,
+            ledger_prev_hash=decision_rec.record_hash,
+        )
+    if not (l2.ok and not l2.test_mode and l2.signature_verified):
         raise CompositionError(
-            f"verdict binding failed: {l2.reason!r} "
-            "(is TEX_TEE_ATTESTATION_MODE=test set?)"
+            f"verdict binding failed: reason={l2.reason!r} "
+            f"test_mode={l2.test_mode} signature_verified={l2.signature_verified} "
+            f"alg={l2.signature_alg!r} (expected a real signed token, "
+            "verified fail-closed against the pinned ITA stand-in key)"
         )
     paths[TEE_JWT_FILE] = out / TEE_JWT_FILE
     digest = _write_text(paths[TEE_JWT_FILE], jwt)
@@ -636,6 +683,7 @@ def compose_capstone(
             voice_public_key_b64_sha256=sha256_hex_bytes(
                 voice_pin_b64.encode("ascii")
             ),
+            ita_public_key_pem_sha256=sha256_hex_bytes(ita_public_pem),
             log_name=log_verifier.name,
             log_public_key_raw_sha256=sha256_hex_bytes(log_verifier.public_key_raw),
             witness_roster_sha256=roster_sha256,
@@ -647,13 +695,14 @@ def compose_capstone(
         summary=(
             "One Tex governance verdict (FORBID), sealed and replayable, "
             "composed with all eight Wave-2 capstone properties — each at "
-            "its honest maturity. The relation proof and the attestation "
-            "binding run in stand-in/test mode (RUNTIME-DEPENDENT real "
-            "backends); the robustness and action-class certificates are "
-            "uncertified pending a field corpus; the QIF figure is a point "
-            "estimate; the entailment half is blocked. Every status above "
-            "is machine-readable and was emitted by the leap module's own "
-            "verifier at composition time."
+            "its honest maturity. The relation proof runs on a stand-in "
+            "backend; the attestation binding is a real signature over a "
+            "stand-in ITA key with the hardware measurement RUNTIME-DEPENDENT; "
+            "the robustness and action-class certificates are uncertified "
+            "pending a field corpus; the QIF figure is a point estimate; the "
+            "entailment half is blocked. Every status above is machine-"
+            "readable and was emitted by the leap module's own verifier at "
+            "composition time."
         ),
     )
     manifest_digest = manifest.manifest_sha256()
@@ -715,6 +764,7 @@ def compose_capstone(
         "ledger_signing_key_id": ledger.signing_key_id,
         "evidence_public_key_b64": evidence_pin_b64,
         "voice_public_key_b64": voice_pin_b64,
+        "ita_public_key_pem": ita_public_pem.decode("ascii"),
         "log_name": log_verifier.name,
         "log_public_key_raw_hex": log_verifier.public_key_raw.hex(),
         "witness_roster": roster,
@@ -849,24 +899,40 @@ def _build_property_attestations(
         ),
         attn(
             "L2",
-            title="Verdict-bound attestation (test mode)",
+            title=(
+                "Verdict-bound attestation (real signature; hardware "
+                "measurement runtime-dependent)"
+            ),
             scope="decision",
-            status="green_test_mode",
+            status="green",
             runtime_dependent=True,
             maturity="research_early",
+            halves={
+                "signature": "green",
+                "hardware_measurement": "runtime_dependent",
+            },
             caveats=(
-                "test-mode attestation (alg=none JWT): the binding "
-                "semantics are demonstrated; unforgeability of report_data "
-                "is RUNTIME-DEPENDENT on a real confidential-VM quote",
+                f"the composite token is a real JWS (alg={l2.signature_alg}, "
+                "Intel Trust Authority's production algorithm) signed by a "
+                "STAND-IN ITA key whose public half is pinned out-of-band; "
+                "it verifies fail-closed with no alg=none bypass — the "
+                "signature proves authorship by that key, not that Intel "
+                "attested anything",
                 "the binding gates on tdx_report_data recomputed from the "
                 "sealed verdict + policy digest + decision-input hash + "
                 "ledger head — never on the soft eat_nonce field",
+                "the hardware-rooted measurement is RUNTIME-DEPENDENT: real "
+                "MRTD/RTMR and a quote that signs report_data need an Intel "
+                "TDX confidential VM (the demo's measurements are dev-stub)",
             ),
             verification={
                 "ok": l2.ok,
                 "reason": l2.reason,
                 "bound_verdict": l2.bound_verdict,
                 "test_mode": l2.test_mode,
+                "alg": l2.signature_alg,
+                "signature_verified": l2.signature_verified,
+                "ita_key_source": "stand_in",
                 "expected_report_data": l2.expected_report_data,
             },
             artifacts=("tee_verdict_binding", "policy_snapshot"),

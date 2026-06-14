@@ -101,10 +101,33 @@ class ProofBackendId(str, Enum):
     # (May 1 2026). Composes with SP1 Hypercube and any future
     # FRI/multilinear prover.
     VEIL_HASH_BASED_ZK_2026 = "veil-hash-based-zk-2026"
+    # schnorr-fuse-zk-v1: the first **wired and runnable** non-shim L1 backend.
+    # A pure-Python discrete-log Σ-protocol (Pedersen + Fiat–Shamir + OR-bit
+    # range proofs, ``tex.zkprov.schnorr_group``) that proves the PDP
+    # decision-relation FUSE kernel over private scores
+    # (``tex.zkprov.zk_fuse``). Unlike every entry above it, it does NOT raise
+    # BackendUnavailable — it runs offline with no binary, no SRS, no enclave.
+    # It is a REAL, hiding, sound, publicly-verifiable proof (the property the
+    # HMAC shim never had), but it is NOT a succinct SNARK (proofs are ~hundreds
+    # of KB) and is ``research-early`` / unaudited / pre-quantum (2048-bit DLog,
+    # ~112-bit classical). See ``_REGULATOR_GRADE`` below for the honest tier.
+    SCHNORR_FUSE_ZK_V1 = "schnorr-fuse-zk-v1"
     DETERMINISTIC_SHIM_V1 = "deterministic-shim-v1"
 
 
-# Backends that emit a regulator-grade proof. The shim is excluded.
+# The **non-shim, real-proof** tier: a backend here produces a genuine
+# cryptographic argument (not the symmetric keyed-hash stand-in), so the
+# verifier may report ``regulator_grade=True`` and a composition may treat it as
+# "green" rather than "green_test_mode". Honesty caveat: membership is the TIER,
+# not a completed certification.
+#   * HALO2/DEEPPROVE/JOLT/LATTICEFOLD/SP1/VEIL — RUNTIME-DEPENDENT regulator-
+#     grade SNARK backends (raise BackendUnavailable until their binary/circuit
+#     ships); only THESE are intended for an audited Article 53(1)(d) deployment.
+#   * SCHNORR_FUSE_ZK_V1 — a REAL but ``research-early``, unaudited, NON-succinct
+#     DLog argument that actually runs today. "regulator-grade" here means
+#     "non-shim real proof", NOT "audited SNARK". Do not cite it as Article-53
+#     certified; cite it as a real, hiding, sound, offline proof of the fuse
+#     relation. The shim is excluded from this set entirely.
 _REGULATOR_GRADE: Final[frozenset[ProofBackendId]] = frozenset({
     ProofBackendId.HALO2_IPA_2026,
     ProofBackendId.DEEPPROVE_2026,
@@ -112,15 +135,19 @@ _REGULATOR_GRADE: Final[frozenset[ProofBackendId]] = frozenset({
     ProofBackendId.LATTICEFOLD_PLUS_2026,
     ProofBackendId.SP1_HYPERCUBE_2026,
     ProofBackendId.VEIL_HASH_BASED_ZK_2026,
+    ProofBackendId.SCHNORR_FUSE_ZK_V1,
 })
 
 
 def is_regulator_grade(backend: ProofBackendId) -> bool:
-    """Whether a backend produces a proof acceptable under EU AI Act
-    Article 53(1)(d) regulator-grade verification.
+    """Whether a backend is in the **non-shim, real-proof** tier (see
+    ``_REGULATOR_GRADE``).
 
-    The deterministic shim is fine for unit tests and for the
-    end-to-end wiring proof, but is not a regulator-grade SNARK.
+    The deterministic shim is fine for unit tests and the end-to-end wiring
+    proof, but is a keyed-hash stand-in, never a real proof. The SNARK members
+    are RUNTIME-DEPENDENT; ``schnorr-fuse-zk-v1`` is a real DLog argument that
+    runs today but is research-early/unaudited — "regulator-grade" names the
+    tier, not a completed Article 53(1)(d) certification.
     """
     return backend in _REGULATOR_GRADE
 
@@ -284,6 +311,76 @@ class DeterministicShimBackend:
         )
         expected = hmac.new(_resolve_shim_key(), msg, hashlib.sha256).digest()
         return hmac.compare_digest(expected, tag)
+
+
+# --------------------------------------------------------------------------- #
+# Schnorr fuse-relation backend — the first wired, RUNNABLE non-shim backend  #
+# --------------------------------------------------------------------------- #
+#
+# Unlike every SNARK backend below (which raise BackendUnavailable until a
+# binary/circuit/SRS ships), this one runs offline today in pure Python. It
+# proves the PDP decision-relation FUSE kernel (``tex.zkprov.zk_fuse``): that
+# the public fused score is the round-half-up, clamped, policy-weighted fusion
+# of PRIVATE, range-bounded per-stream risk scores — hiding the scores, sound
+# under discrete log, publicly verifiable with no shared secret, no enclave, no
+# blockchain. It is real (NOT the keyed-hash stand-in) but research-early /
+# unaudited / non-succinct / pre-quantum (2048-bit DLog). It applies to the
+# FUSE path only: a router-skipped (structural short-circuit) statement has no
+# fuse to prove and ``prove`` refuses it.
+#
+# It reads the arbitration statement's structured fields
+# (``stream_scores_q`` / ``weights_q`` / ``fused_q`` / ``scale``) by duck typing
+# — it is only ever dispatched for an ``ArbitrationStatement`` — and does NOT
+# import ``tex.zkpdp`` (no layering cycle). The per-score scores are the PRIVATE
+# witness: ``verify`` never consumes them, only the public weights + fused_q.
+
+@dataclass(frozen=True, slots=True)
+class SchnorrFuseZkBackend:
+    """Discrete-log Σ-protocol backend over the arbitration fuse relation."""
+
+    backend_id: ProofBackendId = ProofBackendId.SCHNORR_FUSE_ZK_V1
+
+    @staticmethod
+    def _streams(statement) -> list[tuple[str, int, int]]:  # type: ignore[no-untyped-def]
+        scores = list(statement.stream_scores_q)
+        weights = list(statement.weights_q)
+        streams: list[tuple[str, int, int]] = []
+        for (sn, sv), (wn, wv) in zip(scores, weights):
+            if sn != wn:
+                raise ValueError(
+                    "schnorr-fuse-zk-v1: stream/weight key order mismatch "
+                    f"({sn!r} != {wn!r})"
+                )
+            streams.append((sn, int(wv), int(sv)))
+        return streams
+
+    def prove(self, *, statement, private_witness: bytes) -> bytes:  # type: ignore[no-untyped-def]
+        from tex.zkprov import zk_fuse
+
+        if getattr(statement, "router_skipped", False):
+            raise zk_fuse.FuseProofError(
+                "schnorr-fuse-zk-v1 attests the FUSE path; a router-skipped "
+                "(structural short-circuit) statement has no fuse to prove — "
+                "its FORBID is a public structural fact, not a fused score"
+            )
+        return zk_fuse.prove_fuse(
+            scale=int(statement.scale),
+            fused_q=int(statement.fused_q),
+            streams=self._streams(statement),
+        )
+
+    def verify(self, *, statement, proof_bytes: bytes) -> bool:  # type: ignore[no-untyped-def]
+        from tex.zkprov import zk_fuse
+
+        if getattr(statement, "router_skipped", False):
+            return False
+        weights = [(str(n), int(w)) for n, w in statement.weights_q]
+        return zk_fuse.verify_fuse(
+            scale=int(statement.scale),
+            fused_q=int(statement.fused_q),
+            weights=weights,
+            proof_bytes=proof_bytes,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -616,6 +713,8 @@ def get_proof_backend(backend_id: ProofBackendId | str) -> ProofBackend:
 
     if backend_id is ProofBackendId.DETERMINISTIC_SHIM_V1:
         return DeterministicShimBackend()
+    if backend_id is ProofBackendId.SCHNORR_FUSE_ZK_V1:
+        return SchnorrFuseZkBackend()
     if backend_id is ProofBackendId.HALO2_IPA_2026:
         return Halo2IpaBackend()
     if backend_id is ProofBackendId.DEEPPROVE_2026:
@@ -695,6 +794,7 @@ __all__ = [
     "ProvenanceStatement",
     "BackendUnavailable",
     "DeterministicShimBackend",
+    "SchnorrFuseZkBackend",
     "Halo2IpaBackend",
     "DeepProveBackend",
     "LatticeFoldPlusBackend",

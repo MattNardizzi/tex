@@ -8,7 +8,10 @@ decision leaves a hash-chained evidence record you can replay in place, and
 sealed decision bundles verify offline — with code in this repository, not
 with our word.
 
-You are not asked to trust a dashboard. The verifier is the pitch.
+You are not asked to trust a dashboard. The verifier is the pitch. No decision
+Tex makes asks you to trust a hardware vendor (Intel/AMD/NVIDIA TEE) or a
+blockchain — only math you can re-run offline. **Try to break it:**
+[CHALLENGE.md](CHALLENGE.md).
 
 ## Sixty seconds to your first verdict
 

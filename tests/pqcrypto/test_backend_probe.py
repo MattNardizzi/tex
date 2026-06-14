@@ -518,4 +518,8 @@ def test_no_foreign_env_flag_flips_a_probe_to_available(
     for flag in _FOREIGN_ENV_FLAGS:
         monkeypatch.setenv(flag, "1")
     assert probe() == baseline
-    assert probe().available is False  # nothing on this box is actually present
+    # A foreign flag must not change availability from its true (unflagged)
+    # baseline. For ml_dsa that baseline is now genuinely available (a durable
+    # native backend on this box); for ezkl/nli it is genuinely absent. In every
+    # case a foreign flag flips nothing.
+    assert probe().available is baseline.available

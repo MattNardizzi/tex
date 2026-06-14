@@ -5,7 +5,7 @@ pydantic
 pydantic-settings
 psycopg[binary]
 pyasn1
-cryptography
+cryptography>=48.0.0  # >=48 ships native ML-DSA (FIPS 204) via OpenSSL 3.5 → L10 PQ-durable signer (pqcrypto/pq_durability.py)
 networkx
 numpy
 scipy

@@ -61,6 +61,7 @@ from tex.interchange.gix import (
     verify_consistency,
     verify_note,
 )
+from tex.pqcrypto import ml_dsa
 from tex.pqcrypto.pq_durability import PQ_NON_REPUDIATION_FLAG
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFactKind
@@ -139,6 +140,23 @@ _IDX_ATTEMPT_B = 7        # attempt hook (request B)
 _IDX_DRIFT = 8            # L9 spine step (request B)
 _IDX_DECISION_B = 9       # M0 customer decision B
 _IDX_UNBIND = 10          # L5 unbind
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _force_no_pq_durable_backend():
+    """Pin the no-durable-backend branch for this module.
+
+    The epoch below asserts the L10 PQ signal FIRES (lowers PERMIT→ABSTAIN and
+    seals its PQ-durable=false DECISION fact) — the disambiguation this suite pins
+    engages only when that fact exists. A box with cryptography>=48 ships a durable
+    native ML-DSA backend that HONORS the claim instead (no fact), so force the live
+    backend id absent to exercise the lowered branch deterministically on any box.
+    The honored branch is covered by tests/capstone/test_pq_maturity_branches.py.
+    """
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ml_dsa, "active_backend_id", lambda: None)
+    yield
+    mp.undo()
 
 
 @pytest.fixture(scope="module")

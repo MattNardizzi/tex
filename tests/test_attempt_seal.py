@@ -28,6 +28,7 @@ from tex.domain.evidence import EvidenceMaturity
 from tex.domain.verdict import Verdict
 from tex.engine.pdp import PolicyDecisionPoint
 from tex.evidence.negative_knowledge import check_count_conservation
+from tex.pqcrypto import ml_dsa
 from tex.provenance.attempt_seal import build_attempt_fact, seal_attempt
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFactKind
@@ -207,9 +208,17 @@ def test_crash_after_entry_leaves_attempt_with_no_decision() -> None:
 
 # ------------------------------------------------- PQ double-DECISION balance
 
-def test_pq_lowered_request_still_balances() -> None:
+def test_pq_lowered_request_still_balances(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """One PQ-claim request seals 1 ATTEMPT + 2 DECISION-kind facts of which
-    exactly 1 is verdict-keyed — the identity balances at 1 attempt."""
+    exactly 1 is verdict-keyed — the identity balances at 1 attempt.
+
+    Force the no-durable-backend branch so the PQ signal fires (seals its fact)
+    regardless of whether this box ships a durable native ML-DSA backend
+    (cryptography>=48 honors the claim instead — that branch seals no PQ fact and
+    is covered by tests/capstone/test_pq_maturity_branches.py)."""
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     ledger = SealedFactLedger()
     pdp = PolicyDecisionPoint(
         decision_ledger=ledger, semantic_analyzer=_PermitSemanticAnalyzer()

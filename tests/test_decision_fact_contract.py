@@ -56,6 +56,7 @@ import pytest
 from tex.domain.verdict import Verdict
 from tex.engine.pdp import PolicyDecisionPoint
 from tex.evidence.negative_knowledge import check_count_conservation
+from tex.pqcrypto import ml_dsa
 from tex.pqcrypto.pq_durability import assess, build_pq_durability_fact
 from tex.provenance.decision_seal import build_decision_fact
 from tex.provenance.ledger import SealedFactLedger
@@ -168,6 +169,23 @@ class _PermitSemanticAnalyzer:
         )
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _force_no_pq_durable_backend():
+    """Pin the no-durable-backend branch for this module.
+
+    Both producers seal only when the PQ signal FIRES, which requires a
+    non-durable signer. A box with cryptography>=48 ships a durable native ML-DSA
+    backend that HONORS the claim (no PQ fact, so only the M0 producer seals), which
+    would un-fire every contract pin here. Force the live backend id absent so the
+    two-producer disambiguation is exercised deterministically on any box. The
+    honored branch is covered by tests/capstone/test_pq_maturity_branches.py.
+    """
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ml_dsa, "active_backend_id", lambda: None)
+    yield
+    mp.undo()
+
+
 @pytest.fixture(scope="module")
 def sealed_flow():
     """One live evaluation that makes BOTH producers seal: a
@@ -233,9 +251,10 @@ def test_producer_detail_contract_verdict_key(sealed_flow) -> None:
     request = make_request(metadata={"pq_non_repudiation": True})
     assessment = assess(request)
     assert assessment.lowers_verdict, (
-        "PQ assessment did not lower — is a PQ-durable backend installed in "
-        "this environment? This suite pins the no-backend posture "
-        "(test_pq_durability.py::test_live_probe_is_none_in_this_env)."
+        "PQ assessment did not lower despite the module's forced no-backend "
+        "posture — the _force_no_pq_durable_backend autouse fixture "
+        "(active_backend_id → None) did not apply. This suite pins the "
+        "two-producer disambiguation, which engages only when the PQ signal fires."
     )
     pq_fact = build_pq_durability_fact(assessment, request)
     assert pq_fact.kind is SealedFactKind.DECISION

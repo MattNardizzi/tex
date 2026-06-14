@@ -73,6 +73,8 @@ __all__ = [
     "verify_attestation",
     "decision_bound_nonce",
     "build_test_mode_composite_jwt",
+    "build_signed_composite_jwt",
+    "generate_standin_ita_keypair",
     "ExpectedMeasurements",
     "ITA_PROD_ISSUER",
 ]
@@ -339,30 +341,29 @@ def _request_ita_composite_token(
 # --------------------------------------------------------------------------- #
 
 
-def build_test_mode_composite_jwt(
+def _composite_claims(
     *,
     tdx_evidence: TdxEvidence,
     gpu_evidence: GpuEvidence,
     nonce: str,
-    eat_ai_claims: EatAiClaims | None = None,
-    ttl_seconds: int = 3600,
-) -> str:
-    """Build a deterministic test-mode JWT mirroring the ITA composite shape."""
-    issuer = os.environ.get(_ENV_ISSUER, ITA_PROD_ISSUER)
-    now = int(time.time())
-
+    issuer: str,
+    now: int,
+    ttl_seconds: int,
+) -> dict[str, Any]:
+    """The ITA-composite-shaped claim set, up to and including the ``nvgpu``
+    block. Shared VERBATIM by the test-mode (``alg=none``) and the signed
+    (``alg!=none``) builders so both carry byte-identical measurement/claims
+    structure; the callers differ only in the header ``alg``, the signature,
+    and whether they append the ``x-tex-test-mode`` marker. The measurements
+    here are derived from the supplied evidence — on a dev-stub host they are
+    stub values, NOT real Intel TDX measurements (see ``tdx_attestation``)."""
     tdx_mrtd = hashlib.sha256(b"mrtd|" + tdx_evidence.quote).hexdigest() + ("0" * 32)
     tdx_rtmr0 = hashlib.sha256(b"rtmr0|" + tdx_evidence.quote).hexdigest() + ("0" * 32)
     gpu_meas_hash = hashlib.sha256(
         b"gpu|" + gpu_evidence.evidence_blob
     ).hexdigest()
 
-    header = {
-        "alg": "none",
-        "typ": "JWT",
-        "kid": "tex-test-mode-composite",
-    }
-    payload: dict[str, Any] = {
+    return {
         "iss": issuer,
         "iat": now,
         "nbf": now,
@@ -424,13 +425,50 @@ def build_test_mode_composite_jwt(
             "x-nvidia-gpu-manufacturer": "NVIDIA Corporation",
             "x-nvidia-gpu-vbios-version": "96.00.74.00.1C",
         },
-        "x-tex-test-mode": True,
     }
 
+
+def _maybe_attach_eat_ai(
+    payload: dict[str, Any], eat_ai_claims: EatAiClaims | None
+) -> None:
     if eat_ai_claims is not None:
         eat_ai_json = eat_ai_claims.model_dump(mode="json")
         compact = {k: v for k, v in eat_ai_json.items() if v not in (None, (), [])}
         payload["eat_ai"] = compact
+
+
+def build_test_mode_composite_jwt(
+    *,
+    tdx_evidence: TdxEvidence,
+    gpu_evidence: GpuEvidence,
+    nonce: str,
+    eat_ai_claims: EatAiClaims | None = None,
+    ttl_seconds: int = 3600,
+) -> str:
+    """Build a deterministic test-mode JWT mirroring the ITA composite shape.
+
+    Unsigned (``alg=none``); carries ``x-tex-test-mode: true`` so the verifier
+    accepts it ONLY under ``TEX_TEE_ATTESTATION_MODE=test``. This path is for
+    local development without TDX hardware — never a production attestation.
+    For a genuinely signed token see :func:`build_signed_composite_jwt`."""
+    issuer = os.environ.get(_ENV_ISSUER, ITA_PROD_ISSUER)
+    now = int(time.time())
+
+    header = {
+        "alg": "none",
+        "typ": "JWT",
+        "kid": "tex-test-mode-composite",
+    }
+    payload: dict[str, Any] = _composite_claims(
+        tdx_evidence=tdx_evidence,
+        gpu_evidence=gpu_evidence,
+        nonce=nonce,
+        issuer=issuer,
+        now=now,
+        ttl_seconds=ttl_seconds,
+    )
+    payload["x-tex-test-mode"] = True
+    _maybe_attach_eat_ai(payload, eat_ai_claims)
 
     header_b64 = _b64url_encode(
         json.dumps(header, separators=(",", ":")).encode("utf-8")
@@ -439,6 +477,156 @@ def build_test_mode_composite_jwt(
         json.dumps(payload, separators=(",", ":")).encode("utf-8")
     )
     return f"{header_b64}.{payload_b64}."
+
+
+# --------------------------------------------------------------------------- #
+# Signed composite JWT (alg != none) — real JWS, the standard ITA token shape #
+# --------------------------------------------------------------------------- #
+
+
+# Default to PS384 — the algorithm Intel Trust Authority signs its production
+# composite tokens with. The signer is algorithm-agile across the classical
+# JWS algorithms the verifier (:func:`_verify_signature`) already accepts.
+_DEFAULT_SIGNED_ALG = "PS384"
+_RSA_ALGS = frozenset({"PS384", "RS256"})
+_EC_ALGS = frozenset({"ES256", "ES384"})
+
+
+def generate_standin_ita_keypair(
+    *, alg: str = _DEFAULT_SIGNED_ALG, rsa_key_size: int = 3072
+) -> tuple[bytes, bytes]:
+    """Generate a STAND-IN ITA composite-token signing keypair (PEM, PEM).
+
+    Returns ``(private_key_pem, public_key_pem)``. This is a local stand-in
+    for Intel Trust Authority's real signing key — it exercises the signed
+    verification PATH offline (no ``alg=none`` bypass), it does NOT make the
+    token a real Intel attestation. In production the relying party pins
+    Intel's published ITA public key out-of-band via ``TEX_ITA_PUBLIC_KEY_PEM``
+    and Intel holds the private half; here Tex holds an ephemeral stand-in.
+    The honest residual is documented in ``tex.tee.verdict_binding`` / NOTES.md.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+    if alg in _RSA_ALGS:
+        private_key: Any = rsa.generate_private_key(
+            public_exponent=65537, key_size=rsa_key_size
+        )
+    elif alg in _EC_ALGS:
+        curve = ec.SECP384R1() if alg == "ES384" else ec.SECP256R1()
+        private_key = ec.generate_private_key(curve)
+    else:
+        raise ValueError(f"unsupported signing alg for stand-in keypair: {alg!r}")
+
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    return private_pem, public_pem
+
+
+def _sign_signing_input(
+    *, alg: str, signing_input: bytes, private_key_pem: bytes
+) -> bytes:
+    """Sign ``signing_input`` (``header_b64.payload_b64``) → raw JWS signature.
+
+    Symmetric with :func:`_verify_signature`: PS384/RS256 over RSA keys,
+    ES256/ES384 over EC keys (the EC signature is emitted as raw ``r||s`` per
+    RFC 7515, which the verifier re-DERs). Raises on any mismatch — signing
+    is an issuer-side operation, so a bad key/alg pairing is a programming
+    error, not a fail-closed verification path."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+    from cryptography.hazmat.primitives.asymmetric.utils import (
+        decode_dss_signature,
+    )
+
+    private_key = serialization.load_pem_private_key(private_key_pem, password=None)
+
+    if alg == "PS384":
+        if not isinstance(private_key, rsa.RSAPrivateKey):
+            raise ValueError("PS384 requires an RSA private key")
+        return private_key.sign(
+            signing_input,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA384()),
+                salt_length=padding.PSS.MAX_LENGTH,
+            ),
+            hashes.SHA384(),
+        )
+    if alg == "RS256":
+        if not isinstance(private_key, rsa.RSAPrivateKey):
+            raise ValueError("RS256 requires an RSA private key")
+        return private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+    if alg in _EC_ALGS:
+        if not isinstance(private_key, ec.EllipticCurvePrivateKey):
+            raise ValueError(f"{alg} requires an EC private key")
+        hash_alg = hashes.SHA384() if alg == "ES384" else hashes.SHA256()
+        der_sig = private_key.sign(signing_input, ec.ECDSA(hash_alg))
+        r, s = decode_dss_signature(der_sig)
+        size = (private_key.key_size + 7) // 8
+        return r.to_bytes(size, "big") + s.to_bytes(size, "big")
+    raise ValueError(f"unsupported signing alg: {alg!r}")
+
+
+def build_signed_composite_jwt(
+    *,
+    tdx_evidence: TdxEvidence,
+    gpu_evidence: GpuEvidence,
+    nonce: str,
+    signing_key_pem: bytes,
+    alg: str = _DEFAULT_SIGNED_ALG,
+    kid: str = "tex-ita-standin-composite",
+    eat_ai_claims: EatAiClaims | None = None,
+    ttl_seconds: int = 3600,
+) -> str:
+    """Build a genuinely SIGNED composite JWT (``alg != none``).
+
+    Mirrors :func:`build_test_mode_composite_jwt`'s ITA-composite claim shape
+    but (1) carries a real JWS ``alg`` in the header, (2) signs
+    ``header_b64.payload_b64`` with ``signing_key_pem``, and (3) does NOT set
+    ``x-tex-test-mode`` — so :func:`verify_attestation` checks it through the
+    real signature path and reports ``test_mode=False`` regardless of the
+    runtime mode. The default ``alg`` is PS384, Intel Trust Authority's own
+    production token algorithm.
+
+    HONEST RESIDUAL (the name yields to the property): the signature proves
+    authorship by the holder of ``signing_key_pem`` — in the offline demo a
+    local STAND-IN key, not Intel's ITA key — and the measurements come from
+    whatever evidence is supplied (dev-stub on a host without TDX). It does
+    NOT prove real Intel TDX hardware executed anything; that remains
+    RUNTIME-DEPENDENT on a confidential VM whose quote signs ``report_data``.
+    """
+    issuer = os.environ.get(_ENV_ISSUER, ITA_PROD_ISSUER)
+    now = int(time.time())
+
+    header = {"alg": alg, "typ": "JWT", "kid": kid}
+    payload: dict[str, Any] = _composite_claims(
+        tdx_evidence=tdx_evidence,
+        gpu_evidence=gpu_evidence,
+        nonce=nonce,
+        issuer=issuer,
+        now=now,
+        ttl_seconds=ttl_seconds,
+    )
+    _maybe_attach_eat_ai(payload, eat_ai_claims)
+
+    header_b64 = _b64url_encode(
+        json.dumps(header, separators=(",", ":")).encode("utf-8")
+    )
+    payload_b64 = _b64url_encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    )
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    signature = _sign_signing_input(
+        alg=alg, signing_input=signing_input, private_key_pem=signing_key_pem
+    )
+    return f"{header_b64}.{payload_b64}.{_b64url_encode(signature)}"
 
 
 # --------------------------------------------------------------------------- #

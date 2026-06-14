@@ -109,12 +109,13 @@ CAPSTONE_METADATA: dict = {
 
 GIX_ORIGIN = "tex.example/capstone-epoch"
 
-# Env the test-mode halves need. The flow scopes them for its own duration —
-# they are the HONEST opt-ins (L1 stand-in, L2 alg=none JWT), recorded as
-# such in the manifest's caveats.
+# Env the stand-in half needs. The flow scopes it for its own duration — the
+# HONEST opt-in for the L1 keyed-hash stand-in, recorded as such in the
+# manifest's caveats. L2 is NOT here: its composite token is a real signed
+# JWS, and the composer verifies it under a production posture (no
+# TEX_TEE_ATTESTATION_MODE=test) against a pinned stand-in ITA key.
 _FLOW_ENV = {
     "TEX_ZKPDP_ALLOW_SHIM": "1",
-    "TEX_TEE_ATTESTATION_MODE": "test",
 }
 
 

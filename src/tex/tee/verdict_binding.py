@@ -43,14 +43,25 @@ is fooled by exactly this forgery while this verifier rejects it.
 
 Maturity
 --------
-``research-early``. In ``TEX_TEE_ATTESTATION_MODE=test`` the composite
-JWT is unsigned (``alg=none``): we exercise **verifier logic** (which
-field it consults, monotone fail-closed posture), NOT cryptographic
-unforgeability. Unforgeability of ``report_data`` is **RUNTIME-DEPENDENT**
-on a real Intel TDX confidential VM whose quote signs ``report_data`` and
-on a pinned ITA signing key — neither is present in CI. The name yields
-to the property: this is "verdict-bound attestation *logic*," promoted to
-a hardware guarantee only on real TDX.
+``research-early``. Two builders, two honesty postures:
+
+* :func:`build_verdict_bound_test_jwt` — unsigned (``alg=none``), accepted
+  ONLY under ``TEX_TEE_ATTESTATION_MODE=test``. Exercises **verifier logic**
+  (which field it consults, monotone fail-closed posture), NOT cryptography.
+* :func:`build_verdict_bound_signed_jwt` — a real JWS (``alg != none``,
+  default PS384) signed with a supplied key, accepted via the real signature
+  path with NO test-mode bypass (``test_mode=False`` in any runtime mode).
+  This is what the capstone composes, so its L2 no longer depends on the
+  ``alg=none`` bypass.
+
+Even with the signed builder the residual is explicit (the name yields to
+the property): the signature proves authorship by the key's holder — in the
+offline demo a **stand-in** for Intel's ITA key, pinned out-of-band — and
+the measurements are dev-stub off real hardware. Unforgeability of
+``report_data`` by *hardware* stays **RUNTIME-DEPENDENT** on a real Intel
+TDX confidential VM whose quote signs ``report_data``. The signed path earns
+"verdict-bound attestation with a real, fail-closed signature"; it is
+promoted to a hardware-rooted guarantee only on real TDX with Intel's key.
 
 Fail-closed
 -----------
@@ -71,6 +82,8 @@ from tex.domain.verdict import Verdict
 from tex.tee.attestation_client import (
     ExpectedMeasurements,
     _parse_jwt,
+    _verify_signature,
+    build_signed_composite_jwt,
     build_test_mode_composite_jwt,
     verify_attestation,
 )
@@ -85,6 +98,7 @@ __all__ = [
     "verify_verdict_binding",
     "report_data_for_nonce",
     "build_verdict_bound_test_jwt",
+    "build_verdict_bound_signed_jwt",
     "VerdictBindingResult",
 ]
 
@@ -217,6 +231,13 @@ class VerdictBindingResult:
     expected_report_data: str | None = None
     observed_report_data: str | None = None
     test_mode: bool = False
+    # The JWS algorithm in the token header, and whether its signature
+    # cryptographically verified against the pinned key (``TEX_ITA_PUBLIC_KEY_
+    # PEM`` / JWKS). ``signature_verified`` is computed directly and is
+    # posture-independent: ``False`` for an ``alg=none`` test token or when no
+    # key is pinned, ``True`` only on a real, validated JWS signature.
+    signature_alg: str | None = None
+    signature_verified: bool = False
     attestation: CompositeVerificationResult | None = None
 
 
@@ -304,9 +325,11 @@ def verify_verdict_binding(
         return _vb_fail("no_jwt")
 
     try:
-        _header, payload, _signing_input, _signature = _parse_jwt(jwt)
+        header, payload, signing_input, signature = _parse_jwt(jwt)
     except Exception:  # noqa: BLE001
         return _vb_fail("parse_error")
+
+    alg = str(header.get("alg", "")).strip() or None
 
     verdict = _normalize_verdict(sealed_verdict)
     expected_report_data = recompute_expected_nonce(
@@ -351,6 +374,19 @@ def verify_verdict_binding(
             attestation=base,
         )
 
+    # Authoritative, posture-independent signature fact: re-check the JWS
+    # signature against the pinned key. ``False`` for an ``alg=none`` test
+    # token or when no key is pinned; ``True`` only on a real validated
+    # signature. (The base verifier already gates on this fail-closed in
+    # production; we record the bare crypto result so the manifest can prove
+    # the capstone's L2 rode the signature path, not the test-mode bypass.)
+    signature_verified = False
+    if alg and alg.lower() != "none":
+        sig_ok, _sig_reason = _verify_signature(
+            alg=alg, signing_input=signing_input, signature=signature
+        )
+        signature_verified = bool(sig_ok)
+
     return VerdictBindingResult(
         ok=True,
         reason=base.reason,
@@ -358,6 +394,8 @@ def verify_verdict_binding(
         expected_report_data=expected_report_data,
         observed_report_data=observed_norm,
         test_mode=base.test_mode,
+        signature_alg=alg,
+        signature_verified=signature_verified,
         attestation=base,
     )
 
@@ -399,5 +437,56 @@ def build_verdict_bound_test_jwt(
         tdx_evidence=tdx_ev,
         gpu_evidence=gpu_ev,
         nonce=nonce,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def build_verdict_bound_signed_jwt(
+    *,
+    sealed_verdict: Verdict | str,
+    policy_bundle_digest: str,
+    decision_input_sha256: str,
+    ledger_prev_hash: str | None,
+    signing_key_pem: bytes,
+    alg: str = "PS384",
+    ttl_seconds: int = 3600,
+) -> str:
+    """Build a genuinely SIGNED composite JWT bound to a verdict.
+
+    Identical to :func:`build_verdict_bound_test_jwt` in HOW it binds — the
+    four sealed facts become the TDX ``report_data`` the verifier recomputes —
+    but the token is a real JWS (``alg != none``, default PS384, Intel Trust
+    Authority's production algorithm) signed with ``signing_key_pem``, NOT an
+    ``alg=none`` dev token. :func:`verify_verdict_binding` then accepts it via
+    the real signature path under any runtime mode (``test_mode=False``); no
+    ``TEX_TEE_ATTESTATION_MODE=test`` bypass is involved.
+
+    What this earns and what it does not (the name yields to the property):
+    the signed report_data binding means a host that re-wraps or flips the
+    token cannot produce a verifier-accepted quote without the signing key.
+    The signature proves authorship by that key's holder — in the offline
+    capstone a local STAND-IN for Intel's ITA key, pinned out-of-band — and
+    the measurements come from the supplied evidence (dev-stub off real TDX).
+    Unforgeability of ``report_data`` by *hardware* stays RUNTIME-DEPENDENT on
+    a confidential VM whose TDX quote signs it. See the module docstring and
+    NOTES.md.
+    """
+    nonce = verdict_bound_nonce(
+        sealed_verdict=sealed_verdict,
+        policy_bundle_digest=policy_bundle_digest,
+        decision_input_sha256=decision_input_sha256,
+        ledger_prev_hash=ledger_prev_hash,
+    )
+    report_data = report_data_for_nonce(nonce)
+
+    tdx_ev: TdxEvidence = collect_tdx_evidence(user_data=report_data)
+    gpu_ev = collect_gpu_evidence(nonce=report_data)
+
+    return build_signed_composite_jwt(
+        tdx_evidence=tdx_ev,
+        gpu_evidence=gpu_ev,
+        nonce=nonce,
+        signing_key_pem=signing_key_pem,
+        alg=alg,
         ttl_seconds=ttl_seconds,
     )

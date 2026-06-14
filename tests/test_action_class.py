@@ -24,6 +24,7 @@ from tex.contracts.action_class import (
     Reversibility,
     NEUTRAL_ACTION_CLASS,
     build_action_class_corpus,
+    build_certifiable_action_class_corpus,
     certify_action_class,
     classify_action_class,
     classify_action_class_block,
@@ -297,3 +298,50 @@ def test_corpus_tripwire_raises_on_circular_model() -> None:
     # the anti-circularity assertion must fire rather than ship a vacuous bound.
     with pytest.raises(AssertionError):
         build_action_class_corpus(p_under=0.0)
+
+
+# ── the certifiable-regime corpus: BOTH gates can clear (at scale) ──────────
+
+
+def test_certifiable_corpus_certifies_only_as_field() -> None:
+    """The certifiable counterpart of ``build_action_class_corpus``: a LOW
+    mis-declaration rate over a LARGE holdout, so the calibration UCB clears
+    alpha (the bound gate) while the holdout still carries >= 20 genuine misses
+    (the anti-vacuity tripwire). The SAME data labelled 'synthetic' must still
+    read certified=False — the honesty gate is unchanged; only the size/rate
+    regime differs from the high-miss synthetic fixture."""
+    cal, hold = build_certifiable_action_class_corpus()
+    assert len(cal) == 500
+    holdout_misses = sum(1 for c in hold if c.is_under_classification)
+    assert holdout_misses >= 20  # non-vacuous: the bound measures real misses
+
+    field = certify_action_class(cal, holdout=hold, alpha=0.05, delta=0.05, corpus_kind="field")
+    synth = certify_action_class(cal, holdout=hold, alpha=0.05, delta=0.05, corpus_kind="synthetic")
+    assert field.under_risk_upper_bound <= 0.05      # the bound actually clears
+    assert field.certified is True                   # ...and 'field' is allowed to say so
+    assert field.certified_under_classification_rate == field.under_risk_upper_bound
+    assert field.n_calibration == 500
+    # identical arithmetic, but a synthetic model never claims a field guarantee
+    assert synth.under_risk_upper_bound == field.under_risk_upper_bound
+    assert synth.certified is False
+    assert synth.certified_under_classification_rate == 1.0
+
+
+def test_certifiable_corpus_is_deterministic_and_non_circular() -> None:
+    cal1, h1 = build_certifiable_action_class_corpus(seed=20260618)
+    cal2, h2 = build_certifiable_action_class_corpus(seed=20260618)
+    assert [c.declared_steps for c in cal1] == [c.declared_steps for c in cal2]
+    assert [c.ground_truth_must_forbid for c in h1] == [c.ground_truth_must_forbid for c in h2]
+    # Every under-classification is a real disagreement (anti-circular): truth
+    # says must-FORBID, the lattice reading declared features does not forbid.
+    for c in h1:
+        if c.is_under_classification:
+            assert c.ground_truth_must_forbid is True
+            assert c.predicted() is not ActionClass.FORBID
+
+
+def test_certifiable_corpus_tripwire_on_undersized_holdout() -> None:
+    # At this low mis-declaration rate a small holdout has too few genuine misses
+    # for a non-vacuous bound — the fixture must refuse to build, not ship one.
+    with pytest.raises(AssertionError, match="near-vacuous"):
+        build_certifiable_action_class_corpus(n_holdout=100)

@@ -619,6 +619,67 @@ ACTION_CLASS_CERT = certify_action_class([])
 
 # ── Synthetic labelled corpus (research fixture; seeded; anti-circular) ──────
 
+# Truth marginals: skewed so must-FORBID (IRREVERSIBLE × PUBLIC) is ~33% — enough
+# must-FORBID mass that the mis-declaration channel yields a robust count of
+# genuine under-classification events. Shared by every corpus builder below so
+# there is exactly ONE truth model (a second one could silently drift).
+_TRUTH_REV_LEVELS = (
+    Reversibility.REVERSIBLE,
+    Reversibility.RECOVERABLE,
+    Reversibility.IRREVERSIBLE,
+)
+_TRUTH_REV_WEIGHTS = (0.25, 0.20, 0.55)
+_TRUTH_BLAST_LEVELS = (BlastRadius.SELF, BlastRadius.TENANT, BlastRadius.PUBLIC)
+_TRUTH_BLAST_WEIGHTS = (0.20, 0.20, 0.60)
+
+
+def _sample_action_class_case(rng, *, p_under: float, p_over: float) -> ActionClassCase:
+    """Draw ONE anti-circular labelled case (the shared per-case sampler).
+
+    The label ``ground_truth_must_forbid`` is decided from a LATENT
+    ``(rev_true, blast_true)`` sampled independently of what gets declared; the
+    declared features the lattice actually reads are then produced by a SEPARATE
+    mis-declaration channel that under-states a fraction ``p_under`` of must-FORBID
+    cases and over-states a fraction ``p_over`` of benign ones. Because declared ≠
+    true on a non-trivial slice, the under-classification rate is a GENUINE
+    non-zero quantity — not the trivial 0 you would get if ground truth were
+    derived from the declared bits (the nanozk-class lie this guards against).
+
+    The exact draw order — choices(rev), choices(blast), the mis-declaration
+    branch, randint(steps), randrange(slot) — is load-bearing: every corpus
+    builder shares it so a given seed yields the identical stream.
+    """
+    rev_true = rng.choices(_TRUTH_REV_LEVELS, weights=_TRUTH_REV_WEIGHTS, k=1)[0]
+    blast_true = rng.choices(_TRUTH_BLAST_LEVELS, weights=_TRUTH_BLAST_WEIGHTS, k=1)[0]
+    must_forbid = (
+        rev_true is Reversibility.IRREVERSIBLE and blast_true is BlastRadius.PUBLIC
+    )
+
+    decl_rev, decl_blast = rev_true, blast_true
+    if must_forbid and rng.random() < p_under:
+        # Under-state ONE axis so the floor misses a truly-must-FORBID action.
+        if rng.random() < 0.5:
+            decl_rev = Reversibility.RECOVERABLE
+        else:
+            decl_blast = BlastRadius.TENANT
+    elif (not must_forbid) and rng.random() < p_over:
+        # Over-state a benign action into the FORBID corner (false block).
+        decl_rev, decl_blast = Reversibility.IRREVERSIBLE, BlastRadius.PUBLIC
+
+    # Embed the dangerous declared step among 1..5 benign steps so the
+    # worst-step join is genuinely exercised.
+    n_steps = rng.randint(1, 5)
+    steps: list[tuple[str, str]] = [
+        (Reversibility.REVERSIBLE.name, BlastRadius.SELF.name)
+        for _ in range(n_steps)
+    ]
+    steps[rng.randrange(n_steps)] = (decl_rev.name, decl_blast.name)
+
+    return ActionClassCase(
+        declared_steps=tuple(steps),
+        ground_truth_must_forbid=must_forbid,
+    )
+
 
 def build_action_class_corpus(
     seed: int = 1729,
@@ -628,15 +689,14 @@ def build_action_class_corpus(
 ) -> tuple[list[ActionClassCase], list[ActionClassCase]]:
     """Build a seeded 300-cal / 200-test labelled corpus — RESEARCH FIXTURE only.
 
-    Anti-circularity is structural: each case's ``ground_truth_must_forbid`` is
-    computed from a LATENT ``(rev_true, blast_true)`` sampled independently of the
-    declared features. The declared features the lattice reads are then produced
-    by a SEPARATE mis-declaration channel that under-states a controlled fraction
-    (``p_under``) of must-FORBID cases and over-states a fraction (``p_over``) of
-    benign ones. Because declared ≠ true on a non-trivial slice, the under-
-    classification rate is a GENUINE non-zero quantity — not the trivial 0 you
-    would get if ground truth were derived from the declared bits (which would
-    fabricate a certified ~0.0198 bound, the nanozk-class lie this guards against).
+    Anti-circularity is structural (see ``_sample_action_class_case``): declared ≠
+    true on a non-trivial slice, so the under-classification rate is a GENUINE
+    non-zero quantity, not the circular 0 that would fabricate a certified
+    ~0.0198 bound. The default ``p_under=0.50`` deliberately injects a HIGH miss
+    rate — its purpose is a non-vacuous synthetic fixture, NOT a certifiable one
+    (its UCB sits far above alpha, so the certificate stays uncertified). For the
+    low-rate regime where the UCB can actually clear alpha, see
+    ``build_certifiable_action_class_corpus``.
 
     The mis-declaration rate is SYNTHETIC, so a certificate over this corpus must
     read ``corpus_kind='synthetic'`` / ``certified=False`` — it bounds the floor's
@@ -646,52 +706,10 @@ def build_action_class_corpus(
     import random  # local: never imported into the runtime classify path
 
     rng = random.Random(seed)
-    rev_truth_levels = (
-        Reversibility.REVERSIBLE,
-        Reversibility.RECOVERABLE,
-        Reversibility.IRREVERSIBLE,
-    )
-    blast_truth_levels = (BlastRadius.SELF, BlastRadius.TENANT, BlastRadius.PUBLIC)
-
-    # Skew the truth marginals so must-FORBID is ~30% — enough must-FORBID mass
-    # that p_under yields a robust count of genuine under-classification events.
-    rev_weights = (0.25, 0.20, 0.55)
-    blast_weights = (0.20, 0.20, 0.60)
-
-    cases: list[ActionClassCase] = []
-    for _ in range(n_total):
-        rev_true = rng.choices(rev_truth_levels, weights=rev_weights, k=1)[0]
-        blast_true = rng.choices(blast_truth_levels, weights=blast_weights, k=1)[0]
-        must_forbid = (
-            rev_true is Reversibility.IRREVERSIBLE and blast_true is BlastRadius.PUBLIC
-        )
-
-        decl_rev, decl_blast = rev_true, blast_true
-        if must_forbid and rng.random() < p_under:
-            # Under-state ONE axis so the floor misses a truly-must-FORBID action.
-            if rng.random() < 0.5:
-                decl_rev = Reversibility.RECOVERABLE
-            else:
-                decl_blast = BlastRadius.TENANT
-        elif (not must_forbid) and rng.random() < p_over:
-            # Over-state a benign action into the FORBID corner (false block).
-            decl_rev, decl_blast = Reversibility.IRREVERSIBLE, BlastRadius.PUBLIC
-
-        # Embed the dangerous declared step among 1..5 benign steps so the
-        # worst-step join is genuinely exercised.
-        n_steps = rng.randint(1, 5)
-        steps: list[tuple[str, str]] = [
-            (Reversibility.REVERSIBLE.name, BlastRadius.SELF.name)
-            for _ in range(n_steps)
-        ]
-        steps[rng.randrange(n_steps)] = (decl_rev.name, decl_blast.name)
-
-        cases.append(
-            ActionClassCase(
-                declared_steps=tuple(steps),
-                ground_truth_must_forbid=must_forbid,
-            )
-        )
+    cases = [
+        _sample_action_class_case(rng, p_under=p_under, p_over=p_over)
+        for _ in range(n_total)
+    ]
 
     calibration = cases[:300]
     test = cases[300:500]
@@ -707,6 +725,67 @@ def build_action_class_corpus(
         )
 
     return calibration, test
+
+
+def build_certifiable_action_class_corpus(
+    seed: int = 20260618,
+    *,
+    n_calibration: int = 500,
+    n_holdout: int = 2000,
+    p_under: float = 0.055,
+    p_over: float = 0.10,
+    min_holdout_misses: int = 20,
+) -> tuple[list[ActionClassCase], list[ActionClassCase]]:
+    """A labelled corpus tuned to the CERTIFIABLE regime — RESEARCH FIXTURE only.
+
+    The L4 certificate has two gates that pull in OPPOSITE directions, and a
+    corpus certifies only when BOTH clear:
+
+      * the bound gate — ``hoeffding_bentkus_ucb(under_rate, n_calibration) <=
+        alpha`` — wants a LOW under-classification rate;
+      * the anti-vacuity tripwire — ``>= min_holdout_misses`` genuine under-
+        classification events in the holdout — wants ENOUGH absolute misses that
+        the bound is not measuring an empty set.
+
+    A single i.i.d. corpus reconciles them only at SCALE: a low mis-declaration
+    rate (``p_under=0.055`` → marginal under-rate ~0.018, well under alpha=0.05)
+    PLUS a large holdout (``n_holdout=2000`` → ~36 expected genuine misses, well
+    over 20). At the default split the calibration UCB clears alpha with margin
+    while the tripwire is satisfied several times over — which is exactly why a
+    real L4 field corpus must be LARGE (see NOTES.md for the size derivation).
+
+    Shares ``_sample_action_class_case`` verbatim with
+    ``build_action_class_corpus`` — same anti-circular truth model, only the rate
+    and the split sizes differ. Like every builder here the data is SYNTHETIC: it
+    certifies nothing until attested + sealed as a field corpus (and a real field
+    corpus is collected, not built). The ``corpus_kind='field'`` label is earned
+    only through the provenance gate, never from this function.
+    """
+    import random  # local: never imported into the runtime classify path
+
+    if n_calibration <= 0 or n_holdout <= 0:
+        raise ValueError("n_calibration and n_holdout must be positive")
+
+    rng = random.Random(seed)
+    cases = [
+        _sample_action_class_case(rng, p_under=p_under, p_over=p_over)
+        for _ in range(n_calibration + n_holdout)
+    ]
+    calibration = cases[:n_calibration]
+    holdout = cases[n_calibration:]
+
+    # Same anti-circularity tripwire the certifier enforces: a holdout with too
+    # few genuine misses yields a vacuous bound. Fail loudly at build time so a
+    # mis-tuned fixture never reaches the certifier looking certifiable.
+    holdout_misses = sum(1 for c in holdout if c.is_under_classification)
+    if holdout_misses < min_holdout_misses:
+        raise AssertionError(
+            f"certifiable corpus is near-vacuous: only {holdout_misses} "
+            f"under-classification events in the holdout (need >= "
+            f"{min_holdout_misses}); raise n_holdout or p_under"
+        )
+
+    return calibration, holdout
 
 
 __all__ = [
@@ -726,4 +805,5 @@ __all__ = [
     "certify_action_class",
     "ACTION_CLASS_CERT",
     "build_action_class_corpus",
+    "build_certifiable_action_class_corpus",
 ]

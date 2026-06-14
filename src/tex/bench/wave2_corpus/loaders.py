@@ -374,6 +374,35 @@ def certify_action_class_corpus(
     )
 
 
+def certify_action_class_from_artifact(
+    corpus_path: str | Path,
+    *,
+    provenance_bundle: str | Path | None = None,
+    pinned_public_key_b64: str | None = None,
+    alpha: float = 0.05,
+    delta: float = 0.05,
+) -> tuple[LoadedCorpus, ActionClassCertificate]:
+    """Offline re-verification entry point for the L4 certificate (from files).
+
+    The L4 analog of ``field_trial.run_field_neighborhood_trial``: it re-runs the
+    WHOLE offline check from bytes + pin alone — ``load_corpus`` re-verifies the
+    sealed provenance (integrity + pinned authorship + SHA-256 digest binding) and
+    re-earns the corpus kind, then ``certify_action_class_corpus`` re-derives the
+    certificate. No live runtime is needed (L4 cases carry their labels), so the
+    re-derivation is fully deterministic: an auditor handed the same corpus file,
+    provenance bundle and pin recomputes the identical ``certified`` bit. Returns
+    the loaded corpus (so the caller can read the EARNED ``kind``) alongside the
+    certificate.
+    """
+    loaded = load_corpus(
+        corpus_path,
+        provenance_bundle=provenance_bundle,
+        pinned_public_key_b64=pinned_public_key_b64,
+    )
+    cert = certify_action_class_corpus(loaded, alpha=alpha, delta=delta)
+    return loaded, cert
+
+
 def qif_certificate_from_corpus(
     corpus: LoadedCorpus,
     *,
@@ -403,6 +432,7 @@ __all__ = [
     "LoadedCorpus",
     "action_class_split",
     "certify_action_class_corpus",
+    "certify_action_class_from_artifact",
     "corpus_digest",
     "load_corpus",
     "qif_certificate_from_corpus",

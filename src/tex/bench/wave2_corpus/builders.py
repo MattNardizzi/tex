@@ -37,6 +37,7 @@ from tex.camel.capability import CapabilityLevel, ConfidentialityLevel
 from tex.contracts.action_class import (
     ActionClassCase,
     build_action_class_corpus,
+    build_certifiable_action_class_corpus,
 )
 from tex.domain.verdict import Verdict
 from tex.engine.verdict_certificate import QIFSample, generate_neighborhood
@@ -81,6 +82,41 @@ def build_action_class_points(
     """
     calibration, holdout = build_action_class_corpus(
         seed=seed, n_total=n_total, p_under=p_under, p_over=p_over
+    )
+    return tuple(calibration), tuple(holdout)
+
+
+def build_certifiable_action_class_points(
+    seed: int = 20260618,
+    *,
+    n_calibration: int = 500,
+    n_holdout: int = 2000,
+    p_under: float = 0.055,
+    p_over: float = 0.10,
+) -> tuple[tuple[ActionClassCase, ...], tuple[ActionClassCase, ...]]:
+    """(calibration, holdout) tuples in the CERTIFIABLE regime — for the field
+    dry run only.
+
+    Delegates to ``contracts.action_class.build_certifiable_action_class_corpus``
+    VERBATIM (same anti-circular truth model; the low mis-declaration rate + the
+    large holdout that let BOTH L4 gates clear live there). This wrapper only
+    freezes the output as tuples for serialization, exactly like
+    ``build_action_class_points``.
+
+    Honesty unchanged: the data is SYNTHETIC. A certificate over it reads
+    ``certified=False`` until the corpus is attested + sealed as ``field`` through
+    the provenance gate — and a real field corpus is collected, not built. The
+    only reason this builder exists separately is that the default
+    ``build_action_class_points`` injects a deliberately HIGH miss rate (a
+    non-vacuous fixture whose UCB never clears alpha), so it can never exercise
+    the certified=True branch even once attested. See NOTES.md.
+    """
+    calibration, holdout = build_certifiable_action_class_corpus(
+        seed=seed,
+        n_calibration=n_calibration,
+        n_holdout=n_holdout,
+        p_under=p_under,
+        p_over=p_over,
     )
     return tuple(calibration), tuple(holdout)
 
@@ -380,6 +416,7 @@ __all__ = [
     "QIFRedTeamPoint",
     "as_qif_samples",
     "build_action_class_points",
+    "build_certifiable_action_class_points",
     "build_neighborhood_texts",
     "build_nli_pairs",
     "build_qif_redteam_points",

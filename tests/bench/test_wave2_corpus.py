@@ -38,10 +38,12 @@ from tex.bench.wave2_corpus import (
     as_qif_samples,
     attest_field_provenance,
     build_action_class_points,
+    build_certifiable_action_class_points,
     build_neighborhood_texts,
     build_nli_pairs,
     build_qif_redteam_points,
     certify_action_class_corpus,
+    certify_action_class_from_artifact,
     clopper_pearson_minimum_n,
     corpus_digest,
     corpus_id_for,
@@ -424,6 +426,69 @@ def test_l4_field_kind_flows_but_arithmetic_still_decides(tmp_path) -> None:
     # honest arithmetic: empirical under-rate ~0.15 >> alpha=0.05 -> no cert.
     assert cert.under_risk_upper_bound > cert.alpha
     assert cert.certified is False
+
+
+def test_l4_field_corpus_certifies_through_earned_label(tmp_path) -> None:
+    """SIMULATED-field L4 dry run: attest -> seal -> load(gate) -> certify=True.
+
+    The CERTIFIED counterpart of the test above. That corpus (default builder,
+    p_under=0.50) has a high miss rate whose UCB never clears alpha. This one uses
+    ``build_certifiable_action_class_points``: a LOW mis-declaration rate over a
+    LARGE holdout, so the calibration UCB clears alpha (the bound gate) AND the
+    holdout still carries >= 20 genuine misses (the anti-vacuity tripwire) — so
+    BOTH L4 gates clear and the EARNED 'field' label flips certified=True.
+
+    The labels are simulated (no real L4 field corpus exists yet — the documented
+    BLOCKED item, see NOTES.md). What this proves is the WIRING: had the loader,
+    the pin, the SHA-256 binding, the holdout tripwire, or the Hoeffding-Bentkus
+    arithmetic been weakened, this exact path is where it would show. It is the L4
+    analog of ``test_field_trial_end_to_end_against_live_runtime`` (L12).
+    """
+    cal, hold = build_certifiable_action_class_points()  # seed=20260618
+    points = cal + hold
+    cid = "l4.certifiable.field.test.v1"
+    corpus_path = tmp_path / "l4cert.jsonl"
+    digest = write_corpus(points, consumer="action_class", corpus_id=cid,
+                          path=corpus_path, n_calibration=len(cal))
+    signer = _signer(tmp_path)
+    prov = attest_field_provenance(
+        corpus_id=cid, consumer="action_class", corpus_sha256=digest,
+        n_points=len(points),
+        collector="test-collector (simulated field fixture)",
+        collection_method="pytest fixture attestation — NOT a real collection",
+        source_description="simulated incident-outcome action-class labels for gate testing",
+        window_start="2026-06-01", window_end="2026-06-10",
+    )
+    bundle_path = tmp_path / "l4cert.prov.jsonl"
+    seal_provenance(prov, signer=signer, bundle_path=bundle_path)
+    pin = trusted_public_key_b64(signer)
+
+    loaded, cert = certify_action_class_from_artifact(
+        corpus_path, provenance_bundle=bundle_path, pinned_public_key_b64=pin
+    )
+    assert loaded.kind == "field"                  # earned through the gate
+    assert cert.corpus_kind == "field"
+    assert cert.certified is True                  # THE flip, through the earned label
+    assert cert.under_risk_upper_bound <= cert.alpha
+    assert cert.certified_under_classification_rate == cert.under_risk_upper_bound
+    assert cert.n_calibration == len(cal)
+
+    # Offline re-check: a fresh load from the same bytes + bundle + pin re-derives
+    # the IDENTICAL certificate (deterministic, no runtime) — the auditor's replay.
+    _loaded2, cert2 = certify_action_class_from_artifact(
+        corpus_path, provenance_bundle=bundle_path, pinned_public_key_b64=pin
+    )
+    assert cert2.model_dump() == cert.model_dump()
+
+    # The honesty gate still holds at the artifact boundary:
+    #  - a field claim without the pin is refused (authorship UNVERIFIED);
+    with pytest.raises(CorpusProvenanceError, match="pinned public key"):
+        certify_action_class_from_artifact(corpus_path, provenance_bundle=bundle_path)
+    #  - the SAME bytes with no provenance load synthetic and never certify.
+    synth_loaded, synth_cert = certify_action_class_from_artifact(corpus_path)
+    assert synth_loaded.kind == "synthetic"
+    assert synth_cert.certified is False
+    assert synth_cert.certified_under_classification_rate == 1.0
 
 
 # ── 4. L12: the field entry point + pinned gate arithmetic ──────────────────

@@ -49,18 +49,38 @@ What this module does NOT prove (read before citing)
     — not field-by-field inside the seal. Cite neither half alone as the
     whole, and do not present the seal's six detail fields as covering the
     full statement.
-  * **No wired backend can produce a real ZK proof today.** Every non-shim
-    backend in ``tex.zkprov.backends`` raises ``BackendUnavailable`` (the
-    circuit artifact is out-of-tree — M0c, RUNTIME-DEPENDENT). The only
-    artifact this module can mint today is a **keyed-hash stand-in** from the
-    deterministic shim. A stand-in is NOT a proof and the verifier treats it
-    as such: ``verify_arbitration`` returns invalid-by-default with reason
-    ``zkpdp_shim_not_a_real_proof`` unless ``TEX_ZKPDP_ALLOW_SHIM=1`` is set
-    (tests/dev only) — the same hard-gate discipline as the deactivated nanozk
-    placeholder (``nanozk/layerwise_prover.py``), placed INSIDE the verifier,
-    not at call sites. On the shim path the verifier's own deterministic
-    re-evaluation of the relation is the load-bearing check; the HMAC tag only
-    binds bytes and adds no soundness against a holder of the dev key.
+  * **Backend reality, stated precisely (updated W3/L1).** There are now TWO
+    classes of non-shim backend in ``tex.zkprov.backends``. The SNARK backends
+    (Halo2/ezkl, DeepProve, …) still raise ``BackendUnavailable`` — their
+    circuit/binary is out-of-tree (M0c, RUNTIME-DEPENDENT). But
+    ``schnorr-fuse-zk-v1`` is a **real, runnable, non-shim** backend
+    (``tex.zkprov.zk_fuse``): a discrete-log Σ-protocol that proves the FUSE
+    kernel of THIS relation — the public ``fused_q`` is the round-half-up,
+    clamped, policy-weighted fusion of PRIVATE, range-bounded per-stream scores
+    — hiding the scores, sound under discrete log, publicly verifiable offline
+    with no shared secret, no SRS, no enclave. It applies to the FUSE path only
+    (a router-skipped structural short-circuit has no fuse and the backend
+    refuses it), and it proves the *arithmetic* kernel only: the threshold map,
+    deny-floor, quarantine pin and lowering chain stay PUBLIC, checked by
+    ``evaluate_relation`` — so this is NOT a ZK proof of the whole verdict, and
+    it is ``research-early`` / unaudited / non-succinct / pre-quantum (2048-bit
+    DLog). With ``schnorr-fuse-zk-v1`` the verifier reports ``stand_in=False``
+    and ``regulator_grade=True`` (the non-shim tier), so L1 reaches *green* (not
+    only ``green_test_mode``) WITHOUT ``TEX_ZKPDP_ALLOW_SHIM``. Hiding is a
+    property of the proof; it is realized only when the deployment omits the raw
+    scores from the published statement (a hiding deployment) — the arbiter's
+    all-public ``ArbitrationStatement`` still publishes scores, so on that path
+    the deterministic relation re-eval remains the load-bearing verdict check
+    and the ZK proof is the binding a hiding deployment would rely on.
+
+    The keyed-hash **stand-in** (``deterministic-shim-v1``) is unchanged and
+    still the default: NOT a proof, hard-gated invalid-by-default with reason
+    ``zkpdp_shim_not_a_real_proof`` unless ``TEX_ZKPDP_ALLOW_SHIM=1`` (tests/dev
+    only) — the same discipline as the deactivated nanozk placeholder
+    (``nanozk/layerwise_prover.py``), placed INSIDE the verifier. On the shim
+    path the verifier's own deterministic re-evaluation of the relation is the
+    load-bearing check; the keyed-hash tag only binds bytes and adds no
+    soundness against a holder of the dev key.
 
 Fixed-point arithmetic (the honest circuit shape)
 -------------------------------------------------
@@ -782,7 +802,16 @@ def verify_arbitration(
             "keyed-hash stand-in verified under TEX_ZKPDP_ALLOW_SHIM=1 — "
             "NOT a ZK proof, no hiding, no soundness against the key holder"
             if stand_in
-            else ""
+            else (
+                "schnorr-fuse-zk-v1: real discrete-log proof of the FUSE kernel "
+                "over PRIVATE per-stream scores (research-early/unaudited, "
+                "2048-bit, pre-quantum). Proves only the weighted-fusion "
+                "arithmetic → fused_q; threshold/floor/pin/chain stay public in "
+                "evaluate_relation. Hiding is realized when the statement omits "
+                "raw scores."
+                if backend_id is ProofBackendId.SCHNORR_FUSE_ZK_V1
+                else ""
+            )
         ),
     )
 

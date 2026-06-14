@@ -81,6 +81,7 @@ from tex.tee.verdict_binding import (
 from tex.voice.attestation import VoiceAttestationRecord, VoiceAttestor
 from tex.voice.entailment_cert import (
     EntailmentCommitment,
+    entailment_half_status,
     verify_entailment_commitment,
 )
 from tex.voice.voice_gate import THRESHOLD_LABEL
@@ -1123,14 +1124,23 @@ def _build_property_attestations(
             status="green",
             runtime_dependent=False,
             maturity="research_early",
-            halves={"seal": "green", "entailment": "blocked"},
+            # The entailment half is DERIVED from the commitment, never
+            # hard-coded: green ONLY for a real field calibration (loaded neural
+            # backend + field corpus + a λ̂). The live commitment is the
+            # absence, so this evaluates to "blocked" — honestly.
+            halves={
+                "seal": "green",
+                "entailment": entailment_half_status(materials.voice_commitment),
+            },
             caveats=(
                 THRESHOLD_LABEL,
-                "the commitment seals the ABSENCE of lambda-hat: no scorer "
-                "emits scores, so any float under that name would be a "
-                "statistic of something else wearing the name",
-                "the entailment half is BLOCKED on torch/GPU plus a field "
-                "NLI corpus",
+                "the entailment half is GREEN only behind a real loaded neural "
+                "scorer calibrated over a FIELD NLI corpus; the live commitment "
+                "is the absence (lambda_hat=None, calibrated=False), so it is "
+                "BLOCKED — a synthetic or stub calibration validates the "
+                "pipeline but never earns the field guarantee",
+                "blocked on torch/transformers (import fails in-env) plus a "
+                "labelled field NLI corpus",
             ),
             verification={
                 "ok": l11.ok,
@@ -1141,6 +1151,10 @@ def _build_property_attestations(
                 "model_loaded": materials.voice_commitment.model_loaded,
                 "lambda_hat": materials.voice_commitment.lambda_hat,
                 "calibrated": materials.voice_commitment.calibrated,
+                "scorer_backend": materials.voice_commitment.scorer_backend,
+                "calibration_corpus_kind": (
+                    materials.voice_commitment.calibration_corpus_kind
+                ),
                 "commitment_sha256": materials.voice_commitment.commitment_sha256(),
                 "proof_ref_record_hash": voice_decision_hash,
             },

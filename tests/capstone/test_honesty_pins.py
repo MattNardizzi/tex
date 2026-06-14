@@ -55,10 +55,23 @@ def _l6_federated(doc):
     _prop(doc, "L6")["verification"]["federated"] = True
 
 def _l11_entailment_green(doc):
+    # green HALF but the verification stays the absence → incoherent.
     _prop(doc, "L11")["halves"]["entailment"] = "green"
 
 def _l11_lambda_present(doc):
     _prop(doc, "L11")["verification"]["lambda_hat"] = 0.7
+
+def _l11_green_but_not_loaded(doc):
+    # green HALF + a λ̂, but a stub/synthetic calibration (model_loaded False,
+    # corpus synthetic) — a field guarantee Tex did not earn → must be refused.
+    p = _prop(doc, "L11")
+    p["halves"]["entailment"] = "green"
+    v = p["verification"]
+    v["lambda_hat"] = 0.7
+    v["calibrated"] = True
+    v["model_loaded"] = False
+    v["scorer_backend"] = "deterministic-stub"
+    v["calibration_corpus_kind"] = "synthetic"
 
 def _l1_not_stand_in(doc):
     _prop(doc, "L1")["verification"]["stand_in"] = False
@@ -89,6 +102,7 @@ def _a_leap_dropped(doc):
         _l6_federated,
         _l11_entailment_green,
         _l11_lambda_present,
+        _l11_green_but_not_loaded,
         _l1_not_stand_in,
         _l1_promoted,
         _l4_certified,
@@ -112,6 +126,35 @@ def test_the_green_manifest_itself_revalidates(capstone_flow) -> None:
     assert CapstoneVerdict.model_validate(doc).manifest_sha256() == _manifest(
         capstone_flow
     ).manifest_sha256()
+
+
+def _l11_coherent_field_green(doc):
+    p = _prop(doc, "L11")
+    p["halves"]["entailment"] = "green"
+    v = p["verification"]
+    v["lambda_hat"] = 0.83
+    v["calibrated"] = True
+    v["model_loaded"] = True
+    v["scorer_backend"] = "transformers-cross-encoder"
+    v["calibration_corpus_kind"] = "field"
+
+
+def test_a_coherent_field_green_l11_validates_and_joins_the_green_split(
+    capstone_flow,
+) -> None:
+    """The positive control for the NEW capstone half: when the L11
+    verification fields genuinely back a field calibration (loaded neural
+    backend + a λ̂ + a field corpus), entailment=green VALIDATES — the half is
+    constructible WHEN real. The live manifest never reaches this branch; its
+    commitment is the absence, so it stays in the blocked split."""
+    doc = _mutated(_manifest(capstone_flow), _l11_coherent_field_green)
+    m = CapstoneVerdict.model_validate(doc)  # must NOT raise
+    assert m.property_for("L11").halves["entailment"] == "green"
+    assert "L11.entailment" in m.honest_split.get("green", ())
+    assert "L11.entailment" not in m.honest_split.get("blocked", ())
+    # …and the live (unmutated) manifest is the blocked control.
+    live = _manifest(capstone_flow)
+    assert live.honest_split["blocked"] == ("L11.entailment",)
 
 
 # ── module caveats ride verbatim ──────────────────────────────────────────

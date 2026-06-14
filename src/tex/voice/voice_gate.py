@@ -33,20 +33,33 @@ mirrors the RCPS bound in ``engine/crc_gate.py``):
     seal and the neural scorer cannot certify resolves to ABSTAIN. Uncertainty
     becomes "I can't prove that," never a guess.
 
-NAMING HONESTY (the nanozk lesson): this is exact-match + a fail-closed
-entailment seam. It is NOT "conformal factuality" and carries NO coverage
-guarantee — there is no labelled calibration corpus, so the conformal quantile
-q̂ = ⌈(n+1)(1-α)⌉/n (Mohri & Hashimoto, ICML 2024) is uncomputable today. The
-neural threshold is a conservative fixed constant, labelled ``research-early``.
-The words "guarantee", "coverage", and "1-alpha" appear in no user-facing
-string this module produces.
+NAMING HONESTY (the nanozk lesson): the LIVE gate is exact-match + a
+fail-closed entailment seam, and it carries NO proven coverage. The split
+conformal method of Mohri & Hashimoto ("Language Models with Conformal
+Factuality Guarantees", ICML 2024, arXiv:2402.10978 — re-fetched 2026-06-14)
+is implemented here as ``conformal_lambda_hat`` / ``calibrate``: correctness is
+cast as an entailment-set problem, and the conformal quantile
+λ̂ = ⌈(n+1)(1-α)⌉-th order statistic of the per-example back-off (the score
+that must be exceeded to drop a non-entailed claim) is a real, computable
+number GIVEN a scorer that emits scores and a labelled corpus. Two facts keep
+the live gate uncalibrated regardless: (1) the real cross-encoder cannot run in
+this environment (``import transformers`` raises — the ``tokenizers`` pin, still
+true this session), so ``NeuralNLIScorer.score`` returns None and ``entails``
+returns None; (2) the only corpus is synthetic, and a quantile from synthetic
+calibration is a guarantee over the synthetic distribution alone — never a field
+certification (arXiv:2512.15068 shows the field guarantee collapses anyway). So
+``THRESHOLD_LABEL`` stays "UNCALIBRATED" for the live gate; the calibration
+helpers exist so the seam is wired end to end and a calibrated λ̂ becomes
+constructible the day a real scorer + field corpus land. The words "guarantee",
+"coverage", and "1-alpha" appear in no user-facing string this module produces.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol, Sequence
 
 from tex.domain.verdict import Verdict
 
@@ -57,6 +70,11 @@ __all__ = [
     "GateResult",
     "VoiceGate",
     "THRESHOLD_LABEL",
+    "ENTAILMENT_BACKEND_NEURAL",
+    "ENTAILMENT_BACKEND_STUB",
+    "Calibration",
+    "conformal_lambda_hat",
+    "calibrate",
 ]
 
 # The honest label for the (uncalibrated) entailment threshold. Surfaced in the
@@ -165,46 +183,234 @@ class ExactMatchScorer:
 # --------------------------------------------------------------------------- neural seam
 
 
-class NeuralNLIScorer:
-    """A cross-encoder NLI entailment scorer — the upgrade seam, **OFF today**.
+ENTAILMENT_BACKEND_NEURAL = "transformers-cross-encoder"
+ENTAILMENT_BACKEND_STUB = "deterministic-stub"
 
-    Maturity: ``research-early`` / NOT RUNNING. ``load()`` lazy-imports
-    ``transformers``; in this environment that import raises (``tokenizers
-    0.21.2`` vs the ``<0.14`` transformers pins — verified this session), and no
-    model weights are vendored and there is no GPU. So ``load()`` returns False
-    and ``entails`` returns None forever, which the gate treats as "cannot
-    certify" → ABSTAIN. This class exists so the seam is real and a real
-    DeBERTa/MiniCheck-class entailment model can be dropped in later; it does
-    NOT pretend to run, and it can never RAISE a verdict — only refer a prose
-    claim toward ABSTAIN.
+
+class NeuralNLIScorer:
+    """A cross-encoder NLI entailment scorer — the upgrade seam.
+
+    Maturity: ``research-early``. The implementation is real: ``load()`` lazy
+    imports ``transformers``/``torch`` and constructs a sequence-classification
+    cross-encoder for ``model_id`` (a DeBERTa/MiniCheck-class MNLI model);
+    ``score(premise, hypothesis)`` runs the model and returns the softmax
+    probability of the ENTAILMENT class. But it is FAIL-CLOSED end to end: in
+    this environment ``import transformers`` raises (the ``tokenizers`` pin —
+    still true this session), so ``load()`` returns False, ``score`` returns
+    None, and ``entails`` returns None — which the gate treats as "cannot
+    certify" → ABSTAIN. ``load()`` also refuses to claim availability unless a
+    model object is actually constructed (imports alone are never enough — the
+    M0c probe's bar). The scorer can never RAISE a verdict: ``entails`` is None
+    until a conformal λ̂ is applied, and even then only refers a prose claim
+    toward ABSTAIN.
     """
 
-    name = "neural-nli(off)"
+    backend = ENTAILMENT_BACKEND_NEURAL
 
     def __init__(self, model_id: str = "MoritzLaurer/DeBERTa-v3-base-mnli") -> None:
         self._model_id = model_id
         self._loaded = False
         self._available = False
+        self._model: Any = None
+        self._tokenizer: Any = None
+        self._entail_index: int | None = None
+        self._lambda_hat: float | None = None  # set only by a real calibration
+
+    @property
+    def name(self) -> str:
+        # Honest about run-state: "(off)" until a model is actually loaded.
+        return "neural-nli" if self._available else "neural-nli(off)"
 
     def load(self) -> bool:
         if self._loaded:
             return self._available
         self._loaded = True
-        try:  # lazy — never import transformers at module import time
-            import transformers  # noqa: F401
+        try:  # lazy — never import transformers/torch at module import time
+            import torch  # noqa: F401
+            from transformers import (  # type: ignore[import-not-found]
+                AutoModelForSequenceClassification,
+                AutoTokenizer,
+            )
         except Exception:  # noqa: BLE001 — ImportError (tokenizers pin) or any other
             self._available = False
             return False
-        # Even if the import unexpectedly succeeds, weights are not vendored and
-        # there is no GPU here; refuse to claim availability without a verified
-        # model load. A future build wires the real pipeline here.
-        self._available = False
-        return False
+        # Imports alone are NOT availability (the M0c probe bar). Only a
+        # constructed model + a located entailment label index counts.
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(self._model_id)
+            model = AutoModelForSequenceClassification.from_pretrained(self._model_id)
+            model.eval()
+            entail_index = _entailment_label_index(model)
+        except Exception:  # noqa: BLE001 — no weights / no network / unknown labels
+            self._available = False
+            return False
+        self._tokenizer = tokenizer
+        self._model = model
+        self._entail_index = entail_index
+        self._available = True
+        return True
+
+    def score(self, premise: str, hypothesis: str) -> float | None:
+        """P(entailment) ∈ [0,1], or None when the model is not loaded."""
+        if not self.load():
+            return None
+        import torch  # type: ignore[import-not-found]
+
+        inputs = self._tokenizer(
+            premise, hypothesis, return_tensors="pt", truncation=True
+        )
+        with torch.no_grad():
+            logits = self._model(**inputs).logits[0]
+            probs = torch.softmax(logits, dim=-1)
+        return float(probs[self._entail_index].item())
+
+    def set_lambda_hat(self, lambda_hat: float) -> None:
+        """Pin a calibrated SCORE threshold; ``entails`` then thresholds on it."""
+        if not 0.0 <= lambda_hat <= 1.0:
+            raise ValueError(f"lambda_hat must lie in [0,1], got {lambda_hat!r}")
+        self._lambda_hat = float(lambda_hat)
 
     def entails(self, premise: str, hypothesis: str) -> bool | None:
-        if not self.load():
+        score = self.score(premise, hypothesis)
+        if score is None:
             return None  # not running → cannot certify → ABSTAIN upstream
-        return None
+        if self._lambda_hat is None:
+            return None  # loaded but UNCALIBRATED → still cannot certify
+        return score >= self._lambda_hat
+
+
+def _entailment_label_index(model: Any) -> int:
+    """Locate the ENTAILMENT class index from the model's own label map.
+
+    MNLI heads order their three labels differently across checkpoints; never
+    hard-code an index. Reads ``config.label2id`` (case-insensitive), then
+    ``id2label``. Raises if no entailment label is present — refusing to guess
+    is the fail-closed choice."""
+    config = model.config
+    label2id = getattr(config, "label2id", None) or {}
+    for label, idx in label2id.items():
+        if str(label).strip().lower() == "entailment":
+            return int(idx)
+    id2label = getattr(config, "id2label", None) or {}
+    for idx, label in id2label.items():
+        if str(label).strip().lower() == "entailment":
+            return int(idx)
+    raise ValueError(
+        "model exposes no 'entailment' label in config.label2id/id2label; "
+        "refusing to guess the class index"
+    )
+
+
+# --------------------------------------------------------------------------- conformal calibration
+
+
+@dataclass(frozen=True, slots=True)
+class Calibration:
+    """The result of a split-conformal calibration of an entailment scorer
+    (Mohri & Hashimoto 2024, arXiv:2402.10978).
+
+    ``lambda_hat`` is a SCORE threshold: a claim is treated as grounded iff the
+    scorer's entailment probability is ``>= lambda_hat``. The named guarantee is
+    MARGINAL and exchangeability-dependent: over draws from the SAME
+    distribution as the calibration set, P(a claim accepted at λ̂ is in fact
+    not-entailed) ≤ ``alpha``. It is not worst-case, not conditional, and not
+    valid off-distribution; a synthetic calibration set certifies only the
+    synthetic distribution (``model_loaded``/``scorer_backend`` record which
+    scorer produced it, so a placeholder λ̂ can never masquerade as the real
+    model's)."""
+
+    lambda_hat: float
+    alpha: float
+    n: int
+    model_id: str
+    scorer_backend: str
+    model_loaded: bool
+
+
+def conformal_lambda_hat(nonconformity: Sequence[float], alpha: float) -> float:
+    """Split-conformal quantile λ̂ (Mohri & Hashimoto 2024; Vovk et al.).
+
+    λ̂ = the ⌈(n+1)(1-α)⌉-th smallest of the ``nonconformity`` scores. When that
+    rank exceeds ``n`` the quantile is undefined at finite sample, so λ̂ = 1.0 —
+    maximally conservative (accept nothing below the score ceiling); the named
+    guarantee then holds only via near-total back-off. Pure order statistic, no
+    numpy — the exact-math discipline of ``engine/crc_gate.py``."""
+    if not 0.0 < alpha < 1.0:
+        raise ValueError(f"alpha must lie in (0,1), got {alpha!r}")
+    n = len(nonconformity)
+    if n == 0:
+        raise ValueError("conformal calibration needs at least one labelled pair")
+    for s in nonconformity:
+        if not 0.0 <= s <= 1.0:
+            raise ValueError(f"nonconformity scores must lie in [0,1], got {s!r}")
+    rank = math.ceil((n + 1) * (1.0 - alpha))
+    if rank > n:
+        return 1.0
+    return float(sorted(nonconformity)[rank - 1])
+
+
+class _CalibratableScorer(Protocol):
+    backend: str
+
+    def load(self) -> bool: ...
+    def score(self, premise: str, hypothesis: str) -> float | None: ...
+
+
+def calibrate(
+    scorer: _CalibratableScorer,
+    pairs: Iterable[tuple[str, str, bool]],
+    *,
+    alpha: float,
+    model_id: str,
+) -> Calibration:
+    """Calibrate ``scorer`` over labelled ``(premise, hypothesis, entailed)``
+    pairs and return the conformal λ̂ (Mohri–Hashimoto).
+
+    Per-example back-off (nonconformity): for a NOT-entailed pair it is the
+    scorer's own entailment probability ``s`` — the threshold λ̂ must EXCEED to
+    drop the claim; for an entailed pair it is ``0.0`` — no back-off is needed
+    to keep a factual claim. λ̂ is the upper conformal quantile of those values,
+    so filtering a fresh draw at λ̂ leaves it factual w.p. ≥ 1-α (i.e.
+    P(accepted ∧ not-entailed) ≤ α, marginally).
+
+    Fail-closed: the scorer MUST be loaded (an unloaded scorer cannot produce
+    scores — calibrating one would fabricate the quantile) and MUST return a
+    score for every pair, else this raises rather than inventing a value.
+    ``model_loaded`` is True only for the real neural backend; any other backend
+    (a deterministic test stub) is recorded as ``model_loaded=False`` so its λ̂
+    is never mistaken for the real model's."""
+    if not scorer.load():
+        raise ValueError(
+            "scorer is not loaded; an uncalibratable scorer cannot produce the "
+            "nonconformity scores a conformal quantile is computed from"
+        )
+    nonconformity: list[float] = []
+    n_pairs = 0
+    for premise, hypothesis, entailed in pairs:
+        n_pairs += 1
+        if entailed:
+            nonconformity.append(0.0)
+            continue
+        s = scorer.score(premise, hypothesis)
+        if s is None:
+            raise ValueError(
+                "a loaded scorer returned None for a calibration pair — refusing "
+                "to compute a quantile from missing scores"
+            )
+        if not 0.0 <= s <= 1.0:
+            raise ValueError(f"scorer returned a score outside [0,1]: {s!r}")
+        nonconformity.append(float(s))
+    if n_pairs == 0:
+        raise ValueError("calibration corpus is empty")
+    lambda_hat = conformal_lambda_hat(nonconformity, alpha)
+    return Calibration(
+        lambda_hat=lambda_hat,
+        alpha=alpha,
+        n=n_pairs,
+        model_id=model_id,
+        scorer_backend=scorer.backend,
+        model_loaded=scorer.backend == ENTAILMENT_BACKEND_NEURAL and scorer.load(),
+    )
 
 
 # --------------------------------------------------------------------------- the gate

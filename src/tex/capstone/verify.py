@@ -70,7 +70,10 @@ from tex.interchange.gix_witness import (
 from tex.provenance.bundle import SealedFactBundle, verify_sealed_fact_bundle
 from tex.provenance.models import SealedFactKind, SealedFactRecord
 from tex.voice.attestation import VoiceAttestationRecord
-from tex.voice.entailment_cert import verify_entailment_commitment
+from tex.voice.entailment_cert import (
+    entailment_half_status,
+    verify_entailment_commitment,
+)
 from tex.zkpdp.arbiter import (
     ArbitrationEnvelope,
     ArbitrationStatement,
@@ -706,18 +709,31 @@ def verify_capstone(
         )
         l11_chain_ok = v11.chain_intact and v11.signatures_valid
         l11_pin_ok = v11.authorship_ok is True
+        # Independently RE-DERIVE the entailment half from the sealed commitment
+        # (chain-bound bytes) and cross-check it against the half the manifest
+        # CLAIMS. A manifest that says entailment=green over an absence
+        # commitment — or vice versa — fails here: the green claim is not
+        # forgeable above the sealed commitment.
+        commitment = v11.commitments[0] if len(v11.commitments) == 1 else None
+        manifest_ent_half = manifest.property_for("L11").halves.get("entailment")
+        derived_half = (
+            entailment_half_status(commitment) if commitment is not None else None
+        )
         l11_ok = (
             v11.ok
-            and len(v11.commitments) == 1
-            and v11.commitments[0].lambda_hat is None
-            and v11.commitments[0].calibrated is False
+            and commitment is not None
+            and derived_half is not None
+            and derived_half == manifest_ent_half
         )
         proof_ref = voice_records[0].payload.get("proof_ref") or {}
         l11_cross_ok = (
             proof_ref.get("record_hash") == records[decision_seq].record_hash
             and proof_ref.get("request_id") == manifest.decision.request_id
         )
-        l11_detail = f"issues={v11.issues} authorship={v11.authorship_ok}"
+        l11_detail = (
+            f"issues={v11.issues} authorship={v11.authorship_ok} "
+            f"entailment_half(derived={derived_half} claimed={manifest_ent_half})"
+        )
         if l11_chain_ok and l11_pin_ok and l11_ok:
             out.offline_status["L11"] = "green"
     except Exception as exc:  # noqa: BLE001

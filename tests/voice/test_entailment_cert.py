@@ -23,17 +23,54 @@ from tex.bench.wave2_corpus.builders import build_nli_pairs
 from tex.bench.wave2_corpus.loaders import LoadedCorpus, corpus_digest, load_corpus, write_corpus
 from tex.voice.attestation import VoiceAttestor, _stable_json
 from tex.voice.entailment_cert import (
+    CALIBRATED_THRESHOLD_LABEL,
     COMMITMENT_SCHEMA,
+    ENTAILMENT_HALF_BLOCKED,
+    ENTAILMENT_HALF_GREEN,
     GATE_COMMITMENT_HASH_KEY,
     GATE_COMMITMENT_KEY,
     NO_VERDICT_MARKER,
     EntailmentCommitment,
     commitment_for_scorer,
+    commitment_from_calibration,
     commitment_from_corpus,
+    entailment_half_status,
     seal_entailment_commitment,
     verify_entailment_commitment,
 )
-from tex.voice.voice_gate import THRESHOLD_LABEL, NeuralNLIScorer
+from tex.voice.voice_gate import (
+    ENTAILMENT_BACKEND_NEURAL,
+    ENTAILMENT_BACKEND_STUB,
+    THRESHOLD_LABEL,
+    Calibration,
+    NeuralNLIScorer,
+)
+
+
+def _field_calibration() -> Calibration:
+    """A coherent FIELD calibration fixture: claims the loaded neural backend.
+
+    No real model runs in this env, so this is a hand-built Calibration that
+    exercises the GREEN path's coherence — exactly what a real loaded scorer
+    over a field corpus would yield. The honesty is that the LIVE flow can
+    never build this (its scorer's model_loaded is False)."""
+    return Calibration(
+        lambda_hat=0.83,
+        alpha=0.1,
+        n=500,
+        model_id=MODEL_A,
+        scorer_backend=ENTAILMENT_BACKEND_NEURAL,
+        model_loaded=True,
+    )
+
+
+def _green_commitment() -> EntailmentCommitment:
+    return commitment_from_calibration(
+        _field_calibration(),
+        calibration_manifest_sha256="b" * 64,
+        calibration_corpus_id="nli-field-v1",
+        calibration_corpus_kind="field",
+    )
 
 MODEL_A = "MoritzLaurer/DeBERTa-v3-base-mnli"
 MODEL_B = "adversary/swapped-mnli-model"
@@ -261,21 +298,73 @@ def _synthetic_provenance_for(digest: str):
 # ── 4. honesty pins ──────────────────────────────────────────────────────────
 
 
-def test_calibrated_true_and_lambda_hat_are_unconstructible() -> None:
-    with pytest.raises(ValidationError):
+def test_the_live_absence_commitment_is_blocked() -> None:
+    # The default commitment — what the live capstone seals — is the absence:
+    # no λ̂, not calibrated, not loaded. v2 keeps this the default state.
+    c = EntailmentCommitment()
+    assert c.schema_version == COMMITMENT_SCHEMA  # now v2
+    assert c.lambda_hat is None
+    assert c.calibrated is False
+    assert c.model_loaded is False
+    assert c.scorer_backend is None
+    assert c.threshold_label == THRESHOLD_LABEL  # "UNCALIBRATED"
+    assert entailment_half_status(c) == ENTAILMENT_HALF_BLOCKED
+
+
+def test_incoherent_calibration_states_are_unconstructible() -> None:
+    # v2 makes a calibrated commitment constructible, but ONLY as a coherent
+    # block. Every incoherent over-claim still raises — these are the pins.
+    with pytest.raises(ValidationError):  # calibrated without the block
         EntailmentCommitment(calibrated=True)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):  # a λ̂ without calibrated
         EntailmentCommitment(lambda_hat=0.7)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):  # loaded without the neural backend
         EntailmentCommitment(model_loaded=True)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):  # a partial calibration block
         EntailmentCommitment(
+            lambda_hat=0.7,
+            calibrated=True,
+            scorer_backend=ENTAILMENT_BACKEND_STUB,
+            calibration_alpha=0.1,
+            calibration_n=50,
+            # corpus binding missing → a calibration with no named corpus
+        )
+    with pytest.raises(ValidationError):  # λ̂ out of [0,1]
+        EntailmentCommitment(
+            lambda_hat=1.5,
+            calibrated=True,
+            scorer_backend=ENTAILMENT_BACKEND_STUB,
+            calibration_alpha=0.1,
+            calibration_n=50,
             calibration_manifest_sha256="a" * 64,
             calibration_corpus_id="x",
-            calibration_corpus_kind="field",
+            calibration_corpus_kind="synthetic",
         )
-    with pytest.raises(ValidationError):
-        EntailmentCommitment(schema_version="tex.voice/entailment_commitment.v2")
+    with pytest.raises(ValidationError):  # α out of (0,1)
+        EntailmentCommitment(
+            lambda_hat=0.7,
+            calibrated=True,
+            scorer_backend=ENTAILMENT_BACKEND_STUB,
+            calibration_alpha=1.0,
+            calibration_n=50,
+            calibration_manifest_sha256="a" * 64,
+            calibration_corpus_id="x",
+            calibration_corpus_kind="synthetic",
+        )
+    with pytest.raises(ValidationError):  # neural backend but not loaded
+        EntailmentCommitment(
+            lambda_hat=0.7,
+            calibrated=True,
+            scorer_backend=ENTAILMENT_BACKEND_NEURAL,
+            model_loaded=False,
+            calibration_alpha=0.1,
+            calibration_n=50,
+            calibration_manifest_sha256="a" * 64,
+            calibration_corpus_id="x",
+            calibration_corpus_kind="synthetic",
+        )
+    with pytest.raises(ValidationError):  # an unknown (e.g. old v1) schema
+        EntailmentCommitment(schema_version="tex.voice/entailment_commitment.v1")
     with pytest.raises(ValidationError):  # corpus fields travel together
         EntailmentCommitment(calibration_manifest_sha256="a" * 64)
     with pytest.raises(ValidationError):  # digest shape enforced
@@ -286,10 +375,90 @@ def test_calibrated_true_and_lambda_hat_are_unconstructible() -> None:
         )
 
 
+def test_a_field_kind_is_unconstructible_without_the_real_loaded_model() -> None:
+    # THE load-bearing pin: a "field" guarantee can ONLY ride a loaded neural
+    # calibration. A field binding on an uncalibrated commitment, or behind a
+    # deterministic stub, is unconstructible — a stub/synthetic λ̂ can never
+    # masquerade as a field certification.
+    with pytest.raises(ValidationError):  # field on an uncalibrated commitment
+        EntailmentCommitment(
+            calibration_manifest_sha256="a" * 64,
+            calibration_corpus_id="x",
+            calibration_corpus_kind="field",
+        )
+    with pytest.raises(ValidationError):  # field behind a stub calibration
+        EntailmentCommitment(
+            lambda_hat=0.7,
+            calibrated=True,
+            scorer_backend=ENTAILMENT_BACKEND_STUB,
+            model_loaded=False,
+            calibration_alpha=0.1,
+            calibration_n=50,
+            calibration_manifest_sha256="a" * 64,
+            calibration_corpus_id="x",
+            calibration_corpus_kind="field",
+        )
+    # commitment_from_calibration names the cause when handed a stub + field.
+    stub_cal = Calibration(
+        lambda_hat=0.7,
+        alpha=0.1,
+        n=50,
+        model_id=MODEL_A,
+        scorer_backend=ENTAILMENT_BACKEND_STUB,
+        model_loaded=False,
+    )
+    with pytest.raises(ValueError, match="must come from the real neural scorer"):
+        commitment_from_calibration(
+            stub_cal,
+            calibration_manifest_sha256="a" * 64,
+            calibration_corpus_id="x",
+            calibration_corpus_kind="field",
+        )
+
+
+def test_a_coherent_field_calibration_is_constructible_and_derives_green() -> None:
+    # The control / "constructible WHEN real": a coherent field calibration
+    # (loaded neural backend + field corpus + a λ̂) IS a valid commitment, and
+    # the shared predicate derives the capstone GREEN half from it.
+    green = _green_commitment()
+    assert green.calibrated is True
+    assert green.model_loaded is True
+    assert green.scorer_backend == ENTAILMENT_BACKEND_NEURAL
+    assert green.calibration_corpus_kind == "field"
+    assert 0.0 <= green.lambda_hat <= 1.0
+    assert green.threshold_label != THRESHOLD_LABEL  # not the "UNCALIBRATED" one
+    assert CALIBRATED_THRESHOLD_LABEL in green.threshold_label
+    assert entailment_half_status(green) == ENTAILMENT_HALF_GREEN
+
+
+def test_a_synthetic_or_stub_calibration_constructs_but_never_derives_green() -> None:
+    # A stub calibration over synthetic data is a REAL conformal quantile of
+    # that distribution — constructible and honest — but it self-labels
+    # (model_loaded=False, backend=stub, corpus=synthetic) and stays BLOCKED.
+    stub_cal = Calibration(
+        lambda_hat=0.42,
+        alpha=0.1,
+        n=120,
+        model_id=MODEL_A,
+        scorer_backend=ENTAILMENT_BACKEND_STUB,
+        model_loaded=False,
+    )
+    c = commitment_from_calibration(
+        stub_cal,
+        calibration_manifest_sha256="c" * 64,
+        calibration_corpus_id="nli-cal-v1",
+        calibration_corpus_kind="synthetic",
+    )
+    assert c.calibrated is True and c.lambda_hat == 0.42
+    assert c.model_loaded is False and c.scorer_backend == ENTAILMENT_BACKEND_STUB
+    assert entailment_half_status(c) == ENTAILMENT_HALF_BLOCKED
+
+
 def test_model_loaded_mirrors_the_live_scorer_and_a_loaded_scorer_is_refused() -> None:
     scorer = NeuralNLIScorer()
-    # If this env ever flips load() to True, the Literal[False] schema is stale
-    # and THIS assertion forces the schema bump (it must not silently pass).
+    # If this env ever flips load() to True, the absence-commitment path is
+    # stale and THIS assertion forces the calibrated path (it must not silently
+    # seal model_loaded=False for a live model).
     assert scorer.load() is False
     assert EntailmentCommitment().model_loaded == scorer.load()
     assert commitment_for_scorer(scorer).model_id == scorer._model_id  # noqa: SLF001
@@ -298,7 +467,7 @@ def test_model_loaded_mirrors_the_live_scorer_and_a_loaded_scorer_is_refused() -
         def load(self) -> bool:
             return True
 
-    with pytest.raises(ValueError, match="schema v1 commits a NOT-LOADED scorer"):
+    with pytest.raises(ValueError, match="seals a NOT-LOADED scorer only"):
         commitment_for_scorer(_LoadedScorer())
 
 

@@ -35,6 +35,7 @@ from tex.adversarial.completeness import SurvivalMonitor
 from tex.domain.verdict import Verdict
 from tex.engine.pdp import PolicyDecisionPoint
 from tex.engine.risk_spine import RISK_SPINE_FLAG, RiskSpine
+from tex.pqcrypto import ml_dsa
 from tex.pqcrypto.pq_durability import PQ_NON_REPUDIATION_FLAG
 from tex.provenance.ledger import SealedFactLedger
 from tex.tee.verdict_binding import verdict_bound_nonce
@@ -105,7 +106,16 @@ def _evaluate(metadata: dict, ledger: SealedFactLedger):
     return result, policy
 
 
-def test_monotone_lowering_holds_with_all_eight_leaps_active() -> None:
+def test_monotone_lowering_holds_with_all_eight_leaps_active(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Force the no-durable-backend branch so the isolated PQ-only evaluation below
+    # lowers (the signal fires only when no durable ML-DSA backend is present). On a
+    # box with cryptography>=48 the claim is honored instead; that branch is covered
+    # by tests/capstone/test_pq_maturity_branches.py. The earlier all-signals
+    # decision is unaffected — the PQ hold is a PERMIT-only no-op once the spine has
+    # already lowered the verdict.
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     ledger = SealedFactLedger()
     result, policy = _evaluate(dict(_ALL_SIGNALS_BREACHING), ledger)
     decision = result.decision

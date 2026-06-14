@@ -82,10 +82,19 @@ def test_unknown_backend_id_fails_closed_to_none(bogus: str) -> None:
     assert pq.durability_for_backend_id(bogus) is pq.SignerDurability.NONE
 
 
-def test_live_probe_is_none_in_this_env() -> None:
-    """In-env pyca < 48 ships no ML-DSA module, so the probe reads a null backend id."""
-    assert ml_dsa.active_backend_id() is None
-    assert pq.probe_backend() is pq.SignerDurability.NONE
+def test_live_probe_is_durable_in_this_env() -> None:
+    """In-env pyca >= 48 ships the native ML-DSA module (OpenSSL 3.5), so the live
+    signer's backend id is the allow-listed durable id and the probe reads DURABLE.
+
+    This pins the L10 runtime goal as a fact about THIS box — ``requirements.txt``
+    pins ``cryptography>=48.0.0``. If the native backend ever regresses or is
+    uninstalled, ``active_backend_id()`` falls back to ``None`` and this test fails,
+    surfacing the loss of the durable signer rather than silently re-lowering every
+    PQ-non-repudiation claim. (The non-durable branch is still exercised below, but
+    via an explicit monkeypatch so it does not depend on a downgraded box.)
+    """
+    assert ml_dsa.active_backend_id() == "pyca-cryptography-native"
+    assert pq.probe_backend() is pq.SignerDurability.DURABLE
 
 
 def test_probe_tracks_active_backend_id(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -98,15 +107,22 @@ def test_probe_tracks_active_backend_id(monkeypatch: pytest.MonkeyPatch) -> None
     assert pq.probe_backend() is pq.SignerDurability.NONE
 
 
-def test_cli_shim_does_not_raise_live_maturity() -> None:
-    """The nanozk trap, pinned end-to-end.
+def test_cli_shim_does_not_raise_live_maturity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The nanozk trap, pinned deterministically.
 
     A real OpenSSL-3.5 ML-DSA CLI IS reachable on this host (it signs the composite
-    round-trip below). That must NOT move the live maturity off NONE: the live
-    signer does not dispatch to the CLI shim, so a PQ-non-repudiation claim still
-    ABSTAINs. "Something on the box can sign with ML-DSA" does not make the running
+    round-trip below). With the LIVE backend id forced to ``None``, that reachable
+    CLI must NOT move the maturity off NONE: the live signer does not dispatch to the
+    CLI shim. "Something on the box can sign with ML-DSA" does not make the running
     signer post-quantum — conflating the two is the failure we exist to never repeat.
+
+    We force the live id to ``None`` (rather than read the ambient one) because this
+    box now ships a *durable native* backend — see
+    ``test_live_probe_is_durable_in_this_env`` — so forcing ``None`` isolates the trap
+    from the genuine durable path. ``openssl_mldsa_available()`` stays UNPATCHED: the
+    CLI presence is real, only the live signer's backend id is pinned absent.
     """
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     assert pq.openssl_mldsa_available() is True
     assert pq.probe_backend() is pq.SignerDurability.NONE
 
@@ -123,7 +139,12 @@ def test_assessment_no_claim_does_not_lower() -> None:
     assert a.claim_honored is False
 
 
-def test_assessment_claim_without_durable_backend_lowers() -> None:
+def test_assessment_claim_without_durable_backend_lowers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Force the no-durable-backend branch. This box ships a durable native backend;
+    # the lowering branch is the behavior on a box that does NOT (the signal firing).
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     a = pq.assess(_claim_request())
     assert a.claim_requested is True
     assert a.pq_durable is False
@@ -151,7 +172,12 @@ def test_assessment_claim_with_durable_backend_is_honored(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_permit_with_claim_and_no_backend_demotes_to_abstain() -> None:
+def test_permit_with_claim_and_no_backend_demotes_to_abstain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Force the no-durable-backend branch so the monotone-lowering demotion is the
+    # behavior under test regardless of what backend this box ships.
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     out = pq.apply_pq_durability_hold(base=_routing(Verdict.PERMIT), request=_claim_request())
     assert out.verdict is Verdict.ABSTAIN
     assert pq.PQ_NON_REPUDIATION_FLAG in out.uncertainty_flags
@@ -232,7 +258,12 @@ def test_seal_skips_when_assessment_does_not_lower() -> None:
     assert len(ledger) == 0
 
 
-def test_seal_appends_and_chain_and_signatures_verify() -> None:
+def test_seal_appends_and_chain_and_signatures_verify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The fact is sealed ONLY when the signal fires (a non-durable signer). Force
+    # that branch so the seal/verify path is exercised on any box.
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     ledger = SealedFactLedger()
     req = _claim_request()
     record = pq.seal_pq_durability(ledger, pq.assess(req), req)
@@ -246,9 +277,14 @@ def test_seal_appends_and_chain_and_signatures_verify() -> None:
     assert ledger.verify_signatures()["valid"] is True
 
 
-def test_build_fact_is_honest_and_does_not_overclaim() -> None:
+def test_build_fact_is_honest_and_does_not_overclaim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from tex.domain.evidence import EvidenceMaturity
 
+    # Force the no-durable-backend branch: the fact only exists when the signal
+    # fires, and it must record "PQ-durable=false" without overclaiming.
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     req = _claim_request()
     fact = pq.build_pq_durability_fact(pq.assess(req), req)
     assert fact.kind is SealedFactKind.DECISION
@@ -354,7 +390,12 @@ def test_clean_content_permits_without_a_pq_claim(runtime) -> None:
     assert result.response.verdict is Verdict.PERMIT
 
 
-def test_pq_claim_lowers_permit_to_abstain_and_seals_end_to_end(runtime) -> None:
+def test_pq_claim_lowers_permit_to_abstain_and_seals_end_to_end(
+    runtime, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Force the no-durable-backend branch so the lowered end-to-end path (demote +
+    # seal) is exercised regardless of the backend this box ships.
+    monkeypatch.setattr(ml_dsa, "active_backend_id", lambda: None)
     ledger = SealedFactLedger()
     runtime.pdp._decision_ledger = ledger
 
@@ -373,3 +414,51 @@ def test_pq_claim_lowers_permit_to_abstain_and_seals_end_to_end(runtime) -> None
     assert pq_facts[0].fact.detail["signer_maturity"] == "none"
     assert ledger.verify_chain()["intact"] is True
     assert ledger.verify_signatures()["valid"] is True
+
+
+# This box ships a durable signing backend (cryptography>=48, requirements-pinned).
+# The next test proves the HONORED path end-to-end; it skips (never fakes) on a box
+# where the backend is absent — the hard "the backend is required" canary is
+# ``test_live_probe_is_durable_in_this_env`` above.
+_needs_durable_backend = pytest.mark.skipif(
+    pq.probe_backend() is not pq.SignerDurability.DURABLE,
+    reason="no durable ML-DSA signing backend available on this host",
+)
+
+
+@_needs_durable_backend
+def test_pq_claim_is_honored_end_to_end_on_durable_box(runtime) -> None:
+    """The L10 runtime goal, proven through the full PDP on THIS box.
+
+    When the maturity probe reports a durable ML-DSA backend is available to the
+    signer, a PQ-non-repudiation claim over clean content is HONORED by the signal:
+    the verdict stays PERMIT, no uncertainty flag is raised, and NO ``pq_durable``
+    fact is sealed (the engine seals only when the signal fires — the durable
+    outcome's evidence is the decision itself, not a fail-closed fact). This is the
+    behavior the capstone records as ``durable_not_lowered``.
+
+    Honest scope — the capability-vs-use line: "honored" means the maturity SIGNAL
+    did not lower the verdict because a durable backend exists; it does NOT mean this
+    epoch's evidence chain is post-quantum signed. The live ledger signer is
+    ECDSA-P256 (``provenance/ledger.py``). This test asserts the governance signal's
+    behavior, never a PQ property of the bytes actually sealed.
+
+    Fails if the durable backend regresses (the claim would lower to ABSTAIN and a
+    fail-closed fact would appear).
+    """
+    assert ml_dsa.active_backend_id() == "pyca-cryptography-native"  # precondition
+    ledger = SealedFactLedger()
+    runtime.pdp._decision_ledger = ledger
+
+    result = runtime.evaluate_action_command.execute(
+        make_request(content=_CLEAN, metadata={pq.PQ_CLAIM_METADATA_KEY: True})
+    )
+
+    assert result.response.verdict is Verdict.PERMIT
+    assert pq.PQ_NON_REPUDIATION_FLAG not in result.response.uncertainty_flags
+    pq_facts = [
+        r
+        for r in ledger.list_by_kind(SealedFactKind.DECISION)
+        if r.fact.detail.get("pq_durable") is False
+    ]
+    assert pq_facts == []  # no fail-closed fact when the claim is honored

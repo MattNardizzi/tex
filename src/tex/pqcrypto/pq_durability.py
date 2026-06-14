@@ -40,23 +40,33 @@ ML-DSA. This module is built so that cannot happen:
     live-maturity upgrade. The regression test
     ``test_cli_shim_does_not_raise_live_maturity`` pins exactly this.
 
-In-environment today: pyca/cryptography is < 48 (no ``mldsa`` module) so
-:func:`ml_dsa.active_backend_id` is ``None`` ⇒ maturity NONE ⇒ a PQ-non-
-repudiation claim ABSTAINs. The OpenSSL 3.5 CLI *can* sign ML-DSA-87 (verified
-this session), which is what the round-trip below exercises — without ever
-claiming the live signer is post-quantum.
+In-environment now: ``requirements.txt`` pins ``cryptography>=48.0.0``, which ships
+the native ML-DSA module (FIPS 204 via OpenSSL 3.5), so
+:func:`ml_dsa.active_backend_id` returns ``"pyca-cryptography-native"`` ⇒ maturity
+DURABLE ⇒ a PQ-non-repudiation claim is HONORED (the signal does not lower the
+verdict). On a box without that backend the id is ``None`` ⇒ maturity NONE ⇒ the
+claim ABSTAINs. The OpenSSL 3.5 CLI also signs ML-DSA-87, which the round-trip
+below exercises.
 
-Honesty — what a green benchmark here does and does not prove
-------------------------------------------------------------
-  * It proves the maturity probe is fail-closed and the ABSTAIN signal is
-    monotone-lowering (PERMIT→ABSTAIN only), and that real composite ML-DSA-87 +
-    ECDSA-P384 signing/verification runs on this host.
-  * It does **not** prove the *live* evidence chain is post-quantum: the live
-    signer is ECDSA-P256 (``provenance/ledger.py``) and the live ML-DSA provider
-    has no backend in this env. That is exactly why a PQ-non-repudiation claim
-    must ABSTAIN today — the signal is the honest report of that gap, not a fix
-    for it. Maturity of this leap: ``research-early`` until its benchmark is a CI
-    default.
+The capability-vs-use line — READ before reading DURABLE as "PQ-signed"
+-----------------------------------------------------------------------
+:func:`probe_backend` reports whether a production-durable ML-DSA backend is
+**available to the signer** — a capability. It does NOT assert that the live
+evidence chain is post-quantum signed: the live ledger signer is ECDSA-P256
+(``provenance/ledger.py``). So a DURABLE probe HONORS the claim (the maturity
+signal does not lower the verdict) while the bytes actually sealed on the decision
+remain ECDSA-P256. Honoring is a statement about backend maturity, never a PQ
+property of this epoch's signatures; wiring the live ledger to emit an ML-DSA (or
+composite) signature is the separate, larger step this leap does not take.
+
+What a green benchmark here does and does not prove
+---------------------------------------------------
+  * It proves the maturity probe is fail-closed and allow-list-gated, the ABSTAIN
+    signal is monotone-lowering (PERMIT→ABSTAIN only), and that real composite
+    ML-DSA-87 + ECDSA-P384 signing/verification runs on this host.
+  * It does **not** prove the live evidence chain is post-quantum — see the
+    capability-vs-use line above. Maturity of this leap: ``research-early`` until
+    its benchmark is a CI default.
 
 Fail-closed to today's behaviour
 --------------------------------
@@ -141,8 +151,10 @@ def probe_backend() -> SignerDurability:
 
     Reads :func:`tex.pqcrypto.ml_dsa.active_backend_id` — the id of the backend
     the live ``MlDsaProvider`` actually uses — and maps it fail-closed via
-    :func:`durability_for_backend_id`. In this environment the id is ``None``
-    (pyca < 48, no ML-DSA module), so the result is :attr:`SignerDurability.NONE`.
+    :func:`durability_for_backend_id`. With ``cryptography>=48`` (requirements-
+    pinned) the id is ``"pyca-cryptography-native"`` ⇒ :attr:`SignerDurability.DURABLE`;
+    on a box with no recognized backend the id is ``None`` ⇒
+    :attr:`SignerDurability.NONE`.
     """
     return durability_for_backend_id(ml_dsa.active_backend_id())
 

@@ -18,12 +18,12 @@ Two ``typing.Protocol`` seams — ``STTBackend`` and ``TTSBackend`` — plus:
 
   * Neural backends — lazy-import their deps inside the synth/session call and
     refuse to register as live unless their deps AND model files are present.
-    ``KokoroTTS`` is now LIVE when provisioned: the ``kokoro_onnx`` wrapper plus
-    the Kokoro-82M ONNX model on disk produce real 24 kHz speech (no GPU, no
-    vendor in the audio path). ``WhisperSTT`` / ``ParakeetSTT`` remain seams here
-    — ``faster_whisper`` / ``torch`` are not installed — so STT ``available()`` is
-    False and ``select_stt`` still falls back to ``OfflineSTT`` and SAYS SO (no
-    silent cap). Real STT (faster-whisper) is the next step, not yet wired.
+    ``KokoroTTS`` (TTS) and ``WhisperSTT`` (STT, faster-whisper) are LIVE when
+    provisioned: real 24 kHz speech out, and real transcription in — on CPU, no
+    GPU, no vendor in the audio path. ``ParakeetSTT`` stays a seam (needs
+    torch+nemo). Whenever a backend's deps OR model files are missing,
+    ``available()`` is False and ``select_*`` falls back to the honest offline
+    placeholder (a tone / a canned transcript) and SAYS SO (no silent cap).
 """
 
 from __future__ import annotations
@@ -184,21 +184,119 @@ class ParakeetSTT:
         )
 
 
-class WhisperSTT:
-    """faster-whisper + LocalAgreement streaming seam. (Use LocalAgreement, NOT
-    the PolyForm-NC SimulStreaming, to keep the path Apache/MIT-clean.) Lazy seam,
-    OFF here — ``faster_whisper`` is not installed (verified)."""
+class _WhisperSTTSession:
+    """One push-to-talk utterance through faster-whisper. Buffers 16 kHz PCM and
+    emits a REAL interim transcript at most every ``_PARTIAL_EVERY_S`` seconds of
+    accumulated speech (re-decoding the buffer so far), then a REAL final on
+    ``finish``. Both are genuine ASR output — never the canned placeholder."""
 
-    name = "faster-whisper(seam)"
+    _PARTIAL_EVERY_S = 1.5
+
+    def __init__(self, model, *, sample_rate: int) -> None:
+        self._model = model
+        self._sample_rate = sample_rate
+        self._pcm = bytearray()
+        self._partialed_bytes = 0
+
+    def feed(self, pcm: bytes) -> Transcript | None:
+        self._pcm += pcm
+        every = int(self._PARTIAL_EVERY_S * self._sample_rate) * 2  # int16 = 2 bytes
+        if len(self._pcm) - self._partialed_bytes < every:
+            return None
+        self._partialed_bytes = len(self._pcm)
+        return Transcript(
+            text=self._transcribe(bytes(self._pcm)),
+            is_final=False,
+            sample_rate=self._sample_rate,
+        )
+
+    def finish(self) -> Transcript:
+        return Transcript(
+            text=self._transcribe(bytes(self._pcm)),
+            is_final=True,
+            sample_rate=self._sample_rate,
+        )
+
+    def _transcribe(self, raw: bytes) -> str:
+        import numpy as np
+
+        if not raw:
+            return ""
+        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if self._sample_rate != 16000:  # faster-whisper wants 16 kHz mono float32
+            n = int(round(audio.size * 16000 / self._sample_rate))
+            if n <= 0:
+                return ""
+            audio = np.interp(
+                np.linspace(0.0, 1.0, n, dtype=np.float64),
+                np.linspace(0.0, 1.0, audio.size, dtype=np.float64),
+                audio,
+            ).astype(np.float32)
+        segments, _info = self._model.transcribe(audio, language="en", beam_size=1)
+        return " ".join(seg.text.strip() for seg in segments).strip()
+
+
+class WhisperSTT:
+    """Real streaming STT via faster-whisper (CTranslate2) — transcribes 16 kHz
+    PCM into the text that flows to ``/v1/ask``. No GPU, no cloud.
+
+    Honest gate (same shape as KokoroTTS): requires ``faster_whisper`` importable
+    AND the model present on disk (``$TEX_WHISPER_DIR``, default
+    ``~/.cache/tex/whisper``; provisioned by ``scripts/provision_whisper.sh``).
+    The dep alone can't transcribe without weights, so until both are present
+    ``available()`` is False and ``select_stt`` keeps the honest ``OfflineSTT``
+    placeholder (which does NOT transcribe). ``name`` reads exactly
+    ``"faster-whisper"`` only once real ASR is possible.
+
+    Emits real re-decoded partials + a real final per utterance; full
+    LocalAgreement incremental streaming is a future refinement, not faked here.
+    """
+
     requires = ("faster_whisper",)
+    MODEL = "base.en"
+    MODEL_FILE = "model.bin"  # the CTranslate2 weights inside the model dir
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._model = None  # cached WhisperModel, built lazily on first session
+
+    @property
+    def name(self) -> str:
+        return "faster-whisper" if self.available() else "faster-whisper(seam)"
+
+    @classmethod
+    def _model_dir(cls) -> Path:
+        return Path(
+            os.environ.get("TEX_WHISPER_DIR", os.path.expanduser("~/.cache/tex/whisper"))
+        )
 
     def available(self) -> bool:
-        return _deps_present(*self.requires)
+        # Dep importable AND model weights on disk — never True on the dep alone.
+        if not _deps_present(*self.requires):
+            return False
+        return (self._model_dir() / self.MODEL_FILE).is_file()
 
-    def session(self, *, sample_rate: int) -> STTSession:  # pragma: no cover - seam
-        raise RuntimeError(
-            "WhisperSTT is a labelled seam: requires faster_whisper, not installed."
-        )
+    def _load(self):
+        model = self._model
+        if model is None:
+            with self._lock:
+                model = self._model
+                if model is None:
+                    from faster_whisper import WhisperModel
+
+                    model = WhisperModel(
+                        str(self._model_dir()), device="cpu", compute_type="int8"
+                    )
+                    self._model = model
+        return model
+
+    def session(self, *, sample_rate: int) -> STTSession:
+        if not self.available():
+            raise RuntimeError(
+                "WhisperSTT.session called while unavailable (missing faster_whisper "
+                "or model files); use select_stt() so OfflineSTT handles the fallback."
+            )
+        return _WhisperSTTSession(self._load(), sample_rate=sample_rate)
 
 
 class KokoroTTS:

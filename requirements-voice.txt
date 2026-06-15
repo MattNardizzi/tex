@@ -11,4 +11,8 @@ kokoro-onnx>=0.5.0   # transitively: onnxruntime, soundfile, espeakng-loader (bu
 onnxruntime>=1.20.1
 soundfile
 
-# STT (faster-whisper into WhisperSTT) is the next step — not yet wired.
+# STT — real transcription via faster-whisper (CTranslate2). See WhisperSTT and
+# scripts/provision_whisper.sh (downloads the base.en model, ~145 MB). This path
+# is fully permissive: faster-whisper + CTranslate2 are MIT, the Whisper weights
+# are MIT — no GPLv3 in the STT chain (unlike Kokoro's espeak phonemizer).
+faster-whisper>=1.0.0

@@ -139,10 +139,15 @@ def test_offline_path_imports_no_neural_dependency() -> None:
     )
 
 
-def test_select_stt_falls_back_to_offline_here() -> None:
-    # No neural deps in this env → the registry honestly falls back to offline.
-    backend = select_stt()
-    assert backend.name == OfflineSTT().name
+def test_select_stt_falls_back_to_offline_when_unprovisioned(monkeypatch, tmp_path) -> None:
+    # When no neural STT is provisioned (model files absent), the registry
+    # honestly falls back to the OfflineSTT placeholder — regardless of whether
+    # faster_whisper happens to be importable on the box. Force the unprovisioned
+    # state with an empty model dir so this tests the FALLBACK LOGIC, not the
+    # ambient machine. Still has teeth: if select_stt stopped falling back when
+    # nothing real is available, this fails.
+    monkeypatch.setenv("TEX_WHISPER_DIR", str(tmp_path))  # empty → WhisperSTT unavailable
+    assert select_stt().name == OfflineSTT().name
 
 
 def test_offline_tts_emits_a_valid_wav() -> None:

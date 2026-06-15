@@ -1,0 +1,14 @@
+# Optional voice backends — NOT pulled by the core requirements.txt.
+#
+# Real local TTS via Kokoro-82M ONNX. See src/tex/gateway/backends.py (KokoroTTS)
+# and scripts/provision_kokoro.sh (which also downloads the ~340 MB model files
+# into $TEX_KOKORO_DIR, default ~/.cache/tex/kokoro).
+#
+# LICENSING: Kokoro weights are Apache-2.0 and the kokoro-onnx wrapper is MIT,
+# but it bundles a GPLv3 libespeak-ng loaded at runtime for phonemization. Fine
+# for an in-house service; flag it before redistributing binaries.
+kokoro-onnx>=0.5.0   # transitively: onnxruntime, soundfile, espeakng-loader (bundled espeak), phonemizer-fork
+onnxruntime>=1.20.1
+soundfile
+
+# STT (faster-whisper into WhisperSTT) is the next step — not yet wired.

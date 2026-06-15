@@ -16,12 +16,14 @@ Two ``typing.Protocol`` seams — ``STTBackend`` and ``TTSBackend`` — plus:
     ``OfflineTTS`` emits a valid but content-free WAV (a short low tone), not a
     spoken voice.
 
-  * Neural seams (``ParakeetSTT``, ``WhisperSTT``, ``KokoroTTS``) — real upgrade
-    points that lazy-import their deps inside ``start()``/``load()`` and refuse to
-    register as live when the model/GPU dependency is absent. In THIS environment
-    ``faster_whisper`` / ``onnxruntime`` / ``soundfile`` are not installed and
-    there is no GPU (verified), so ``available()`` is False for all of them and
-    ``select_*`` falls back to the offline backend — and SAYS SO (no silent cap).
+  * Neural backends — lazy-import their deps inside the synth/session call and
+    refuse to register as live unless their deps AND model files are present.
+    ``KokoroTTS`` is now LIVE when provisioned: the ``kokoro_onnx`` wrapper plus
+    the Kokoro-82M ONNX model on disk produce real 24 kHz speech (no GPU, no
+    vendor in the audio path). ``WhisperSTT`` / ``ParakeetSTT`` remain seams here
+    — ``faster_whisper`` / ``torch`` are not installed — so STT ``available()`` is
+    False and ``select_stt`` still falls back to ``OfflineSTT`` and SAYS SO (no
+    silent cap). Real STT (faster-whisper) is the next step, not yet wired.
 """
 
 from __future__ import annotations
@@ -29,10 +31,13 @@ from __future__ import annotations
 import importlib.util
 import logging
 import math
+import os
 import struct
+import threading
 import wave
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 __all__ = [
@@ -197,19 +202,112 @@ class WhisperSTT:
 
 
 class KokoroTTS:
-    """Kokoro (Apache-2.0) low-latency TTS seam. Lazy, OFF here — onnxruntime /
-    soundfile not installed (verified)."""
+    """Kokoro-82M (Apache-2.0) TTS, run locally via ONNX — REAL speech, with no
+    cloud and no vendor in the audio path.
 
-    name = "kokoro(seam)"
-    requires = ("onnxruntime", "soundfile")
+    Availability is honest. The ``kokoro_onnx`` wrapper (which transitively
+    bundles its own phonemizer + a prebuilt espeak-ng, so NO system espeak-ng is
+    required) must import alongside onnxruntime/soundfile, AND the two model
+    files must exist on disk. onnxruntime+soundfile alone CANNOT turn text into
+    speech, so they are necessary-but-not-sufficient: until everything is
+    present this backend reports unavailable and ``select_tts`` falls back to the
+    honest ``OfflineTTS`` tone. The model + voices are a one-time ~340 MB
+    download into ``$TEX_KOKORO_DIR`` (default ``~/.cache/tex/kokoro``); see
+    ``scripts/provision_kokoro.sh``.
+
+    ``name`` reads exactly ``"kokoro"`` only once real audio can be produced, so
+    the ``X-Tex-Voice-Backend`` header never labels a placeholder tone as kokoro.
+
+    LICENSING NOTE: the wrapper is MIT and the Kokoro weights are Apache-2.0, but
+    the bundled libespeak-ng shared library is GPLv3 (loaded at runtime for
+    phonemization). Fine for an in-house service; flag it before redistributing.
+    """
+
+    requires = ("onnxruntime", "soundfile", "kokoro_onnx")
+    VOICE = "af_heart"
+    MODEL_FILE = "kokoro-v1.0.onnx"
+    VOICES_FILE = "voices-v1.0.bin"
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._kokoro = None  # cached ONNX session, built lazily on first synth
+
+    @property
+    def name(self) -> str:
+        # Honest in both states: "(seam)" while unprovisioned (OfflineTTS is
+        # selected anyway), exactly "kokoro" the moment real audio is possible.
+        return "kokoro" if self.available() else "kokoro(seam)"
+
+    @classmethod
+    def _model_dir(cls) -> Path:
+        return Path(
+            os.environ.get("TEX_KOKORO_DIR", os.path.expanduser("~/.cache/tex/kokoro"))
+        )
+
+    @classmethod
+    def _model_paths(cls) -> tuple[Path, Path]:
+        d = cls._model_dir()
+        return d / cls.MODEL_FILE, d / cls.VOICES_FILE
 
     def available(self) -> bool:
-        return _deps_present(*self.requires)
+        # Deps importable AND both model files on disk — never True on just
+        # onnxruntime+soundfile (those can't phonemize): the honesty gate.
+        if not _deps_present(*self.requires):
+            return False
+        model_path, voices_path = self._model_paths()
+        return model_path.is_file() and voices_path.is_file()
 
-    def synthesize(self, text: str, *, sample_rate: int) -> bytes:  # pragma: no cover - seam
-        raise RuntimeError(
-            "KokoroTTS is a labelled seam: requires onnxruntime + soundfile, not installed."
+    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+        """Real Kokoro-82M TTS → audio/wav bytes. Lazy-loads (and caches) the
+        ONNX session on first call. Callers must gate on ``available()`` —
+        ``select_tts`` does — so reaching here unavailable is a programming
+        error, answered with a truthful refusal, never fabricated audio."""
+        if not self.available():
+            raise RuntimeError(
+                "KokoroTTS.synthesize called while unavailable (missing "
+                "kokoro_onnx/onnxruntime/soundfile or model files); use "
+                "select_tts() so OfflineTTS handles the fallback."
+            )
+
+        import io
+
+        import numpy as np
+        import soundfile as sf
+
+        kokoro = self._kokoro
+        if kokoro is None:
+            with self._lock:
+                kokoro = self._kokoro
+                if kokoro is None:
+                    from kokoro_onnx import Kokoro
+
+                    model_path, voices_path = self._model_paths()
+                    kokoro = Kokoro(str(model_path), str(voices_path))
+                    self._kokoro = kokoro
+
+        samples, native_sr = kokoro.create(
+            text, voice=self.VOICE, speed=1.0, lang="en-us"
         )
+        samples = np.asarray(samples, dtype=np.float32).reshape(-1)  # mono, 1-D
+
+        # Kokoro only emits 24 kHz. Honor the caller's rate honestly: resample
+        # the signal rather than mislabel a 24 kHz clip with another rate (which
+        # would shift pitch/duration). _SPEAK_SAMPLE_RATE is 24000, so the
+        # common path is a no-op; the linear resample only runs off the 24 kHz
+        # path and keeps pitch/duration truthful (quality < a polyphase filter).
+        if samples.size and sample_rate != native_sr:
+            n_out = int(round(samples.size * sample_rate / native_sr))
+            if n_out > 0:
+                x_old = np.linspace(0.0, 1.0, samples.size, dtype=np.float64)
+                x_new = np.linspace(0.0, 1.0, n_out, dtype=np.float64)
+                samples = np.interp(x_new, x_old, samples).astype(np.float32)
+            out_sr = sample_rate
+        else:
+            out_sr = native_sr
+
+        buf = io.BytesIO()
+        sf.write(buf, samples, int(out_sr), format="WAV", subtype="PCM_16")
+        return buf.getvalue()
 
 
 # --------------------------------------------------------------------------- selection

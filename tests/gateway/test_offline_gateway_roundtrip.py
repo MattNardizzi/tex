@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import sys
+import textwrap
 import types
 
 from tex.gateway import grant
@@ -96,11 +98,45 @@ def test_valid_dev_token_is_accepted(monkeypatch) -> None:
 
 
 def test_offline_path_imports_no_neural_dependency() -> None:
-    # Running the offline backend must not pull in a neural ASR/TTS stack.
-    ws = _FakeWS([b"\x00\x00", json.dumps({"type": "end"})])
-    _run(handle_connection(ws, stt=OfflineSTT(), require_token=False))
-    for neural in ("faster_whisper", "nemo_toolkit", "onnxruntime"):
-        assert neural not in sys.modules
+    # The offline gateway path must not, BY ITSELF, pull in a neural ASR/TTS
+    # runtime (keep the no-GPU path light). Measured in a FRESH subprocess so a
+    # legitimate neural test elsewhere in THIS pytest process — e.g. real Kokoro
+    # TTS via /v1/speak, which loads onnxruntime on purpose — cannot pollute the
+    # sys.modules check. The invariant and its teeth are unchanged: if running
+    # the offline path imported onnxruntime/faster_whisper/nemo, this still fails.
+    prog = textwrap.dedent(
+        """
+        import asyncio, json, sys, types
+        from tex.gateway.backends import OfflineSTT
+        from tex.gateway.voice_gateway import handle_connection
+
+        class _WS:
+            def __init__(self, msgs):
+                self._m = list(msgs); self.sent = []; self.closed = None
+                self.request = types.SimpleNamespace(path="/?token=x")
+            async def __aiter__(self):
+                for m in self._m:
+                    yield m
+            async def send(self, d):
+                self.sent.append(d)
+            async def close(self, code=1000, reason=""):
+                self.closed = (code, reason)
+
+        asyncio.run(handle_connection(
+            _WS([b"\\x00\\x00", json.dumps({"type": "end"})]),
+            stt=OfflineSTT(), require_token=False,
+        ))
+        loaded = [n for n in ("faster_whisper", "nemo_toolkit", "onnxruntime")
+                  if n in sys.modules]
+        print(",".join(loaded))
+        sys.exit(1 if loaded else 0)
+        """
+    )
+    # Inherit the parent env (carries PYTHONPATH=src) so the child imports tex.
+    result = subprocess.run([sys.executable, "-c", prog], capture_output=True, text=True)
+    assert result.returncode == 0, (
+        f"offline path imported a neural runtime: {result.stdout.strip()!r}\n{result.stderr}"
+    )
 
 
 def test_select_stt_falls_back_to_offline_here() -> None:

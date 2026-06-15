@@ -50,6 +50,51 @@ from tex.evidence.chain import (
 from tex.evidence.seal import PQ_SIGNATURE_FIELD, EvidenceChainSigner, verify_payload_signature
 
 
+# ── canonical-bytes gate helpers (court-grade presentation integrity) ─────
+
+
+class _DuplicateKeyError(ValueError):
+    """Raised when a JSON object contains the same key twice.
+
+    ``json.loads`` silently keeps the *last* value for a duplicated key, so two
+    different byte-strings can parse to the same dict — and a human reading the
+    raw bytes can be shown a different value than the one the verifier acts on.
+    For a court exhibit that ambiguity is unacceptable, so we reject it at parse
+    time and treat it exactly like malformed JSON.
+    """
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+    """``object_pairs_hook`` that refuses any object with a repeated key.
+
+    Used on the verifier's parse of ``payload_json`` so the byte-reader and the
+    verifier can never disagree about which value a key holds.
+    """
+    seen: set[str] = set()
+    out: dict = {}
+    for key, value in pairs:
+        if key in seen:
+            raise _DuplicateKeyError(f"duplicate key in payload object: {key!r}")
+        seen.add(key)
+        out[key] = value
+    return out
+
+
+def _canonical_bytes_match(payload_json: str, parsed: dict) -> bool:
+    """True iff ``payload_json`` is byte-identical to the canonical form of ``parsed``.
+
+    The canonical form is the chain's own ``_stable_json`` (sorted-key, compact,
+    UTF-8) — the exact bytes the recorder emits (``recorder.py``: ``_stable_json``
+    on the signed payload). Any other valid encoding of the same dict — extra
+    whitespace, key reordering, ``indent=2`` — parses to the same meaning but
+    fails this byte-equality check. The embedded signature already binds the
+    *meaning* (the signed digest is over the canonical re-serialization of the
+    parse), so this gate adds presentation integrity, not a new forgery defense:
+    it pins the exact bytes a human reads to the one canonical form.
+    """
+    return payload_json == _stable_json(parsed)
+
+
 # ── trust anchor ─────────────────────────────────────────────────────────
 
 
@@ -101,17 +146,30 @@ class RecordSignatureCheck:
     self_verifies: bool  # signature valid against its OWN embedded key
     key_is_pinned: bool | None  # embedded key == Tex pin (None if no pin given)
     algorithm: str | None
+    # Court-grade presentation-integrity gate: the stored ``payload_json`` bytes
+    # are byte-identical to the canonical (sorted-key, compact) serialization of
+    # the parsed payload AND contain no duplicate keys. Defaults to True for
+    # back-compat with any caller constructing this dataclass directly; the
+    # verifier sets it explicitly per record. False means the bytes a human
+    # reads are not the one canonical form Tex emits — a presentation ambiguity
+    # the verifier refuses for a court exhibit, even though the embedded
+    # signature already binds the *meaning* (see _canonical_bytes_match).
+    canonical_ok: bool = True
 
 
 @dataclass(frozen=True, slots=True)
 class BundleVerification:
     """The offline verdict on a bundle.
 
-    Read the three booleans precisely:
-    - ``integrity_ok``    — chain intact AND every signature self-verifies.
+    Read the booleans precisely:
+    - ``integrity_ok``    — chain intact AND every signature self-verifies AND
+      every record's bytes are in canonical form (no non-canonical encoding,
+      no duplicate keys).
     - ``authorship_pinned`` — a Tex public key was supplied to check against.
     - ``authorship_ok``   — every record was signed by the pinned Tex key
       (``None`` when no pin was supplied — authorship is then UNVERIFIED).
+    - ``canonical_bytes_ok`` — every record's stored ``payload_json`` is
+      byte-identical to its canonical serialization (presentation integrity).
     - ``valid`` — the court-grade verdict: integrity AND pinned authorship.
     """
 
@@ -121,16 +179,22 @@ class BundleVerification:
     signatures_self_verify: bool
     authorship_pinned: bool
     authorship_ok: bool | None
+    canonical_bytes_ok: bool
     signature_algorithms: tuple[str, ...]
     per_record_signatures: tuple[RecordSignatureCheck, ...]
 
     @property
     def integrity_ok(self) -> bool:
-        return self.chain_intact and self.signatures_self_verify and self.record_count > 0
+        return (
+            self.chain_intact
+            and self.signatures_self_verify
+            and self.canonical_bytes_ok
+            and self.record_count > 0
+        )
 
     @property
     def valid(self) -> bool:
-        """Court-grade: integrity proven AND authorship pinned to Tex's key."""
+        """Court-grade: integrity (incl. canonical bytes) AND pinned authorship."""
         return self.integrity_ok and self.authorship_ok is True
 
     def summary(self) -> str:
@@ -156,6 +220,7 @@ class BundleVerification:
             f"  chain intact     : {self.chain_intact}"
             + ("" if self.chain_intact else f"  (issues: {', '.join(self.chain_issue_codes)})"),
             f"  signatures self-verify : {self.signatures_self_verify}  (algorithm: {algos})",
+            f"  canonical bytes  : {self.canonical_bytes_ok}  (payload_json == canonical form)",
             author_line,
             f"  chain head       : {head}…",
         ]
@@ -195,10 +260,17 @@ def verify_bundle(
     algorithms: list[str] = []
     all_self_verify = True
     all_keys_pinned = True
+    all_canonical = True
     for index, record in enumerate(records):
+        # Parse with a duplicate-key-rejecting hook: ``json.loads`` would
+        # silently last-wins a repeated key, letting the raw bytes a human reads
+        # disagree with the value the verifier acts on. We refuse that and treat
+        # it exactly like malformed JSON.
         try:
-            payload = json.loads(record.payload_json)
-        except json.JSONDecodeError:
+            payload = json.loads(
+                record.payload_json, object_pairs_hook=_reject_duplicate_keys
+            )
+        except (json.JSONDecodeError, _DuplicateKeyError):
             sig_checks.append(
                 RecordSignatureCheck(
                     index=index,
@@ -206,11 +278,22 @@ def verify_bundle(
                     self_verifies=False,
                     key_is_pinned=(False if pinned_public_key_b64 else None),
                     algorithm=None,
+                    canonical_ok=False,
                 )
             )
             all_self_verify = False
             all_keys_pinned = False
+            all_canonical = False
             continue
+
+        # Canonical-bytes gate: the stored bytes must be byte-identical to the
+        # one canonical serialization Tex emits. A non-canonical re-encoding
+        # (whitespace, key reorder, indent) parses to the same meaning but is a
+        # presentation ambiguity a court exhibit must refuse. This is additive
+        # presentation integrity — the embedded signature already binds meaning.
+        canonical_ok = _canonical_bytes_match(record.payload_json, payload)
+        if not canonical_ok:
+            all_canonical = False
 
         block = payload.get(PQ_SIGNATURE_FIELD)
         algorithm = block.get("algorithm") if isinstance(block, dict) else None
@@ -237,10 +320,12 @@ def verify_bundle(
                 self_verifies=self_ok,
                 key_is_pinned=key_pinned,
                 algorithm=algorithm,
+                canonical_ok=canonical_ok,
             )
         )
 
     signatures_self_verify = all_self_verify and len(records) > 0
+    canonical_bytes_ok = all_canonical and len(records) > 0
     if pinned_public_key_b64 is None:
         authorship_ok: bool | None = None
     else:
@@ -253,6 +338,7 @@ def verify_bundle(
         signatures_self_verify=signatures_self_verify,
         authorship_pinned=pinned_public_key_b64 is not None,
         authorship_ok=authorship_ok,
+        canonical_bytes_ok=canonical_bytes_ok,
         signature_algorithms=tuple(algorithms),
         per_record_signatures=tuple(sig_checks),
     )

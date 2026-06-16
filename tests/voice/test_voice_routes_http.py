@@ -84,6 +84,14 @@ def test_speak_streams_wav_audio(client: TestClient) -> None:
     assert resp.content[:4] == b"RIFF"
 
 
+def test_speak_timed_503_without_elevenlabs_key(client: TestClient) -> None:
+    # Word-timed voice is ElevenLabs-only. With no key (hermetic conftest) the
+    # route must 503 cleanly — NOT 500 — so the client falls back to plain
+    # /v1/speak (real voice, no highlight). Purely additive, never a regression.
+    resp = client.get("/v1/speak/timed", params={"text": "the evidence chain is intact"})
+    assert resp.status_code == 503
+
+
 def test_ask_requires_evidence_read_scope(monkeypatch) -> None:
     # Keyed, fail-closed backend: a key with ONLY decision:read must be 403'd on
     # /v1/ask (it returns sealed evidence_hash anchors) but allowed on

@@ -16,3 +16,12 @@ soundfile
 # is fully permissive: faster-whisper + CTranslate2 are MIT, the Whisper weights
 # are MIT — no GPLv3 in the STT chain (unlike Kokoro's espeak phonemizer).
 faster-whisper>=1.0.0
+
+# Cloud voice (Tex's signature voice) — ElevenLabs. NO pip dependency: the
+# ElevenLabsTTS backend (src/tex/gateway/backends.py) calls the REST API over
+# stdlib urllib. It is LIVE only when ELEVENLABS_API_KEY is set in the
+# environment (the honest gate) and is a VENDOR IN THE AUDIO PATH — the local
+# Kokoro backend above stays the no-vendor fallback, and a runtime vendor
+# failure falls through to it (then the offline tone), so Tex is never muted.
+# Optional overrides: TEX_ELEVENLABS_VOICE (default 8eWiU0Pinoj0ItwssWXL),
+# TEX_ELEVENLABS_MODEL (default eleven_flash_v2_5, the SOTA real-time model).

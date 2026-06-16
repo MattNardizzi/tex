@@ -31,13 +31,13 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.vigil_routes import _resolve_effective_tenant
 from tex.gateway import grant
-from tex.gateway.backends import select_tts
+from tex.gateway.backends import ElevenLabsTTS, synthesize_tts
 from tex.voice import voice_ask
 
 __all__ = ["build_voice_router"]
@@ -165,14 +165,43 @@ def build_voice_router() -> APIRouter:
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> Response:
         # The grounding already happened in /v1/ask; this is pure synthesis of a
-        # line Tex chose. The backend is pluggable (tex.gateway.backends); only
-        # the offline tone runs in this environment — a placeholder, not a voice.
-        tts = select_tts()
-        audio = tts.synthesize(text, sample_rate=_SPEAK_SAMPLE_RATE)
+        # line Tex already sealed. The backend is pluggable (tex.gateway.backends):
+        # the ElevenLabs cloud voice when ELEVENLABS_API_KEY is set, else local
+        # Kokoro, else the honest offline tone — and a RUNTIME vendor failure falls
+        # through too, so Tex is never muted. The header names whoever ACTUALLY
+        # spoke, so a cloud vendor in the audio path is labeled on every byte.
+        audio, backend_name = synthesize_tts(text, sample_rate=_SPEAK_SAMPLE_RATE)
         return Response(
             content=audio,
             media_type="audio/wav",
-            headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": tts.name},
+            headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": backend_name},
+        )
+
+    @router.get(
+        "/speak/timed",
+        summary="Synthesize a sealed line WITH per-word timing for in-sync highlighting",
+    )
+    def speak_timed(
+        request: Request,
+        text: str = Query(default="", max_length=4000),
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ) -> Response:
+        # Word-timed audio is an ElevenLabs-only capability (it returns the
+        # per-character alignment for the EXACT sealed line). The grounding still
+        # happened in /v1/ask; this only adds timing so the on-screen text can
+        # light up in step with Tex's voice. When ElevenLabs isn't configured we
+        # 503 and the client falls back to plain /v1/speak — a real voice, just
+        # without the highlight — so this is purely additive, never a regression.
+        el = ElevenLabsTTS()
+        if not el.available():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="word-timed voice not configured (no ElevenLabs key)",
+            )
+        payload = el.synthesize_timed(text, sample_rate=_SPEAK_SAMPLE_RATE)
+        return JSONResponse(
+            content=payload,
+            headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": el.name},
         )
 
     return router

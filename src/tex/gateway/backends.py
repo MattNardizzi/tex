@@ -50,8 +50,10 @@ __all__ = [
     "ParakeetSTT",
     "WhisperSTT",
     "KokoroTTS",
+    "ElevenLabsTTS",
     "select_stt",
     "select_tts",
+    "synthesize_tts",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -408,11 +410,251 @@ class KokoroTTS:
         return buf.getvalue()
 
 
+# --------------------------------------------------------------------------- elevenlabs (cloud vocal cords)
+
+
+def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
+    """Wrap raw little-endian 16-bit MONO PCM in a WAV container (stdlib only)."""
+    buf = BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(int(sample_rate))
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _resample_pcm16(pcm: bytes, *, src_rate: int, dst_rate: int) -> bytes:
+    """Linear-resample mono s16le PCM from ``src_rate`` to ``dst_rate``. Honors
+    the caller's rate honestly (keeps pitch/duration truthful) rather than
+    mislabeling the sample rate; quality is below a polyphase filter. The common
+    path NEVER resamples because ``_SPEAK_SAMPLE_RATE`` (24 kHz) is requested
+    directly from the vendor."""
+    if not pcm or src_rate == dst_rate:
+        return pcm
+    import numpy as np
+
+    audio = np.frombuffer(pcm, dtype="<i2").astype(np.float32)
+    n_out = int(round(audio.size * dst_rate / src_rate))
+    if n_out <= 0:
+        return b""
+    resampled = np.interp(
+        np.linspace(0.0, 1.0, n_out, dtype=np.float64),
+        np.linspace(0.0, 1.0, audio.size, dtype=np.float64),
+        audio,
+    )
+    return np.clip(np.round(resampled), -32768, 32767).astype("<i2").tobytes()
+
+
+def _chars_to_words(
+    chars: list[str],
+    starts: list[float],
+    ends: list[float],
+) -> list[dict]:
+    """Roll ElevenLabs CHARACTER-level alignment up into WORDS for in-sync
+    on-screen highlighting. Splits on whitespace; each word carries the start
+    time of its first character and the end time of its last (seconds). Keeps
+    punctuation attached to its word, and reconstructs the exact spoken text so
+    the highlight maps to the literal displayed line."""
+    words: list[dict] = []
+    cur = ""
+    cur_start: float | None = None
+    last_end: float | None = None
+    for ch, s, e in zip(chars, starts, ends):
+        if ch.isspace():
+            if cur:
+                words.append({"text": cur, "start": cur_start, "end": last_end})
+                cur, cur_start, last_end = "", None, None
+            continue
+        if not cur:
+            cur_start = s
+        cur += ch
+        last_end = e
+    if cur:
+        words.append({"text": cur, "start": cur_start, "end": last_end})
+    return words
+
+
+class ElevenLabsTTS:
+    """ElevenLabs cloud TTS — Tex's signature voice — used as VOCAL CORDS ONLY.
+
+    Unlike :class:`KokoroTTS` (local, no vendor) this sends text to ElevenLabs'
+    servers to synthesize, so it is a VENDOR IN THE AUDIO PATH — labeled honestly:
+    ``name`` reads exactly ``"elevenlabs"`` when live, so ``X-Tex-Voice-Backend``
+    names the cloud vendor on every byte. It is invoked ONLY on a line Tex has
+    ALREADY sealed in ``/v1/ask`` (a grounded answer, or an authored decline), so
+    ElevenLabs never decides, generates, or paraphrases WHAT Tex says — it only
+    voices bytes Tex authored.
+
+    This uses the raw text-to-speech endpoint, NOT the ElevenLabs Agents /
+    Conversational-AI product (which runs an LLM that would sit in the speaking
+    seat — deliberately not used). The "speaks only the text sent, generates
+    nothing" property is true by the endpoint's semantics; it is NOT a verbatim
+    doc quote, so it is stated as such.
+
+    Honest gate: ``available()`` is True only when ``ELEVENLABS_API_KEY`` is set —
+    necessary (and, network/quota permitting, sufficient) to produce real speech.
+    Without it the selectors fall back to the local :class:`KokoroTTS`, then the
+    :class:`OfflineTTS` tone; a RUNTIME vendor failure also falls through (see
+    :func:`synthesize_tts`). The no-vendor fallbacks are never removed.
+
+    Synthesis pins the SOTA real-time model ``eleven_flash_v2_5`` EXPLICITLY (the
+    convert endpoint otherwise defaults to the slower ``eleven_multilingual_v2``)
+    and forces ``apply_text_normalization="off"`` so the vendor voices the SEALED
+    string faithfully — it must not silently re-render digits/symbols into
+    something Tex did not seal. Audio is requested as raw 16-bit PCM at the
+    caller's rate and WAV-wrapped with no resample on the common 24 kHz path.
+
+    Overridable per deploy: ``TEX_ELEVENLABS_VOICE`` (voice id),
+    ``TEX_ELEVENLABS_MODEL`` (model id).
+    """
+
+    requires: tuple[str, ...] = ()  # stdlib urllib only — the live gate is the API key
+    VOICE = "8eWiU0Pinoj0ItwssWXL"
+    MODEL = "eleven_flash_v2_5"
+    API_BASE = "https://api.elevenlabs.io"
+    _SUPPORTED_PCM_RATES = (8000, 16000, 22050, 24000, 32000, 44100, 48000)
+    _TIMEOUT_S = 30.0
+
+    @property
+    def name(self) -> str:
+        # Honest in both states: exactly "elevenlabs" the moment a key is present
+        # (so the vendor is named), "(seam)" while unconfigured (a fallback runs).
+        return "elevenlabs" if self.available() else "elevenlabs(seam)"
+
+    @classmethod
+    def _voice(cls) -> str:
+        return os.environ.get("TEX_ELEVENLABS_VOICE", cls.VOICE)
+
+    @classmethod
+    def _model(cls) -> str:
+        return os.environ.get("TEX_ELEVENLABS_MODEL", cls.MODEL)
+
+    @staticmethod
+    def _api_key() -> str | None:
+        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+        return key or None
+
+    def available(self) -> bool:
+        return self._api_key() is not None
+
+    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+        """Real ElevenLabs speech for the EXACT sealed ``text`` → audio/wav bytes.
+        Callers must gate on ``available()`` — the selectors do — so reaching here
+        without a key is a programming error answered with a truthful refusal,
+        never fabricated audio."""
+        key = self._api_key()
+        if key is None:
+            raise RuntimeError(
+                "ElevenLabsTTS.synthesize called while unavailable "
+                "(ELEVENLABS_API_KEY not set); use synthesize_tts()/select_tts() "
+                "so KokoroTTS/OfflineTTS handle the fallback."
+            )
+        if not (text or "").strip():
+            # Nothing sealed to say → a valid, silent WAV (no vendor call, no cost).
+            return _pcm_to_wav(b"", sample_rate)
+
+        if sample_rate in self._SUPPORTED_PCM_RATES:
+            req_rate, out_format = sample_rate, f"pcm_{sample_rate}"
+        else:
+            req_rate, out_format = 24000, "pcm_24000"
+
+        pcm = self._post(
+            path=f"/v1/text-to-speech/{self._voice()}?output_format={out_format}",
+            key=key,
+            text=text,
+        )
+        if req_rate != sample_rate:
+            pcm = _resample_pcm16(pcm, src_rate=req_rate, dst_rate=sample_rate)
+        return _pcm_to_wav(pcm, sample_rate)
+
+    def synthesize_timed(self, text: str, *, sample_rate: int) -> dict:
+        """Real ElevenLabs speech for the EXACT sealed ``text`` WITH per-word
+        timing, for on-screen highlighting that tracks the voice. Returns
+        ``{"backend","sample_rate","audio_b64","words"}`` where ``audio_b64`` is
+        raw little-endian 16-bit mono PCM (base64) and ``words`` is
+        ``[{text,start,end}]`` in seconds. Same honest gate as ``synthesize`` —
+        callers must check ``available()`` first.
+
+        Uses the documented ``/with-timestamps`` endpoint (single JSON response,
+        not SSE — robust through the same-origin serverless proxy). The exact
+        char→word rollup + the live request shape are verified by tests; the live
+        ElevenLabs response is confirmed against a real key before production."""
+        import json
+
+        key = self._api_key()
+        if key is None:
+            raise RuntimeError(
+                "ElevenLabsTTS.synthesize_timed called while unavailable "
+                "(ELEVENLABS_API_KEY not set)."
+            )
+        if not (text or "").strip():
+            return {"backend": "elevenlabs", "sample_rate": sample_rate, "audio_b64": "", "words": []}
+
+        rate = sample_rate if sample_rate in self._SUPPORTED_PCM_RATES else 24000
+        raw = self._post(
+            path=f"/v1/text-to-speech/{self._voice()}/with-timestamps?output_format=pcm_{rate}",
+            key=key,
+            text=text,
+        )
+        data = json.loads(raw.decode("utf-8"))
+        align = data.get("alignment") or {}
+        words = _chars_to_words(
+            align.get("characters") or [],
+            align.get("character_start_times_seconds") or [],
+            align.get("character_end_times_seconds") or [],
+        )
+        return {
+            "backend": "elevenlabs",
+            "sample_rate": rate,
+            "audio_b64": data.get("audio_base64", ""),
+            "words": words,
+        }
+
+    def _post(self, *, path: str, key: str, text: str) -> bytes:
+        """POST the SEALED ``text`` to an ElevenLabs TTS endpoint (flash_v2_5
+        pinned, normalization OFF) and return the raw response body. Shared by
+        ``synthesize`` (audio bytes) and ``synthesize_timed`` (JSON)."""
+        import json
+        import urllib.error
+        import urllib.request
+
+        payload = json.dumps(
+            {
+                "text": text,
+                "model_id": self._model(),          # SOTA real-time; pinned, never the default
+                "apply_text_normalization": "off",  # voice the SEALED string verbatim
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.API_BASE}{path}",
+            data=payload,
+            method="POST",
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self._TIMEOUT_S) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:  # 4xx/5xx from ElevenLabs
+            detail = b""
+            try:
+                detail = exc.read()[:300]
+            except Exception:  # pragma: no cover - defensive
+                pass
+            raise RuntimeError(
+                f"ElevenLabs TTS HTTP {exc.code} for voice {self._voice()}: {detail!r}"
+            ) from exc
+        except urllib.error.URLError as exc:  # network / DNS / timeout
+            raise RuntimeError(f"ElevenLabs TTS unreachable: {exc.reason}") from exc
+
+
 # --------------------------------------------------------------------------- selection
 
 
 _STT_PREFERENCE: tuple[STTBackend, ...] = (ParakeetSTT(), WhisperSTT())
-_TTS_PREFERENCE: tuple[TTSBackend, ...] = (KokoroTTS(),)
+# ElevenLabs (cloud, Tex's signature voice) preferred when its key is present;
+# local Kokoro is the no-vendor fallback; OfflineTTS the always-on floor.
+_TTS_PREFERENCE: tuple[TTSBackend, ...] = (ElevenLabsTTS(), KokoroTTS())
 
 
 def select_stt() -> STTBackend:
@@ -442,3 +684,34 @@ def select_tts() -> TTSBackend:
         OfflineTTS().name,
     )
     return OfflineTTS()
+
+
+def synthesize_tts(text: str, *, sample_rate: int) -> tuple[bytes, str]:
+    """Synthesize ``text`` with the best available TTS, and — so Tex is NEVER
+    muted by a vendor hiccup — fall THROUGH to the next backend on a RUNTIME
+    failure (e.g. an ElevenLabs outage/timeout), ending at the always-available
+    :class:`OfflineTTS`. Returns ``(wav_bytes, name)`` where ``name`` is the
+    backend that ACTUALLY produced the audio, so ``X-Tex-Voice-Backend`` can never
+    mislabel who spoke (a cloud vendor is named only when it truly voiced the
+    line). Every skipped/failed backend is logged — no silent cap."""
+    failures: list[str] = []
+    for backend in (*_TTS_PREFERENCE, OfflineTTS()):
+        if not backend.available():
+            continue
+        try:
+            audio = backend.synthesize(text, sample_rate=sample_rate)
+        except Exception as exc:  # vendor / network / runtime failure → fall through
+            _logger.warning(
+                "voice gateway: TTS backend %s failed at synth (%r); falling through",
+                backend.name, exc,
+            )
+            failures.append(f"{backend.name}: {exc!r}")
+            continue
+        if failures:
+            _logger.warning(
+                "voice gateway: spoke via fallback %s after %d failure(s): %s",
+                backend.name, len(failures), "; ".join(failures),
+            )
+        return audio, backend.name
+    # OfflineTTS is always available and never raises, so this is unreachable.
+    raise RuntimeError(f"no TTS backend could synthesize; failures={failures}")

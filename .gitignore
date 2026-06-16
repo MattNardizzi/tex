@@ -47,3 +47,17 @@ var/
 # copy of the PRIVATE seal key + evidence chain slipped past #12.
 src/var/
 data/
+
+# Forge challenge PRIVATE keys. The forge/ dir is otherwise INTENTIONALLY
+# tracked (public bundles + pins below), but the private seal keys that sign the
+# canonical bundles must NEVER be committed — their secrecy is exactly what makes
+# the forge dare real. var/ above is root-anchored and does NOT cover forge/, so
+# these explicit rules are mandatory.
+forge/_private_keys/
+forge/**/*private*
+# INTENTIONALLY COMMITTED public material under forge/ (do NOT ignore these):
+#   forge/canonical_bundle.pq.jsonl      (composite ML-DSA-65 + Ed25519 bundle)
+#   forge/canonical_bundle.ecdsa.jsonl   (ECDSA-P256 verify-anywhere bundle)
+#   forge/PUBKEY_STATEMENT.json          (out-of-band pin, composite)
+#   forge/PUBKEY_STATEMENT.ecdsa.json    (out-of-band pin, classical)
+#   forge/README.md                      (operator doc)

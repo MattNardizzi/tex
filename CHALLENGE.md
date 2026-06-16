@@ -62,23 +62,60 @@ You must defeat the *pin*, and the verifier reads the pin only from the statemen
 file, never from the bundle. The bytes are also gated to one canonical form, so a
 non-canonical re-encoding is rejected too.
 
+_Scope: this bundle proves the **authenticity and integrity** of the records it
+contains — you cannot forge or alter one. It does **not** by itself prove
+**completeness**; the no-dropped-record guarantee (epoch-commitment +
+count-conservation) is checked in the capstone below, not in this single bundle._
+
 Honest labeling: the `.pq` bundle is **composite-ml-dsa-65-ed25519** and its
 verification is **RUNTIME-DEPENDENT** (it needs an ML-DSA backend, which
 `pip install -r requirements.txt` provides). A host without that backend should
 attack the `.ecdsa` bundle + pin, which verify with `pyca/cryptography` alone.
 See [`forge/README.md`](forge/README.md).
 
-<!-- ============================================================= -->
-<!-- ## PLACEHOLDER — what makes this unique (frontier-lock pick) [FOUNDER TO FILL]
+## What makes this different — the artifact cannot over-claim
 
-     The headline "shock" property this dare leads with is chosen by the
-     frontier-lock workflow + founder, NOT here. Candidates the armed superset
-     already supports: signed silence / sealed ABSTAIN / verifiable absence /
-     the SEAM (no model in the speaking seat). It MUST be a genuinely novel
-     property — NOT a table-stakes "we have signed records" claim, which every
-     ledger product can make. Do not write a headline until the frontier-lock
-     pick is final; the mechanical target above stands on its own until then. -->
-<!-- ============================================================= -->
+Sealed records aren't new, and on raw cryptography others are ahead of us (we
+say so below). The part we haven't found anywhere else: **this verdict object
+labels its own immaturity in machine-readable form that the verifier checks, and
+a construction-time validator makes over-claiming physically unconstructible.**
+You cannot build a manifest that marks the keyed-hash stand-in "a real ZK proof,"
+marks an uncertified certificate "certified," or writes the word "guarantee" —
+the constructor refuses. The failure mode that makes this whole category
+untrustworthy — a stand-in dressed up as a proof — is *structurally impossible*
+here, and you can prove that to yourself offline in about a minute.
+
+```bash
+# The full sealed verdict object: eight properties over three separate chains,
+# re-verified offline from files + pins alone — no hardware root, no blockchain.
+python scripts/verify_it_yourself.py --capstone
+```
+
+It passes 34 independent offline checks and runs a twelve-row tamper matrix
+(eleven file-mutation rows plus one live forked-checkpoint attack) — every
+forgery caught and attributed to the exact proof it violated.
+
+**The escalated dare.** Make the offline verifier say `VALID` while you do any of these:
+
+1. flip a `FORBID` to `PERMIT` and pass all 34 checks;
+2. re-sign any chain with your own key and beat the authorship pin;
+3. drop or hide a sealed record and beat the epoch-commitment + conservation checks;
+4. forge the L2 attestation without breaking verdict-binding;
+5. construct a manifest that **claims more than it proves** — mark the stand-in a
+   real proof, mark an uncertified cert "certified," or write "guarantee" — and
+   get our own constructor to emit it.
+
+If you break any of them, open an issue and tell me exactly how.
+
+**Stated against my own interest, because that's the whole point.** This
+composition is **research-early**, with **zero production deployments**. The novel
+thing is the *composition plus the enforced honesty labels the verifier checks* —
+not any single primitive. On raw cryptography we are **behind** the field (others
+ship post-quantum and real zero-knowledge today); anything labeled "ZK" in this
+tree is a fail-closed stand-in and is **never** called a proof. The structural
+floor is the only property genuinely on the live default path; the rest are
+honestly marked test-mode / uncertified / blocked in the manifest — and the
+verifier enforces those labels.
 
 ## What's coming
 

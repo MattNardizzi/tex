@@ -1,0 +1,9 @@
+{
+  "algorithm": "ecdsa-p256",
+  "key_id": "tex-forge-seal-ecdsa-v1",
+  "public_key_b64": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUZrd0V3WUhLb1pJemowQ0FRWUlLb1pJemowREFRY0RRZ0FFeXZiLzF5cVNnU01jeUJlenFEQjhoaFRpZ2FlcApIeERvUG5uOHdOY0JmWXpSYktUazVpK3ZvVzQwUmJodWFWZkVnU21na2c1dmpEU040L2ZVUU5JQ01nPT0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==",
+  "public_key_sha256": "a71f3c146e5acdf06ff0953c0b7a5684d84d23c5cb53599b4f728e5b83ad4582",
+  "created_at": "2026-06-15T18:39:42.814607+00:00",
+  "attestor": "Matt Nardizzi",
+  "note": "Out-of-band pin. The matching PRIVATE key is founder-held and never published. The public_key_sha256 fingerprint is ALSO posted in a second channel (live site / signed tweet / git tag) \u2014 that external fingerprint, not this in-repo copy, is the canonical root of trust."
+}

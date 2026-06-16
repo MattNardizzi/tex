@@ -114,7 +114,7 @@ watch the pin do its job.
 
 To go deeper, the same repo contains the capstone: one sealed verdict object
 composing eight governance properties over three cryptographically separate
-chains, with an eleven-row tamper matrix:
+chains, with a twelve-row tamper matrix (eleven file-mutation rows plus one live forked-checkpoint protocol attack):
 
 ```bash
 python scripts/verify_it_yourself.py --capstone

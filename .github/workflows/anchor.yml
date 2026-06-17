@@ -1,0 +1,91 @@
+name: external-anchor
+
+# Daily external proof-of-age for the evidence chain (the moat clock).
+#
+# Every run: builds a gix checkpoint tree-head, submits its root to an external
+# RFC 3161 TSA (freetsa.org), verifies the returned token OFFLINE against the
+# pinned CA cert (anchors/tsa/), and — only if it verifies — commits the receipt
+# and the public tree-head to the repo. That commit is the SECOND CHANNEL:
+# GitHub's own commit history becomes an independent timestamp of each tree-head,
+# on top of the TSA's genTime, so a back-dated rewrite would have to contradict
+# either the TSA receipt or this public git history.
+#
+# This is OUT-OF-BAND and ASYNC — never in the request path. A TSA outage fails
+# this job visibly (exit 2) and retries next run; it gates nothing.
+#
+# Record-hash source: CI has no live decision ledger, so it anchors a
+# deterministic stand-in derived from this repo's commit history (documented as
+# such). In production, point --hashes-file at the live ledger's record_hash
+# export instead.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # daily, 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write          # to commit the published tree-head (the second channel)
+
+concurrency:
+  group: external-anchor
+  cancel-in-progress: false
+
+jobs:
+  anchor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build the record-hash source (repo commit history stand-in)
+        run: |
+          # Each line: SHA-256 of a recent commit SHA -> a 64-hex "record_hash".
+          # Production replaces this with the live ledger's record_hash export.
+          git log -n 64 --format=%H \
+            | while read -r sha; do printf '%s' "$sha" | sha256sum | cut -d' ' -f1; done \
+            > anchor_record_hashes.txt
+          echo "record hashes:"; wc -l anchor_record_hashes.txt
+
+      - name: Anchor the checkpoint to the external TSA + verify offline
+        env:
+          TEX_EVIDENCE_ANCHOR_ENABLE: "1"
+          TEX_EVIDENCE_ANCHOR_TSA_URL: "https://freetsa.org/tsr"
+          TEX_EVIDENCE_ANCHOR_TSA_CERT: "anchors/tsa/freetsa_cacert.pem"
+          TEX_EVIDENCE_ANCHOR_AUTHORITY: "freetsa.org"
+        run: |
+          PYTHONPATH=src python scripts/anchor_checkpoint.py \
+            --hashes-file anchor_record_hashes.txt \
+            --out-dir anchors
+
+      - name: Publish the tree-head (commit the second channel)
+        if: success()
+        run: |
+          if git diff --quiet -- anchors/; then
+            echo "no new anchor to publish"; exit 0
+          fi
+          git config user.name "tex-anchor-bot"
+          git config user.email "anchor-bot@users.noreply.github.com"
+          git add anchors/checkpoint_anchors.jsonl anchors/PUBLISHED_TREE_HEADS.jsonl
+          git commit -m "anchor: publish externally-timestamped tree-head ($(date -u +%FT%TZ))"
+          git push
+
+      - name: Upload the receipt as a workflow artifact (backup channel)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-anchors
+          path: |
+            anchors/checkpoint_anchors.jsonl
+            anchors/PUBLISHED_TREE_HEADS.jsonl
+          if-no-files-found: ignore

@@ -6,6 +6,7 @@ Run::
 
     python scripts/verify_it_yourself.py                  # the Replay Trial
     python scripts/verify_it_yourself.py --capstone       # the full capstone
+    python scripts/verify_it_yourself.py --anchor         # external proof-of-age
     python scripts/verify_it_yourself.py --forge-target   # verify the armed dare
     python scripts/verify_it_yourself.py --forge-target --ecdsa  # classical bundle
 
@@ -19,6 +20,11 @@ then runs the existing demo unchanged:
                  object (eight properties, three chains) plus an
                  eleven-row tamper matrix. Read its honesty header: parts
                  of the composition run on labeled test-mode stand-ins.
+  * --anchor   -> scripts/anchor_demo.py — anchors a gix checkpoint
+                 tree-head to a (local, offline) RFC 3161 TSA, verifies the
+                 receipt offline against the pinned cert, and shows a forged
+                 tree-head is rejected. Proves the verification logic with no
+                 network; the real-TSA path is scripts/anchor_checkpoint.py.
   * --forge-target -> verifies the COMMITTED forge bundle against the
                  published out-of-band pin (forge/PUBKEY_STATEMENT.json),
                  printing the verdict mix and the pin fingerprint. Add
@@ -56,8 +62,11 @@ if __name__ == "__main__":
     if "--forge-target" in sys.argv[1:]:
         raise SystemExit(_run_forge_target())
 
-    _TARGET = (
-        "capstone_demo.py" if "--capstone" in sys.argv[1:] else "replay_trial_demo.py"
-    )
+    if "--anchor" in sys.argv[1:]:
+        _TARGET = "anchor_demo.py"
+    elif "--capstone" in sys.argv[1:]:
+        _TARGET = "capstone_demo.py"
+    else:
+        _TARGET = "replay_trial_demo.py"
     sys.argv = [_TARGET]
     runpy.run_path(str(_REPO_ROOT / "scripts" / _TARGET), run_name="__main__")

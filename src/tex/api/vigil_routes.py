@@ -352,6 +352,7 @@ def build_vigil_router() -> APIRouter:
         import json
 
         from fastapi.responses import StreamingResponse
+        from starlette.concurrency import run_in_threadpool
 
         effective_tenant = _resolve_effective_tenant(principal, tenant_id)
         # Cadence: a calm push every PERIOD_S, a keepalive every HEARTBEAT_S.
@@ -366,7 +367,17 @@ def build_vigil_router() -> APIRouter:
                 if await request.is_disconnected():
                     break
                 try:
-                    resp = _build_vigil_response(request, effective_tenant)
+                    # Offload the synchronous vigil cycle to the threadpool so a
+                    # per-stream recompute never blocks the single worker's event
+                    # loop. Running it inline here froze the one loop for the whole
+                    # duration of engine.run() on EVERY open stream, every PERIOD_S
+                    # — starving /health, /speak/timed and every other route until
+                    # it returned (the multi-minute wedge). The polling /vigil route
+                    # already runs this in the threadpool; this makes the stream
+                    # path match it so concurrent streams can no longer wedge Tex.
+                    resp = await run_in_threadpool(
+                        _build_vigil_response, request, effective_tenant
+                    )
                     payload = resp.model_dump_json()
                 except Exception:  # noqa: BLE001 — never crash the stream
                     payload = None

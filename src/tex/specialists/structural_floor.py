@@ -65,6 +65,7 @@ from tex.contracts.rule_of_two import (
     RULE_OF_TWO_SPECIALIST,
     evaluate_rule_of_two,
 )
+from tex.deterministic.cadence import CadenceLevel, assess_for_floor
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
 from tex.specialists.base import SpecialistBundle, SpecialistResult
@@ -235,6 +236,32 @@ def _action_class_deny(request: Any) -> StructuralDeny | None:
     )
 
 
+CADENCE_SPECIALIST = "action_cadence"
+CADENCE_CODE = "cadence.hard_threshold"
+
+
+def _cadence_deny(request: Any) -> StructuralDeny | None:
+    """Autonomous-attack action cadence over the HARD threshold → a structural deny.
+
+    Only the HARD level fires the floor. The SOFT level is a soft hold
+    (PERMIT→ABSTAIN via ``cadence.apply_cadence_hold``), not a proof, so it is
+    NOT returned here — forbidding a merely-elevated cadence would violate
+    monotone-lowering + ABSTAIN-only surfaces. HARD is a *counted* threshold over
+    the agent's sliding window (a deterministic fact about structure), never a
+    probabilistic score, so it qualifies for the floor exactly as a PCAS deny or
+    an IFC type violation does. Reads the shared singleton tracker, so it sees the
+    observation the recognizer already made for this request.
+    """
+    assessment = assess_for_floor(request)
+    if assessment.level is not CadenceLevel.HARD:
+        return None
+    return StructuralDeny(
+        specialist=CADENCE_SPECIALIST,
+        reason=assessment.reason,
+        codes=(CADENCE_CODE,),
+    )
+
+
 def _rv4_permanent_denies(request: Any) -> list[StructuralDeny]:
     """RV4 path policies that are PERMANENTLY violated (bad prefixes) → denies.
 
@@ -278,6 +305,11 @@ def detect_structural_floor(
          the reversibility×blast lattice (``tex.contracts.action_class``), when
          ``request`` carries the ``action_class`` metadata. Only the FORBID cell
          fires the floor; the ABSTAIN cell is recorded but not surfaced here.
+      5. **Action-cadence HARD threshold** — an agent whose sliding-window action
+         rate / branching fan-out crosses the hard threshold
+         (``tex.deterministic.cadence``), when ``request`` carries an agent
+         identity to key on. A *counted* threshold, never a score; only HARD fires
+         the floor (SOFT is a soft PERMIT→ABSTAIN hold, not a proof).
 
     Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. ``request`` is optional
     so the pure specialist-bundle form (used widely in tests) keeps working; the
@@ -298,6 +330,9 @@ def detect_structural_floor(
         action_class = _action_class_deny(request)
         if action_class is not None:
             denies.append(action_class)
+        cadence = _cadence_deny(request)
+        if cadence is not None:
+            denies.append(cadence)
 
     if not denies:
         return NEUTRAL_STRUCTURAL_FLOOR

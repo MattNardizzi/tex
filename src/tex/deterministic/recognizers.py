@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
+from tex.deterministic.cadence import (
+    ActionCadenceTracker,
+    CadenceLevel,
+    default_cadence_tracker,
+)
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
@@ -1090,6 +1095,65 @@ class InvisibleUnicodeRecognizer:
         )
 
 
+class ActionCadenceRecognizer:
+    """
+    Deterministic autonomous-attack action-cadence recognizer.
+
+    This is the *observation point* for Tex's action-rate circuit-breaker. Unlike
+    the regex recognizers above, it is stateful: it maintains a sliding window per
+    (tenant, agent identity) and measures, every window, the agent's action rate
+    and its branching fan-out (distinct recipients / tools / targets). The window
+    machinery, thresholds, and monotone-lowering wiring live in
+    ``tex.deterministic.cadence``; this class is the thin recognizer face over it.
+
+    Rationale (Anthropic Nov-2025 autonomous-attack disclosure): an AI agent under
+    adversary control acts far faster than a human-paced one — it fans out across
+    many requests, recipients, and tools in seconds. The gate need not *outpace*
+    that attacker (a probabilistic detection arms race it would lose); it only has
+    to be unavoidable and structural. Cadence is exactly such a structural fact:
+    a burst cannot be reworded to look slow. So crossing a soft budget surfaces a
+    WARNING that the post-router cadence hold turns into ABSTAIN, and crossing the
+    hard threshold surfaces a CRITICAL while the deterministic structural FORBID
+    floor (which reads the same shared tracker) forces FORBID. The recognizer never
+    raises a verdict on its own — it emits evidence and records the observation.
+
+    The recognizer resolves the shared singleton tracker *lazily at scan time*
+    (unless a tracker is injected for tests), so an operator's env tuning or a
+    per-test reset of the singleton always takes effect. A request with no agent
+    identity, or a cadence within budget, yields zero findings — ordinary traffic
+    is untouched.
+    """
+
+    name = "action_cadence"
+
+    def __init__(self, tracker: ActionCadenceTracker | None = None) -> None:
+        # ``None`` means "resolve the process singleton at scan time" so the
+        # recognizer, the structural floor, and the soft hold all share one
+        # window state. Tests inject an explicit tracker to assert in isolation.
+        self._tracker = tracker
+
+    def scan(self, request: EvaluationRequest) -> tuple[Finding, ...]:
+        tracker = self._tracker or default_cadence_tracker()
+        assessment = tracker.assess(request)
+        if not assessment.fired:
+            return tuple()
+
+        severity = (
+            Severity.CRITICAL
+            if assessment.level is CadenceLevel.HARD
+            else Severity.WARNING
+        )
+        return (
+            Finding(
+                source="deterministic.action_cadence",
+                rule_name=self.name,
+                severity=severity,
+                message=assessment.reason,
+                metadata=assessment.metadata(),
+            ),
+        )
+
+
 def default_recognizers() -> tuple[Recognizer, ...]:
     """
     Returns Tex's default deterministic recognizer set.
@@ -1098,6 +1162,11 @@ def default_recognizers() -> tuple[Recognizer, ...]:
     The two newest entries — JailbreakPersonaRecognizer and
     InvisibleUnicodeRecognizer — close KNOWN_BUGS #7 and the May 2026
     invisible-Unicode attack surface respectively.
+
+    ``ActionCadenceRecognizer`` runs last among the recognizers: it is the
+    stateful observation point for the autonomous-attack cadence circuit-breaker
+    (it counts the action and classifies the agent's sliding-window rate / fan-out),
+    so it should observe the action exactly once after the cheaper content scans.
     """
     return (
         BlockedTermsRecognizer(),
@@ -1113,4 +1182,5 @@ def default_recognizers() -> tuple[Recognizer, ...]:
         AuthorityImpersonationRecognizer(),
         JailbreakPersonaRecognizer(),
         InvisibleUnicodeRecognizer(),
+        ActionCadenceRecognizer(),
     )

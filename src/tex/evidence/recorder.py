@@ -303,6 +303,7 @@ class EvidenceRecorder:
         *,
         metadata: dict[str, Any] | None = None,
         policy_version: str | None = None,
+        parent_evidence_hash: str | None = None,
     ) -> EvidenceRecord:
         """
         Appends an evidence record for an outcome.
@@ -311,6 +312,17 @@ class EvidenceRecorder:
         pass it explicitly. If omitted, this method will also accept
         `decision_policy_version` inside metadata for compatibility with the
         current command layer.
+
+        ``parent_evidence_hash``, when supplied, is the ``record_hash`` of
+        the evidence row this outcome was minted from (e.g. a human-
+        resolution seal). It is written into the payload as a semantic
+        cross-reference — the same idiom as ``record_contract_violation`` /
+        ``record_attribution`` — so an outcome auto-minted from a sealed
+        resolution is provably tied to that exact act rather than free-
+        floating. Chain integrity is still computed from ``payload_sha256``
+        and ``previous_hash`` alone; the parent link is not a chain edge.
+        The key is emitted only when supplied, so existing callers that
+        omit it produce byte-identical payloads (and hashes) as before.
         """
         resolved_policy_version = self._resolve_outcome_policy_version(
             metadata=metadata,
@@ -333,6 +345,8 @@ class EvidenceRecorder:
             "metadata": self._merge_metadata(None, metadata),
             "recorded_at": outcome.recorded_at.isoformat(),
         }
+        if parent_evidence_hash is not None:
+            payload["parent_evidence_hash"] = parent_evidence_hash
 
         return self._append(
             decision_id=outcome.decision_id,

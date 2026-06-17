@@ -23,8 +23,10 @@ python scripts/verify_it_yourself.py
 It seals ten decisions, verifies the bundle offline, then plays adversary
 against itself — byte-flip a record (caught), re-sign a forged `PERMIT` with a
 foreign key (passes integrity, **fails the key pin**). Exit code 0 means every
-forgery was caught. The verifier is one file you can read:
-`src/tex/bench/evidence_bundle.py`.
+forgery was caught. The core verifier is one short file you can read
+(`src/tex/bench/evidence_bundle.py`); it leans on a few small siblings — the
+hash-chain check (`src/tex/evidence/chain.py`) and the signature seal
+(`src/tex/evidence/seal.py`).
 
 **The challenge:** forge a verdict the pinned-key verifier accepts. Alter a
 sealed decision and make it replay clean. Make the verifier say a tampered
@@ -37,10 +39,57 @@ nothing of Tex's to forge. The armed target is in [`forge/`](forge/): a bundle
 of real Tex decisions signed by Tex's private key, plus the **published public
 key** to pin.
 
+**Verify-anywhere — the classical ECDSA bundle, two light dependencies, no
+backend and no engine.** This is the path that runs on a bare machine:
+
 ```bash
-# 1. See the genuine VALID starting point (composite ML-DSA-65 + Ed25519):
+# 1a. Install ONLY what an offline signature check needs (cryptography + pydantic):
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements-verify.txt
+python scripts/verify_it_yourself.py --forge-target --ecdsa
+```
+
+What you'll see — the genuine VALID starting point you have to defeat (paths
+shown relative to the repo, long digests and the cross-check note elided with
+`…`; no value altered):
+
+```
+======================================================================
+FORGE TARGET — offline verification against the OUT-OF-BAND pin
+======================================================================
+bundle : forge/canonical_bundle.ecdsa.jsonl
+pin    : forge/PUBKEY_STATEMENT.ecdsa.json  (read out of band, NOT from the bundle)
+pin algorithm   : ecdsa-p256
+pin key_id      : tex-forge-seal-ecdsa-v1
+pin fingerprint : sha256:a71f3c146e5acdf06ff0953c0b7a5684d84d23c5cb53599b4f728e5b83ad4582
+  …
+Offline bundle verification: VALID (integrity + authorship)
+  records          : 6
+  chain intact     : True
+  signatures self-verify : True  (algorithm: ecdsa-p256)
+  canonical bytes  : True  (payload_json == canonical form)
+  authorship       : True  (pinned to Tex key)
+  chain head       : 1048a13bee06d93d…
+======================================================================
+FORGE TARGET: VALID
+======================================================================
+```
+
+That verify path imports a small, named set of modules — the bundle verifier
+(`bench/evidence_bundle.py`), the hash-chain check (`evidence/chain.py`), the
+signature seal (`evidence/seal.py`), the ECDSA provider
+(`events/_ecdsa_provider.py`), and the `EvidenceRecord` model
+(`domain/evidence.py`) — and pulls in only `cryptography` + `pydantic` plus the
+Python standard library. No fastapi, no numpy/scipy, no governance engine on the
+import path.
+
+**The headline composite post-quantum bundle** needs a PQ backend, so it rides
+with the full install instead:
+
+```bash
+# 1b. The composite ML-DSA-65 + Ed25519 bundle (needs the full requirements):
+pip install -r requirements.txt
 python scripts/verify_it_yourself.py --forge-target
-# (or --forge-target --ecdsa for the classical verify-anywhere bundle)
 ```
 
 ```bash
@@ -70,8 +119,9 @@ count-conservation) is checked in the capstone below, not in this single bundle.
 Honest labeling: the `.pq` bundle is **composite-ml-dsa-65-ed25519** and its
 verification is **RUNTIME-DEPENDENT** (it needs an ML-DSA backend, which
 `pip install -r requirements.txt` provides). A host without that backend should
-attack the `.ecdsa` bundle + pin, which verify with `pyca/cryptography` alone.
-See [`forge/README.md`](forge/README.md).
+attack the `.ecdsa` bundle + pin, which verify with the two light dependencies in
+`requirements-verify.txt` (`cryptography` + `pydantic`) — no PQ backend, no
+engine. See [`forge/README.md`](forge/README.md).
 
 ## What makes this different — the artifact cannot over-claim
 
@@ -131,8 +181,9 @@ present (ECDSA-P256 on a bare box; composite ML-DSA-65 + Ed25519 where an ML-DSA
 backend is installed). The **armed forge bundle** in `forge/` is published in two
 forms: a headline **composite-ml-dsa-65-ed25519** bundle whose verification is
 RUNTIME-DEPENDENT (needs an ML-DSA backend, which `pip install -r requirements.txt`
-provides), and an **ECDSA-P256** verify-anywhere bundle alongside it, each with
-its own out-of-band pin. The verifier now also enforces a **canonical-bytes gate**:
+provides), and an **ECDSA-P256** verify-anywhere bundle alongside it — verifiable
+with just `requirements-verify.txt` (`cryptography` + `pydantic`, no engine) —
+each with its own out-of-band pin. The verifier now also enforces a **canonical-bytes gate**:
 each record's `payload_json` must be byte-identical to its one canonical form.
 Anything labeled "ZK" in this tree is a hard-gated stand-in, fail-closed, and is
 never called a proof. The structural floor, the offline replay, and the

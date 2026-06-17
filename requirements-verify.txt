@@ -1,0 +1,26 @@
+# requirements-verify.txt — the LIGHT dependency set for the offline ECDSA
+# bundle-verify path ONLY (the "verify-anywhere, no backend" Level-1 dare):
+#
+#     python scripts/verify_it_yourself.py --forge-target --ecdsa
+#
+# This is the path a stranger runs to check a sealed governance verdict offline,
+# trusting only the math. It needs exactly two third-party packages plus the
+# Python standard library:
+#
+#   * cryptography — ECDSA-P256 (SECP256R1 + SHA-256) signature verification
+#     and PEM key parsing (tex/events/_ecdsa_provider.py). >=42 is enough for
+#     the classical verify path; the post-quantum/composite seal needs >=48
+#     (OpenSSL 3.5) and lives in the full requirements.txt instead.
+#   * pydantic — the EvidenceRecord / TexEvidence domain models the bundle
+#     deserializes into (tex/domain/evidence.py).
+#
+# Everything else the verifier touches (hashlib, json, base64, dataclasses,
+# pathlib, …) is stdlib. It does NOT import fastapi, uvicorn, psycopg, numpy,
+# scipy, networkx, rustworkx, starlette, or any of the governance/agent engine.
+#
+# For the composite post-quantum bundle (the default --forge-target) and the
+# engine-backed replay_trial / capstone demos — which legitimately run the full
+# governance engine — install the complete requirements.txt instead.
+
+cryptography>=42.0.0
+pydantic>=2.0.0

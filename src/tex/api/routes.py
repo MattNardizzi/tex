@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from tex.api.auth import RequireScope, authenticate_request
+from tex.api.outcome_autoseal import capture_resolution_outcome
 
 from tex.api.schemas import (
     ActivatePolicyRequestDTO,
@@ -320,7 +321,7 @@ def seal_human_resolution(
             "post_quantum": "ml-dsa" in str(pq.get("algorithm", "")),
         }
 
-    return {
+    response: dict[str, Any] = {
         "decision_id": str(decision_id),
         "human_verdict": payload.get("human_verdict"),
         "resolved_by": payload.get("resolved_by"),
@@ -330,6 +331,25 @@ def seal_human_resolution(
         "previous_hash": record.previous_hash,
         "pq_signature": signature_block,
     }
+
+    # Auto-seal the human resolution into a labeled, ingested OutcomeRecord
+    # parent-linked to this resolution's record_hash. This is the flywheel's
+    # fuel: a human-resolved hold becomes a calibration outcome by
+    # construction, in the same request, instead of requiring a discretionary
+    # second POST an operator would skip. Capture is bounded + best-effort: it
+    # never sinks the seal, but a failure surfaces an explicit warning (see
+    # tex.api.outcome_autoseal). Additive field — the rest of the response
+    # shape is unchanged.
+    response["outcome_capture"] = capture_resolution_outcome(
+        request=request,
+        decision=decision,
+        human_verdict=payload.get("human_verdict") or body.verdict,
+        resolved_by=payload.get("resolved_by") or body.resolved_by,
+        note=body.note,
+        parent_record_hash=record.record_hash,
+    )
+
+    return response
 
 
 @router.get(

@@ -70,6 +70,89 @@ class ProvenanceResolution(BaseModel):
     note: str | None = None
 
 
+# ===========================================================================
+# Crypto-agile seal envelope — the post-quantum dual-signature primitive
+# ===========================================================================
+#
+# A sealed record's ``record_hash`` is signed once per algorithm. Today that is
+# ECDSA-P256 (for every verifier shipping now) PLUS ML-DSA-65 (FIPS 204, the
+# post-quantum authorship signature). The set of signatures is carried in a
+# ``SealEnvelope`` with an explicit ``seal_version`` so a future migration can
+# add or retire an algorithm *without touching the hash chain*: every signature
+# covers the same ``record_hash`` the chain already commits to, so adding the
+# envelope changes neither ``payload_sha256`` nor ``record_hash``.
+#
+# Backward compatibility is structural: a legacy ECDSA-only record carries
+# ``seal_envelope = None`` and is verified through its ``signature_b64`` exactly
+# as before. The envelope is purely additive.
+
+
+class SealSignature(BaseModel):
+    """One algorithm's signature over a record's ``record_hash``.
+
+    ``algorithm`` is a :class:`~tex.pqcrypto.algorithm_agility.SignatureAlgorithm`
+    *value* (a plain string, e.g. ``"ecdsa-p256"`` / ``"ml-dsa-65"``), not the
+    enum — so a record sealed under an algorithm a future reader does not know
+    still deserializes and is honestly reported as "unverifiable", never a crash.
+    The signed message is the same ``record_hash`` bytes the legacy
+    ``signature_b64`` covers, which is what keeps the hash chain unchanged.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    algorithm: str = Field(min_length=1, max_length=64)
+    key_id: str = Field(min_length=1, max_length=200)
+    signature_b64: str = Field(min_length=1)
+
+
+class SealEnvelope(BaseModel):
+    """A crypto-agile set of signatures over one record's ``record_hash``.
+
+    The migration-friendly seal: an explicit ``seal_version`` plus one
+    :class:`SealSignature` per algorithm. ``is_dual`` is the post-quantum
+    property — at least two distinct algorithms (a classical one for today's
+    verifiers and a post-quantum one). A future migration adds/retires an
+    algorithm here and bumps ``seal_version`` without disturbing ``record_hash``.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    seal_version: str = Field(min_length=1, max_length=16)
+    signatures: tuple[SealSignature, ...] = Field(min_length=1)
+
+    def algorithms(self) -> tuple[str, ...]:
+        """The algorithm tags present, in envelope order (primary first)."""
+        return tuple(s.algorithm for s in self.signatures)
+
+    def signature_for(self, algorithm: str) -> "SealSignature | None":
+        """The signature tagged ``algorithm``, or ``None`` if absent."""
+        for sig in self.signatures:
+            if sig.algorithm == algorithm:
+                return sig
+        return None
+
+    @property
+    def is_dual(self) -> bool:
+        """True when the envelope binds two or more distinct algorithms."""
+        return len({s.algorithm for s in self.signatures}) >= 2
+
+
+class SealPublicKey(BaseModel):
+    """A public key a verifier needs to check one algorithm's seal signature.
+
+    Carried in the offline bundle next to the records. It is **not** a basis of
+    trust on its own: the verifier checks signatures against a *pinned* key and
+    flags any substitution (see ``provenance/bundle.py``). ECDSA keys are PEM
+    bytes; ML-DSA keys are the raw FIPS 204 §5.3 public-key encoding.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    algorithm: str = Field(min_length=1, max_length=64)
+    key_id: str = Field(min_length=1, max_length=200)
+    public_key_b64: str = Field(min_length=1)
+
+
 class ProvenanceRecord(BaseModel):
     """
     One sealed, hash-chained, signed entry in the behavioural provenance
@@ -103,6 +186,12 @@ class ProvenanceRecord(BaseModel):
     record_hash: str = ""
     signature_b64: str = ""
     signing_key_id: str = ""
+
+    # Crypto-agile dual signature over ``record_hash``. ``None`` for a legacy
+    # ECDSA-only record (verified via ``signature_b64``); a ``SealEnvelope`` with
+    # ECDSA-P256 + ML-DSA-65 once the post-quantum signer is active. Additive: it
+    # never enters ``payload_sha256`` / ``record_hash``, so the chain is unchanged.
+    seal_envelope: SealEnvelope | None = None
 
 
 class BehavioralBirthCertificate(BaseModel):
@@ -283,4 +372,11 @@ class SealedFactRecord(BaseModel):
     record_hash: str
     signature_b64: str
     signing_key_id: str
+
+    # Crypto-agile dual signature over ``record_hash`` (ECDSA-P256 + ML-DSA-65).
+    # ``None`` for a legacy ECDSA-only PCVR — verified via ``signature_b64``, the
+    # backward-compatible path. Additive: never part of the sealed payload or the
+    # chain, so a dual-signed bundle and a legacy bundle share identical chains.
+    seal_envelope: SealEnvelope | None = None
+
     sealed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

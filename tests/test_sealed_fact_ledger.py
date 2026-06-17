@@ -17,8 +17,11 @@ signature) proves integrity. These tests check both, separately.
 
 from __future__ import annotations
 
+import base64
 import math
 from uuid import uuid4
+
+import pytest
 
 from tex.domain.evidence import (
     EvidenceKind,
@@ -26,12 +29,19 @@ from tex.domain.evidence import (
     TexEvidence,
     compose_arithmetic_mean,
 )
+from tex.events._ecdsa_provider import EcdsaP256Provider
+from tex.pqcrypto.algorithm_agility import SignatureAlgorithm
+from tex.pqcrypto.ml_dsa import active_backend_id
 from tex.provenance.ledger import BehavioralProvenanceLedger, SealedFactLedger
 from tex.provenance.models import (
     ProvenanceEventKind,
     SealedFact,
     SealedFactKind,
 )
+
+_HAS_PQ = active_backend_id() is not None
+_ECDSA = SignatureAlgorithm.ECDSA_P256.value
+_MLDSA = SignatureAlgorithm.ML_DSA_65.value
 
 
 def _combined_proof() -> "object":
@@ -168,5 +178,118 @@ def test_behavioral_ledger_still_works() -> None:
         agent_id=uuid4(),
         signature_hash="abc",
     )
+    assert led.verify_chain()["intact"] is True
+    assert led.verify_signatures()["valid"] is True
+
+
+# --------------------------------------------------------------------------- #
+# post-quantum dual signing (ECDSA-P256 + ML-DSA-65, FIPS 204)
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_new_seals_are_dual_signed() -> None:
+    led = SealedFactLedger()
+    assert led.is_dual_signed is True
+    assert [k.algorithm for k in led.seal_public_keys] == [_ECDSA, _MLDSA]
+
+    rec = led.append(_decision_fact())
+    assert rec.seal_envelope is not None
+    assert rec.seal_envelope.is_dual is True
+    assert rec.seal_envelope.algorithms() == (_ECDSA, _MLDSA)
+    # the legacy ECDSA field is mirrored byte-for-byte in the envelope (the
+    # backward-compatible signature is reused, not re-signed)
+    assert rec.signature_b64 == rec.seal_envelope.signature_for(_ECDSA).signature_b64
+
+    res = led.verify_seal_envelopes()
+    assert res == {
+        "dual_signed": True,
+        "ecdsa_valid": True,
+        "pq_valid": True,
+        "checked": 1,
+        "invalid_at": None,
+        "mismatch_at": None,
+    }
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_dual_signing_leaves_the_hash_chain_byte_identical() -> None:
+    # THE backward-compat invariant (requirement 2): adding the ML-DSA signature
+    # must not change payload_sha256 or record_hash. Two ledgers sharing one
+    # ECDSA key — one dual-signed, one legacy ECDSA-only — must produce identical
+    # chains over identical facts.
+    shared = EcdsaP256Provider().generate_keypair("shared-ecdsa")
+    facts = [_decision_fact(claim=f"verdict {i}") for i in range(4)]
+
+    dual = SealedFactLedger(signing_key=shared, enable_pq=True)
+    legacy = SealedFactLedger(signing_key=shared, enable_pq=False)
+    dual_recs = [dual.append(f) for f in facts]
+    legacy_recs = [legacy.append(f) for f in facts]
+
+    assert dual.is_dual_signed is True
+    assert legacy.is_dual_signed is False
+    for d, leg in zip(dual_recs, legacy_recs, strict=True):
+        assert d.payload_sha256 == leg.payload_sha256
+        assert d.record_hash == leg.record_hash
+        assert d.previous_hash == leg.previous_hash
+    # the dual ledger carries envelopes; the legacy one does not
+    assert all(r.seal_envelope is not None for r in dual_recs)
+    assert all(r.seal_envelope is None for r in legacy_recs)
+    # both chains verify
+    assert dual.verify_chain()["intact"] is True
+    assert legacy.verify_chain()["intact"] is True
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_verify_seal_envelopes_catches_pq_tamper() -> None:
+    led = SealedFactLedger()
+    led.append(_decision_fact())
+    rec = led._entries[0]
+    env = rec.seal_envelope
+    pq = env.signature_for(_MLDSA)
+    raw = bytearray(base64.b64decode(pq.signature_b64))
+    raw[0] ^= 0x01
+    from tex.provenance.models import SealEnvelope, SealSignature
+
+    bad_env = SealEnvelope(
+        seal_version=env.seal_version,
+        signatures=(
+            env.signature_for(_ECDSA),
+            SealSignature(
+                algorithm=_MLDSA,
+                key_id=pq.key_id,
+                signature_b64=base64.b64encode(bytes(raw)).decode("ascii"),
+            ),
+        ),
+    )
+    led._entries[0] = rec.model_copy(update={"seal_envelope": bad_env})
+
+    # the chain and the legacy ECDSA signature are untouched (envelope is not in
+    # the chain) — but the envelope check catches the PQ tamper.
+    assert led.verify_chain()["intact"] is True
+    assert led.verify_signatures()["valid"] is True
+    res = led.verify_seal_envelopes()
+    assert res["pq_valid"] is False
+    assert res["mismatch_at"] == 0
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_behavioral_ledger_is_dual_signed_too() -> None:
+    led = BehavioralProvenanceLedger()
+    led.append(
+        event_kind=ProvenanceEventKind.BIRTH, agent_id=uuid4(), signature_hash="abc"
+    )
+    assert led.is_dual_signed is True
+    assert led._entries[0].seal_envelope.is_dual is True
+    assert led.verify_signatures()["valid"] is True  # ECDSA path unchanged
+    assert led.verify_seal_envelopes()["pq_valid"] is True
+
+
+def test_pq_can_be_disabled_for_legacy_ecdsa_only() -> None:
+    # Honest fallback path: a ledger explicitly without PQ behaves exactly like
+    # before — no envelope, ECDSA-only — so existing verifiers are unaffected.
+    led = SealedFactLedger(enable_pq=False)
+    assert led.is_dual_signed is False
+    assert led.pq_public_key is None
+    rec = led.append(_decision_fact())
+    assert rec.seal_envelope is None
     assert led.verify_chain()["intact"] is True
     assert led.verify_signatures()["valid"] is True

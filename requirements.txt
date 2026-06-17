@@ -6,6 +6,9 @@ pydantic-settings
 psycopg[binary]
 pyasn1
 cryptography>=48.0.0  # >=48 ships native ML-DSA (FIPS 204) via OpenSSL 3.5 → L10 PQ-durable signer (pqcrypto/pq_durability.py)
+                      # and the crypto-agile dual seal (provenance/seal_envelope.py): every sealed verdict carries an
+                      # ECDSA-P256 signature plus a post-quantum FIPS-204 signature. Backend resolution order = pyca/cryptography
+                      # native (OpenSSL >= 3.5) first, then liboqs-python (`pip install liboqs-python`); ECDSA-only if neither.
 networkx
 numpy
 scipy

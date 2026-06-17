@@ -36,7 +36,9 @@ from tex.provenance.models import (
     SealedFact,
     SealedFactKind,
     SealedFactRecord,
+    SealPublicKey,
 )
+from tex.provenance.seal_envelope import CryptoAgileSealer, verify_envelope
 
 
 def _stable_json(obj: Any) -> str:
@@ -45,6 +47,55 @@ def _stable_json(obj: Any) -> str:
 
 def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _verify_seal_envelopes(
+    entries: list[Any], pinned_keys: dict[str, bytes]
+) -> dict[str, Any]:
+    """Verify the crypto-agile seal envelope on every record (duck-typed over
+    both record kinds — each has ``record_hash`` + ``seal_envelope``).
+
+    Returns ``{dual_signed, ecdsa_valid, pq_valid, checked, invalid_at,
+    mismatch_at}``. ``dual_signed`` is True only when *every* record carried a
+    two-algorithm envelope; ``pq_valid`` only when every record's post-quantum
+    signature verified against a pinned key. A legacy ECDSA-only record (no
+    envelope) honestly drops ``dual_signed``/``pq_valid`` to False.
+    """
+    total = len(entries)
+    checked = 0
+    ecdsa_valid = True
+    pq_valid = True
+    all_dual = total > 0
+    invalid_at: int | None = None
+    mismatch_at: int | None = None
+    for idx, rec in enumerate(entries):
+        env = rec.seal_envelope
+        res = verify_envelope(rec.record_hash, env, pinned_keys=pinned_keys)
+        if not res.present:
+            all_dual = False
+            pq_valid = False
+            continue
+        checked += 1
+        if not (env is not None and env.is_dual):
+            all_dual = False
+        if res.mismatch and mismatch_at is None:
+            mismatch_at = idx
+        if not res.ecdsa_verified:
+            ecdsa_valid = False
+            if invalid_at is None:
+                invalid_at = idx
+        if not res.pq_verified:
+            pq_valid = False
+            if res.mismatch and invalid_at is None:
+                invalid_at = idx
+    return {
+        "dual_signed": all_dual,
+        "ecdsa_valid": ecdsa_valid,
+        "pq_valid": pq_valid,
+        "checked": checked,
+        "invalid_at": invalid_at,
+        "mismatch_at": mismatch_at,
+    }
 
 
 class BehavioralProvenanceLedger:
@@ -61,6 +112,9 @@ class BehavioralProvenanceLedger:
         *,
         signing_key: SignatureKeyPair | None = None,
         signing_provider: SignatureProvider | None = None,
+        pq_signing_key: SignatureKeyPair | None = None,
+        pq_signing_provider: SignatureProvider | None = None,
+        enable_pq: bool = True,
     ) -> None:
         self._lock = threading.RLock()
         self._entries: list[ProvenanceRecord] = []
@@ -70,6 +124,17 @@ class BehavioralProvenanceLedger:
         )
         self._key: SignatureKeyPair = (
             signing_key or self._provider.generate_keypair("tex-provenance-ledger")
+        )
+        # Crypto-agile sealer: ECDSA-P256 (the unchanged ``_provider``/``_key``,
+        # primary) plus ML-DSA-65 when a post-quantum backend is live. Degrades
+        # honestly to ECDSA-only if none is present (``is_dual`` is then False and
+        # records carry ``seal_envelope is None``).
+        self._sealer = CryptoAgileSealer.from_primary(
+            self._provider,
+            self._key,
+            pq_provider=pq_signing_provider,
+            pq_key=pq_signing_key,
+            enable_pq=enable_pq,
         )
 
     # ------------------------------------------------------------------ keys
@@ -81,6 +146,28 @@ class BehavioralProvenanceLedger:
     @property
     def signing_key_id(self) -> str:
         return self._key.key_id
+
+    @property
+    def is_dual_signed(self) -> bool:
+        """True when new records are dual-signed (ECDSA-P256 + post-quantum)."""
+        return self._sealer.is_dual
+
+    @property
+    def pq_public_key(self) -> bytes | None:
+        """The raw post-quantum (ML-DSA) public key, or ``None`` if ECDSA-only."""
+        signer = self._sealer.pq_signer
+        return signer.key.public_key if signer else None
+
+    @property
+    def pq_signing_key_id(self) -> str | None:
+        signer = self._sealer.pq_signer
+        return signer.key.key_id if signer else None
+
+    @property
+    def seal_public_keys(self) -> tuple[SealPublicKey, ...]:
+        """One public key per seal algorithm — what an offline bundle carries so
+        a verifier can check each signature against a pinned key."""
+        return self._sealer.public_keys
 
     # ------------------------------------------------------------------ write
     def append(
@@ -121,6 +208,14 @@ class BehavioralProvenanceLedger:
             )
             signature = self._provider.sign(record_hash.encode("ascii"), self._key)
             signature_b64 = base64.b64encode(signature).decode("ascii")
+            # Dual-sign the SAME record_hash (ECDSA mirrors signature_b64; ML-DSA
+            # added). None when sealing ECDSA-only — byte-identical to a legacy
+            # record, so the chain is unchanged either way.
+            seal_envelope = (
+                self._sealer.envelope_with_primary(record_hash, signature)
+                if self._sealer.is_dual
+                else None
+            )
 
             record = ProvenanceRecord(
                 sequence=sequence,
@@ -137,6 +232,7 @@ class BehavioralProvenanceLedger:
                 record_hash=record_hash,
                 signature_b64=signature_b64,
                 signing_key_id=self._key.key_id,
+                seal_envelope=seal_envelope,
             )
             self._entries.append(record)
             self._by_agent.setdefault(str(agent_id), []).append(sequence)
@@ -220,6 +316,18 @@ class BehavioralProvenanceLedger:
 
         return {"valid": True, "checked": len(entries), "invalid_at": None}
 
+    def verify_seal_envelopes(
+        self, *, pinned_keys: dict[str, bytes] | None = None
+    ) -> dict[str, Any]:
+        """Verify every record's crypto-agile seal envelope (the post-quantum
+        authorship proof). Defaults to this ledger's own public keys. See
+        :func:`_verify_seal_envelopes` for the returned shape. This is additive
+        to :meth:`verify_signatures` (the unchanged ECDSA path)."""
+        keys = pinned_keys if pinned_keys is not None else self._sealer.pinned_keys()
+        with self._lock:
+            entries = list(self._entries)
+        return _verify_seal_envelopes(entries, keys)
+
 
 class SealedFactLedger:
     """
@@ -238,11 +346,16 @@ class SealedFactLedger:
     Thread-safe. In-memory by default; a Postgres mirror can be layered later
     without changing this contract, exactly as the behavioural ledger allows.
 
-    Honesty note (re-verify if the crypto stack changes): the live signer is
-    ECDSA-P256 (``_ecdsa_provider``). The hash *chain* proves integrity (no
-    reordering/deletion/tamper); a lone *signature* proves authorship of one
-    record. Neither is a post-quantum guarantee unless a PQ backend is injected
-    via ``signing_provider`` — the same agility the evidence seal uses.
+    Honesty note (re-verify if the crypto stack changes): the *primary* signer is
+    ECDSA-P256 (``_ecdsa_provider``), kept unchanged for every verifier shipping
+    today (``signature_b64``). Alongside it, each record is dual-signed with
+    ML-DSA-65 (FIPS 204) in a crypto-agile ``SealEnvelope`` *when a post-quantum
+    backend is live* — both signatures cover the same ``record_hash``, so the
+    hash *chain* (which proves integrity: no reordering/deletion/tamper) is
+    byte-for-byte unchanged. A lone signature proves authorship of one record;
+    the ML-DSA signature is the post-quantum authorship proof. With no PQ backend
+    present, sealing degrades honestly to ECDSA-only (``seal_envelope is None``),
+    never a faked post-quantum signature.
     """
 
     def __init__(
@@ -251,6 +364,9 @@ class SealedFactLedger:
         signing_key: SignatureKeyPair | None = None,
         signing_provider: SignatureProvider | None = None,
         key_label: str = "tex-sealed-fact-ledger",
+        pq_signing_key: SignatureKeyPair | None = None,
+        pq_signing_provider: SignatureProvider | None = None,
+        enable_pq: bool = True,
     ) -> None:
         self._lock = threading.RLock()
         self._entries: list[SealedFactRecord] = []
@@ -260,6 +376,16 @@ class SealedFactLedger:
         )
         self._key: SignatureKeyPair = (
             signing_key or self._provider.generate_keypair(key_label)
+        )
+        # Crypto-agile sealer — ECDSA-P256 (primary, unchanged) + ML-DSA-65 when a
+        # post-quantum backend is live. See ``seal_envelope.CryptoAgileSealer``.
+        self._sealer = CryptoAgileSealer.from_primary(
+            self._provider,
+            self._key,
+            pq_provider=pq_signing_provider,
+            pq_key=pq_signing_key,
+            enable_pq=enable_pq,
+            pq_key_label=f"{key_label}-ml-dsa",
         )
 
     # ------------------------------------------------------------------ keys
@@ -271,6 +397,28 @@ class SealedFactLedger:
     @property
     def signing_key_id(self) -> str:
         return self._key.key_id
+
+    @property
+    def is_dual_signed(self) -> bool:
+        """True when new PCVRs are dual-signed (ECDSA-P256 + post-quantum)."""
+        return self._sealer.is_dual
+
+    @property
+    def pq_public_key(self) -> bytes | None:
+        """The raw post-quantum (ML-DSA) public key, or ``None`` if ECDSA-only."""
+        signer = self._sealer.pq_signer
+        return signer.key.public_key if signer else None
+
+    @property
+    def pq_signing_key_id(self) -> str | None:
+        signer = self._sealer.pq_signer
+        return signer.key.key_id if signer else None
+
+    @property
+    def seal_public_keys(self) -> tuple[SealPublicKey, ...]:
+        """One public key per seal algorithm — what an offline bundle carries so
+        a verifier can check each signature against a pinned key."""
+        return self._sealer.public_keys
 
     # ------------------------------------------------------------------ write
     def append(self, fact: SealedFact) -> SealedFactRecord:
@@ -296,6 +444,14 @@ class SealedFactLedger:
             )
             signature = self._provider.sign(record_hash.encode("ascii"), self._key)
             signature_b64 = base64.b64encode(signature).decode("ascii")
+            # Dual-sign the SAME record_hash (ECDSA mirrors signature_b64; ML-DSA
+            # added). None when ECDSA-only — identical to a legacy PCVR, so the
+            # chain is unchanged regardless of whether PQ is active.
+            seal_envelope = (
+                self._sealer.envelope_with_primary(record_hash, signature)
+                if self._sealer.is_dual
+                else None
+            )
 
             record = SealedFactRecord(
                 sequence=sequence,
@@ -305,6 +461,7 @@ class SealedFactLedger:
                 record_hash=record_hash,
                 signature_b64=signature_b64,
                 signing_key_id=self._key.key_id,
+                seal_envelope=seal_envelope,
             )
             self._entries.append(record)
             self._by_kind.setdefault(str(fact.kind), []).append(sequence)
@@ -374,3 +531,15 @@ class SealedFactLedger:
                 return {"valid": False, "checked": idx, "invalid_at": idx}
 
         return {"valid": True, "checked": len(entries), "invalid_at": None}
+
+    def verify_seal_envelopes(
+        self, *, pinned_keys: dict[str, bytes] | None = None
+    ) -> dict[str, Any]:
+        """Verify every PCVR's crypto-agile seal envelope (the post-quantum
+        authorship proof). Defaults to this ledger's own public keys. See
+        :func:`_verify_seal_envelopes` for the returned shape. Additive to
+        :meth:`verify_signatures` (the unchanged ECDSA path)."""
+        keys = pinned_keys if pinned_keys is not None else self._sealer.pinned_keys()
+        with self._lock:
+            entries = list(self._entries)
+        return _verify_seal_envelopes(entries, keys)

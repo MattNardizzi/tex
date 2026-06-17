@@ -207,6 +207,10 @@ def test_garbage_and_empty_bundles_fail_closed() -> None:
     # unparseable input must not raise and must not be valid
     assert verify_bundle("this is not json").is_valid is False
     assert verify_bundle(b"\x00\x01\x02").is_valid is False
+    # valid JSON that is NOT an object (number / array / string) must fail
+    # closed, not crash with AttributeError
+    for non_object in ("5", "[1, 2, 3]", '"hello"', "null"):
+        assert verify_bundle(non_object).is_valid is False
     # a parseable but empty bundle proves nothing -> not valid (fail-closed)
     empty = verify_bundle({"bundle_version": "tex-offline-verdict/1", "records": []})
     assert empty.record_count == 0
@@ -428,6 +432,25 @@ def test_dual_signature_bad_pq_fails_closed() -> None:
     assert report.pq_present is True
     assert report.pq_invalid is True
     assert report.is_valid is False  # fail-closed
+
+
+def test_pq_signature_unpinned_is_not_fully_verified() -> None:
+    # A real ML-DSA signature verified only against the bundle's OWN embedded
+    # key (no out-of-band pin) is internally consistent — is_valid holds on the
+    # pinned ECDSA path — but it must NOT earn fully_verified: it was not
+    # anchored to a known key. "a name must deliver its property."
+    led = _ledger(_decision_fact(witness=_valid_forbid_witness()))
+    bundle = _portable(led)
+    _dual_sign(bundle)  # embeds the PQ public key in each signature entry
+    report = verify_bundle(
+        _as_json(bundle),
+        pinned_public_key_pem=led.public_key_pem,  # ECDSA pinned, ML-DSA NOT
+    )
+    assert report.is_valid is True
+    assert report.pq_present is True
+    assert report.pq_all_verified is True
+    assert report.pq_unpinned is True
+    assert report.fully_verified is False
 
 
 def test_pq_signature_without_backend_is_unverifiable_not_trusted() -> None:

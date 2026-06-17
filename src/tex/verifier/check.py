@@ -157,6 +157,10 @@ class VerificationReport:
     pq_all_verified: bool
     pq_unverifiable: bool
     pq_invalid: bool
+    # A PQ signature that verified only against the bundle's own embedded key
+    # (no out-of-band pin was supplied for its algorithm) — internally
+    # consistent, but not anchored to a known key.
+    pq_unpinned: bool
     # Monotonicity witness accounting.
     decisions_total: int
     decisions_witnessed: int
@@ -185,10 +189,16 @@ class VerificationReport:
 
     @property
     def fully_verified(self) -> bool:
-        """``is_valid`` AND every present PQ signature was actually verified
-        (a backend existed and accepted it) — the strongest crypto posture."""
-        return self.is_valid and not self.pq_unverifiable and (
-            self.pq_all_verified if self.pq_present else True
+        """``is_valid`` AND every present PQ signature was verified against a
+        PINNED key (a backend existed, accepted it, and it was checked against
+        an out-of-band trust anchor — not the bundle's own embedded key) — the
+        strongest crypto posture. A PQ signature verified only against the
+        embedded key proves internal consistency, so it does NOT earn this."""
+        return (
+            self.is_valid
+            and not self.pq_unverifiable
+            and not self.pq_unpinned
+            and (self.pq_all_verified if self.pq_present else True)
         )
 
     @property
@@ -214,6 +224,7 @@ class VerificationReport:
             "pq_all_verified": self.pq_all_verified,
             "pq_unverifiable": self.pq_unverifiable,
             "pq_invalid": self.pq_invalid,
+            "pq_unpinned": self.pq_unpinned,
             "decisions_total": self.decisions_total,
             "decisions_witnessed": self.decisions_witnessed,
             "witness_violations": [
@@ -464,14 +475,17 @@ def verify_bundle(
     extra_pins = extra_pins or {}
     try:
         bundle = load_bundle(source)
+        if not isinstance(bundle, dict):
+            raise ValueError("bundle is not a JSON object")
     except Exception:  # noqa: BLE001 - unparseable bundle is a hard fail
         return VerificationReport(
             record_count=0, chain_intact=False, chain_break_at=0,
             signatures_valid=False, signature_invalid_at=0,
             key_matches_pin=None, pinned=pinned_public_key_pem is not None,
             pq_present=False, pq_all_verified=False, pq_unverifiable=False,
-            pq_invalid=False, decisions_total=0, decisions_witnessed=0,
-            witness_violations=(), require_witness=require_witness, records=(),
+            pq_invalid=False, pq_unpinned=False, decisions_total=0,
+            decisions_witnessed=0, witness_violations=(),
+            require_witness=require_witness, records=(),
         )
 
     raw_records = bundle.get("records") or []
@@ -493,7 +507,7 @@ def verify_bundle(
     chain_break_at: int | None = None
     signatures_valid = True
     signature_invalid_at: int | None = None
-    pq_present = pq_invalid = pq_unverifiable = False
+    pq_present = pq_invalid = pq_unverifiable = pq_unpinned = False
     pq_all_verified = True
     decisions_total = decisions_witnessed = 0
     witness_violations: list[tuple[int, tuple[str, ...]]] = []
@@ -560,7 +574,8 @@ def verify_bundle(
             if is_pq:
                 pq_present = True
                 if verified is True:
-                    pass
+                    if not use_pin:  # verified against the embedded key only
+                        pq_unpinned = True
                 elif verified is False:
                     pq_invalid = True
                     pq_all_verified = False
@@ -613,6 +628,7 @@ def verify_bundle(
         pq_all_verified=pq_all_verified and pq_present,
         pq_unverifiable=pq_unverifiable,
         pq_invalid=pq_invalid,
+        pq_unpinned=pq_unpinned,
         decisions_total=decisions_total,
         decisions_witnessed=decisions_witnessed,
         witness_violations=tuple(witness_violations),

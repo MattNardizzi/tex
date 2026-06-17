@@ -4,6 +4,10 @@
 !.env.example
 *.key
 *.pem
+# EXCEPTION: the pinned Free TSA *public* root CA is intentionally tracked — a
+# relying party needs it to verify anchor receipts offline, with no network.
+# It is public, not a secret; the *.pem rule above is for PRIVATE key material.
+!anchors/tsa/freetsa_cacert.pem
 secrets/
 credentials.json
 

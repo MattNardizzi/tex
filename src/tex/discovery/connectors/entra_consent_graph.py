@@ -28,6 +28,7 @@ standing watch, so the continuous re-read is incremental, not a full rescan.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
@@ -148,7 +149,19 @@ class EntraConsentGraphConnector(BaseConnector):
         # app permission is an actor that can touch a resource — an agent in
         # the doctrine's mechanism sense. Pure resource SPs (the API side of
         # a grant) are not emitted as their own candidates.
-        return sp_type in _AGENT_SP_TYPES
+        if sp_type not in _AGENT_SP_TYPES:
+            return False
+        # Home-tenant scoping (TEX_DISCOVERY_HOME_TENANT_ONLY=1): surface only
+        # identities the scanned organization OWNS — its own agents — and treat
+        # Microsoft's first-party built-in service principals (owned by
+        # Microsoft's tenant) as platform noise. Keys off the intrinsic
+        # appOwnerOrganizationId, never a planted tag.
+        if os.environ.get("TEX_DISCOVERY_HOME_TENANT_ONLY", "").strip() == "1":
+            home = os.environ.get("TEX_DISCOVERY_ENTRA_TENANT_ID", "").strip()
+            owner = str(sp.get("appOwnerOrganizationId") or "").strip()
+            if home and owner != home:
+                return False
+        return True
 
     # ------------------------------------------------------------------ emit
     def _candidate_from_principal(

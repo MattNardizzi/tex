@@ -43,6 +43,18 @@ DATABASE_URL_ENV = "DATABASE_URL"
 # via TEX_DB_CONNECT_TIMEOUT.
 _CONNECT_TIMEOUT_S = int(os.environ.get("TEX_DB_CONNECT_TIMEOUT", "5"))
 
+# connect_timeout bounds only the CONNECT. A query that hangs or waits on a lock
+# (e.g. contention on the single-writer evidence chain under sustained write load)
+# otherwise pins its worker thread indefinitely — threads accumulate until the
+# pool is exhausted and EVERY route, /health and /v1/speak/timed included, wedges
+# (the multi-minute "0 bytes on everything" outage). statement_timeout caps total
+# execution; lock_timeout caps how long a statement waits for a lock — so a
+# contended write fails fast instead of hanging the worker. Milliseconds, tunable
+# via env; passed as libpq options on every connect below.
+_STATEMENT_TIMEOUT_MS = int(os.environ.get("TEX_DB_STATEMENT_TIMEOUT_MS", "15000"))
+_LOCK_TIMEOUT_MS = int(os.environ.get("TEX_DB_LOCK_TIMEOUT_MS", "5000"))
+_PG_OPTIONS = f"-c statement_timeout={_STATEMENT_TIMEOUT_MS} -c lock_timeout={_LOCK_TIMEOUT_MS}"
+
 
 def resolve_dsn(dsn: str | None = None) -> str:
     """
@@ -93,7 +105,12 @@ def with_connection(
     including /health and /v1/speak/timed, queues behind it. With a bounded
     timeout an unreachable DB fails fast and callers fall back to in-memory.
     """
-    with psycopg.connect(dsn, autocommit=autocommit, connect_timeout=_CONNECT_TIMEOUT_S) as conn:
+    with psycopg.connect(
+        dsn,
+        autocommit=autocommit,
+        connect_timeout=_CONNECT_TIMEOUT_S,
+        options=_PG_OPTIONS,
+    ) as conn:
         yield conn
 
 

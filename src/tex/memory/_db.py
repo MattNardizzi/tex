@@ -46,6 +46,16 @@ _logger = logging.getLogger(__name__)
 # TEX_DB_CONNECT_TIMEOUT.
 _CONNECT_TIMEOUT_S = int(os.environ.get("TEX_DB_CONNECT_TIMEOUT", "5"))
 
+# connect_timeout bounds only the CONNECT; a query that hangs or waits on a lock
+# still pins its worker thread forever. Under sustained write load that contention
+# accumulates threads until the pool is exhausted and every route (including
+# /health and /v1/speak/timed) wedges. statement_timeout caps execution and
+# lock_timeout caps lock waits so a contended query fails fast instead of hanging
+# the single worker. Milliseconds, tunable via env; applied as libpq options.
+_STATEMENT_TIMEOUT_MS = int(os.environ.get("TEX_DB_STATEMENT_TIMEOUT_MS", "15000"))
+_LOCK_TIMEOUT_MS = int(os.environ.get("TEX_DB_LOCK_TIMEOUT_MS", "5000"))
+_PG_OPTIONS = f"-c statement_timeout={_STATEMENT_TIMEOUT_MS} -c lock_timeout={_LOCK_TIMEOUT_MS}"
+
 DATABASE_URL_ENV = "DATABASE_URL"
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
@@ -80,7 +90,9 @@ def connect() -> Iterator[psycopg.Connection]:
             "happens."
         )
 
-    conn = psycopg.connect(url, autocommit=True, connect_timeout=_CONNECT_TIMEOUT_S)
+    conn = psycopg.connect(
+        url, autocommit=True, connect_timeout=_CONNECT_TIMEOUT_S, options=_PG_OPTIONS
+    )
     try:
         yield conn
     finally:
@@ -111,7 +123,9 @@ def connect_tx() -> Iterator[psycopg.Connection]:
             "when this happens."
         )
 
-    conn = psycopg.connect(url, autocommit=False, connect_timeout=_CONNECT_TIMEOUT_S)
+    conn = psycopg.connect(
+        url, autocommit=False, connect_timeout=_CONNECT_TIMEOUT_S, options=_PG_OPTIONS
+    )
     try:
         try:
             yield conn

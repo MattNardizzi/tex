@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
+from tex.deterministic.attack_cadence import (
+    CadenceTier,
+    cadence_finding_metadata,
+    observe as observe_attack_cadence,
+)
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
@@ -1090,14 +1095,72 @@ class InvisibleUnicodeRecognizer:
         )
 
 
+class AutonomousAttackCadenceRecognizer:
+    """
+    Detects autonomous-attack action *cadence* — and feeds the structural floor.
+
+    Rationale (Anthropic Nov-2025 autonomous-attack disclosure): the first
+    publicly documented large-scale AI-orchestrated intrusion was executed in
+    the main *autonomously*, at machine cadence, far faster and wider than a
+    human operator. Tex's answer is structural, not a detection arms race: the
+    gate need not outpace the attacker, only be unavoidable and structural.
+    Every governed agent action already passes through this layer, so we measure
+    the one thing an autonomous attack cannot hide while staying autonomous —
+    its cadence — and let a fixed budget, never a model score, move the verdict.
+
+    Unlike the regex recognizers above, this one is **stateful**: it records the
+    action into an in-memory sliding window keyed by ``(tenant, agent identity)``
+    and reports a tier (NORMAL / SOFT / HARD) from two deterministic budgets —
+    action rate and fan-out (distinct recipients / tools / targets) per window.
+    All thresholds are env-configurable (``TEX_CADENCE_*``); see
+    ``tex.deterministic.attack_cadence``.
+
+    This recognizer is the *evidence surface*: it emits the finding (WARNING for
+    SOFT, CRITICAL for HARD) that carries the window stats + counterfactual onto
+    the audit trail and the determinism fingerprint. The *enforcement* lives in
+    two deterministic, monotone-lowering surfaces that read the same memoized
+    observation: a SOFT budget demotes a routed PERMIT→ABSTAIN
+    (``apply_attack_cadence_hold``); a HARD budget forces FORBID via the
+    structural floor (``specialists.structural_floor``). Cadence over a fixed
+    budget is a *structural fact*, not a probabilistic score, which is exactly
+    why it is permitted to fire the deterministic floor without violating the
+    "a high probabilistic score must not fire the floor" rule.
+
+    Inert by construction on the content-only path: a request with no resolvable
+    agent identity is never tracked, so callers that set no ``agent_id`` see no
+    findings and byte-for-byte unchanged behavior.
+    """
+
+    name = "autonomous_attack_cadence"
+
+    def scan(self, request: EvaluationRequest) -> tuple[Finding, ...]:
+        obs = observe_attack_cadence(request)
+        if obs.tier is CadenceTier.NORMAL:
+            return tuple()
+
+        severity = (
+            Severity.CRITICAL if obs.tier is CadenceTier.HARD else Severity.WARNING
+        )
+        return (
+            Finding(
+                source="deterministic.attack_cadence",
+                rule_name=self.name,
+                severity=severity,
+                message=obs.reason,
+                metadata=cadence_finding_metadata(obs, stage="recognizer"),
+            ),
+        )
+
+
 def default_recognizers() -> tuple[Recognizer, ...]:
     """
     Returns Tex's default deterministic recognizer set.
 
     Order matters. The cheap, highest-signal recognizers should run first.
-    The two newest entries — JailbreakPersonaRecognizer and
-    InvisibleUnicodeRecognizer — close KNOWN_BUGS #7 and the May 2026
-    invisible-Unicode attack surface respectively.
+    JailbreakPersonaRecognizer and InvisibleUnicodeRecognizer close
+    KNOWN_BUGS #7 and the May 2026 invisible-Unicode surface respectively.
+    AutonomousAttackCadenceRecognizer (the stateful cadence detector) runs last:
+    it is the evidence surface for the autonomous-attack-cadence floor + hold.
     """
     return (
         BlockedTermsRecognizer(),
@@ -1113,4 +1176,5 @@ def default_recognizers() -> tuple[Recognizer, ...]:
         AuthorityImpersonationRecognizer(),
         JailbreakPersonaRecognizer(),
         InvisibleUnicodeRecognizer(),
+        AutonomousAttackCadenceRecognizer(),
     )

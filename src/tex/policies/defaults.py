@@ -26,6 +26,7 @@ _DEFAULT_ENABLED_RECOGNIZERS: tuple[str, ...] = (
     "authority_impersonation",
     "jailbreak_persona",
     "invisible_unicode",
+    "autonomous_attack_cadence",
 )
 
 _DEFAULT_BLOCK_SEVERITIES: tuple[Severity, ...] = (Severity.CRITICAL,)

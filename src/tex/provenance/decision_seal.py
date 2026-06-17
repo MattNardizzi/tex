@@ -58,6 +58,25 @@ def build_decision_fact(decision: Decision) -> SealedFact:
     sealed — never that the verdict is correct.
     """
     verdict = decision.verdict.value
+    detail: dict = {
+        "verdict": verdict,
+        "final_score": decision.final_score,
+        "confidence": decision.confidence,
+        "action_type": decision.action_type,
+        "policy_id": decision.policy_id,
+        "policy_version": decision.policy_version,
+        "content_sha256": decision.content_sha256,
+        "determinism_fingerprint": decision.determinism_fingerprint,
+    }
+    # Seal the abstention certificate alongside the verdict (ABSTAIN only — the
+    # key is None/absent otherwise). It already rides in the durable Decision
+    # metadata; folding it into the sealed fact's detail puts it under the same
+    # hash chain + signature, so the receipt is tamper-evident, not just stored.
+    abstention_certificate = decision.metadata.get("pdp", {}).get(
+        "abstention_certificate"
+    )
+    if abstention_certificate is not None:
+        detail["abstention_certificate"] = abstention_certificate
     return SealedFact(
         kind=SealedFactKind.DECISION,
         subject_id=str(decision.request_id),
@@ -67,16 +86,7 @@ def build_decision_fact(decision: Decision) -> SealedFact:
             f"— authorship+integrity sealed; correctness NOT proven (see L1 zkPDP)"
         ),
         maturity=_DECISION_MATURITY,
-        detail={
-            "verdict": verdict,
-            "final_score": decision.final_score,
-            "confidence": decision.confidence,
-            "action_type": decision.action_type,
-            "policy_id": decision.policy_id,
-            "policy_version": decision.policy_version,
-            "content_sha256": decision.content_sha256,
-            "determinism_fingerprint": decision.determinism_fingerprint,
-        },
+        detail=detail,
     )
 
 

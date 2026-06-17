@@ -7,6 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict
 
 from tex.contracts.runtime_enforcement import ContractEnforcer
+from tex.deterministic.attack_cadence import apply_attack_cadence_hold
 from tex.deterministic.gate import (
     DeterministicGate,
     DeterministicGateResult,
@@ -38,6 +39,10 @@ from tex.engine.crc_gate import (
     ConformalRiskGate,
     CRCCertificate,
     build_default_crc_gate,
+)
+from tex.engine.abstention_certificate import (
+    AbstentionCertificate,
+    build_abstention_certificate,
 )
 from tex.engine.hold import Hold, build_hold
 from tex.engine.path_policy_bridge import (
@@ -408,6 +413,16 @@ class PolicyDecisionPoint:
                 request=request,
                 decision_ledger=self._decision_ledger,
             )
+            # Autonomous-attack cadence — soft, monotone-lowering (PERMIT→ABSTAIN
+            # only): above the soft windowed action-rate / fan-out budget for one
+            # (tenant, agent), demote to ABSTAIN. The HARD budget already FORBade
+            # via the structural floor above; inert when the request carries no
+            # agent identity. Answers the Anthropic Nov-2025 autonomous-attack
+            # disclosure — the gate need not outpace the attacker, only be
+            # unavoidable and structural. See deterministic/attack_cadence.py.
+            routing_result = apply_attack_cadence_hold(
+                base=routing_result, request=request
+            )
             router_ms = _elapsed_ms(router_start)
 
         # ── Conformal Risk Control verdict gate — the last touch ──────────
@@ -449,6 +464,23 @@ class PolicyDecisionPoint:
             stream_confidences={k: v for k, v in routing_result.scores.items() if k.startswith("conf_stream:")} or None,
         )
 
+        # ── The abstention certificate — the sealed receipt for an ABSTAIN ────
+        # Descriptive-only, built from the now-final verdict + Hold: TRIGGER +
+        # JUSTIFICATION (honest calibration) + NON-WEAPONIZATION WITNESS. None for
+        # PERMIT/FORBID. Pure/deterministic, so the fingerprint is preserved.
+        # See engine/abstention_certificate.py.
+        abstention_certificate = build_abstention_certificate(
+            verdict=routing_result.verdict,
+            hold=hold,
+            crc_certificate=crc_certificate,
+            permit_threshold=policy.permit_threshold,
+            forbid_threshold=policy.forbid_threshold,
+            final_score=routing_result.final_score,
+            uncertainty_flags=tuple(routing_result.uncertainty_flags),
+            reasons=tuple(routing_result.reasons),
+            asi_findings=tuple(routing_result.asi_findings),
+        )
+
         latency = LatencyBreakdown(
             deterministic_ms=round(deterministic_ms, 2),
             retrieval_ms=round(retrieval_ms, 2),
@@ -487,6 +519,7 @@ class PolicyDecisionPoint:
             crc_certificate=crc_certificate,
             crc_ms=crc_ms,
             hold=hold,
+            abstention_certificate=abstention_certificate,
         )
 
         # ── DECISION seal (Wave 2 / M0) ───────────────────────────────────
@@ -500,6 +533,7 @@ class PolicyDecisionPoint:
             routing_result=routing_result,
             latency=latency,
             determinism_fingerprint=determinism_fingerprint,
+            abstention_certificate=abstention_certificate,
         )
 
         return PDPResult(
@@ -537,6 +571,7 @@ class PolicyDecisionPoint:
         crc_certificate: CRCCertificate | None = None,
         crc_ms: float = 0.0,
         hold: Hold | None = None,
+        abstention_certificate: AbstentionCertificate | None = None,
     ) -> Decision:
         metadata = self._build_decision_metadata(
             request=request,
@@ -556,6 +591,7 @@ class PolicyDecisionPoint:
             crc_certificate=crc_certificate,
             crc_ms=crc_ms,
             hold=hold,
+            abstention_certificate=abstention_certificate,
         )
 
         return Decision(
@@ -803,6 +839,7 @@ class PolicyDecisionPoint:
         routing_result: RoutingResult,
         latency: LatencyBreakdown,
         determinism_fingerprint: str,
+        abstention_certificate: AbstentionCertificate | None = None,
     ) -> EvaluationResponse:
         return EvaluationResponse(
             decision_id=decision.decision_id,
@@ -819,6 +856,7 @@ class PolicyDecisionPoint:
             policy_version=decision.policy_version,
             evidence_hash=decision.evidence_hash,
             evaluated_at=decision.decided_at,
+            abstention_certificate=abstention_certificate,
         )
 
     def _build_decision_metadata(
@@ -841,6 +879,7 @@ class PolicyDecisionPoint:
         crc_certificate: CRCCertificate | None = None,
         crc_ms: float = 0.0,
         hold: Hold | None = None,
+        abstention_certificate: AbstentionCertificate | None = None,
     ) -> dict[str, Any]:
         """
         Produces a compact execution summary for audit, replay, and debugging.
@@ -947,6 +986,11 @@ class PolicyDecisionPoint:
             ),
             "verdict_certificate": verdict_certificate_metadata(),
             "hold": (hold.model_dump() if hold is not None else None),
+            "abstention_certificate": (
+                abstention_certificate.model_dump()
+                if abstention_certificate is not None
+                else None
+            ),
             "policy": {
                 "policy_id": policy.policy_id,
                 "policy_version": policy.version,

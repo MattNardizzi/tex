@@ -65,6 +65,11 @@ from tex.contracts.rule_of_two import (
     RULE_OF_TWO_SPECIALIST,
     evaluate_rule_of_two,
 )
+from tex.deterministic.attack_cadence import (
+    ATTACK_CADENCE_CODE,
+    ATTACK_CADENCE_SPECIALIST,
+    attack_cadence_deny_reason,
+)
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
 from tex.specialists.base import SpecialistBundle, SpecialistResult
@@ -235,6 +240,28 @@ def _action_class_deny(request: Any) -> StructuralDeny | None:
     )
 
 
+def _attack_cadence_deny(request: Any) -> StructuralDeny | None:
+    """Autonomous-attack cadence HARD budget → a structural deny.
+
+    A windowed action-rate or fan-out count crossing the *hard* budget for one
+    ``(tenant, agent)`` is a deterministic fact about structure — not a
+    probabilistic score — so it earns the floor (Anthropic Nov-2025
+    autonomous-attack disclosure: the gate need not outpace the attacker, only
+    be unavoidable and structural). The SOFT budget is uncertainty, not a proof;
+    it stays on the monotone-lowering PERMIT→ABSTAIN hold
+    (``apply_attack_cadence_hold``) and is NOT returned here. Recording is
+    idempotent per request_id, shared with the recognizer + hold.
+    """
+    obs = attack_cadence_deny_reason(request)
+    if obs is None:
+        return None
+    return StructuralDeny(
+        specialist=ATTACK_CADENCE_SPECIALIST,
+        reason=obs.reason,
+        codes=(ATTACK_CADENCE_CODE, *(f"axis:{a}" for a in obs.triggered_by)),
+    )
+
+
 def _rv4_permanent_denies(request: Any) -> list[StructuralDeny]:
     """RV4 path policies that are PERMANENTLY violated (bad prefixes) → denies.
 
@@ -278,6 +305,11 @@ def detect_structural_floor(
          the reversibility×blast lattice (``tex.contracts.action_class``), when
          ``request`` carries the ``action_class`` metadata. Only the FORBID cell
          fires the floor; the ABSTAIN cell is recorded but not surfaced here.
+      5. **Autonomous-attack cadence HARD budget** — a windowed action-rate or
+         fan-out count crossing the hard budget for one ``(tenant, agent)``
+         (``tex.deterministic.attack_cadence``), when ``request`` carries an
+         agent identity. A deterministic count, not a score. Only the HARD
+         budget fires the floor; the SOFT budget is a PERMIT→ABSTAIN hold.
 
     Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. ``request`` is optional
     so the pure specialist-bundle form (used widely in tests) keeps working; the
@@ -298,6 +330,9 @@ def detect_structural_floor(
         action_class = _action_class_deny(request)
         if action_class is not None:
             denies.append(action_class)
+        cadence = _attack_cadence_deny(request)
+        if cadence is not None:
+            denies.append(cadence)
 
     if not denies:
         return NEUTRAL_STRUCTURAL_FLOOR

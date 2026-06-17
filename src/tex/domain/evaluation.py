@@ -10,6 +10,7 @@ from tex.domain.asi_finding import ASIFinding
 from tex.domain.finding import Finding
 from tex.domain.latency import LatencyBreakdown
 from tex.domain.verdict import Verdict
+from tex.engine.abstention_certificate import AbstentionCertificate
 
 
 class AgentRuntimeIdentity(BaseModel):
@@ -269,6 +270,15 @@ class EvaluationResponse(BaseModel):
             "severity, confidence, verdict-influence weighting, triggers, "
             "and counterfactuals. Every ASI category Tex attributes to "
             "this verdict appears here."
+        ),
+    )
+    abstention_certificate: AbstentionCertificate | None = Field(
+        default=None,
+        description=(
+            "The sealed, three-part receipt for an ABSTAIN verdict: TRIGGER, "
+            "JUSTIFICATION (with honest calibration status), and a "
+            "NON-WEAPONIZATION WITNESS. Populated only for ABSTAIN; None for "
+            "PERMIT/FORBID. Purely descriptive — it never raises a verdict."
         ),
     )
     determinism_fingerprint: str | None = Field(

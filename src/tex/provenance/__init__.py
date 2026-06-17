@@ -36,6 +36,16 @@ from tex.provenance.models import (
     SealedFact,
     SealedFactKind,
     SealedFactRecord,
+    SealEnvelope,
+    SealPublicKey,
+    SealSignature,
+)
+from tex.provenance.seal_envelope import (
+    SEAL_VERSION_AGILE,
+    CryptoAgileSealer,
+    EnvelopeVerification,
+    is_post_quantum_algorithm,
+    verify_envelope,
 )
 from tex.provenance.signature import (
     WARM_OBSERVATION_THRESHOLD,
@@ -56,6 +66,14 @@ __all__ = [
     "SealedFactKind",
     "SealedFactRecord",
     "SealedFactLedger",
+    "SealEnvelope",
+    "SealSignature",
+    "SealPublicKey",
+    "CryptoAgileSealer",
+    "EnvelopeVerification",
+    "verify_envelope",
+    "is_post_quantum_algorithm",
+    "SEAL_VERSION_AGILE",
     "WARM_OBSERVATION_THRESHOLD",
     "REIDENTIFY_THRESHOLD",
     "MERGE_REVIEW_LOWER",

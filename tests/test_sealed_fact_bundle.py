@@ -16,8 +16,11 @@ Pins the verifier contract that matters in front of an auditor:
 
 from __future__ import annotations
 
+import base64
 import math
 from uuid import uuid4
+
+import pytest
 
 from tex.domain.evidence import (
     CombinedEvidence,
@@ -26,13 +29,24 @@ from tex.domain.evidence import (
     TexEvidence,
     compose_arithmetic_mean,
 )
+from tex.pqcrypto.algorithm_agility import SignatureAlgorithm
+from tex.pqcrypto.ml_dsa import active_backend_id
 from tex.provenance.bundle import (
     SealedFactBundle,
     export_sealed_fact_bundle,
     verify_sealed_fact_bundle,
 )
 from tex.provenance.ledger import SealedFactLedger
-from tex.provenance.models import SealedFact, SealedFactKind
+from tex.provenance.models import (
+    SealedFact,
+    SealedFactKind,
+    SealEnvelope,
+    SealSignature,
+)
+
+_HAS_PQ = active_backend_id() is not None
+_ECDSA = SignatureAlgorithm.ECDSA_P256.value
+_MLDSA = SignatureAlgorithm.ML_DSA_65.value
 
 
 def _components() -> list[TexEvidence]:
@@ -215,3 +229,179 @@ def test_multi_record_chain_verifies() -> None:
     assert report.is_valid is True
     assert report.fully_replayable is True
     assert report.compositions_ok == 4
+
+
+# --------------------------------------------------------------------------- #
+# post-quantum dual-signature bundle verification
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_dual_signed_bundle_is_pq_secured() -> None:
+    led, comps = _ledger_with_one_fact()
+    bundle = export_sealed_fact_bundle(led, export_name="A", components=tuple(comps))
+    # round-trip through JSON: the verifier needs only the artifact + pinned keys
+    report = verify_sealed_fact_bundle(
+        SealedFactBundle.from_json(bundle.to_json()),
+        pinned_public_key_pem=led.public_key_pem,
+        pinned_seal_keys={_MLDSA: led.pq_public_key},
+    )
+    assert report.is_valid is True
+    assert report.dual_signed is True
+    assert report.seal_versions == ("2",)
+    assert report.seal_algorithms == (_ECDSA, _MLDSA)
+    assert report.pq_signatures_valid is True
+    assert report.pq_key_matches_pin is True
+    assert report.envelope_mismatch_at is None
+    assert report.pq_secured is True
+    assert report.fully_replayable is True
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_dual_bundle_without_pq_pin_is_valid_but_not_pq_secured() -> None:
+    # A PQ-aware verifier that does NOT pin a PQ key must report honestly: the
+    # bundle is dual-signed, but post-quantum authorship is unconfirmed.
+    led, comps = _ledger_with_one_fact()
+    bundle = export_sealed_fact_bundle(led, export_name="A", components=tuple(comps))
+    report = verify_sealed_fact_bundle(bundle, pinned_public_key_pem=led.public_key_pem)
+    assert report.is_valid is True            # ECDSA path unchanged
+    assert report.dual_signed is True
+    assert report.pq_signatures_valid is False  # no PQ key pinned
+    assert report.pq_key_matches_pin is False
+    assert report.pq_secured is False
+    assert report.envelope_mismatch_at is None
+
+
+def test_legacy_ecdsa_only_bundle_still_verifies() -> None:
+    # Requirement 1: an existing ECDSA-only bundle must still verify unchanged.
+    led = SealedFactLedger(enable_pq=False)
+    led.append(_decision_fact(compose_arithmetic_mean(_components())))
+    bundle = export_sealed_fact_bundle(led, export_name="legacy")
+    report = verify_sealed_fact_bundle(
+        SealedFactBundle.from_json(bundle.to_json()),
+        pinned_public_key_pem=led.public_key_pem,
+    )
+    assert report.is_valid is True
+    assert report.dual_signed is False
+    assert report.seal_algorithms == ()
+    assert report.pq_secured is False
+
+
+def test_pre_change_bundle_json_without_envelope_fields_verifies() -> None:
+    # Requirement 1, the strong form: a JSON artifact produced BEFORE this change
+    # has no ``seal_public_keys`` and no per-record ``seal_envelope``. Strip both
+    # to simulate it; the new verifier must still validate it on the ECDSA path.
+    import json
+
+    led, comps = _ledger_with_one_fact()
+    bundle = export_sealed_fact_bundle(led, export_name="A", components=tuple(comps))
+    data = json.loads(bundle.to_json())
+    data.pop("seal_public_keys", None)
+    for r in data["records"]:
+        r.pop("seal_envelope", None)
+    back = SealedFactBundle.from_json(json.dumps(data))
+
+    assert back.seal_public_keys == ()
+    assert all(r.seal_envelope is None for r in back.records)
+    report = verify_sealed_fact_bundle(back, pinned_public_key_pem=led.public_key_pem)
+    assert report.is_valid is True
+    assert report.fully_replayable is True  # chain + signatures + composition
+    assert report.dual_signed is False
+    assert report.pq_secured is False
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_forged_dual_bundle_is_caught_by_both_pins() -> None:
+    # Attacker re-seals the SAME facts with THEIR OWN ECDSA + ML-DSA keys and
+    # embeds their own public keys. Pinned to Tex's keys, the forgery fails on
+    # every axis — including the post-quantum one.
+    real_led, comps = _ledger_with_one_fact()
+    pinned_ecdsa = real_led.public_key_pem
+    pinned_pq = real_led.pq_public_key
+
+    attacker = SealedFactLedger(key_label="attacker")
+    for rec in real_led.list_all():
+        attacker.append(rec.fact)
+    forged = export_sealed_fact_bundle(
+        attacker, export_name="forged", components=tuple(comps)
+    )
+
+    report = verify_sealed_fact_bundle(
+        forged,
+        pinned_public_key_pem=pinned_ecdsa,
+        pinned_seal_keys={_MLDSA: pinned_pq},
+    )
+    assert report.key_matches_pin is False       # embedded ECDSA key != pinned
+    assert report.signatures_valid is False       # ECDSA signed by attacker
+    assert report.pq_key_matches_pin is False     # embedded ML-DSA key != pinned
+    assert report.pq_signatures_valid is False    # ML-DSA signed by attacker
+    assert report.is_valid is False
+    assert report.pq_secured is False
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_algorithm_mismatch_in_bundle_is_caught() -> None:
+    # The algorithm-mismatch case: relabel the ML-DSA signature as ECDSA-P256.
+    # The verifier dispatches ECDSA against ML-DSA bytes -> fails -> mismatch.
+    led, comps = _ledger_with_one_fact()
+    bundle = export_sealed_fact_bundle(led, export_name="A", components=tuple(comps))
+    rec = bundle.records[0]
+    env = rec.seal_envelope
+    m_sig = env.signature_for(_MLDSA)
+    mislabelled = SealEnvelope(
+        seal_version=env.seal_version,
+        signatures=(
+            env.signature_for(_ECDSA),
+            SealSignature(
+                algorithm=_ECDSA,  # wrong tag for ML-DSA bytes
+                key_id=m_sig.key_id,
+                signature_b64=m_sig.signature_b64,
+            ),
+        ),
+    )
+    bad_rec = rec.model_copy(update={"seal_envelope": mislabelled})
+    tampered = bundle.model_copy(update={"records": (bad_rec,)})
+    report = verify_sealed_fact_bundle(
+        tampered,
+        pinned_public_key_pem=led.public_key_pem,
+        pinned_seal_keys={_MLDSA: led.pq_public_key},
+    )
+    assert report.envelope_mismatch_at == 0
+    assert report.pq_signatures_valid is False
+    assert report.pq_secured is False
+    # the chain + legacy ECDSA signature are intact (the envelope is not in the
+    # hash chain) — so a non-PQ verifier still sees a valid bundle, while a
+    # PQ-requiring one is correctly denied via pq_secured.
+    assert report.chain_intact is True
+    assert report.signatures_valid is True
+
+
+@pytest.mark.skipif(not _HAS_PQ, reason="no ML-DSA backend")
+def test_tampered_pq_bytes_in_bundle_are_caught() -> None:
+    led, comps = _ledger_with_one_fact()
+    bundle = export_sealed_fact_bundle(led, export_name="A", components=tuple(comps))
+    rec = bundle.records[0]
+    env = rec.seal_envelope
+    m_sig = env.signature_for(_MLDSA)
+    raw = bytearray(base64.b64decode(m_sig.signature_b64))
+    raw[0] ^= 0x01
+    bad_env = SealEnvelope(
+        seal_version=env.seal_version,
+        signatures=(
+            env.signature_for(_ECDSA),
+            SealSignature(
+                algorithm=_MLDSA,
+                key_id=m_sig.key_id,
+                signature_b64=base64.b64encode(bytes(raw)).decode("ascii"),
+            ),
+        ),
+    )
+    bad_rec = rec.model_copy(update={"seal_envelope": bad_env})
+    tampered = bundle.model_copy(update={"records": (bad_rec,)})
+    report = verify_sealed_fact_bundle(
+        tampered,
+        pinned_public_key_pem=led.public_key_pem,
+        pinned_seal_keys={_MLDSA: led.pq_public_key},
+    )
+    assert report.pq_signatures_valid is False
+    assert report.pq_signature_invalid_at == 0
+    assert report.envelope_mismatch_at == 0
+    assert report.pq_secured is False

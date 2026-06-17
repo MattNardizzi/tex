@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 
+from tex.domain.abstention_certificate import AbstentionCertificate
 from tex.domain.decision import Decision
 from tex.domain.evidence import EvidenceMaturity
 from tex.provenance.ledger import SealedFactLedger
@@ -50,39 +51,57 @@ _logger = logging.getLogger(__name__)
 _DECISION_MATURITY = EvidenceMaturity.RESEARCH_SOLID
 
 
-def build_decision_fact(decision: Decision) -> SealedFact:
+def build_decision_fact(
+    decision: Decision,
+    *,
+    abstention_certificate: AbstentionCertificate | None = None,
+) -> SealedFact:
     """Map a finalized :class:`Decision` to a canonical ``SealedFact(DECISION)``.
 
     Pure (no I/O, no mutation). The ``claim`` is deliberately narrow: it asserts
     only that the verdict was *produced* and that authorship + integrity are
     sealed — never that the verdict is correct.
+
+    When ``abstention_certificate`` is supplied (an ABSTAIN verdict), its full
+    descriptive payload is folded into the SAME fact's ``detail`` so it is
+    hash-chained and signed *alongside the verdict* — one tamper-evident record,
+    not a second fact (which would perturb the ATTEMPT→DECISION kind sequence
+    consumers depend on). The certificate is descriptive only; sealing it adds
+    no correctness claim.
     """
     verdict = decision.verdict.value
+    detail = {
+        "verdict": verdict,
+        "final_score": decision.final_score,
+        "confidence": decision.confidence,
+        "action_type": decision.action_type,
+        "policy_id": decision.policy_id,
+        "policy_version": decision.policy_version,
+        "content_sha256": decision.content_sha256,
+        "determinism_fingerprint": decision.determinism_fingerprint,
+    }
+    claim = (
+        f"verdict {verdict} produced for request {decision.request_id} "
+        f"under policy {decision.policy_id}@{decision.policy_version} "
+        f"— authorship+integrity sealed; correctness NOT proven (see L1 zkPDP)"
+    )
+    if abstention_certificate is not None:
+        detail["abstention_certificate"] = abstention_certificate.model_dump(mode="json")
+        claim += " — abstention certificate (descriptive) sealed alongside"
     return SealedFact(
         kind=SealedFactKind.DECISION,
         subject_id=str(decision.request_id),
-        claim=(
-            f"verdict {verdict} produced for request {decision.request_id} "
-            f"under policy {decision.policy_id}@{decision.policy_version} "
-            f"— authorship+integrity sealed; correctness NOT proven (see L1 zkPDP)"
-        ),
+        claim=claim,
         maturity=_DECISION_MATURITY,
-        detail={
-            "verdict": verdict,
-            "final_score": decision.final_score,
-            "confidence": decision.confidence,
-            "action_type": decision.action_type,
-            "policy_id": decision.policy_id,
-            "policy_version": decision.policy_version,
-            "content_sha256": decision.content_sha256,
-            "determinism_fingerprint": decision.determinism_fingerprint,
-        },
+        detail=detail,
     )
 
 
 def seal_decision(
     ledger: SealedFactLedger | None,
     decision: Decision,
+    *,
+    abstention_certificate: AbstentionCertificate | None = None,
 ) -> SealedFactRecord | None:
     """Seal one ``DECISION`` fact into ``ledger`` and return its PCVR.
 
@@ -90,11 +109,18 @@ def seal_decision(
       * ``ledger is None`` → no-op, return ``None`` (today's behaviour, zero cost).
       * an append failure is logged and returns ``None`` — it never propagates
         into the verdict path (the verdict is already final and is unaffected).
+
+    ``abstention_certificate`` (when the verdict is ABSTAIN) is folded into the
+    sealed DECISION fact so the receipt is sealed alongside the verdict.
     """
     if ledger is None:
         return None
     try:
-        return ledger.append(build_decision_fact(decision))
+        return ledger.append(
+            build_decision_fact(
+                decision, abstention_certificate=abstention_certificate
+            )
+        )
     except Exception:  # pragma: no cover - defensive; a seal must never break a verdict
         _logger.warning(
             "DECISION seal failed for request %s; verdict unaffected, fact not sealed",

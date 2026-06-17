@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tex.domain.abstention_certificate import AbstentionCertificate
 from tex.domain.asi_finding import ASIFinding
 from tex.domain.finding import Finding
 from tex.domain.latency import LatencyBreakdown
@@ -278,6 +279,17 @@ class EvaluationResponse(BaseModel):
         description=(
             "Stable SHA-256 fingerprint of the inputs that produced this "
             "verdict. Same fingerprint should mean same verdict."
+        ),
+    )
+    abstention_certificate: AbstentionCertificate | None = Field(
+        default=None,
+        description=(
+            "Structured, descriptive certificate emitted with every ABSTAIN "
+            "verdict (and only ABSTAIN): the trigger that caused the hold, the "
+            "score/threshold justification that made abstaining the calibrated "
+            "choice, and the non-weaponization witness that the same "
+            "configuration would permit a legitimate lower-risk variant. None "
+            "for PERMIT/FORBID. Purely descriptive — it never raises a verdict."
         ),
     )
     latency: LatencyBreakdown | None = Field(

@@ -26,6 +26,12 @@ _DEFAULT_ENABLED_RECOGNIZERS: tuple[str, ...] = (
     "authority_impersonation",
     "jailbreak_persona",
     "invisible_unicode",
+    # Autonomous-attack action-cadence circuit-breaker. Stateful observation
+    # point for the sliding-window rate/fan-out breaker (deterministic/cadence.py).
+    # Enabling it here only surfaces the evidence finding; the structural FORBID
+    # floor and the soft ABSTAIN hold consult the same tracker directly, so the
+    # breaker is live even under a policy that omits this recognizer.
+    "action_cadence",
 )
 
 _DEFAULT_BLOCK_SEVERITIES: tuple[Severity, ...] = (Severity.CRITICAL,)

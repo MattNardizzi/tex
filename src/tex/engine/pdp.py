@@ -7,6 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict
 
 from tex.contracts.runtime_enforcement import ContractEnforcer
+from tex.deterministic.cadence import apply_cadence_hold
 from tex.deterministic.gate import (
     DeterministicGate,
     DeterministicGateResult,
@@ -406,6 +407,15 @@ class PolicyDecisionPoint:
             # only on a PERMIT; never raises a verdict, never fires the
             # deterministic floor. See systemic/probguard.py.
             routing_result = apply_predictive_holds(
+                base=routing_result, request=request
+            )
+            # Autonomous-attack action-cadence circuit-breaker — soft rail, monotone-
+            # lowering (PERMIT→ABSTAIN only): if this agent's sliding-window action
+            # rate / branching fan-out crossed the SOFT budget, demote to ABSTAIN.
+            # The HARD threshold is already a structural FORBID above (it fed
+            # detect_structural_floor and short-circuited before the router), so this
+            # only ever sees SOFT here. Never raises a verdict. See deterministic/cadence.py.
+            routing_result = apply_cadence_hold(
                 base=routing_result, request=request
             )
             # Live multiplicative e-value spine (L9) — monotone-lowering

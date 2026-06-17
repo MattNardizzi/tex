@@ -78,6 +78,23 @@ def _disable_semantic_provider_for_tests(tmp_path_factory: pytest.TempPathFactor
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_action_cadence_tracker() -> Iterator[None]:
+    """Isolate the autonomous-attack cadence circuit-breaker per test.
+
+    The breaker keeps a process-wide, history-accumulating tracker singleton (it
+    must, to measure an agent's action rate across requests). Reset it before and
+    after every test so cadence state from one test can never leak into the next
+    and trip a false ABSTAIN/FORBID. Within a single test, accumulation is
+    preserved — that is what the breaker's own tests exercise.
+    """
+    from tex.deterministic.cadence import _reset_default_cadence_tracker
+
+    _reset_default_cadence_tracker()
+    yield
+    _reset_default_cadence_tracker()
+
+
 @pytest.fixture
 def evidence_path(tmp_path: Path) -> Path:
     """Per-test evidence path so concurrent tests do not share state."""

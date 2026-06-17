@@ -29,7 +29,10 @@ P0 — the ledger is the system of record.
 __layer__: int | None = 5
 __layer_kind__: str = 'evidence'
 
-from tex.events.crypto_provenance import CryptoProvenance
+from typing import TYPE_CHECKING
+
+# The light, dependency-free re-exports stay eager: ``event`` and ``exceptions``
+# pull only pydantic + stdlib and are the most widely-imported names.
 from tex.events.event import Event, genesis_ledger_hash
 from tex.events.exceptions import (
     ChainLinkError,
@@ -40,7 +43,39 @@ from tex.events.exceptions import (
     SequenceGapError,
     SignatureVerificationError,
 )
-from tex.events.ledger import EventLedger, InMemoryLedger
+
+# ``crypto_provenance`` and ``ledger`` transitively pull the ecosystem engine
+# (networkx/rustworkx/numpy/scipy) and telemetry (starlette). They are loaded
+# LAZILY (PEP 562) so that importing this package — or, crucially, the light
+# ``tex.events._ecdsa_provider`` submodule the offline ECDSA verifier needs
+# (importing a submodule executes this __init__) — does NOT drag that heavy
+# chain onto the clean-room verify path. The re-exported names below still
+# resolve transparently on first access for every existing caller.
+_LAZY_EXPORTS: dict[str, str] = {
+    "CryptoProvenance": "crypto_provenance",
+    "EventLedger": "ledger",
+    "InMemoryLedger": "ledger",
+}
+
+if TYPE_CHECKING:  # let type-checkers / IDEs see the real symbols
+    from tex.events.crypto_provenance import CryptoProvenance
+    from tex.events.ledger import EventLedger, InMemoryLedger
+
+
+def __getattr__(name: str):
+    module = _LAZY_EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    value = getattr(importlib.import_module(f"{__name__}.{module}"), name)
+    globals()[name] = value  # cache so __getattr__ fires at most once per name
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
+
 
 __all__ = [
     "Event",

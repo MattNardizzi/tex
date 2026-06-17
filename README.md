@@ -112,6 +112,21 @@ a bundle that is internally consistent — it is caught only because the
 verifier pins Tex's public key. The demo runs exactly that attack so you can
 watch the pin do its job.
 
+**The lightest possible check — verify-anywhere, two dependencies.** The replay
+trial above runs the real engine (full `requirements.txt`). To verify a *sealed
+Tex bundle* offline — the core "trust the math, not us" claim — you don't need
+the engine at all. In a fresh clone:
+
+```bash
+pip install -r requirements-verify.txt    # only cryptography + pydantic
+python scripts/verify_it_yourself.py --forge-target --ecdsa
+```
+
+It checks a committed, Tex-signed ECDSA-P256 bundle against its out-of-band pin
+using only `cryptography`, `pydantic`, and the standard library — no fastapi, no
+numpy/scipy, and no governance engine on the import path. See
+[CHALLENGE.md](CHALLENGE.md) for the forge dare built on it.
+
 To go deeper, the same repo contains the capstone: one sealed verdict object
 composing eight governance properties over three cryptographically separate
 chains, with a twelve-row tamper matrix (eleven file-mutation rows plus one live forked-checkpoint protocol attack):
@@ -156,8 +171,9 @@ running this repository does not ship. The current truth:
 
 - The engine: `src/tex/engine/` (decision point, router, risk gate, holds).
 - The evidence ledger: `src/tex/provenance/ledger.py`.
-- The offline verifiers the demos call: `src/tex/bench/replay_trial.py` and
-  `src/tex/capstone/verify.py`.
+- The offline verifiers the demos call: `src/tex/bench/replay_trial.py`,
+  `src/tex/capstone/verify.py`, and the verify-anywhere bundle verifier
+  `src/tex/bench/evidence_bundle.py` (+ `src/tex/bench/forge_target.py`).
 - The generated system map: `TEX_SYSTEM.md`.
 - Tests: `PYTHONPATH=src python -m pytest` (the package has no install
   metadata yet, so plain `pytest` will not collect).

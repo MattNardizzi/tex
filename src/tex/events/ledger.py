@@ -27,7 +27,6 @@ from __future__ import annotations
 import base64
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from tex.ecosystem.proposed_event import ProposedEvent
 from tex.events._canonical import canonical_json, canonical_sha256, sha256_hex
 # Thread 4 (May 2026): ``CryptoProvenance`` moved to TYPE_CHECKING to
 # break the ``tex.pitch`` -> ``tex.c2pa`` -> ``tex.events`` ->
@@ -51,6 +50,16 @@ from tex.pqcrypto.algorithm_agility import SignatureProvider
 
 if TYPE_CHECKING:
     from tex.events.crypto_provenance import CryptoProvenance
+
+    # ``ProposedEvent`` is used only as a parameter annotation on
+    # ``append_proposed`` (string-ified by ``from __future__ import
+    # annotations``), so it is not needed at runtime. Keeping it here — not at
+    # module top — severs the ``tex.events.ledger`` -> ``tex.ecosystem`` ->
+    # ``tex.ecosystem.engine`` -> ``tex.events.ledger`` back-edge, so a cold
+    # ``import tex.events.ledger`` resolves without relying on
+    # ``tex.events.__init__`` having eagerly pre-loaded the ecosystem first
+    # (the implicit ordering that previously masked this latent cycle).
+    from tex.ecosystem.proposed_event import ProposedEvent
 
 
 @runtime_checkable

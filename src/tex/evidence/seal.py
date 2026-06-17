@@ -62,7 +62,18 @@ from tex.pqcrypto.algorithm_agility import (
     SignatureKeyPair,
     get_signature_provider,
 )
-from tex.selfgov.governor import describe_key_mutation, gate_controller_mutation
+
+# NB: ``tex.selfgov.governor`` is imported LAZILY inside ``_persist_key`` (its
+# only consumer), NOT at module scope. ``seal.py`` sits on the third-party VERIFY
+# path (``verify_payload_signature`` / ``verify_bundle`` / ``forge_target``), and
+# a module-level governor import would pull the self-governance stack
+# (``provenance.models`` + ``specialists.metaguard`` + domain models) into a
+# clean-room verifier that should carry no governance machinery and need only
+# ``cryptography`` + ``pydantic``. Those modules are light today; the genuinely
+# HEAVY chain (ecosystem engine + telemetry) reaches the verify path through a
+# different door — ``tex.events.__init__``, isolated separately — so that lazy
+# events split is the load-bearing fix and this is defense-in-depth. The gate
+# still fires on every key persist — see ``_persist_key``.
 
 _logger = logging.getLogger(__name__)
 
@@ -190,6 +201,11 @@ def _load_key(path: Path) -> SignatureKeyPair | None:
 
 
 def _persist_key(path: Path, key: SignatureKeyPair) -> None:
+    # Imported here (not at module scope) so the verify path stays free of the
+    # self-governance stack; this is the WRITE path, so the gate fires on every
+    # key persist exactly as before — behaviour is identical.
+    from tex.selfgov.governor import describe_key_mutation, gate_controller_mutation
+
     if not gate_controller_mutation(lambda: describe_key_mutation("evidence.seal._persist_key", key_id=key.key_id)).allowed:
         return
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -39,6 +39,13 @@ import psycopg
 
 _logger = logging.getLogger(__name__)
 
+# Bound every connect (seconds) so a slow/unreachable/connection-capped Postgres
+# fails fast to in-memory instead of hanging this single-worker service's event
+# loop — see the connection-budget note above (Starter caps at 100 connections,
+# and a no-timeout connect blocks forever once that cap is hit). Tunable via
+# TEX_DB_CONNECT_TIMEOUT.
+_CONNECT_TIMEOUT_S = int(os.environ.get("TEX_DB_CONNECT_TIMEOUT", "5"))
+
 DATABASE_URL_ENV = "DATABASE_URL"
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
@@ -73,7 +80,7 @@ def connect() -> Iterator[psycopg.Connection]:
             "happens."
         )
 
-    conn = psycopg.connect(url, autocommit=True)
+    conn = psycopg.connect(url, autocommit=True, connect_timeout=_CONNECT_TIMEOUT_S)
     try:
         yield conn
     finally:
@@ -104,7 +111,7 @@ def connect_tx() -> Iterator[psycopg.Connection]:
             "when this happens."
         )
 
-    conn = psycopg.connect(url, autocommit=False)
+    conn = psycopg.connect(url, autocommit=False, connect_timeout=_CONNECT_TIMEOUT_S)
     try:
         try:
             yield conn

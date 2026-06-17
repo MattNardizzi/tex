@@ -37,6 +37,12 @@ _logger = logging.getLogger(__name__)
 
 DATABASE_URL_ENV = "DATABASE_URL"
 
+# libpq connect timeout (seconds). Bounds every psycopg.connect so an
+# unreachable/slow/connection-capped Postgres fails fast to the in-memory
+# fallback instead of blocking this single-worker service's event loop. Tunable
+# via TEX_DB_CONNECT_TIMEOUT.
+_CONNECT_TIMEOUT_S = int(os.environ.get("TEX_DB_CONNECT_TIMEOUT", "5"))
+
 
 def resolve_dsn(dsn: str | None = None) -> str:
     """
@@ -80,8 +86,14 @@ def with_connection(
 
     This is the only place stores should call `psycopg.connect`. Any
     future change (pooling, SSL pinning, statement timeout) lands here.
+
+    ``connect_timeout`` is mandatory: without it libpq blocks forever on a
+    slow/unreachable/connection-capped Postgres, and on this single-worker
+    service that one hung connect freezes the whole event loop — every request,
+    including /health and /v1/speak/timed, queues behind it. With a bounded
+    timeout an unreachable DB fails fast and callers fall back to in-memory.
     """
-    with psycopg.connect(dsn, autocommit=autocommit) as conn:
+    with psycopg.connect(dsn, autocommit=autocommit, connect_timeout=_CONNECT_TIMEOUT_S) as conn:
         yield conn
 
 

@@ -28,6 +28,7 @@ from tex.domain.verdict import Verdict
 from tex.provenance.attempt_seal import seal_attempt
 from tex.provenance.decision_seal import seal_decision
 from tex.provenance.ledger import SealedFactLedger
+from tex.provenance.transcript_seal import seal_verdict_transcript
 from tex.engine.contract_bridge import (
     ContractEvaluationOutcome,
     NEUTRAL_OUTCOME,
@@ -48,6 +49,12 @@ from tex.engine.path_policy_bridge import (
 from tex.engine.risk_spine import RiskSpine, apply_risk_spine
 from tex.engine.router import RoutingResult, build_default_router
 from tex.engine.verdict_certificate import verdict_certificate_metadata
+from tex.engine.verdict_transcript import (
+    MonotonicityWitness,
+    VerdictTranscript,
+    build_verdict_transcript,
+    derive_monotonicity_witness,
+)
 from tex.retrieval.orchestrator import (
     RetrievalOrchestrator,
     build_noop_retrieval_orchestrator,
@@ -128,6 +135,13 @@ class PDPResult(BaseModel):
 
     decision: Decision
     response: EvaluationResponse
+
+    # Night-run: the canonical, hashable execution transcript of this verdict and
+    # the monotonicity witness derived from it. Optional (default None) so any
+    # caller constructing a PDPResult directly is unaffected; the live engine
+    # always populates them. See engine/verdict_transcript.py.
+    verdict_transcript: VerdictTranscript | None = None
+    monotonicity_witness: MonotonicityWitness | None = None
 
 
 class PolicyDecisionPoint:
@@ -495,6 +509,39 @@ class PolicyDecisionPoint:
         # never raises into the request path (seal_decision is fail-closed).
         seal_decision(self._decision_ledger, decision)
 
+        # ── Verdict transcript + monotonicity witness (night-run) ─────────
+        # Record this verdict as a CANONICAL, deterministic, hashable execution
+        # transcript and derive the witness that the engine's two invariants held
+        # on this run: (1) signals only LOWERED the verdict toward caution — no
+        # stage moved it toward PERMIT — and (2) a structural deny forced FORBID
+        # regardless of model scores. ``routed_base`` is the router's pre-hold
+        # verdict, captured exactly (``None`` only when the structural floor
+        # short-circuited the router). Build is pure + cheap and always runs; the
+        # seal is opt-in + fail-closed (transcript_seal.py), so this is a no-op on
+        # the verdict path by default. This is the foundation for zk-Verdict,
+        # proof-carrying verdicts, and the self-certifying offline checker.
+        verdict_transcript = build_verdict_transcript(
+            request=request,
+            policy=policy,
+            content_sha256=content_sha256,
+            determinism_fingerprint=determinism_fingerprint,
+            deterministic_result=deterministic_result,
+            specialist_bundle=specialist_bundle,
+            semantic_analysis=semantic_analysis,
+            agent_bundle=agent_bundle,
+            contract_outcome=contract_outcome,
+            path_outcome=path_outcome,
+            structural_floor=structural_floor,
+            routed_base=(None if hard_violation else base_routing_result),
+            routing_result=routing_result,
+        )
+        monotonicity_witness = derive_monotonicity_witness(verdict_transcript)
+        seal_verdict_transcript(
+            self._decision_ledger,
+            transcript=verdict_transcript,
+            witness=monotonicity_witness,
+        )
+
         response = self._build_response(
             decision=decision,
             routing_result=routing_result,
@@ -515,6 +562,8 @@ class PolicyDecisionPoint:
             determinism_fingerprint=determinism_fingerprint,
             decision=decision,
             response=response,
+            verdict_transcript=verdict_transcript,
+            monotonicity_witness=monotonicity_witness,
         )
 
     def _build_decision(

@@ -217,6 +217,11 @@ class SealedFactKind(StrEnum):
     BLAME = "blame"              # responsibility/attribution was assigned
     IDENTITY = "identity"        # an agent identity event (birth / re-id)
     ANSWER = "answer"            # a grounded/spoken answer was sealed
+    # The canonical execution transcript + monotonicity witness for one verdict
+    # (engine/verdict_transcript.py). A DISTINCT kind on purpose: it is neither a
+    # verdict (DECISION) nor a pre-verdict marker (ATTEMPT), so L1's seal-binding
+    # and L3's count-conservation — both keyed on DECISION — never see it.
+    VERDICT_TRANSCRIPT = "verdict_transcript"
 
 
 class SealedFact(BaseModel):

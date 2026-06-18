@@ -578,7 +578,12 @@ class DecisionRouter:
         if deterministic_result.blocked:
             return Verdict.FORBID
         if agent_bundle is not None and agent_bundle.agent_present:
-            if agent_bundle.identity.lifecycle_status == "QUARANTINED":
+            # QUARANTINED and SLEEPING both route every action to ABSTAIN
+            # (AgentLifecycleStatus.forces_abstain). For SLEEPING the ABSTAIN
+            # makes a dormant agent's wake a deliberate, sealed human act
+            # rather than a silent resurrection — and keeps the forced
+            # identity-risk floor from being read as a FORBID below.
+            if agent_bundle.identity.lifecycle_status in ("QUARANTINED", "SLEEPING"):
                 return Verdict.ABSTAIN
             if agent_bundle.has_capability_violations:
                 return Verdict.FORBID

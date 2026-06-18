@@ -170,6 +170,23 @@ def test_identity_evaluator_quarantined_forces_max_risk() -> None:
     assert "agent_quarantined" in sig.uncertainty_flags
 
 
+def test_identity_evaluator_sleeping_forces_abstain_signal() -> None:
+    # Regression: a SLEEPING (dormant) agent must not raise a KeyError in
+    # _lifecycle_risk and must emit the ABSTAIN-driving signal so the wake
+    # is a deliberate, sealed human act (see AgentLifecycleStatus docstring).
+    ev = AgentIdentityEvaluator()
+    agent = AgentIdentity(
+        name="bot",
+        owner="m",
+        lifecycle_status=AgentLifecycleStatus.SLEEPING,
+    )
+    sig = ev.evaluate(agent=agent, request=_make_request())
+    assert sig.risk_score == 1.0
+    assert sig.lifecycle_status == "SLEEPING"
+    assert "agent_sleeping" in sig.uncertainty_flags
+    assert any(f.rule_name == "agent_sleeping" for f in sig.findings)
+
+
 def test_identity_evaluator_environment_mismatch_emits_finding() -> None:
     ev = AgentIdentityEvaluator()
     agent = AgentIdentity(
@@ -398,6 +415,40 @@ def test_pdp_with_quarantined_agent_routes_to_abstain() -> None:
     request = _make_request(agent_id=a.agent_id)
     result = pdp.evaluate(request=request, policy=policy)
     # Quarantined → ABSTAIN regardless of content
+    assert result.response.verdict.value == "ABSTAIN"
+
+
+def test_suite_sleeping_agent_evaluates_without_keyerror() -> None:
+    # Regression for the SLEEPING KeyError: a dormant agent (set via the
+    # same set_lifecycle path discovery/dormancy uses) must evaluate
+    # end-to-end through the suite without raising, and the identity stream
+    # must carry the ABSTAIN-driving signal.
+    reg = InMemoryAgentRegistry()
+    a = reg.save(AgentIdentity(name="bot", owner="m"))
+    reg.set_lifecycle(a.agent_id, AgentLifecycleStatus.SLEEPING)
+
+    suite = AgentEvaluationSuite(registry=reg, ledger=InMemoryActionLedger())
+    bundle = suite.evaluate(_make_request(agent_id=a.agent_id))
+
+    assert bundle.agent_present is True
+    assert bundle.identity.lifecycle_status == "SLEEPING"
+    assert bundle.identity.risk_score == 1.0
+    assert "agent_sleeping" in bundle.identity.uncertainty_flags
+
+
+def test_pdp_with_sleeping_agent_routes_to_abstain() -> None:
+    reg = InMemoryAgentRegistry()
+    a = reg.save(AgentIdentity(name="bot", owner="m"))
+    reg.set_lifecycle(a.agent_id, AgentLifecycleStatus.SLEEPING)
+
+    suite = AgentEvaluationSuite(registry=reg, ledger=InMemoryActionLedger())
+    pdp = PolicyDecisionPoint(agent_evaluator=suite)
+    policy = build_default_policy()
+
+    request = _make_request(agent_id=a.agent_id)
+    result = pdp.evaluate(request=request, policy=policy)
+    # Dormant agent: any attempt to act → ABSTAIN (a sealed human wake),
+    # never a FORBID despite the forced identity-risk floor.
     assert result.response.verdict.value == "ABSTAIN"
 
 

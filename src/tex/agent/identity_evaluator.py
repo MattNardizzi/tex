@@ -6,7 +6,7 @@ contribute and how confident am I in that contribution?
 
 Inputs considered:
 - trust tier (operator-assigned policy lever)
-- lifecycle status (PENDING/ACTIVE/QUARANTINED/REVOKED)
+- lifecycle status (PENDING/ACTIVE/QUARANTINED/SLEEPING/REVOKED)
 - environment match (declared environment vs. requested environment)
 - attestations (count, active vs expired, attesters)
 - agent age (seconds since registration)
@@ -77,6 +77,23 @@ class AgentIdentityEvaluator:
                 )
             )
             uncertainty_flags.append("agent_quarantined")
+        elif agent.lifecycle_status is AgentLifecycleStatus.SLEEPING:
+            reasons.append(
+                "Agent is SLEEPING (dormant); identity stream forces risk to 1.0 "
+                "so the action routes to ABSTAIN and the wake is a sealed human act."
+            )
+            findings.append(
+                Finding(
+                    source="agent.identity",
+                    rule_name="agent_sleeping",
+                    severity=Severity.WARNING,
+                    message=(
+                        "Agent is in SLEEPING status; the action abstains to make "
+                        "the wake a deliberate, sealed human decision."
+                    ),
+                )
+            )
+            uncertainty_flags.append("agent_sleeping")
         elif agent.lifecycle_status is AgentLifecycleStatus.PENDING:
             reasons.append("Agent is PENDING attestation; identity risk elevated.")
             uncertainty_flags.append("agent_pending")
@@ -143,8 +160,11 @@ class AgentIdentityEvaluator:
             age_score = 0.05
         sub_scores["age"] = round(age_score, 4)
 
-        # 6. Compose. Quarantined wins outright (1.0).
-        if agent.lifecycle_status is AgentLifecycleStatus.QUARANTINED:
+        # 6. Compose. Lifecycle states that force ABSTAIN (QUARANTINED and
+        # SLEEPING) win outright (1.0). The registry resolves the status
+        # deterministically, so confidence is high; the verdict ladder reads
+        # the forced floor as ABSTAIN rather than FORBID.
+        if agent.lifecycle_status.forces_abstain:
             risk_score = 1.0
             confidence = 0.95
         else:
@@ -216,6 +236,12 @@ def _lifecycle_risk(status: AgentLifecycleStatus) -> float:
         AgentLifecycleStatus.ACTIVE: 0.05,
         AgentLifecycleStatus.PENDING: 0.45,
         AgentLifecycleStatus.QUARANTINED: 1.0,
+        # SLEEPING is a dormant agent: any attempt to act must route to
+        # ABSTAIN so the wake is a deliberate, sealed human decision rather
+        # than a quiet resurrection (see AgentLifecycleStatus docstring and
+        # forces_abstain). We force identity risk to 1.0 like QUARANTINED;
+        # the verdict ladder turns that forced floor into ABSTAIN, not FORBID.
+        AgentLifecycleStatus.SLEEPING: 1.0,
         AgentLifecycleStatus.REVOKED: 1.0,
     }[status]
 

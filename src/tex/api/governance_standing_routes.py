@@ -88,6 +88,41 @@ def build_governance_standing_router() -> APIRouter:
             agent_external_id=body.agent_external_id,
             session_id=body.session_id,
         )
+        # PROOF-CARRYING ENFORCEMENT (dormant unless a decision ledger is wired,
+        # i.e. TEX_SEAL_DECISIONS=1): seal an offline-verifiable ENFORCEMENT
+        # receipt for this PEP decision so a missing receipt reads as a bypass.
+        # Fail-closed and best-effort — sealing NEVER changes or breaks the
+        # decision the PEP obeys (the action proceeds on ``released`` regardless).
+        ledger = getattr(request.app.state, "decision_ledger", None)
+        if ledger is not None:
+            try:
+                from tex.provenance.enforcement_seal import seal_enforcement_decision
+
+                seal_enforcement_decision(
+                    ledger,
+                    action_type=body.action_type,
+                    channel=body.channel or "api",
+                    environment=body.environment or "production",
+                    recipient=body.recipient,
+                    agent_id=(
+                        str(body.agent_id)
+                        if body.agent_id is not None
+                        else (body.agent_external_id or None)
+                    ),
+                    verdict=str(getattr(outcome, "verdict", "FORBID")),
+                    released=bool(getattr(outcome, "released", False)),
+                    decision_id=(
+                        str(outcome.decision_id)
+                        if getattr(outcome, "decision_id", None)
+                        else None
+                    ),
+                    reason=getattr(outcome, "reason", None),
+                    tier=getattr(outcome, "tier", None),
+                    held=bool(getattr(outcome, "held", False)),
+                )
+            except Exception:  # noqa: BLE001 — sealing must never break the decision
+                pass
+
         # The one boolean a PEP obeys is ``released``. The rest is provenance.
         return outcome.to_jsonable()
 

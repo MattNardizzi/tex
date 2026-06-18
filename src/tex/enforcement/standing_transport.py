@@ -29,6 +29,7 @@ from uuid import uuid4
 
 from tex.domain.evaluation import EvaluationRequest, EvaluationResponse
 from tex.domain.verdict import Verdict
+from tex.enforcement.events import GateEventObserver
 from tex.enforcement.gate import AbstainPolicy, GateConfig, TexGate
 from tex.enforcement.transport import TransportResult
 from tex.governance.standing import DecisionOutcome, StandingGovernance
@@ -117,6 +118,7 @@ def build_standing_gate(
     default_action_type: str = "agent_action",
     default_channel: str = "api",
     default_environment: str = "production",
+    observer: GateEventObserver | None = None,
 ) -> TexGate:
     """Construct a TexGate that enforces the full standing-governance PDP.
 
@@ -129,13 +131,16 @@ def build_standing_gate(
     Defaults are fail-closed: ABSTAIN blocks (and is surfaced to the voice via
     the PDP), transport failure blocks, FORBID always blocks.
     """
-    return TexGate(
-        GateConfig(
-            transport=StandingGovernanceTransport(governance, tenant=tenant),
-            abstain_policy=abstain_policy,
-            fail_closed=fail_closed,
-            default_action_type=default_action_type,
-            default_channel=default_channel,
-            default_environment=default_environment,
-        )
+    config = GateConfig(
+        transport=StandingGovernanceTransport(governance, tenant=tenant),
+        abstain_policy=abstain_policy,
+        fail_closed=fail_closed,
+        default_action_type=default_action_type,
+        default_channel=default_channel,
+        default_environment=default_environment,
+        # An observer (e.g. the per-decision SealingGateObserver) turns every
+        # gated ruling into a sealed, offline-verifiable receipt. Omitted ->
+        # the gate's default NullObserver (zero overhead).
+        **({"observer": observer} if observer is not None else {}),
     )
+    return TexGate(config)

@@ -21,6 +21,11 @@ transport protocol (`TexEvaluationTransport`):
    the network PEP makes, fail-closed floor included. Works for any agent
    framework that calls Python functions to take actions (the common case).
 
+   For a gate that ALSO seals an offline-verifiable proof of every allow/deny,
+   use `build_proof_carrying_gate(governor, ledger=...)` (see `seal`): each
+   gated decision becomes a `SealedFact(ENFORCEMENT)` on the SealedFactLedger,
+   covering the structural-floor FORBIDs the deep PDP never sees.
+
 2. Framework adapters — `make_langchain_tex_tool` (sync + async) and the
    CrewAI gated tool in `adapters.py` apply the same gate to a framework's
    native tool abstraction. The SDK ships HTTP-client equivalents under
@@ -77,6 +82,14 @@ from tex.enforcement.transport import (
     HttpClientTransport,
     TexEvaluationTransport,
 )
+from tex.enforcement.standing_transport import (
+    StandingGovernanceTransport,
+    build_standing_gate,
+)
+from tex.enforcement.seal import (
+    SealingGateObserver,
+    build_proof_carrying_gate,
+)
 
 
 __all__ = [
@@ -87,6 +100,8 @@ __all__ = [
     "GateEventObserver",
     "HttpClientTransport",
     "NullObserver",
+    "SealingGateObserver",
+    "StandingGovernanceTransport",
     "TexAbstainError",
     "TexEnforcementError",
     "TexEvaluationTransport",
@@ -94,6 +109,8 @@ __all__ = [
     "TexGate",
     "TexGateAsync",
     "TexUnavailableError",
+    "build_proof_carrying_gate",
+    "build_standing_gate",
     "tex_gated",
     "tex_gated_async",
 ]

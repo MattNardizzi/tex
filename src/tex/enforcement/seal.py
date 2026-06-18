@@ -36,6 +36,7 @@ from tex.provenance.models import SealedFactRecord
 
 if TYPE_CHECKING:
     from tex.enforcement.events import GateEvent
+    from tex.identity.agent_credential import AttestedIdentity
 
 __all__ = ["SealingGateObserver", "build_proof_carrying_gate"]
 
@@ -51,16 +52,27 @@ class SealingGateObserver:
     ``ledger.verify_signatures()``).
     """
 
-    __slots__ = ("_ledger", "records", "last_error")
+    __slots__ = ("_ledger", "_attested_identity", "records", "last_error")
 
-    def __init__(self, ledger: SealedFactLedger) -> None:
+    def __init__(
+        self,
+        ledger: SealedFactLedger,
+        *,
+        attested_identity: "AttestedIdentity | None" = None,
+    ) -> None:
         self._ledger = ledger
+        # When set, every enforcement fact this observer seals binds to this
+        # cryptographically attested identity (verified once for the agent), not
+        # the self-declared agent_id the request carried.
+        self._attested_identity = attested_identity
         self.records: list[SealedFactRecord] = []
         self.last_error: str | None = None
 
     def __call__(self, event: "GateEvent") -> None:
         try:
-            record = seal_enforcement(self._ledger, event)
+            record = seal_enforcement(
+                self._ledger, event, attested_identity=self._attested_identity
+            )
             if record is not None:
                 self.records.append(record)
         except Exception as exc:  # noqa: BLE001 — an observer must never break the gate
@@ -76,6 +88,7 @@ def build_proof_carrying_gate(
     *,
     ledger: SealedFactLedger | None = None,
     tenant: str | None = None,
+    attested_identity: "AttestedIdentity | None" = None,
     abstain_policy: AbstainPolicy = AbstainPolicy.BLOCK,
     fail_closed: bool = True,
     default_action_type: str = "agent_action",
@@ -98,7 +111,7 @@ def build_proof_carrying_gate(
         assert ledger.verify_chain()["intact"]
     """
     ledger = ledger if ledger is not None else SealedFactLedger()
-    observer = SealingGateObserver(ledger)
+    observer = SealingGateObserver(ledger, attested_identity=attested_identity)
     gate = build_standing_gate(
         governance,
         tenant=tenant,

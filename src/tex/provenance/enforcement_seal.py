@@ -43,6 +43,7 @@ from tex.provenance.models import SealedFact, SealedFactKind, SealedFactRecord
 
 if TYPE_CHECKING:  # avoid an import cycle (enforcement imports provenance, not vice-versa)
     from tex.enforcement.events import GateEvent
+    from tex.identity.agent_credential import AttestedIdentity
 
 _logger = logging.getLogger(__name__)
 
@@ -52,51 +53,71 @@ _logger = logging.getLogger(__name__)
 _ENFORCEMENT_MATURITY = EvidenceMaturity.RESEARCH_SOLID
 
 
-def build_enforcement_fact(event: "GateEvent") -> SealedFact:
+def build_enforcement_fact(
+    event: "GateEvent", *, attested_identity: "AttestedIdentity | None" = None
+) -> SealedFact:
     """Map one gate decision (a ``GateEvent``) to a canonical
     ``SealedFact(ENFORCEMENT)``.
 
     Pure (no I/O, no mutation). The ``claim`` is deliberately narrow: it asserts
-    only that the gate ALLOWED or BLOCKED the action and that authorship +
-    integrity are sealed — never that the verdict was correct, never that the
-    fact is externally anchored.
+    only that the gate ALLOWED or BLOCKED the action (and, when an identity
+    credential was verified, WHO took it) and that authorship + integrity are
+    sealed — never that the verdict was correct.
+
+    ``attested_identity`` (Phase 2) is the result of verifying the agent's signed
+    identity credential. When present its full result is sealed into the fact, so
+    the receipt records a CRYPTOGRAPHICALLY ATTESTED identity rather than a
+    self-declared ``agent_id``. ``verified=False`` is recorded honestly (with the
+    reason) — the seal never upgrades an unverified identity.
     """
     allowed = event.outcome == "executed"
     word = "allowed" if allowed else "blocked"
     agent = str(event.agent_id) if event.agent_id is not None else "unknown"
+    identity_phrase = ""
+    if attested_identity is not None:
+        identity_phrase = (
+            f"; identity ATTESTED (issuer {attested_identity.issuer})"
+            if attested_identity.verified
+            else f"; identity NOT attested ({attested_identity.status})"
+        )
     claim = (
         f"gate {word} action_type={event.action_type!r} for agent={agent} "
-        f"(verdict {event.verdict}, outcome {event.outcome}) "
-        f"— authorship+integrity sealed; verdict correctness NOT proven; "
-        f"not externally anchored yet"
+        f"(verdict {event.verdict}, outcome {event.outcome}){identity_phrase} "
+        f"— authorship+integrity sealed; verdict correctness NOT proven"
     )
+    detail = {
+        "allowed": allowed,
+        "outcome": event.outcome,  # executed | blocked | reviewed
+        "verdict": event.verdict,  # PERMIT | ABSTAIN | FORBID | UNAVAILABLE
+        "action_type": event.action_type,
+        "channel": event.channel,
+        "environment": event.environment,
+        "recipient": event.recipient,
+        "agent_id": str(event.agent_id) if event.agent_id is not None else None,
+        "decision_id": str(event.decision_id) if event.decision_id is not None else None,
+        "determinism_fingerprint": event.determinism_fingerprint,
+        "final_score": event.final_score,
+        "confidence": event.confidence,
+        "abstain_policy": event.abstain_policy,
+        "fail_closed": event.fail_closed,
+        "occurred_at": event.occurred_at.isoformat(),
+    }
+    if attested_identity is not None:
+        detail["identity_attestation"] = attested_identity.to_detail()
     return SealedFact(
         kind=SealedFactKind.ENFORCEMENT,
         subject_id=str(event.request_id),
         claim=claim,
         maturity=_ENFORCEMENT_MATURITY,
-        detail={
-            "allowed": allowed,
-            "outcome": event.outcome,  # executed | blocked | reviewed
-            "verdict": event.verdict,  # PERMIT | ABSTAIN | FORBID | UNAVAILABLE
-            "action_type": event.action_type,
-            "channel": event.channel,
-            "environment": event.environment,
-            "recipient": event.recipient,
-            "agent_id": str(event.agent_id) if event.agent_id is not None else None,
-            "decision_id": str(event.decision_id) if event.decision_id is not None else None,
-            "determinism_fingerprint": event.determinism_fingerprint,
-            "final_score": event.final_score,
-            "confidence": event.confidence,
-            "abstain_policy": event.abstain_policy,
-            "fail_closed": event.fail_closed,
-            "occurred_at": event.occurred_at.isoformat(),
-        },
+        detail=detail,
     )
 
 
 def seal_enforcement(
-    ledger: SealedFactLedger | None, event: "GateEvent"
+    ledger: SealedFactLedger | None,
+    event: "GateEvent",
+    *,
+    attested_identity: "AttestedIdentity | None" = None,
 ) -> SealedFactRecord | None:
     """Seal one ``ENFORCEMENT`` fact into ``ledger`` and return its record.
 
@@ -108,7 +129,9 @@ def seal_enforcement(
     if ledger is None:
         return None
     try:
-        return ledger.append(build_enforcement_fact(event))
+        return ledger.append(
+            build_enforcement_fact(event, attested_identity=attested_identity)
+        )
     except Exception:  # pragma: no cover - defensive; a seal must never break the gate
         _logger.warning(
             "ENFORCEMENT seal failed for request %s; gate outcome unaffected, fact not sealed",

@@ -35,6 +35,7 @@ from tex.enforcement.seal import build_proof_carrying_gate  # noqa: E402
 from tex.governance.standing import StandingGovernance  # noqa: E402
 from tex.interchange._local_tsa import issue_timestamp_response, mint_local_tsa  # noqa: E402
 from tex.interchange.external_anchor import CheckpointAnchorRecord, anchor_subject_digest  # noqa: E402
+from tex.identity.agent_credential import verify_agent_credential  # noqa: E402
 from tex.provenance.bundle import (  # noqa: E402
     anchor_ledger_checkpoint,
     export_sealed_fact_bundle,
@@ -85,6 +86,28 @@ class _PermitEvaluate:
         )
 
 
+def _demo_attested_identity():
+    """Mint a signed agent credential and verify it offline -> AttestedIdentity.
+    Stands in for the agent presenting an Ed25519-signed AgentCard / SPIFFE SVID."""
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    sk = Ed25519PrivateKey.generate()
+    pk_raw = sk.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    payload = {"agent_id": "agent-007", "tenant": "acme"}
+    jcs = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    card = {
+        "payload": payload,
+        "issuer": "tex-demo-issuer",
+        "signature_b64": base64.b64encode(sk.sign(jcs)).decode("ascii"),
+    }
+    trusted = {"tex-demo-issuer": base64.b64encode(pk_raw).decode("ascii")}
+    return verify_agent_credential(card, trusted_issuers=trusted)
+
+
 def _selftest() -> int:
     print("=" * 72)
     print("ENFORCEMENT RECEIPT SELFTEST — gate a real PDP, seal each decision, catch a tamper")
@@ -116,7 +139,10 @@ def _selftest() -> int:
         agent_registry=_OneAgentRegistry(_Agent(agent_id)),
         evaluate_command=_PermitEvaluate(),
     )
-    permit_gate, permit_obs = build_proof_carrying_gate(permit_gov, ledger=ledger, tenant="acme")
+    attested = _demo_attested_identity()  # Phase 2: a verified signed credential
+    permit_gate, permit_obs = build_proof_carrying_gate(
+        permit_gov, ledger=ledger, tenant="acme", attested_identity=attested
+    )
     permit_ran = {"v": False}
     permit_guarded = permit_gate.wrap(
         lambda *, content: permit_ran.__setitem__("v", True),
@@ -126,8 +152,11 @@ def _selftest() -> int:
     )
     permit_guarded(content="pay vendor 100")
     p = permit_obs.records[-1].fact.detail
+    att = p.get("identity_attestation", {})
     print(f"[permit ] callable_ran={permit_ran['v']}  "
           f"sealed outcome={p['outcome']!r} verdict={p['verdict']!r}")
+    print(f"[identity] attested={att.get('verified')}  issuer={att.get('issuer')!r}  "
+          f"method={att.get('method')!r}  (sealed in the receipt, not a self-declared id)")
 
     # 3) Offline verification of the whole chain.
     chain = ledger.verify_chain()
@@ -177,6 +206,7 @@ def _selftest() -> int:
         blocked
         and not forbid_ran["v"]
         and permit_ran["v"]
+        and att.get("verified") is True
         and chain["intact"]
         and sigs["valid"]
         and report.is_valid
@@ -185,7 +215,7 @@ def _selftest() -> int:
     )
     print("\n" + "=" * 72)
     print(f"RESULT: {'ALL CLAIMS HELD' if held else 'A CLAIM FAILED'} "
-          f"(forbid blocked, permit ran, chain+signatures verified, "
+          f"(forbid blocked, permit ran, identity attested, chain+signatures verified, "
           f"externally anchored, tamper rejected)")
     print("=" * 72)
     return 0 if held else 1

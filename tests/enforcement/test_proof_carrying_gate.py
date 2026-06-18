@@ -185,3 +185,27 @@ def test_tamper_breaks_the_chain():
     broken = ledger.verify_chain()
     assert broken["intact"] is False
     assert broken["break_at"] == 0
+
+
+def test_attested_identity_is_sealed_into_the_fact():
+    from tex.identity.agent_credential import AttestedIdentity
+
+    ledger = SealedFactLedger()
+    gov = StandingGovernance(agent_registry=_EmptyRegistry())  # floor FORBID
+    attested = AttestedIdentity(
+        verified=True, status="verified", issuer="issuer-1", claimed_agent_id="agent-007"
+    )
+    gate, observer = build_proof_carrying_gate(
+        gov, ledger=ledger, tenant="acme", attested_identity=attested
+    )
+    guarded = gate.wrap(lambda *, content: "ran", content_arg="content", action_type="x")
+    with pytest.raises(TexForbiddenError):
+        guarded(content="do the thing")
+
+    fact = observer.records[0].fact
+    att = fact.detail["identity_attestation"]
+    assert att["verified"] is True
+    assert att["issuer"] == "issuer-1"
+    assert att["method"] == "ed25519_agent_card"
+    assert "ATTESTED" in fact.claim
+    assert ledger.verify_chain()["intact"] is True

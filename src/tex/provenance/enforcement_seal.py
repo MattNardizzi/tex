@@ -35,7 +35,7 @@ Fail-closed, observation-only (mirrors ``decision_seal.seal_decision`` exactly):
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tex.domain.evidence import EvidenceMaturity
 from tex.provenance.ledger import SealedFactLedger
@@ -136,6 +136,91 @@ def seal_enforcement(
         _logger.warning(
             "ENFORCEMENT seal failed for request %s; gate outcome unaffected, fact not sealed",
             getattr(event, "request_id", "?"),
+            exc_info=True,
+        )
+        return None
+
+
+def seal_enforcement_decision(
+    ledger: SealedFactLedger | None,
+    *,
+    action_type: str,
+    channel: str,
+    environment: str,
+    recipient: str | None,
+    agent_id: str | None,
+    verdict: str,
+    released: bool,
+    decision_id: str | None = None,
+    reason: str | None = None,
+    tier: str | None = None,
+    held: bool = False,
+    request_id: str | None = None,
+    attested_identity: "AttestedIdentity | None" = None,
+    source: str = "network_pep",
+) -> SealedFactRecord | None:
+    """Seal an ENFORCEMENT fact from a PEP decision (no ``GateEvent``).
+
+    The network PEP (``tex.pep``) decides PERMIT/FORBID and obeys ``released``,
+    but produces no receipt. This seals the SAME ``SealedFact(ENFORCEMENT)`` the
+    in-process gate seals, so a proxy-mediated action carries the identical
+    offline-verifiable proof. ``released`` maps to outcome executed/blocked. Same
+    fail-closed, observation-only contract as ``seal_enforcement``: ``ledger is
+    None`` -> no-op; an append failure is logged and returns ``None`` — it never
+    breaks the proxy's decision.
+    """
+    if ledger is None:
+        return None
+    from uuid import uuid4
+
+    rid = request_id or str(uuid4())
+    allowed = bool(released)
+    outcome = "executed" if allowed else "blocked"
+    word = "allowed" if allowed else "blocked"
+    agent = agent_id or "unknown"
+    identity_phrase = ""
+    if attested_identity is not None:
+        identity_phrase = (
+            f"; identity ATTESTED (issuer {attested_identity.issuer})"
+            if attested_identity.verified
+            else f"; identity NOT attested ({attested_identity.status})"
+        )
+    claim = (
+        f"PEP {word} action_type={action_type!r} for agent={agent} "
+        f"(verdict {verdict}, outcome {outcome}){identity_phrase} "
+        f"— authorship+integrity sealed; verdict correctness NOT proven"
+    )
+    detail: dict[str, Any] = {
+        "allowed": allowed,
+        "outcome": outcome,
+        "verdict": verdict,
+        "action_type": action_type,
+        "channel": channel,
+        "environment": environment,
+        "recipient": recipient,
+        "agent_id": agent_id,
+        "decision_id": decision_id,
+        "tier": tier,
+        "held": held,
+        "reason": reason,
+        "source": source,
+    }
+    if attested_identity is not None:
+        detail["identity_attestation"] = attested_identity.to_detail()
+    try:
+        return ledger.append(
+            SealedFact(
+                kind=SealedFactKind.ENFORCEMENT,
+                subject_id=rid,
+                claim=claim,
+                maturity=_ENFORCEMENT_MATURITY,
+                detail=detail,
+            )
+        )
+    except Exception:  # pragma: no cover - defensive; a seal must never break the PEP
+        _logger.warning(
+            "PEP ENFORCEMENT seal failed for request %s; decision unaffected, fact not sealed",
+            rid,
             exc_info=True,
         )
         return None

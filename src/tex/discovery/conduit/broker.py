@@ -89,6 +89,17 @@ class ConnectBroker:
         except KeyError:
             raise ConnectBrokerError(f"unknown connection_id {connection_id!r}")
 
+    def sealed_connection_for(self, tenant_id: str) -> Connection | None:
+        """The most-recent SEALED connection for a tenant (with its live
+        transport), or None if the tenant has never connected. Used by the
+        discovery layer to map a connected tenant's real directory."""
+        t = tenant_id.strip().casefold()
+        latest: Connection | None = None
+        for conn in self._connections.values():  # insertion order; last wins
+            if conn.tenant_id == t and conn.state is ConnectState.SEALED:
+                latest = conn
+        return latest
+
     def _require(self, connection_id: str, expected: ConnectState) -> Connection:
         conn = self.connection(connection_id)
         if conn.state is not expected:

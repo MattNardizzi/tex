@@ -1460,6 +1460,45 @@ def create_app(
     app.include_router(build_provenance_router())  # PROVENANCE: identity-by-behaviour, sealed
     app.include_router(build_discovery_surface_router())  # PROVENANCE: count-once voice + pull-only
 
+    # tex-conduit: the read-only "Connect your directory" front door. The broker
+    # drives the connect flow (REQUESTED->CONSENTED->PROBED->SEALED) and seals
+    # GRANT_SEALED through the verified seal stack before any agent is read.
+    # Connection state is in-process: fine for a single worker / the test client;
+    # a multi-worker deployment needs a shared store (tracked).
+    from tex.api.conduit_routes import build_conduit_router
+    from tex.discovery.conduit.broker import ConnectBroker
+    from tex.discovery.conduit.providers.entra import EntraConnectStrategy
+    from tex.discovery.conduit.seal import ConduitProvenanceChain
+
+    # When a tenant admin-consents, Tex reads THEIR Graph as itself using the
+    # multi-tenant app's credentials scoped to the consented tenant. The secret
+    # lives only in the deployment env (TEX_CONDUIT_ENTRA_CLIENT_SECRET); the
+    # sealed grant carries only an opaque pointer, never the secret.
+    def _entra_transport_factory(grant):
+        client_id = os.environ.get("TEX_CONDUIT_ENTRA_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("TEX_CONDUIT_ENTRA_CLIENT_SECRET", "").strip()
+        if not (client_id and client_secret):
+            raise NotImplementedError("Entra app credentials not configured")
+        from tex.discovery.graph_transport import GraphCredentials, LiveGraphTransport
+
+        return LiveGraphTransport(
+            GraphCredentials(
+                tenant_id=grant.tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+        )
+
+    _conduit_chain = ConduitProvenanceChain(
+        origin=os.environ.get("TEX_CONDUIT_ORIGIN", "tex.conduit/provenance")
+    )
+    app.state.conduit_chain = _conduit_chain
+    app.state.conduit_broker = ConnectBroker(
+        strategies=[EntraConnectStrategy(transport_factory=_entra_transport_factory)],
+        chain=_conduit_chain,
+    )
+    app.include_router(build_conduit_router())
+
     # STANDING GOVERNANCE: /v1/govern — the PEP-facing decision surface. The
     # enforcement point (kernel hook, MCP/mesh gateway, in-process gate) calls
     # /v1/govern/decide before letting an action cross; /v1/govern/posture is
@@ -1568,6 +1607,36 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
 
     app.state.discovery_ledger = runtime.discovery_ledger
     app.state.discovery_service = runtime.discovery_service
+
+    # tex-conduit: register the tenant-aware connector so ignite(<connected
+    # tenant>) maps that tenant's REAL directory via its sealed connection's
+    # live transport. Inert for tenants that never connected (demo / tests),
+    # so it never disturbs the existing discovery surface.
+    try:
+        from tex.discovery.conduit.live_connector import ConduitConnectionsConnector
+        from tex.discovery.conduit.profiles.entra_profile import ENTRA_PROFILE
+        from tex.domain.discovery import DiscoverySource as _DS
+
+        def _conduit_lookup(tenant_id: str):
+            # Read the broker LAZILY at scan time: at this publish point the
+            # broker may not be wired yet (router mounting runs afterwards), so
+            # capturing it eagerly would miss it. By scan time it is set.
+            broker = getattr(app.state, "conduit_broker", None)
+            if broker is None:
+                return (None, None)
+            conn = broker.sealed_connection_for(tenant_id)
+            if conn is None:
+                return (None, None)
+            return (conn.transport, conn.provider)
+
+        runtime.discovery_service.register_connector(
+            ConduitConnectionsConnector(
+                lookup=_conduit_lookup,
+                profiles={_DS.MICROSOFT_GRAPH: ENTRA_PROFILE},
+            )
+        )
+    except Exception:  # noqa: BLE001 — conduit discovery is additive; never block boot
+        pass
 
     # V15
     app.state.governance_snapshot_store = runtime.governance_snapshot_store

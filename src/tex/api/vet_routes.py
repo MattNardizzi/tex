@@ -49,6 +49,7 @@ from tex.api.auth import RequireScope
 from tex.pqcrypto.algorithm_agility import SignatureAlgorithm
 from tex.vet.agent_identity_document import (
     AgentIdentityDocument,
+    AidEnvelope,
     AidIssuanceRequest,
     AidPresentationEnvelope,
     AidPresentationRequest,
@@ -298,17 +299,25 @@ async def verify_presentation_endpoint(
 
 @router.get(
     "/aid/{agent_id}",
-    response_model=AgentIdentityDocument,
+    response_model=AidEnvelope,
     status_code=status.HTTP_200_OK,
 )
-async def get_aid(agent_id: str) -> AgentIdentityDocument:
-    """Fetch a registered AID by agent_id."""
+async def get_aid(agent_id: str) -> AidEnvelope:
+    """Fetch a registered AID's public envelope by agent_id.
+
+    Returns the holder-secret-free ``AidEnvelope`` — the held
+    ``base_proof`` is NEVER serialized across this read boundary, per
+    the registry contract. A caller with ``evidence:read`` can discover
+    the agent's public metadata but cannot derive presentations on its
+    behalf. ``issue-aid`` / ``present-aid`` retain the full AID
+    server-side and are unaffected.
+    """
     aid = default_registry().get(agent_id)
     if aid is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"AID not found: {agent_id}"
         )
-    return aid
+    return AidEnvelope.from_aid(aid)
 
 
 @router.post(

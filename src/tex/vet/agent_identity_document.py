@@ -102,6 +102,7 @@ from tex.vet.selective_disclosure import (
 
 __all__ = [
     "AgentIdentityDocument",
+    "AidEnvelope",
     "AidStatus",
     "AidIssuanceRequest",
     "AidPresentationRequest",
@@ -191,6 +192,68 @@ class AgentIdentityDocument(BaseModel):
     # The held base proof. NEVER ship this to verifiers — only derived
     # presentations cross trust boundaries.
     base_proof: BaseProof
+
+
+class AidEnvelope(BaseModel):
+    """
+    Public, holder-secret-free view of an AID.
+
+    This is the ONLY AID shape that may cross a *read* trust boundary
+    (``GET /v1/vet/aid/{agent_id}``). It deliberately OMITS
+    ``base_proof`` — the held selective-disclosure secret that lets the
+    holder derive arbitrary presentations. A caller with the
+    ``evidence:read`` scope can discover an agent's public metadata and
+    public key, but cannot forge presentations on the agent's behalf.
+
+    Not to be confused with ``AidPresentationEnvelope`` (the on-wire
+    artifact a verifier receives after selective disclosure). This is
+    the discovery/registry-lookup envelope referenced by
+    ``tex.vet.registry``.
+
+    Built by allow-list (it declares only public fields) rather than by
+    excluding ``base_proof`` from the full AID. So any future
+    holder-only field added to ``AgentIdentityDocument`` stays private
+    by default — it cannot leak here unless explicitly added.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    aid_version: str
+    agent_id: str
+    issuer_did: str
+    issued_at: datetime
+    expires_at: datetime | None = None
+    status: AidStatus
+    agent_public_key_b64u: str
+    agent_public_key_algorithm: SignatureAlgorithm
+    model_measurement: str
+    software_stack_measurement: str
+    supported_proof_systems: tuple[str, ...] = ()
+    compliance_assertions: tuple[str, ...] = ()
+    a2a_agent_card_url: str | None = None
+    ptv_attestation_jwt: str | None = None
+    aivs_micro: str | None = None
+
+    @classmethod
+    def from_aid(cls, aid: AgentIdentityDocument) -> AidEnvelope:
+        """Project a full held AID down to its public envelope."""
+        return cls(
+            aid_version=aid.aid_version,
+            agent_id=aid.agent_id,
+            issuer_did=aid.issuer_did,
+            issued_at=aid.issued_at,
+            expires_at=aid.expires_at,
+            status=aid.status,
+            agent_public_key_b64u=aid.agent_public_key_b64u,
+            agent_public_key_algorithm=aid.agent_public_key_algorithm,
+            model_measurement=aid.model_measurement,
+            software_stack_measurement=aid.software_stack_measurement,
+            supported_proof_systems=aid.supported_proof_systems,
+            compliance_assertions=aid.compliance_assertions,
+            a2a_agent_card_url=aid.a2a_agent_card_url,
+            ptv_attestation_jwt=aid.ptv_attestation_jwt,
+            aivs_micro=aid.aivs_micro,
+        )
 
 
 class AidIssuanceRequest(BaseModel):

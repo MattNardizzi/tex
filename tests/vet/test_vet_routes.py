@@ -36,9 +36,14 @@ class TestAidRoutes:
         assert data["aid"]["agent_id"] == "rt-agent-1"
         assert data["vc_2_0"]["proof"]["type"] == "DataIntegrityProof"
 
-        # GET
+        # GET — public envelope only; the held base proof must NOT
+        # cross this read boundary (it would let any reader forge
+        # selective-disclosure presentations for the agent).
         r2 = client.get("/v1/vet/aid/rt-agent-1")
         assert r2.status_code == 200
+        aid_view = r2.json()
+        assert aid_view["agent_id"] == "rt-agent-1"
+        assert "base_proof" not in aid_view
 
         # Present (selective disclosure)
         r3 = client.post(
@@ -67,6 +72,44 @@ class TestAidRoutes:
         assert result["valid"] is True
         assert "compliance_assertions" in result["revealed_claims"]
         assert "model_measurement" not in result["revealed_claims"]
+
+    def test_get_aid_does_not_expose_base_proof(self, client: TestClient) -> None:
+        """GET /aid/{agent_id} must return the public envelope only.
+
+        Regression guard: the held ``base_proof`` is the holder secret
+        that lets the holder derive arbitrary presentations. If it ever
+        leaks over the read-scoped GET route, any caller with
+        ``evidence:read`` could forge presentations for the agent.
+        """
+        agent_id = "secret-leak-test"
+        issue = client.post(
+            "/v1/vet/issue-aid",
+            json={
+                "agent_id": agent_id,
+                "issuer_did": "did:tex:issuer:tenant-1",
+                "model_measurement": "sha256:model",
+                "software_stack_measurement": "sha256:stack",
+                "supported_proof_systems": ["tee-tdx"],
+                "compliance_assertions": ["SOC2"],
+                "algorithm": "ed25519",
+            },
+        )
+        assert issue.status_code == 200
+        # The issuance response legitimately holds the full AID server-side.
+        assert "base_proof" in issue.json()["aid"]
+
+        r = client.get(f"/v1/vet/aid/{agent_id}")
+        assert r.status_code == 200
+        aid_view = r.json()
+
+        # Holder secret is absent...
+        assert "base_proof" not in aid_view
+        # ...and no nested value smuggles it back out.
+        assert "base_proof" not in str(aid_view)
+        # ...while the public metadata callers rely on is still present.
+        assert aid_view["agent_id"] == agent_id
+        assert aid_view["agent_public_key_b64u"]
+        assert aid_view["status"] == "active"
 
     def test_present_unknown_agent_returns_404(self, client: TestClient) -> None:
         r = client.post(

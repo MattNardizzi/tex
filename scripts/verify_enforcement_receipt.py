@@ -33,6 +33,13 @@ from tex.domain.verdict import Verdict  # noqa: E402
 from tex.enforcement.errors import TexForbiddenError  # noqa: E402
 from tex.enforcement.seal import build_proof_carrying_gate  # noqa: E402
 from tex.governance.standing import StandingGovernance  # noqa: E402
+from tex.interchange._local_tsa import issue_timestamp_response, mint_local_tsa  # noqa: E402
+from tex.interchange.external_anchor import CheckpointAnchorRecord, anchor_subject_digest  # noqa: E402
+from tex.provenance.bundle import (  # noqa: E402
+    anchor_ledger_checkpoint,
+    export_sealed_fact_bundle,
+    verify_sealed_fact_bundle,
+)
 from tex.provenance.ledger import SealedFactLedger  # noqa: E402
 
 
@@ -128,7 +135,36 @@ def _selftest() -> int:
     print(f"\n[genuine] chain intact={chain['intact']} (checked {chain['checked']})  "
           f"signatures valid={sigs['valid']}")
 
-    # 4) One-field tamper: flip 'allowed' inside the first sealed fact.
+    # 4) Phase 1 — external time anchor: bundle the enforcement facts and prove an
+    #    authority that is NOT Tex timestamped this exact set, offline. A throwaway
+    #    LOCAL TSA exercises the real verification logic but proves nothing about
+    #    real wall-clock time (only the freetsa path does that).
+    tsa = mint_local_tsa()
+
+    def _anchor(snapshot):
+        cp = snapshot.checkpoint
+        digest = anchor_subject_digest(cp.origin, cp.tree_size, cp.root_hash)
+        resp = issue_timestamp_response(digest, tsa, nonce=4242)
+        return CheckpointAnchorRecord.from_response(
+            checkpoint=cp,
+            signed_note=snapshot.signed_note,
+            authority="local-demo-tsa",
+            response_der=resp,
+            request_nonce=4242,
+        )
+
+    anchor = anchor_ledger_checkpoint(ledger, anchor_fn=_anchor)
+    bundle = export_sealed_fact_bundle(ledger, export_name="enforcement-selftest", anchor=anchor)
+    report = verify_sealed_fact_bundle(
+        bundle,
+        pinned_public_key_pem=ledger.public_key_pem,
+        pinned_tsa_cert_der=tsa.ca_pin_der,
+    )
+    age = report.anchor_gen_time.isoformat() if report.anchor_gen_time else None
+    print(f"[anchored] bundle valid={report.is_valid}  "
+          f"externally_anchored={report.externally_anchored}  external age <= {age}")
+
+    # 5) One-field tamper: flip 'allowed' inside the first sealed fact.
     rec = ledger._entries[0]
     bad_fact = rec.fact.model_copy(
         update={"detail": {**rec.fact.detail, "allowed": (not rec.fact.detail["allowed"])}}
@@ -143,11 +179,14 @@ def _selftest() -> int:
         and permit_ran["v"]
         and chain["intact"]
         and sigs["valid"]
+        and report.is_valid
+        and report.externally_anchored
         and not tampered["intact"]
     )
     print("\n" + "=" * 72)
     print(f"RESULT: {'ALL CLAIMS HELD' if held else 'A CLAIM FAILED'} "
-          f"(forbid blocked the action, permit ran, chain+signatures verified, tamper rejected)")
+          f"(forbid blocked, permit ran, chain+signatures verified, "
+          f"externally anchored, tamper rejected)")
     print("=" * 72)
     return 0 if held else 1
 

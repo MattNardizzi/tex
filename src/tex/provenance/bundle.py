@@ -67,15 +67,21 @@ from tex.pqcrypto.algorithm_agility import SignatureAlgorithm, SignatureProvider
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFactRecord, SealPublicKey
 from tex.provenance.seal_envelope import is_post_quantum_algorithm, verify_envelope
+from tex.interchange.external_anchor import CheckpointAnchorRecord, verify_anchor_receipt
+from tex.interchange.gix import merkle_root
 
 __all__ = [
     "SealedFactBundle",
     "BundleVerificationReport",
+    "anchor_ledger_checkpoint",
     "export_sealed_fact_bundle",
     "verify_sealed_fact_bundle",
 ]
 
 _BUNDLE_VERSION = "1"
+
+# RFC 9162 empty-tree root: SHA-256 of the empty string (matches gix / conduit).
+_EMPTY_TREE_ROOT = hashlib.sha256(b"").hexdigest()
 
 
 def _stable_json(obj: object) -> str:
@@ -114,6 +120,13 @@ class SealedFactBundle(BaseModel):
     # ``public_key_b64``, these are CLAIMED keys — never trusted on their own; the
     # verifier checks signatures against PINNED keys (see ``verify_sealed_fact_bundle``).
     seal_public_keys: tuple[SealPublicKey, ...] = ()
+    # OPTIONAL external time anchor over the ledger tree-head (the gix checkpoint
+    # root = Merkle root of these records' record_hashes), RFC-3161-timestamped by
+    # an authority whose key is NOT Tex's. None for a legacy un-anchored bundle
+    # (the verifier reports externally_anchored=False, never asserts it). Like the
+    # keys above, the anchor is CLAIMED — the verifier checks it against a PINNED
+    # TSA cert.
+    anchor: CheckpointAnchorRecord | None = None
 
     def to_json(self) -> str:
         """Serialize to portable JSON (the artifact you ship)."""
@@ -163,6 +176,17 @@ class BundleVerificationReport:
     # signature (tamper or forgery in the dual-signature layer).
     envelope_mismatch_at: int | None = None
 
+    # ---- external time anchor (additive; never affects is_valid) ----------------
+    # True iff the bundle carried an anchor, the records' RECOMPUTED Merkle root
+    # equalled the anchored tree-head, AND the RFC-3161 token verified against the
+    # PINNED TSA cert — i.e. an authority that is NOT Tex attests this exact set of
+    # facts existed no later than ``anchor_gen_time``. False (with a reason in
+    # ``anchor_failure``) when no anchor was carried, no TSA cert was pinned, the
+    # root mismatched, or the token failed — never silently asserted.
+    externally_anchored: bool = False
+    anchor_gen_time: datetime | None = None
+    anchor_failure: str | None = None
+
     @property
     def is_valid(self) -> bool:
         """True iff the chain is intact, every signature verifies against the
@@ -204,17 +228,44 @@ class BundleVerificationReport:
         )
 
 
+def anchor_ledger_checkpoint(
+    ledger: SealedFactLedger,
+    *,
+    anchor_fn,
+    origin: str = "tex.provenance/sealed-fact-ledger",
+) -> CheckpointAnchorRecord | None:
+    """Build an external time anchor over the ledger's CURRENT tree-head.
+
+    Computes a gix signed checkpoint over the ledger's record-hash sequence and
+    hands it to ``anchor_fn`` (a ``SignedCheckpoint -> CheckpointAnchorRecord``,
+    e.g. ``conduit.seal.make_rfc3161_anchor`` with a real TSA poster, or a
+    local-TSA one in tests). Returns ``None`` for an empty ledger (nothing to
+    anchor). The returned record is what ``export_sealed_fact_bundle(anchor=...)``
+    embeds and ``verify_sealed_fact_bundle(pinned_tsa_cert_der=...)`` verifies.
+    No network lives here — the poster is injected by ``anchor_fn``.
+    """
+    from tex.interchange.gix import CheckpointPublisher
+
+    hashes = [rec.record_hash for rec in ledger.list_all()]
+    if not hashes:
+        return None
+    publisher = CheckpointPublisher(origin=origin, read_record_hashes=lambda: tuple(hashes))
+    return anchor_fn(publisher.current_signed_checkpoint())
+
+
 def export_sealed_fact_bundle(
     ledger: SealedFactLedger,
     *,
     export_name: str,
     components: tuple[TexEvidence, ...] = (),
     exported_at: datetime | None = None,
+    anchor: CheckpointAnchorRecord | None = None,
 ) -> SealedFactBundle:
     """Package a ledger's sealed facts (and optionally the component evidence)
     into a portable bundle. ``components`` should be the ``TexEvidence`` that fed
     the records' ``CombinedEvidence`` — include them to make the bundle fully
-    replayable offline."""
+    replayable offline. Pass ``anchor`` (build it with ``anchor_ledger_checkpoint``)
+    to embed an external RFC-3161 time anchor over the ledger's tree-head."""
     return SealedFactBundle(
         export_name=export_name,
         exported_at=exported_at or datetime.now(UTC),
@@ -225,6 +276,7 @@ def export_sealed_fact_bundle(
         # The crypto-agile seal public keys (ECDSA + ML-DSA), when the ledger
         # dual-signs. ``getattr`` keeps the exporter duck-typed for any ledger.
         seal_public_keys=tuple(getattr(ledger, "seal_public_keys", ())),
+        anchor=anchor,
     )
 
 
@@ -234,6 +286,7 @@ def verify_sealed_fact_bundle(
     pinned_public_key_pem: bytes,
     provider: SignatureProvider | None = None,
     pinned_seal_keys: Mapping[str, bytes] | None = None,
+    pinned_tsa_cert_der: bytes | None = None,
 ) -> BundleVerificationReport:
     """Verify a bundle from scratch, holding only the bundle, a PINNED public
     key, and a signature provider (defaults to ECDSA-P256). Standalone: needs no
@@ -376,6 +429,36 @@ def verify_sealed_fact_bundle(
         pq_all_valid and bool(pq_pins) and chain_intact and len(bundle.records) > 0
     )
 
+    # External time anchor (additive; never affects is_valid). Recompute the
+    # Merkle root from the records' OWN recomputed record_hashes — so a payload
+    # tamper changes the root and the anchor binding fails — then verify the
+    # RFC-3161 token against the PINNED TSA cert. Both must hold (and a cert must
+    # be pinned) for externally_anchored; otherwise it is honestly False.
+    externally_anchored = False
+    anchor_gen_time: datetime | None = None
+    anchor_failure: str | None = None
+    if bundle.anchor is not None and pinned_tsa_cert_der is not None:
+        prev: str | None = None
+        leaves: list[str] = []
+        for rec in bundle.records:
+            psha = _sha256_hex(_stable_json(rec.fact.canonical_payload()))
+            leaves.append(
+                _sha256_hex(_stable_json({"payload_sha256": psha, "previous_hash": prev}))
+            )
+            prev = leaves[-1]
+        computed_root = merkle_root(leaves) if leaves else _EMPTY_TREE_ROOT
+        if computed_root != bundle.anchor.root_hash_hex:
+            anchor_failure = "anchor_root_mismatch"
+        else:
+            av = verify_anchor_receipt(bundle.anchor, pinned_tsa_cert_der=pinned_tsa_cert_der)
+            if av.ok:
+                externally_anchored = True
+                anchor_gen_time = av.gen_time
+            else:
+                anchor_failure = f"anchor_{av.failure_code}"
+    elif bundle.anchor is not None:
+        anchor_failure = "no_tsa_cert_pinned"
+
     return BundleVerificationReport(
         record_count=len(bundle.records),
         chain_intact=chain_intact,
@@ -394,4 +477,7 @@ def verify_sealed_fact_bundle(
         pq_signature_invalid_at=pq_signature_invalid_at,
         pq_key_matches_pin=pq_key_matches_pin,
         envelope_mismatch_at=envelope_mismatch_at,
+        externally_anchored=externally_anchored,
+        anchor_gen_time=anchor_gen_time,
+        anchor_failure=anchor_failure,
     )

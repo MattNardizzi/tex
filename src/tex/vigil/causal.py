@@ -385,7 +385,7 @@ class CausalAttributionPort:
         try:
             from tex.causal.attribution_engine import compute_attribution
             from tex.evidence.scitt_cose_alg import cose_alg_for
-            from tex.evidence.signed_statement import mint_signed_statement
+            from tex.evidence.scitt_statement import mint_signed_statement
 
             result = compute_attribution(decision)
             signing_key = self._signing_key_resolver()

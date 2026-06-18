@@ -61,7 +61,9 @@ __all__ = [
     "SignatureResult",
     "RecordReport",
     "VerificationReport",
+    "GapReport",
     "verify_bundle",
+    "verify_no_identity_gaps",
     "load_bundle",
     "check_monotonicity_witness",
 ]
@@ -654,3 +656,105 @@ def _normalize_signatures(
             "public_key_b64": rec.get("public_key_b64") or bundle_pub_b64,
         }]
     return []
+
+
+# --------------------------------------------------------------------------- #
+# negative-space check — a MISSING receipt is a bypass
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True, slots=True)
+class GapReport:
+    """The negative-space verdict: is any identity's receipt sequence broken?
+
+    ``verify_bundle`` proves the records that ARE present are an unbroken,
+    Tex-authored chain. It cannot prove the set is *complete* — a record that was
+    never written (an action that bypassed the gate) leaves nothing to tamper
+    with, so a chain of the survivors verifies cleanly. This report adds the
+    absence check: per identity, the sealed ``identity_seq`` values must be
+    contiguous from 0 with no duplicates. ``complete`` is True only when every
+    identity's sequence is whole. ``gaps`` maps an identity to its missing seqs (a
+    deleted record, or — when the seq is the actor's attested counter — an action
+    that was never adjudicated); ``duplicates`` flags a replayed seq."""
+
+    identities: int
+    sequenced_records: int
+    gaps: tuple[tuple[str, tuple[int, ...]], ...]
+    duplicates: tuple[tuple[str, tuple[int, ...]], ...]
+
+    @property
+    def complete(self) -> bool:
+        """True only when at least one sequenced receipt was found AND every
+        identity's sequence is whole (no gaps, no duplicates). Fail-closed, like
+        ``VerificationReport.is_valid``: a bundle with nothing to gap-check — empty,
+        unparseable, or carrying no sequenced receipts — proves no completeness and
+        is never ``complete``."""
+        return self.sequenced_records > 0 and not self.gaps and not self.duplicates
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "complete": self.complete,
+            "identities": self.identities,
+            "sequenced_records": self.sequenced_records,
+            "gaps": [{"identity": k, "missing": list(v)} for k, v in self.gaps],
+            "duplicates": [
+                {"identity": k, "seq": list(v)} for k, v in self.duplicates
+            ],
+        }
+
+
+def verify_no_identity_gaps(source: str | bytes | dict[str, Any]) -> GapReport:
+    """Detect a break in any identity's per-identity receipt sequence, from the
+    portable bundle alone (stdlib-only; no ledger, network, or Tex runtime).
+
+    Reads ``identity_key`` / ``identity_seq`` out of each record's signed
+    ``canonical_payload.detail`` — so the sequence is part of what the hash chain
+    and signatures in :func:`verify_bundle` already cover; tampering with it is
+    caught there. This adds the one check :func:`verify_bundle` structurally
+    cannot make: a missing sequence number is a missing receipt — a deleted record
+    or a bypass. Never raises on bad input; an unparseable bundle yields an empty,
+    non-``complete`` report (fail-closed).
+
+    Honest limit: absence is proven only relative to the committed sequence. A
+    contiguous tail-truncation is invisible here (caught by the external anchor's
+    committed size), and the bypass guarantee is only as strong as the counter's
+    source (a tamper-resistant TEE/TPM counter or an in-path PEP)."""
+    try:
+        bundle = load_bundle(source)
+        records = bundle.get("records") or [] if isinstance(bundle, dict) else []
+    except Exception:  # noqa: BLE001 - a bad bundle proves nothing, never raises
+        records = []
+
+    by_identity: dict[str, list[int]] = {}
+    sequenced = 0
+    for rec in records:
+        cp = rec.get("canonical_payload") if isinstance(rec, dict) else None
+        detail = cp.get("detail") if isinstance(cp, dict) else None
+        if not isinstance(detail, dict):
+            continue
+        key = detail.get("identity_key")
+        seq = detail.get("identity_seq")
+        # bool is a subclass of int — exclude it so a True/False can't pose as a seq.
+        if not isinstance(key, str) or not isinstance(seq, int) or isinstance(seq, bool):
+            continue
+        sequenced += 1
+        by_identity.setdefault(key, []).append(seq)
+
+    gaps: list[tuple[str, tuple[int, ...]]] = []
+    dups: list[tuple[str, tuple[int, ...]]] = []
+    for key, seqs in by_identity.items():
+        counts: dict[int, int] = {}
+        for s in seqs:
+            counts[s] = counts.get(s, 0) + 1
+        present = set(counts)
+        missing = tuple(sorted(set(range(max(present) + 1)) - present))
+        dup = tuple(sorted(s for s, c in counts.items() if c > 1))
+        if missing:
+            gaps.append((key, missing))
+        if dup:
+            dups.append((key, dup))
+
+    return GapReport(
+        identities=len(by_identity),
+        sequenced_records=sequenced,
+        gaps=tuple(sorted(gaps)),
+        duplicates=tuple(sorted(dups)),
+    )

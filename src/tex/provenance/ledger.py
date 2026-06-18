@@ -25,6 +25,7 @@ import base64
 import hashlib
 import json
 import threading
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -95,6 +96,57 @@ def _verify_seal_envelopes(
         "checked": checked,
         "invalid_at": invalid_at,
         "mismatch_at": mismatch_at,
+    }
+
+
+def _identity_sequence_gaps(
+    items: Iterable[tuple[str | None, int | None]],
+) -> dict[str, Any]:
+    """Group ``(identity_key, identity_seq)`` pairs by identity and detect a
+    BREAK IN A PER-IDENTITY SEQUENCE — a missing sequence number.
+
+    A per-identity monotonic sequence is what makes *absence* checkable. If an
+    identity's sealed receipts carry seqs ``0, 1, 3`` then receipt ``2`` is
+    missing — a deleted record, or (when the sequence is the actor's own attested
+    monotonic counter) an action the actor took that Tex never adjudicated: a
+    bypass. The hash chain proves the *present* records are unaltered; this proves
+    *none are absent* relative to the committed count.
+
+    Returns ``{complete, identities, sequenced_records, gaps, duplicates}`` where
+    ``gaps``/``duplicates`` map an identity key to the missing/repeated seqs.
+    Sequences are assumed 0-based and contiguous from genesis; a mid-stream slice
+    needs a declared start offset (not this function's concern). A contiguous
+    tail-truncation (dropping the highest seq) is invisible here by construction —
+    that case is caught by the external anchor's committed size (``bundle.py``).
+    """
+    by_identity: dict[str, list[int]] = {}
+    sequenced = 0
+    for key, seq in items:
+        if key is None or seq is None:
+            continue
+        sequenced += 1
+        by_identity.setdefault(str(key), []).append(int(seq))
+
+    gaps: dict[str, list[int]] = {}
+    duplicates: dict[str, list[int]] = {}
+    for key, seqs in by_identity.items():
+        counts: dict[int, int] = {}
+        for s in seqs:
+            counts[s] = counts.get(s, 0) + 1
+        present = set(counts)
+        missing = sorted(set(range(max(present) + 1)) - present)
+        dups = sorted(s for s, c in counts.items() if c > 1)
+        if missing:
+            gaps[key] = missing
+        if dups:
+            duplicates[key] = dups
+
+    return {
+        "complete": not gaps and not duplicates,
+        "identities": len(by_identity),
+        "sequenced_records": sequenced,
+        "gaps": gaps,
+        "duplicates": duplicates,
     }
 
 
@@ -371,6 +423,11 @@ class SealedFactLedger:
         self._lock = threading.RLock()
         self._entries: list[SealedFactRecord] = []
         self._by_kind: dict[str, list[int]] = {}
+        # Per-identity index for the negative-space (gap) check: which entry
+        # sequences belong to each identity key. Populated only by
+        # ``append_sequenced``; ``verify_no_gaps`` reads ``identity_seq`` from the
+        # sealed facts, so the index is a fast lookup, not the source of truth.
+        self._by_identity: dict[str, list[int]] = {}
         self._provider: SignatureProvider = (
             signing_provider or default_signature_provider()
         )
@@ -429,43 +486,92 @@ class SealedFactLedger:
         the behavioural ledger, so a single verifier can check either log.
         """
         with self._lock:
-            sequence = len(self._entries)
-            previous_hash = (
-                self._entries[-1].record_hash if self._entries else None
-            )
+            return self._append_locked(fact)
 
-            payload = fact.canonical_payload()
-            payload_json = _stable_json(payload)
-            payload_sha256 = _sha256_hex(payload_json)
-            record_hash = _sha256_hex(
-                _stable_json(
-                    {"payload_sha256": payload_sha256, "previous_hash": previous_hash}
-                )
-            )
-            signature = self._provider.sign(record_hash.encode("ascii"), self._key)
-            signature_b64 = base64.b64encode(signature).decode("ascii")
-            # Dual-sign the SAME record_hash (ECDSA mirrors signature_b64; ML-DSA
-            # added). None when ECDSA-only — identical to a legacy PCVR, so the
-            # chain is unchanged regardless of whether PQ is active.
-            seal_envelope = (
-                self._sealer.envelope_with_primary(record_hash, signature)
-                if self._sealer.is_dual
-                else None
-            )
+    def append_sequenced(
+        self,
+        fact: SealedFact,
+        *,
+        identity_key: str,
+        claimed_seq: int | None = None,
+    ) -> SealedFactRecord:
+        """Seal a fact tagged with a per-identity monotonic sequence number so a
+        MISSING receipt for that identity is detectable as a gap (see
+        :meth:`verify_no_gaps`).
 
-            record = SealedFactRecord(
-                sequence=sequence,
-                fact=fact,
-                payload_sha256=payload_sha256,
-                previous_hash=previous_hash,
-                record_hash=record_hash,
-                signature_b64=signature_b64,
-                signing_key_id=self._key.key_id,
-                seal_envelope=seal_envelope,
+        The sequence is folded into ``fact.detail`` *before* hashing, so it is
+        signed and chain-bound exactly like the rest of the fact — no change to
+        the hash construction, no new chain. Two modes:
+
+          * ``claimed_seq is None`` (default) — the ledger assigns the next
+            contiguous number for ``identity_key``. This detects post-hoc
+            DELETION/reordering of an identity's recorded receipts.
+          * ``claimed_seq`` given — seals the ACTOR'S OWN attested monotonic
+            counter. This additionally detects a true BYPASS: if the actor's
+            counter skips, an action it took never reached the gate. The bypass
+            guarantee is then only as strong as that counter's source (a
+            tamper-resistant TEE/TPM counter or an in-path PEP that the actor
+            cannot skip).
+        """
+        with self._lock:
+            next_seq = (
+                int(claimed_seq)
+                if claimed_seq is not None
+                else len(self._by_identity.get(identity_key, []))
             )
-            self._entries.append(record)
-            self._by_kind.setdefault(str(fact.kind), []).append(sequence)
+            sequenced = fact.model_copy(
+                update={
+                    "detail": {
+                        **fact.detail,
+                        "identity_key": identity_key,
+                        "identity_seq": next_seq,
+                    }
+                }
+            )
+            record = self._append_locked(sequenced)
+            self._by_identity.setdefault(identity_key, []).append(record.sequence)
             return record
+
+    def _append_locked(self, fact: SealedFact) -> SealedFactRecord:
+        """Append + seal body. The caller MUST hold ``self._lock`` (the lock is
+        re-entrant, but this is the single chain-mutation point shared by
+        :meth:`append` and :meth:`append_sequenced`, so the chain/seal
+        construction is byte-identical regardless of how the fact arrived)."""
+        sequence = len(self._entries)
+        previous_hash = self._entries[-1].record_hash if self._entries else None
+
+        payload = fact.canonical_payload()
+        payload_json = _stable_json(payload)
+        payload_sha256 = _sha256_hex(payload_json)
+        record_hash = _sha256_hex(
+            _stable_json(
+                {"payload_sha256": payload_sha256, "previous_hash": previous_hash}
+            )
+        )
+        signature = self._provider.sign(record_hash.encode("ascii"), self._key)
+        signature_b64 = base64.b64encode(signature).decode("ascii")
+        # Dual-sign the SAME record_hash (ECDSA mirrors signature_b64; ML-DSA
+        # added). None when ECDSA-only — identical to a legacy PCVR, so the
+        # chain is unchanged regardless of whether PQ is active.
+        seal_envelope = (
+            self._sealer.envelope_with_primary(record_hash, signature)
+            if self._sealer.is_dual
+            else None
+        )
+
+        record = SealedFactRecord(
+            sequence=sequence,
+            fact=fact,
+            payload_sha256=payload_sha256,
+            previous_hash=previous_hash,
+            record_hash=record_hash,
+            signature_b64=signature_b64,
+            signing_key_id=self._key.key_id,
+            seal_envelope=seal_envelope,
+        )
+        self._entries.append(record)
+        self._by_kind.setdefault(str(fact.kind), []).append(sequence)
+        return record
 
     # ------------------------------------------------------------------ read
     def list_all(self) -> tuple[SealedFactRecord, ...]:
@@ -475,6 +581,13 @@ class SealedFactLedger:
     def list_by_kind(self, kind: SealedFactKind) -> tuple[SealedFactRecord, ...]:
         with self._lock:
             seqs = self._by_kind.get(str(kind), [])
+            return tuple(self._entries[s] for s in seqs)
+
+    def list_for_identity(self, identity_key: str) -> tuple[SealedFactRecord, ...]:
+        """The receipts sealed under one identity key, in seal order — the
+        subsequence :meth:`verify_no_gaps` checks for continuity."""
+        with self._lock:
+            seqs = self._by_identity.get(identity_key, [])
             return tuple(self._entries[s] for s in seqs)
 
     def __len__(self) -> int:
@@ -510,6 +623,32 @@ class SealedFactLedger:
             previous_hash = rec.record_hash
 
         return {"intact": True, "checked": len(entries), "break_at": None}
+
+    def verify_no_gaps(self) -> dict[str, Any]:
+        """The NEGATIVE-SPACE check: is any identity's receipt sequence broken?
+
+        ``verify_chain`` proves the *present* records are an unbroken, untampered
+        chain. This proves the complementary thing it cannot: that *none are
+        absent*. Per identity (the ``identity_key`` sealed by
+        :meth:`append_sequenced`), are the ``identity_seq`` values contiguous from
+        0 with no duplicates? A gap is a MISSING receipt — a deleted record, or
+        (when the seq is the actor's attested counter) an action that bypassed the
+        gate. Returns ``{complete, identities, sequenced_records, gaps,
+        duplicates}``.
+
+        Honest limit: absence is proven only relative to the committed sequence. A
+        contiguous tail-truncation is invisible here — caught instead by the
+        external anchor's committed size (``provenance/bundle.py``) — and the
+        bypass guarantee is bounded by how forgeable the counter's source is.
+        """
+        with self._lock:
+            entries = list(self._entries)
+        return _identity_sequence_gaps(
+            (
+                (r.fact.detail.get("identity_key"), r.fact.detail.get("identity_seq"))
+                for r in entries
+            )
+        )
 
     def verify_signatures(self, public_key_pem: bytes | None = None) -> dict[str, Any]:
         """

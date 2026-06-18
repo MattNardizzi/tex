@@ -113,13 +113,45 @@ def build_enforcement_fact(
     )
 
 
+def _identity_key_for(
+    agent_id: str | None, attested_identity: "AttestedIdentity | None"
+) -> str:
+    """The stable key an enforcement receipt is sequenced under.
+
+    Prefers the CRYPTOGRAPHICALLY ATTESTED identity, so the sequence binds to a
+    verified actor rather than a self-declared ``agent_id``; falls back to the
+    declared ``agent_id``, then to a single ``unattested`` bucket. This choice
+    decides *whose* receipts must form an unbroken sequence — i.e. whose missing
+    receipt reads as a bypass (see ``ledger.verify_no_gaps``). Shared by the
+    in-process gate path and the network-PEP path so both sequence identically.
+    """
+    if attested_identity is not None and attested_identity.verified:
+        agent = getattr(attested_identity, "claimed_agent_id", None) or (
+            agent_id or "unknown"
+        )
+        return f"attested:{attested_identity.issuer}:{agent}"
+    if agent_id is not None:
+        return f"declared:{agent_id}"
+    return "unattested:unknown"
+
+
 def seal_enforcement(
     ledger: SealedFactLedger | None,
     event: "GateEvent",
     *,
     attested_identity: "AttestedIdentity | None" = None,
+    action_sequence: int | None = None,
 ) -> SealedFactRecord | None:
     """Seal one ``ENFORCEMENT`` fact into ``ledger`` and return its record.
+
+    The fact is sealed with a PER-IDENTITY SEQUENCE NUMBER (via
+    ``ledger.append_sequenced``) so a *missing* receipt is detectable as a gap —
+    the negative-space property that turns "we record what we stopped" into "a
+    bypass is visible by the hole it leaves" (``ledger.verify_no_gaps``).
+    ``action_sequence`` is the actor's own attested monotonic counter when one is
+    available — it makes a true BYPASS detectable, not merely a deletion; when
+    ``None`` the ledger assigns the next contiguous number for the identity, which
+    still detects deletion/reordering of recorded receipts.
 
     Fail-closed and observation-only, mirroring ``seal_decision``:
       * ``ledger is None`` -> no-op, return ``None``.
@@ -129,8 +161,11 @@ def seal_enforcement(
     if ledger is None:
         return None
     try:
-        return ledger.append(
-            build_enforcement_fact(event, attested_identity=attested_identity)
+        fact = build_enforcement_fact(event, attested_identity=attested_identity)
+        agent_id = str(event.agent_id) if event.agent_id is not None else None
+        identity_key = _identity_key_for(agent_id, attested_identity)
+        return ledger.append_sequenced(
+            fact, identity_key=identity_key, claimed_seq=action_sequence
         )
     except Exception:  # pragma: no cover - defensive; a seal must never break the gate
         _logger.warning(
@@ -157,6 +192,7 @@ def seal_enforcement_decision(
     held: bool = False,
     request_id: str | None = None,
     attested_identity: "AttestedIdentity | None" = None,
+    action_sequence: int | None = None,
     source: str = "network_pep",
 ) -> SealedFactRecord | None:
     """Seal an ENFORCEMENT fact from a PEP decision (no ``GateEvent``).
@@ -208,14 +244,17 @@ def seal_enforcement_decision(
     if attested_identity is not None:
         detail["identity_attestation"] = attested_identity.to_detail()
     try:
-        return ledger.append(
+        identity_key = _identity_key_for(agent_id, attested_identity)
+        return ledger.append_sequenced(
             SealedFact(
                 kind=SealedFactKind.ENFORCEMENT,
                 subject_id=rid,
                 claim=claim,
                 maturity=_ENFORCEMENT_MATURITY,
                 detail=detail,
-            )
+            ),
+            identity_key=identity_key,
+            claimed_seq=action_sequence,
         )
     except Exception:  # pragma: no cover - defensive; a seal must never break the PEP
         _logger.warning(

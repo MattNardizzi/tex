@@ -54,6 +54,17 @@ class DiscoverySource(StrEnum):
     """
 
     MICROSOFT_GRAPH = "microsoft_graph"
+
+    # tex-conduit IdP consent-graph sources. Each platform gets its own member
+    # (never reuse one) because reconciliation_key is composed partly from the
+    # source; conflating two directories would corrupt it. MICROSOFT_GRAPH above
+    # is Entra's member and stays unchanged — the conduit connector is one shared
+    # implementation parameterized by a per-provider profile, not a new source.
+    OKTA = "okta"
+    GOOGLE_WORKSPACE = "google_workspace"
+    GCP_IAM = "gcp_iam"
+    PING = "ping"
+
     SALESFORCE = "salesforce"
     AWS_BEDROCK = "aws_bedrock"
     GITHUB = "github"

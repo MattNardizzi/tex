@@ -66,7 +66,7 @@ def test_callback_admin_consent_seals_grant(client, monkeypatch):
 
     cb = client.get(
         f"{_BASE}/callback",
-        params={"state": cid, "admin_consent": "True", "tenant": "contoso.onmicrosoft.com"},
+        params={"state": cid, "admin_consent": "True", "tenant": "contoso.onmicrosoft.com", "format": "json"},
     ).json()
 
     assert cb["connected"] is True
@@ -86,7 +86,7 @@ def test_callback_denied_seals_nothing(client, monkeypatch):
 
     cb = client.get(
         f"{_BASE}/callback",
-        params={"state": cid, "error": "access_denied", "error_description": "admin declined"},
+        params={"state": cid, "error": "access_denied", "error_description": "admin declined", "format": "json"},
     ).json()
     assert cb["connected"] is False
     assert cb["error"] == "access_denied"
@@ -99,7 +99,7 @@ def test_callback_tenant_mismatch_is_rejected(client, monkeypatch):
 
     cb = client.get(
         f"{_BASE}/callback",
-        params={"state": cid, "admin_consent": "True", "tenant": "evil.onmicrosoft.com"},
+        params={"state": cid, "admin_consent": "True", "tenant": "evil.onmicrosoft.com", "format": "json"},
     ).json()
     assert cb["connected"] is False
     assert cb["error"] == "tenant_mismatch"

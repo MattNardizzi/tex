@@ -107,11 +107,19 @@ def _consent_close_page(result: dict) -> str:
 
 
 def _respond(request: Request, result: dict):
-    """Browser redirect (Accept: text/html) -> the popup close page; an API/test
-    caller -> the JSON result. Same result either way."""
-    if "text/html" in request.headers.get("accept", "").lower():
-        return HTMLResponse(_consent_close_page(result))
-    return result
+    """The callback is hit by Microsoft's BROWSER redirect in production, so it
+    DEFAULTS to the popup-close page (postMessage to the opener + self-close).
+    JSON is returned only when explicitly asked for (``?format=json``) or for a
+    pure-JSON Accept. We cannot rely on the Accept header for the default,
+    because the Vercel proxy strips it — so the default must be HTML."""
+    fmt = request.query_params.get("format", "").strip().lower()
+    if fmt == "json":
+        return result
+    if fmt != "html":
+        accept = request.headers.get("accept", "").lower()
+        if "application/json" in accept and "text/html" not in accept:
+            return result
+    return HTMLResponse(_consent_close_page(result))
 
 
 def build_conduit_router() -> APIRouter:

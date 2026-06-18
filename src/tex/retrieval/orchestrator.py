@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 from tex.domain.evaluation import EvaluationRequest
@@ -10,6 +11,8 @@ from tex.domain.retrieval import (
     RetrievedPolicyClause,
     RetrievedPrecedent,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 class PolicyClauseStore(Protocol):
@@ -128,6 +131,13 @@ class RetrievalOrchestrator:
                 top_k=policy.retrieval_top_k,
             )
         except Exception as exc:
+            # Degrade gracefully — a retrieval fault must not explode a live PDP
+            # request — but log loudly so a misconfiguration (e.g. an adapter
+            # whose signature drifts from this protocol) cannot hide as a silent
+            # empty grounding context.
+            _logger.warning(
+                "policy clause retrieval failed: %s", type(exc).__name__, exc_info=exc
+            )
             warnings.append(f"policy_clause_retrieval_failed:{type(exc).__name__}")
             return tuple()
 
@@ -148,6 +158,9 @@ class RetrievalOrchestrator:
                 limit=policy.precedent_lookback_limit,
             )
         except Exception as exc:
+            _logger.warning(
+                "precedent retrieval failed: %s", type(exc).__name__, exc_info=exc
+            )
             warnings.append(f"precedent_retrieval_failed:{type(exc).__name__}")
             return tuple()
 
@@ -169,6 +182,9 @@ class RetrievalOrchestrator:
                 top_k=policy.retrieval_top_k,
             )
         except Exception as exc:
+            _logger.warning(
+                "entity retrieval failed: %s", type(exc).__name__, exc_info=exc
+            )
             warnings.append(f"entity_retrieval_failed:{type(exc).__name__}")
             return tuple()
 

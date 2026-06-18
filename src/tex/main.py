@@ -453,12 +453,17 @@ class InMemoryEntityStoreAdapter:
         self,
         *,
         request: EvaluationRequest,
-        limit: int,
+        policy: PolicySnapshot,
+        top_k: int,
     ) -> tuple[RetrievedEntity, ...]:
-        if limit <= 0:
+        # Signature must match the EntityStore protocol the orchestrator calls
+        # against: (*, request, policy, top_k). The in-memory store does lexical
+        # matching against the request content; ``policy`` is accepted for
+        # protocol conformance but not yet used for ranking here.
+        if top_k <= 0:
             return tuple()
 
-        return self._store.find_relevant(request=request, limit=limit)
+        return self._store.find_matching(text=request.content, limit=top_k)
 
 
 def _build_default_contract_suite() -> tuple[BehavioralContract, ...]:
@@ -1742,6 +1747,12 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         held_sink=runtime.held_decision_sink,
         provenance_engine=runtime.provenance_engine,
     )
+
+    # PROOF-CARRYING ENFORCEMENT: expose the decision ledger (built dormant
+    # unless TEX_SEAL_DECISIONS=1, see build_runtime) so /v1/govern/decide can
+    # seal a per-decision, offline-verifiable ENFORCEMENT receipt. None in the
+    # default deploy -> sealing is a no-op and production behaviour is unchanged.
+    app.state.decision_ledger = getattr(runtime.pdp, "_decision_ledger", None)
 
     # IN-PROCESS ENFORCEMENT (first-party). The same enforcement layer as the
     # network PEP at /v1/govern, in a second deployment shape: an in-process

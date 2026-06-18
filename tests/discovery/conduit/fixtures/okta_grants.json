@@ -1,0 +1,34 @@
+{
+  "0oaAAAAprovisioner01": [
+    {
+      "id": "oag1critical",
+      "status": "ACTIVE",
+      "created": "2026-01-04T10:01:00.000Z",
+      "scopeId": "okta.users.manage",
+      "source": "ADMIN",
+      "issuer": "https://acme.okta.com",
+      "clientId": "0oaAAAAprovisioner01"
+    },
+    {
+      "id": "oag2read",
+      "status": "ACTIVE",
+      "created": "2026-01-04T10:02:00.000Z",
+      "scopeId": "okta.apps.read",
+      "source": "ADMIN",
+      "issuer": "https://acme.okta.com",
+      "clientId": "0oaAAAAprovisioner01"
+    }
+  ],
+  "0oaBBBBreporter02": [
+    {
+      "id": "oag3logs",
+      "status": "ACTIVE",
+      "created": "2026-02-11T08:01:00.000Z",
+      "scopeId": "okta.logs.read",
+      "source": "ADMIN",
+      "issuer": "https://acme.okta.com",
+      "clientId": "0oaBBBBreporter02"
+    }
+  ],
+  "0oaCCCChrportal03": []
+}

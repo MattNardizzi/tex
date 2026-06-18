@@ -264,11 +264,14 @@ def test_ocsf_audit_connector_from_security_lake_ocsf():
 
 
 # --------------------------------------------------------------------------- 5. end-to-end ignition
-def test_ignite_maps_estate_counts_and_seals_births():
+def test_ignite_maps_estate_counts_and_seals_births(monkeypatch):
     """Click Begin -> real scan -> estate registered -> births sealed -> count spoken."""
     from fastapi.testclient import TestClient
     from tex.main import create_app
 
+    # This end-to-end test asserts a non-empty estate, so it opts into the
+    # first-run demo seed the session conftest suppresses by default.
+    monkeypatch.setenv("TEX_DISCOVERY_DEMO_SEED", "1")
     app = create_app()
     client = TestClient(app)
 
@@ -296,13 +299,16 @@ def test_ignite_maps_estate_counts_and_seals_births():
 
 
 # --------------------------------------------------------------------------- 6. standing system
-def test_standing_watch_dormancy_and_held_surfacing_wired():
+def test_standing_watch_dormancy_and_held_surfacing_wired(monkeypatch):
     """Lifespan start -> scheduler watches the demo tenant, sweeps dormancy,
     and surfaces reconciliation holds to the one /held voice queue."""
     import time
     from fastapi.testclient import TestClient
     from tex.main import create_app
 
+    # Standing watch needs a non-empty estate to surface holds, so opt into the
+    # first-run demo seed the session conftest suppresses by default.
+    monkeypatch.setenv("TEX_DISCOVERY_DEMO_SEED", "1")
     app = create_app()
     with TestClient(app) as client:  # 'with' triggers lifespan -> scheduler starts
         sched = app.state.scan_scheduler

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "0oaAAAAprovisioner01",
+    "name": "oidc_client",
+    "label": "Over-Privileged Provisioner",
+    "status": "ACTIVE",
+    "signOnMode": "OPENID_CONNECT",
+    "created": "2026-01-04T10:00:00.000Z",
+    "lastUpdated": "2026-05-30T09:12:00.000Z",
+    "settings": {
+      "oauthClient": {
+        "application_type": "service",
+        "grant_types": ["client_credentials"],
+        "token_endpoint_auth_method": "private_key_jwt"
+      }
+    }
+  },
+  {
+    "id": "0oaBBBBreporter02",
+    "name": "oidc_client",
+    "label": "Read-Only Reporter",
+    "status": "ACTIVE",
+    "signOnMode": "OPENID_CONNECT",
+    "created": "2026-02-11T08:00:00.000Z",
+    "lastUpdated": "2026-05-29T18:40:00.000Z",
+    "settings": {
+      "oauthClient": {
+        "application_type": "service",
+        "grant_types": ["client_credentials"],
+        "token_endpoint_auth_method": "private_key_jwt"
+      }
+    }
+  },
+  {
+    "id": "0oaCCCChrportal03",
+    "name": "template_saml_2_0",
+    "label": "HR Portal (human SSO)",
+    "status": "ACTIVE",
+    "signOnMode": "SAML_2_0",
+    "created": "2025-12-01T08:00:00.000Z",
+    "lastUpdated": "2026-04-02T12:00:00.000Z",
+    "settings": {}
+  }
+]

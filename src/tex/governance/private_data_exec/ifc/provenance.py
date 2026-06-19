@@ -298,6 +298,47 @@ class ProvenanceGraph:
             sorted(nid for nid, n in self._nodes.items() if n.kind is kind)
         )
 
+    def has_node(self, node_id: str) -> bool:
+        return node_id in self._nodes
+
+    def has_edge(self, *, source: str, target: str, kind: EdgeKind) -> bool:
+        """True iff an edge ``source -> target`` of ``kind`` exists.
+
+        Public, read-only predicate. The offline non-interference
+        verifier (``ifc.noninterference.verify_flow_proof``) uses this
+        to re-check every edge of a claimed witness path *independently*
+        of the search that produced it — it never trusts the proof's
+        own assertion that an edge exists.
+        """
+        if source not in self._nodes or target not in self._nodes:
+            return False
+        for existing in self._out_edges.get(source, ()):  # pragma: no branch
+            if existing.target == target and existing.kind is kind:
+                return True
+        return False
+
+    def data_flow_in_edges(
+        self, node_id: str
+    ) -> tuple[tuple[str, EdgeKind], ...]:
+        """Sorted ``(source_id, kind)`` for the data-flow edges into ``node_id``.
+
+        Data-flow edges are every in-edge EXCEPT ``COUNTERFACTUAL`` —
+        counterfactual edges encode causal influence (ARM's denial-
+        feedback channel), not value provenance, so they are not part of
+        the explicit information flow a confidentiality non-interference
+        check reasons over. Sorted so witness-path reconstruction is
+        deterministic for a given graph.
+        """
+        if node_id not in self._nodes:
+            return tuple()
+        records = [
+            (edge.source, edge.kind)
+            for edge in self._in_edges.get(node_id, ())
+            if edge.kind is not EdgeKind.COUNTERFACTUAL
+        ]
+        records.sort(key=lambda r: (r[0], r[1].value))
+        return tuple(records)
+
     # ── ARM Definition 4: MinTrust (taint propagation) ─────────────
 
     def min_trust(self, node_id: str) -> IntegrityLevel:

@@ -619,10 +619,18 @@ class TexEnforcementProxy:
         # about to send (closes the check-vs-commit / TOCTOU gap) and the pinned
         # audience.
         fresh_digest = permit.content_digest(body)
+        principal = (
+            str(decision.agent_id)
+            if decision.agent_id is not None
+            else decision.agent_external_id
+        )
         verification = permit.verify(
             minted.token,
             expected_content_digest=fresh_digest,
             expected_audience=recipient,
+            expected_action_type=decision.action_type,
+            expected_tenant=decision.tenant,
+            expected_agent_id=principal,
         )
         if not verification.ok:
             self._record_verification(

@@ -244,6 +244,8 @@ def verify(
     expected_content_digest: str | None = None,
     expected_audience: str | None = None,
     expected_action_type: str | None = None,
+    expected_tenant: str | None = None,
+    expected_agent_id: str | None = None,
 ) -> PermitVerification:
     """Verify a permit token. Never raises; any defect is a not-ok verdict.
 
@@ -284,5 +286,11 @@ def verify(
 
     if expected_action_type is not None and claims.get("act") != expected_action_type:
         return PermitVerification(False, "action_type mismatch", claims)
+
+    if expected_tenant is not None and claims.get("tn") != expected_tenant:
+        return PermitVerification(False, "tenant mismatch", claims)
+
+    if expected_agent_id is not None and claims.get("aid") != expected_agent_id:
+        return PermitVerification(False, "agent mismatch", claims)
 
     return PermitVerification(True, "ok", claims)

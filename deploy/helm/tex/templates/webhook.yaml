@@ -57,6 +57,13 @@ webhooks:
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
+      # Also validate ephemeral-container attachment (kubectl debug) so a
+      # privileged debug container cannot be injected post-admission. Mirrors the
+      # VAP matchConstraints; the /validate handler inspects ephemeralContainers.
+      - operations: ["UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods/ephemeralcontainers"]
     clientConfig:
       service:
         name: tex-operator

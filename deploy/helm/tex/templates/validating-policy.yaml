@@ -39,6 +39,16 @@ spec:
         apiVersions: ["v1"]
         operations: ["CREATE"]
         resources: ["pods"]
+      # Ephemeral containers are attached AFTER admission via an UPDATE on the
+      # pods/ephemeralcontainers subresource (`kubectl debug --target=app`).
+      # Without this rule a privileged debug container could be injected into a
+      # compliant pod's sandbox/PID namespace unmediated. Validation #4 below
+      # already inspects spec.ephemeralContainers, so matching the UPDATE makes it
+      # fire on that path too.
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"]
   matchConditions:
     # Skip pods that explicitly opted out. lowerAscii() matches _opted_out's
     # casefold (Python admits govern-exclude="True"); without it the VAP and the

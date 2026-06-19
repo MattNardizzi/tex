@@ -62,8 +62,13 @@ sidecarInjection:
 
 # Born-in-a-box admission: the DENY half. The injector above brings compliant
 # pods INTO the box; admission REFUSES governed-namespace pods that cannot be —
-# no approved sandbox runtimeClass, not injected, or a host escape. This is what
-# flips Tex from "enroll compliant pods" to "non-compliant agents cannot run".
+# no approved sandbox runtimeClass, not injected, a host escape, or a privileged
+# container (incl. ephemeral debug). HONEST SCOPE: this denies non-compliant pods
+# that flow THROUGH THE API SERVER. It does NOT stop static pods, direct CRI, or a
+# compromised kubelet (the eBPF node floor redirects their egress; the genuine
+# node-root — DICE/TPM measured boot + node attestation — is research, not shipped).
+# So this is "non-compliant agents cannot be SCHEDULED via the apiserver", not an
+# inescapable box. Off until you label a namespace tex.systems/govern=enabled.
 admission:
   # The ValidatingAdmissionPolicy (CEL, in-apiserver, GA k8s 1.30). DEFAULT ON:
   # it is fail-closed and has NO external dependency — unlike a webhook it cannot

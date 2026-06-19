@@ -16,7 +16,30 @@ from tex.authority.broker import _exchange_binding, _use_binding
 
 def _broker(issuer, **kw):
     src = LocalEd25519IdentitySource(trusted_issuers=issuer.trusted_map)
+    # A real deployment configures a scope_policy; model a permissive one here so
+    # the happy-path/PoP tests exercise the flow. The fail-closed no-policy case
+    # has its own test below.
+    kw.setdefault("scope_policy", lambda ident, requested: requested)
     return CredentialBroker(identity_source=src, **kw)
+
+
+def test_exchange_without_scope_policy_is_fail_closed(issuer, holder, make_assertion):
+    # No scope_policy and no allow_unrestricted_exchange => the broker REFUSES to
+    # echo the agent's requested scope (the RFC-8693 escalation footgun the merge
+    # review flagged: otherwise any proven identity mints any scope).
+    src = LocalEd25519IdentitySource(trusted_issuers=issuer.trusted_map)
+    b = CredentialBroker(identity_source=src)  # deliberately no scope_policy
+    assertion = make_assertion(cnf_jwk=holder.jwk, audience="vault.acme")
+    result = b.exchange(
+        assertion,
+        requested_scope=["secret:db"],
+        audience="vault.acme",
+        action="read_secret",
+        now=1000.0,
+        exchange_pop_proof=_exchange_proof(holder, "vault.acme", "read_secret", 1000.0),
+    )
+    assert not result.ok and "scope_policy" in result.reason
+    assert result.credential is None
 
 
 def _exchange_proof(holder, audience, action, now):

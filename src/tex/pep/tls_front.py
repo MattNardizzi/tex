@@ -1,6 +1,17 @@
 """
 TLS content-visibility front for the enforcement proxy (G9).
 
+WIRING STATUS (read first): BUILT + UNIT-TESTED, but NOT on the live deploy path.
+``TexEnforcementProxy``'s entrypoint (``__main__``) runs a PLAINTEXT uvicorn
+server; this ``TlsFront`` / ``InBoxCA`` is never instantiated outside tests.
+Activation is a deploy effort (a TLS-front listener on the eBPF proxy port, a
+constructed ``InBoxCA``, a loaded ``terminate_allowlist``, the agent trust store
+injected with the PUBLIC anchor) PLUS a Linux node. Also: the "fail visible, never
+silent" property below is only real once a deterministic gate rule maps
+``action_type=="https_opaque"`` → ABSTAIN/FORBID — NO engine rule consumes that
+marker yet (so a benign-scoring opaque request would currently PERMIT). Treat this
+module as research-early / test-only until both the wiring AND that gate rule land.
+
 This is the scoped, custody-disciplined in-box MITM terminator the design doc
 (``docs/blueprint/exec-layer/tls-visibility.md``) recommends. It sits in front of
 the EXISTING ``TexEnforcementProxy.handle(...)`` and, per connection:

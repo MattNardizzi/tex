@@ -1,10 +1,19 @@
 """
 tex.emission — the tool-call emission gate.
 
-A THIRD, EARLIER enforcement point off the same sealed ``CapabilitySurface`` the
-discovery filter and capability stream already read (discovery → **emission** →
+WIRING STATUS (read first): BUILT + UNIT-TESTED, but NOT yet on the live request
+path — no module in the proxy/request flow imports this package today. It is a
+ready-to-wire library, not an active enforcement point; ``PROXY_INTEGRATION.md``
+documents the call site a future activation step must add. The descriptions below
+state what this gate does ONCE WIRED, not current runtime behaviour. Approach B
+(``provider_rewrite``) is ``provider-trusted`` (the provider enforces the request
+Tex controls); only Approach A (``vllm_mapping``, a Tex-owned sampler) is true
+unrepresentability.
+
+Designed as a third, earlier enforcement point off the same sealed
+``CapabilitySurface`` the capability stream reads (discovery → **emission** →
 adjudication). Where adjudication *refuses* an emitted forbidden tool call, this
-gate aims to make that call **un-emittable**:
+gate is designed to make that call **un-emittable**:
 
   * ``constraint``        — the pure, sealable ``DecoderConstraint`` builder.
   * ``provider_rewrite``  — Approach B: re-assert the allowlist in a hosted

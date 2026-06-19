@@ -836,11 +836,13 @@ class TexEnforcementProxy:
             # agent refused our leaf under termination, or ECH/SNI could not be
             # pinned). We know only WHERE it is going (``recipient`` = SNI pinned
             # to the kernel orig_dst, else the orig_dst IP), never WHAT. Mark it
-            # ``https_opaque`` so the PDP can ABSTAIN on un-inspectable content
-            # instead of letting it slip through as a silent PERMIT-shaped
-            # ``http_<method>`` no-op (closes the G9 silent-no-op). The proxy does
-            # NOT itself force a verdict — it only labels the action honestly;
-            # ABSTAIN is the PDP's to raise (CLAUDE.md rule 2).
+            # ``https_opaque`` so the action is LABELLED honestly instead of
+            # slipping through as a silent PERMIT-shaped ``http_<method>`` no-op.
+            # HONEST CAVEAT: labelling alone does NOT yet close G9 — no engine/gate
+            # rule maps ``https_opaque`` -> ABSTAIN/FORBID today, so a benign-scoring
+            # opaque request would currently PERMIT. Activation MUST add that
+            # deterministic rule; the proxy only labels, ABSTAIN is the PDP's to
+            # raise (CLAUDE.md rule 2). Until then this MARKS the gap, not closes it.
             decision = Decision(
                 tenant=tenant,
                 action_type="https_opaque",

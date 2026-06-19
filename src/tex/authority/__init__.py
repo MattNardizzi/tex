@@ -1,9 +1,17 @@
 """
 Tex authority plane — the credential broker.
 
-Gating the *credential*, not the route: an inventoried agent holds no standing
-keys; every action that needs one obtains a fresh, short-lived, action-scoped
-credential from Tex, bound to its attested identity (and optionally
+WIRING STATUS (read first): BUILT + UNIT-TESTED, but NOT yet on the live path —
+no module in ``src/tex`` calls the broker today, and the property that a resource
+*refuses* anything but a Tex-issued credential is DEPLOYMENT configuration
+(federation / sole-token-custody proxy), not closed by this code. This package
+supplies the mint / verify / exchange / PoP machinery; "agents hold no standing
+keys" becomes true only once a deployment routes credential issuance through it
+and configures resources to demand it.
+
+Designed to gate the *credential*, not the route: an inventoried agent holds no
+standing keys; every action that needs one obtains a fresh, short-lived,
+action-scoped credential from Tex, bound to its attested identity (and optionally
 sender-constrained to a key the holder controls). See ``broker.py`` for the full
 doctrine and the honest enforced-here-vs-deployment boundary.
 

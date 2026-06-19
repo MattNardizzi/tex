@@ -148,6 +148,14 @@ def _rewrite_openai(
             # provider treats the turn as text-only, and pin tool_choice to none.
             body.pop("tools", None)
             body["tool_choice"] = "none"
+    elif constraint.constrains_tool_names:
+        # No usable `tools` array (missing or non-list), but a detected OpenAI
+        # request can still carry a FORCED `tool_choice` naming a forbidden tool.
+        # Narrow it fail-closed (kept=[]): a forbidden specific choice — or a
+        # "required"/"auto" with no permitted menu — collapses to "none".
+        body["tool_choice"] = _narrow_openai_tool_choice(
+            body.get("tool_choice"), [], constraint
+        )
     return body
 
 
@@ -220,6 +228,12 @@ def _rewrite_anthropic(body: dict[str, Any], constraint: DecoderConstraint) -> d
         if not kept:
             body["tools"] = []
             body["tool_choice"] = {"type": "none"}
+    elif constraint.constrains_tool_names:
+        # Symmetric fail-closed for a detected Anthropic request with no usable
+        # tools array but a forced tool_choice (e.g. {"type":"tool","name":X}).
+        body["tool_choice"] = _narrow_anthropic_tool_choice(
+            body.get("tool_choice"), [], constraint
+        )
     return body
 
 

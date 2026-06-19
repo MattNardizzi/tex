@@ -230,6 +230,7 @@ class CredentialBroker:
         allow_bearer: bool = False,
         require_exchange_pop: bool = True,
         scope_policy: ScopePolicy | None = None,
+        allow_unrestricted_exchange: bool = False,
     ) -> None:
         self._issuer = issuer
         self._store = store
@@ -240,6 +241,12 @@ class CredentialBroker:
         self._allow_bearer = allow_bearer
         self._require_exchange_pop = require_exchange_pop
         self._scope_policy = scope_policy
+        # Exchange is fail-closed on scope: with no ``scope_policy`` the broker
+        # REFUSES to grant the agent's requested scope (RFC 8693 says the AS
+        # decides scope — it must not blindly echo the request, or any proven
+        # identity could mint any scope for any audience). Set this True only for
+        # dev / a channel already constrained by mTLS to echo requested scope.
+        self._allow_unrestricted_exchange = allow_unrestricted_exchange
 
     # ---- mint ---------------------------------------------------------- #
 
@@ -580,12 +587,22 @@ class CredentialBroker:
             if isinstance(requested_scope, str)
             else {str(s) for s in (requested_scope or [])}
         )
-        granted = requested
         if self._scope_policy is not None:
             # Down-scope only: the policy can shrink the grant, never escalate it
             # beyond what was requested (RFC 8693 lets the AS narrow scope).
             allowed = {str(s) for s in self._scope_policy(subject.as_attested_identity(), requested)}
             granted = allowed & requested
+        elif self._allow_unrestricted_exchange:
+            granted = requested  # opt-in echo (dev / mTLS-constrained channel)
+        else:
+            # FAIL-CLOSED: no scope policy => grant nothing. A proven identity does
+            # not get to mint arbitrary scope just by asking; the deployment must
+            # configure a scope_policy (or opt into allow_unrestricted_exchange).
+            return ExchangeResult(
+                False,
+                "no scope_policy configured: exchange refuses to echo requested "
+                "scope (set a scope_policy, or allow_unrestricted_exchange for dev)",
+            )
 
         cnf_public_key = self._resolve_exchange_cnf(subject, audience, action, exchange_pop_proof, now)
         if isinstance(cnf_public_key, ExchangeResult):

@@ -212,3 +212,39 @@ def test_unknown_provider_returns_unchanged_copy() -> None:
     out = rewrite_provider_request(body, constraint)
     assert out == body
     assert out is not body  # a copy, never the original
+
+
+# --------------------------------------------------------------------------- #
+# Fail-open regression: a forced tool_choice with NO tools array must still     #
+# be narrowed (the bypass the merge review found).                             #
+# --------------------------------------------------------------------------- #
+
+
+def test_openai_forced_tool_choice_without_tools_array_is_blocked() -> None:
+    surface = CapabilitySurface(allowed_tools=["send_email"])
+    constraint = compile_constraint(surface)
+    # No `tools` array at all — only a forced choice naming a forbidden tool.
+    body = {
+        "model": "gpt-x",
+        "messages": [{"role": "user", "content": "hi"}],
+        "tool_choice": {"type": "function", "function": {"name": "transfer_funds"}},
+    }
+    assert detect_provider(body) == PROVIDER_OPENAI
+    out = rewrite_provider_request(body, constraint, provider=PROVIDER_OPENAI)
+    assert out["tool_choice"] == "none"  # fail-closed, not passed through
+    assert "transfer_funds" not in _names_in(out)
+
+
+def test_anthropic_forced_tool_choice_without_tools_array_is_blocked() -> None:
+    surface = CapabilitySurface(allowed_tools=["send_email"])
+    constraint = compile_constraint(surface)
+    body = {
+        "model": "claude-x",
+        "max_tokens": 256,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tool_choice": {"type": "tool", "name": "transfer_funds"},
+    }
+    assert detect_provider(body) == PROVIDER_ANTHROPIC
+    out = rewrite_provider_request(body, constraint, provider=PROVIDER_ANTHROPIC)
+    assert out["tool_choice"] == {"type": "none"}
+    assert "transfer_funds" not in _names_in(out)

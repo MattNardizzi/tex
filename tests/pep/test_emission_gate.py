@@ -565,3 +565,68 @@ def test_undecodable_encoding_labeled_opaque_body():
         )
         assert decision.action_type == "http_opaque_body", enc
         assert kind is None, enc
+
+
+# ── filtered discovery (tools/list) strips a forbidden tool on the http path ──
+
+
+def test_http_mode_piggyback_filters_tools_list_discovery():
+    """The discovery filter must ALSO strip a forbidden tool from a tools/list
+    response via the PRIMARY piggyback path — so an agent never even learns a
+    forbidden tool exists. (It used permits_action_type, which the piggyback
+    surface leaves unconstrained, so delete_database used to leak in discovery
+    even though the emission gate stripped it on the actual call.)"""
+
+    class _ToolsListForwarder:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def send(self, method, url, headers, body):
+            self.calls.append(
+                {"method": method, "url": url, "headers": headers, "body": body}
+            )
+            return UpstreamResponse(
+                status=200,
+                headers={"content-type": "application/json"},
+                body=json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "tools": [
+                                {"name": "get_weather"},
+                                {"name": "delete_database"},
+                            ]
+                        },
+                    }
+                ).encode("utf-8"),
+            )
+
+    permit_with_surface = DecisionResult(
+        released=True,
+        verdict="PERMIT",
+        reason="ok",
+        decision_id=str(uuid4()),
+        allowed_tools=("get_weather",),
+        surface_seal_hash="deadbeef",
+    )
+    fwd = _ToolsListForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(permit_with_surface),
+        forwarder=fwd,
+        governance=None,
+        surface_resolver=None,  # purely piggyback
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/mcp",
+        headers={"X-Tex-Upstream": "https://api.example"},
+        body=json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        ).encode("utf-8"),
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    returned = json.loads(resp.body)
+    names = [t["name"] for t in returned["result"]["tools"]]
+    assert names == ["get_weather"]  # delete_database stripped from DISCOVERY

@@ -659,6 +659,38 @@ def test_cross_tenant_credential_degrades_open_when_binding_off():
     assert fwd.calls  # degrade-open: aud left unchecked
 
 
+def test_no_credential_forbidden_when_tenant_binding_required():
+    # A MISSING credential cannot be bound to a tenant -> FORBID under the flag,
+    # even when require_identity is False. A missing card is strictly weaker than
+    # a no-aud card (already FORBIDden above), so it must not pass where that fails.
+    proxy, fwd = _tenant_proxy({}, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"X-Tex-Tenant": "t1", "X-Tex-Agent-Id": str(uuid4())},  # no cred
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert b"tenant" in resp.body.lower()
+    assert fwd.calls == []
+
+
+def test_no_credential_degrades_open_when_binding_off():
+    # Without the flag (and require_identity False), a missing credential still
+    # proceeds on the documented header-trust gap — unchanged default behaviour.
+    proxy, fwd = _tenant_proxy({}, require_tenant_binding=False)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"X-Tex-Tenant": "t1", "X-Tex-Agent-Id": str(uuid4())},  # no cred
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls
+
+
 # --------------------------------------------------------------------------- #
 # G10 — single-use content-bound permit                                        #
 # --------------------------------------------------------------------------- #

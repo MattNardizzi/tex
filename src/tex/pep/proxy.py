@@ -667,10 +667,17 @@ class TexEnforcementProxy:
         raw = h.get("x-tex-agent-credential")
 
         if not raw:
-            if cfg.require_identity:
+            # Fail-closed for tenant binding too: a MISSING card is strictly
+            # weaker evidence than a card with a wrong/absent aud (already
+            # FORBIDden below), so it must not pass where that card fails. When
+            # require_tenant_binding is on, a no-credential request cannot be
+            # bound to this tenant -> FORBID, even if require_identity is False.
+            if cfg.require_identity or cfg.require_tenant_binding:
                 return _IdentityCheck(
                     refuse=_refuse(
-                        "No agent credential presented (identity required).",
+                        "No agent credential presented (cannot bind to tenant)."
+                        if cfg.require_tenant_binding
+                        else "No agent credential presented (identity required).",
                         verdict="FORBID",
                     )
                 )
@@ -1061,13 +1068,18 @@ class TexEnforcementProxy:
         result = body.get("result")
         if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
             return upstream
-        permits = getattr(surface, "permits_action_type", None)
-        if not callable(permits):
-            return upstream
+        # Gate discovery on the TOOL-NAME allowlist (the dimension a piggyback
+        # surface carries), via the SAME compile the emission gate + sealed H use
+        # — so discovery, emission, and the seal all agree on one allowlist.
+        # (permits_action_type reads allowed_action_types, which the piggyback
+        # surface leaves empty -> it would keep every tool, leaking a forbidden
+        # tool's existence on the primary http path.) is_tool_allowed returns True
+        # when no name allowlist is declared, so an unrestricted surface is a no-op.
+        constraint = compile_constraint(surface)
         kept = [
             t
             for t in result["tools"]
-            if isinstance(t, dict) and permits(str(t.get("name", "")))
+            if isinstance(t, dict) and constraint.is_tool_allowed(str(t.get("name", "")))
         ]
         result["tools"] = kept
         new_body = json.dumps(body).encode("utf-8")
@@ -1113,9 +1125,15 @@ class TexEnforcementProxy:
 
     def _surface_from_decision(self, result: DecisionResult) -> Any | None:
         """Reconstruct a ``CapabilitySurface`` from a decision's piggybacked tool
-        subset, or ``None`` when none was carried. Race-free: the surface that
-        confined the PDP ruling is the surface that tightens the egressed bytes.
-        Fail-safe: a malformed payload yields None (the gate stays inert)."""
+        subset, or ``None`` when none was carried. The piggyback round-trips the
+        TOOL-NAME allowlist ONLY — NOT the full surface (e.g. recipient-domain
+        dims are not carried). That is exactly what the emission gate and filtered
+        discovery consume here (both read tool names via ``compile_constraint``;
+        the actuator never reads recipient regexes), so on the egressed bytes the
+        piggyback path is identical to in-process — but it is NOT a full-surface
+        equivalent, and a future gate dimension would need to be piggybacked too.
+        Race-free: the tool allowlist that confined the PDP ruling is the one that
+        tightens egress. Fail-safe: a malformed payload yields None (gate inert)."""
         allowed = getattr(result, "allowed_tools", None)
         if not allowed:
             return None

@@ -68,7 +68,9 @@ class DecisionResult:
     # round-trip). None => no tool restriction to apply (the gate leaves the body
     # unchanged). Only ever populated on a released outcome.
     allowed_tools: tuple[str, ...] | None = None
-    # Digest of the surface tool allowlist the tightening commits to.
+    # Digest of the surface tool allowlist, RECORDED for audit only — the PEP
+    # does NOT verify it against the piggybacked surface today (the gate tightens
+    # off allowed_tools, not this digest). An audit field, not a binding.
     surface_seal_hash: str | None = None
 
     @classmethod

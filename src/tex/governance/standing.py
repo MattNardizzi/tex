@@ -146,8 +146,11 @@ class DecisionOutcome:
     # released (PERMIT) outcome.
     allowed_tools: tuple[str, ...] | None = None
     # A stable digest of the resolved surface's tool allowlist (the emission
-    # constraint's ``H``), so a relying party can prove WHICH surface drove the
-    # tightening. None when there is no tool restriction to commit.
+    # constraint's ``H``), RECORDED for audit/observability so a relying party
+    # can see WHICH surface the PDP ruled under. HONEST SCOPE: the PEP does NOT
+    # currently verify this against the piggybacked surface — the emission gate
+    # tightens off ``allowed_tools``, not this digest — so today it is an audit
+    # field, not a binding. None when there is no tool restriction to commit.
     surface_seal_hash: str | None = None
 
     def to_jsonable(self) -> dict[str, Any]:

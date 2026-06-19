@@ -13,10 +13,26 @@ from uuid import uuid4
 from tex.domain.evaluation import EvaluationResponse
 from tex.domain.verdict import Verdict
 from tex.governance.standing import StandingGovernance
-from tex.pep.decision_client import Decision, InProcessDecisionClient
+from tex.identity.agent_credential import AttestedIdentity
+from tex.pep.decision_client import (
+    Decision,
+    DecisionClient,
+    DecisionResult,
+    InProcessDecisionClient,
+)
 from tex.pep.sealing import SealingDecisionClient
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFactKind
+
+
+class _StaticInner(DecisionClient):
+    """Returns a fixed result so the test isolates the sealing wrapper."""
+
+    def __init__(self, result: DecisionResult):
+        self._result = result
+
+    def decide(self, decision: Decision) -> DecisionResult:
+        return self._result
 
 
 class _EmptyRegistry:
@@ -111,3 +127,61 @@ def test_pep_permit_seals_executed_receipt():
     assert fact.detail["outcome"] == "executed"
     assert fact.detail["source"] == "network_pep"
     assert ledger.verify_chain()["intact"] is True
+
+
+def test_per_request_attested_identity_is_sealed():
+    # The PEP verifies a credential (G6) and threads the AttestedIdentity onto
+    # the Decision; the receipt (G4) must carry that attested identity.
+    ledger = SealedFactLedger()
+    inner = _StaticInner(
+        DecisionResult(
+            released=True, verdict="PERMIT", reason="ok", decision_id=str(uuid4())
+        )
+    )
+    client = SealingDecisionClient(inner, ledger)
+    att = AttestedIdentity(
+        verified=True, status="verified", issuer="issuer-1", claimed_agent_id="agent-x"
+    )
+    client.decide(
+        Decision(
+            tenant="acme",
+            action_type="wire",
+            content="c",
+            channel="mcp",
+            environment="production",
+            attested_identity=att,
+        )
+    )
+    fact = client.records[0].fact
+    assert fact.detail["identity_attestation"]["verified"] is True
+    assert fact.detail["identity_attestation"]["claimed_agent_id"] == "agent-x"
+    assert "ATTESTED" in fact.claim
+    assert ledger.verify_chain()["intact"] is True
+
+
+def test_per_request_identity_overrides_static_fallback():
+    # A per-request attested identity must win over the constructor's static one.
+    ledger = SealedFactLedger()
+    inner = _StaticInner(
+        DecisionResult(released=True, verdict="PERMIT", reason="ok")
+    )
+    static = AttestedIdentity(
+        verified=False, status="unsigned", issuer=None, claimed_agent_id="static-id"
+    )
+    per_request = AttestedIdentity(
+        verified=True, status="verified", issuer="iss", claimed_agent_id="req-id"
+    )
+    client = SealingDecisionClient(inner, ledger, attested_identity=static)
+    client.decide(
+        Decision(
+            tenant="acme",
+            action_type="x",
+            content="c",
+            channel="mcp",
+            environment="production",
+            attested_identity=per_request,
+        )
+    )
+    attestation = client.records[0].fact.detail["identity_attestation"]
+    assert attestation["claimed_agent_id"] == "req-id"
+    assert attestation["verified"] is True

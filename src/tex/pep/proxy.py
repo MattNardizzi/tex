@@ -347,6 +347,7 @@ class TexEnforcementProxy:
             agent_id=agent_id,
             agent_external_id=agent_external_id,
             session_id=session_id,
+            attested_identity=ident.attested,
         )
 
         result = self._decide.decide(decision)
@@ -609,6 +610,7 @@ class TexEnforcementProxy:
         agent_id: UUID | None,
         agent_external_id: str | None,
         session_id: str | None,
+        attested_identity: AttestedIdentity | None = None,
     ) -> tuple[Decision, str | None]:
         cap = self._config.max_content_bytes
         mcp_kind: str | None = None
@@ -648,6 +650,7 @@ class TexEnforcementProxy:
             agent_id=agent_id,
             agent_external_id=agent_external_id,
             session_id=session_id,
+            attested_identity=attested_identity,
         )
         return decision, mcp_kind
 

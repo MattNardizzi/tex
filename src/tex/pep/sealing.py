@@ -36,10 +36,13 @@ class SealingDecisionClient(DecisionClient):
     """A ``DecisionClient`` that seals a proof-carrying receipt for each decision.
 
     Wraps ``inner`` (an ``InProcessDecisionClient`` / ``HttpDecisionClient``) and
-    seals into ``ledger``. ``attested_identity`` (Phase 2), when set, binds every
-    sealed fact to a cryptographically attested identity instead of the
-    self-declared one. Sealed records also accumulate in ``records`` for
-    inspection; the durable proof lives in the ledger.
+    seals into ``ledger``. Identity binding (Phase 2): a per-request
+    ``Decision.attested_identity`` (set by the PEP after it verifies the agent's
+    credential, G6) takes precedence; the constructor's ``attested_identity`` is
+    the static fallback for callers that bind one identity to every decision.
+    When neither is set the receipt records the self-declared id, unchanged.
+    Sealed records also accumulate in ``records`` for inspection; the durable
+    proof lives in the ledger.
     """
 
     __slots__ = ("_inner", "_ledger", "_attested_identity", "records", "last_error")
@@ -59,6 +62,8 @@ class SealingDecisionClient(DecisionClient):
 
     def decide(self, decision: Decision) -> DecisionResult:
         result = self._inner.decide(decision)
+        # Per-request attested identity (G6) wins over the static fallback.
+        attested = decision.attested_identity or self._attested_identity
         try:
             record = seal_enforcement_decision(
                 self._ledger,
@@ -77,7 +82,7 @@ class SealingDecisionClient(DecisionClient):
                 reason=result.reason,
                 tier=result.tier,
                 held=result.held,
-                attested_identity=self._attested_identity,
+                attested_identity=attested,
             )
             if record is not None:
                 self.records.append(record)

@@ -306,6 +306,41 @@ def test_no_credential_proceeds_by_default_documented_gap():
     assert fwd.calls
 
 
+def test_proxy_seals_receipt_with_per_request_attested_identity():
+    # End-to-end: the proxy verifies the credential (G6) AND the wrapped sealing
+    # client writes a receipt (G4) carrying that exact attested identity.
+    from tex.pep.sealing import SealingDecisionClient
+    from tex.provenance.ledger import SealedFactLedger
+
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id)
+    ledger = SealedFactLedger()
+    sealing = SealingDecisionClient(_StaticClient(_permit()), ledger)
+    fwd = _RecordingForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=sealing,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(trusted_issuers=issuers),
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert len(sealing.records) == 1
+    attestation = sealing.records[0].fact.detail["identity_attestation"]
+    assert attestation["verified"] is True
+    assert attestation["claimed_agent_id"] == agent_id
+    assert ledger.verify_chain()["intact"] is True
+
+
 def test_verified_credential_fills_in_absent_principal():
     # No agent header at all, but a verified credential carries the id: we rule
     # on the attested id rather than an anonymous request.

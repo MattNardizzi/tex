@@ -34,16 +34,16 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     url="https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/${gvisor_arch}"; \
+    # gVisor's .sha512 is `<hash>  <bare-filename>`; download into /usr/local/bin
+    # and verify there so sha512sum -c resolves the bare name against the binary.
+    cd /usr/local/bin; \
     for bin in runsc containerd-shim-runsc-v1; do \
-        curl -fsSL "${url}/${bin}" -o "/usr/local/bin/${bin}"; \
-        curl -fsSL "${url}/${bin}.sha512" -o "/tmp/${bin}.sha512"; \
-        # the published .sha512 references the file by its release path; rewrite
-        # to the local name so sha512sum -c can find it.
-        sed "s#.*${bin}#/usr/local/bin/${bin}#" "/tmp/${bin}.sha512" > "/tmp/${bin}.local.sha512"; \
-        sha512sum -c "/tmp/${bin}.local.sha512"; \
-        chmod 0755 "/usr/local/bin/${bin}"; \
+        curl -fsSL "${url}/${bin}" -o "${bin}"; \
+        curl -fsSL "${url}/${bin}.sha512" -o "${bin}.sha512"; \
+        sha512sum -c "${bin}.sha512"; \
+        chmod 0755 "${bin}"; \
+        rm -f "${bin}.sha512"; \
     done; \
-    rm -f /tmp/*.sha512; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
     # sanity: the shim and sandbox are on PATH where containerd will look.

@@ -54,6 +54,13 @@ operator:
   port: 8443
   # cert-manager is the prerequisite for the webhook's serving cert.
   certManager: true
+  # Self-bootstrap the official `kubernetes` python client at operator startup
+  # (into a writable dir, prepended to PYTHONPATH) so the EnrollmentController's
+  # namespace watch can run on an image that does not bake the client in.
+  # DEFAULT OFF: production should bake the client into the image; this is the
+  # no-image-rebuild path the local kind harness (scripts/kind/) turns ON. It
+  # adds a one-time pip install at pod start and needs egress to PyPI.
+  installKubernetesClient: false
 
 # Per-pod auto-injection via the mutating webhook (portable, no node privilege).
 sidecarInjection:

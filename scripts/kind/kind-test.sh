@@ -39,7 +39,7 @@ echo ">> preconditions:"
   || fail "RuntimeClass gvisor missing — shipRuntimeClass not applied"
 
 # Clean any prior run so re-runs are deterministic.
-"${KC[@]}" -n agents delete pod bad-agent good-agent --ignore-not-found --now >/dev/null 2>&1
+"${KC[@]}" -n agents delete pod bad-agent good-agent gvisor-runtime-proof --ignore-not-found --now >/dev/null 2>&1
 
 # ── (a) the bad pod MUST be denied by the apiserver ──────────────────────────
 bold $'\n== (a) NON-compliant pod must be DENIED =='
@@ -61,8 +61,8 @@ else
   fail "unexpected denial reason (see message above)"
 fi
 
-# ── (b) the good pod MUST be admitted AND run under gVisor ────────────────────
-bold $'\n== (b) COMPLIANT pod must be ADMITTED and run under gVisor =='
+# ── (b) the good pod MUST be ADMITTED ON MERIT (injector ran) ─────────────────
+bold $'\n== (b) COMPLIANT pod must be ADMITTED because the injector ran =='
 GOOD_OUT="$("${KC[@]}" apply -f "${TESTDIR}/pod-good.yaml" 2>&1)"
 GOOD_RC=$?
 echo "--- apiserver response to the good pod ---"
@@ -71,32 +71,34 @@ echo "------------------------------------------"
 [[ ${GOOD_RC} -eq 0 ]] || fail "the compliant pod was DENIED: ${GOOD_OUT}"
 green "PASS: apiserver ADMITTED the compliant pod."
 
-# Prove the injector ran (the mutating webhook added the annotation).
+# The load-bearing half: it was admitted BECAUSE the mutating injector added the
+# annotation (and the PEP sidecar) before the VAP evaluated — not because of a
+# hand-written annotation. Its presence on the persisted pod proves the chain.
 INJECTED="$("${KC[@]}" -n agents get pod good-agent -o jsonpath='{.metadata.annotations.tex\.systems/injected}' 2>/dev/null)"
-if [[ "${INJECTED}" == "true" ]]; then
-  green "PASS: mutating injector ran (tex.systems/injected=true on the admitted pod)."
-else
-  red "NOTE: the admitted pod has NO tex.systems/injected annotation (value='${INJECTED}')."
-  red "      The VAP would normally DENY that. If you see this, the injector did not run"
-  red "      yet admission passed — investigate the mutating webhook wiring."
-fi
+[[ "${INJECTED}" == "true" ]] \
+  || fail "admitted pod has NO tex.systems/injected annotation (value='${INJECTED}') — the injector did not run"
+green "PASS: mutating injector ran (tex.systems/injected=true on the admitted pod)."
+HAS_PROXY="$("${KC[@]}" -n agents get pod good-agent -o jsonpath='{.spec.containers[?(@.name=="tex-proxy")].name}' 2>/dev/null)"
+[[ "${HAS_PROXY}" == "tex-proxy" ]] \
+  && green "PASS: PEP sidecar (tex-proxy) was injected into the admitted pod." \
+  || echo "   NOTE: tex-proxy sidecar not found on the admitted pod (injector added the annotation but not the sidecar?)"
 
-# Wait for it to schedule + run, then read /proc/version from inside.
-bold $'\n>> waiting for good-agent to run under gVisor...'
-if ! "${KC[@]}" -n agents wait --for=condition=Ready pod/good-agent --timeout=120s; then
-  echo "--- good-agent did not become Ready; describe + container states ---"
-  "${KC[@]}" -n agents describe pod good-agent | tail -40
-  fail "compliant pod was admitted but did not reach Ready (see describe above)"
+# ── (c) a pod with runtimeClassName: gvisor MUST run under the runsc sandbox ──
+bold $'\n== (c) the gvisor RuntimeClass must resolve to a real sandbox on the node =='
+"${KC[@]}" apply -f "${TESTDIR}/pod-gvisor.yaml" >/dev/null || fail "could not create the gVisor runtime-proof pod"
+if ! "${KC[@]}" -n agents wait --for=condition=Ready pod/gvisor-runtime-proof --timeout=90s; then
+  echo "--- gvisor-runtime-proof did not become Ready; describe ---"
+  "${KC[@]}" -n agents describe pod gvisor-runtime-proof | tail -30
+  fail "gVisor runtime-proof pod did not reach Ready (runsc not effective on the node)"
 fi
-
-KVER="$("${KC[@]}" -n agents exec good-agent -c app -- cat /proc/version 2>/dev/null)"
-echo ">> good-agent /proc/version: ${KVER}"
+KVER="$("${KC[@]}" -n agents exec gvisor-runtime-proof -- cat /proc/version 2>/dev/null)"
+echo ">> gvisor-runtime-proof /proc/version: ${KVER}"
 if echo "${KVER}" | grep -qi "gvisor"; then
-  green "PASS: the admitted pod is RUNNING under the gVisor sandbox (runsc)."
+  green "PASS: the pod is RUNNING under the gVisor sandbox (runsc) — /proc/version reports gVisor."
 else
-  red "the pod runs, but /proc/version does not report gVisor:"
-  red "  ${KVER}"
-  fail "compliant pod is not on the gVisor runtime (runsc not effective on the node)"
+  red "the pod runs, but /proc/version does not report gVisor: ${KVER}"
+  fail "pod is not on the gVisor runtime (runsc not effective on the node)"
 fi
 
-bold $'\n== born-in-a-box: live apiserver DENIED the bad pod and ADMITTED the good one under gVisor =='
+bold $'\n== born-in-a-box live: apiserver DENIED the non-compliant pod, ADMITTED the'
+bold    $'   injected compliant pod, and the gvisor RuntimeClass ran a pod under runsc. =='

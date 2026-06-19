@@ -64,9 +64,10 @@ tex-image:
 	docker build -t $(TEX_APP_IMAGE) .
 	@echo ">> loading $(TEX_APP_IMAGE) into kind node"
 	kind load docker-image $(TEX_APP_IMAGE) --name $(CLUSTER_NAME)
-	@echo ">> pre-pulling + loading injected sidecar image $(INJECT_IMAGE)"
-	docker pull $(INJECT_IMAGE)
-	kind load docker-image $(INJECT_IMAGE) --name $(CLUSTER_NAME)
+	@echo ">> pre-pulling injected sidecar image $(INJECT_IMAGE) onto the node"
+	# Pull on the node directly (crictl): a stale docker-credential-* helper on
+	# the host can break `kind load`, and the node has its own registry egress.
+	docker exec $(CLUSTER_NAME)-control-plane crictl pull $(INJECT_IMAGE)
 
 # cert-manager is the prerequisite for the operator's webhook serving cert.
 cert-manager:
@@ -97,6 +98,7 @@ kind-install:
 	  --set pdp.persistence.enabled=false \
 	  --set operator.enabled=true \
 	  --set operator.certManager=true \
+	  --set operator.installKubernetesClient=true \
 	  --set sidecarInjection.enabled=true \
 	  --set admission.webhook.enabled=true \
 	  --set admission.validatingPolicy.enabled=true \

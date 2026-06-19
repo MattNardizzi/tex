@@ -32,6 +32,7 @@ from tex.pep.proxy import (
     ResolvedDst,
     TexEnforcementProxy,
     UpstreamResponse,
+    _base_from_dst,
 )
 
 
@@ -656,3 +657,83 @@ def test_forbidden_decision_mints_no_permit(monkeypatch):
     assert resp.status == 403
     assert fwd.calls == []
     assert mem.verifications.list_recent() == ()  # no permit lifecycle at all
+
+
+# --------------------------------------------------------------------------- #
+# G9 — https_opaque marker + rule_opaque + upstream-scheme fix                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_to_decision_opaque_marks_https_opaque_not_silent_http():
+    # The first slice: an opaque/TLS-unreadable body becomes an explicit
+    # `https_opaque` action on the (pinned) recipient — NOT a silent `http_<method>`
+    # default the PDP would tend to PERMIT.
+    proxy = TexEnforcementProxy(decision_client=_StaticClient(_permit()))
+    decision, mcp = proxy._to_decision(
+        method="CONNECT",
+        path="",
+        body=b"\x16\x03\x01garbage-ciphertext",  # looks like a TLS record, unreadable
+        tenant="default",
+        recipient="api.openai.com",
+        agent_id=None,
+        agent_external_id=None,
+        session_id=None,
+        opaque=True,
+    )
+    assert decision.action_type == "https_opaque"
+    assert decision.recipient == "api.openai.com"
+    assert decision.channel == "network"
+    assert "not inspectable" in decision.content
+    assert mcp is None
+    # The non-opaque default is unchanged (regression guard for the silent path).
+    plain, _ = proxy._to_decision(
+        method="GET", path="/p", body=b"", tenant="default", recipient="h",
+        agent_id=None, agent_external_id=None, session_id=None,
+    )
+    assert plain.action_type == "http_get"
+
+
+def test_rule_opaque_permit_releases_and_seals_executed():
+    from tex.provenance.ledger import SealedFactLedger
+
+    ledger = SealedFactLedger()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(_permit()), seal_ledger=ledger,
+        config=ProxyConfig(default_agent_external_id="sidecar-agent"),
+    )
+    result = proxy.rule_opaque(recipient="api.example")
+    assert result.released is True
+    # Ruled as https_opaque (the PDP saw an opaque action, not a forged http_get).
+    assert proxy._decide.last.action_type == "https_opaque"
+    assert proxy._decide.last.recipient == "api.example"
+    assert proxy._decide.last.agent_external_id == "sidecar-agent"
+    detail = proxy.seal_records[0].fact.detail
+    assert detail["outcome"] == "executed"  # committed to splice
+    assert ledger.verify_chain()["intact"] is True
+
+
+def test_rule_opaque_non_permit_does_not_release_and_seals_blocked():
+    from tex.provenance.ledger import SealedFactLedger
+
+    ledger = SealedFactLedger()
+    abstain = DecisionResult(released=False, verdict="ABSTAIN", reason="opaque content")
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(abstain), seal_ledger=ledger
+    )
+    result = proxy.rule_opaque(recipient="unknown.example")
+    assert result.released is False
+    assert result.verdict == "ABSTAIN"
+    detail = proxy.seal_records[0].fact.detail
+    assert detail["outcome"] == "blocked"  # never spliced -> fail-closed
+
+
+def test_base_from_dst_does_not_downgrade_unknown_ports_to_http():
+    # The fix: only port 80 is treated as plaintext; 443 AND unknown ports default
+    # to https (no silent downgrade). An explicit tls flag overrides the guess.
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 80)) == "http://10.0.0.1:80"
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 443)) == "https://10.0.0.1:443"
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 8443)) == "https://10.0.0.1:8443"
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 9999)) == "https://10.0.0.1:9999"
+    # explicit transport hint wins both ways
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 8080, tls=False)) == "http://10.0.0.1:8080"
+    assert _base_from_dst(ResolvedDst("10.0.0.1", 80, tls=True)) == "https://10.0.0.1:80"

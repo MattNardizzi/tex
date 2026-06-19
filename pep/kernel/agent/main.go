@@ -232,34 +232,66 @@ func main() {
 	// high-confidence FORBID destinations are pushed; everything else flows
 	// through the redirect to the proxy for the full decision. Absence is
 	// never permit.
+	//
+	// RECONCILE, not Put-only: each tick we compute the new desired forbid set,
+	// Put the new/refreshed entries AND Delete the ones WE previously installed
+	// that are no longer forbidden. The old warm() only ever Put, so a
+	// destination removed from the PDP's forbid-set stayed blocked in-kernel
+	// until LRU eviction — a de-listed dst could be FORBIDden for an unbounded
+	// window. We track only the keys we installed and never touch foreign keys.
 	ctx := context.Background()
+	warmed4 := make(map[dstKey]bool)
+	warmed6 := make(map[dst6Key]bool)
 	warm := func() {
 		set, err := fetchForbidSet(ctx, pdpBase, pdpKey)
 		if err != nil {
+			// Fail-closed: on a fetch error we DO NOT reconcile/delete — a
+			// briefly-unreachable PDP must not wipe the live forbid set. The
+			// existing entries keep blocking until the next successful refresh.
 			log.Printf("forbid-set refresh failed (cache unchanged): %v", err)
 			return
 		}
-		var n4, n6 int
+		next4 := make(map[dstKey]bool)
+		next6 := make(map[dst6Key]bool)
 		for _, d := range set {
 			ip := net.ParseIP(d.IP)
 			if ip == nil {
 				continue
 			}
 			if v4 := ip.To4(); v4 != nil {
-				k := dstKey{IP4: ipToBE(ip), Port: htons(d.Port)}
-				_ = objs.VerdictCache.Put(k, verdictForbid)
-				n4++
+				next4[dstKey{IP4: ipToBE(ip), Port: htons(d.Port)}] = true
 				// A v4 dst may also be reached over a v6 socket as a
 				// v4-mapped address; warm that form in the v6 cache too.
-				k6 := dst6Key{IP6: ip6ToBE(ip), Port: htons(d.Port)}
-				_ = objs.VerdictCache6.Put(k6, verdictForbid)
+				next6[dst6Key{IP6: ip6ToBE(ip), Port: htons(d.Port)}] = true
 			} else {
-				k6 := dst6Key{IP6: ip6ToBE(ip), Port: htons(d.Port)}
-				_ = objs.VerdictCache6.Put(k6, verdictForbid)
-				n6++
+				next6[dst6Key{IP6: ip6ToBE(ip), Port: htons(d.Port)}] = true
 			}
 		}
-		log.Printf("verdict caches warmed: %d v4, %d v6 forbid destinations", n4, n6)
+		// Put new/refreshed entries (idempotent; refresh keeps LRU entries warm).
+		for k := range next4 {
+			_ = objs.VerdictCache.Put(k, verdictForbid)
+		}
+		for k := range next6 {
+			_ = objs.VerdictCache6.Put(k, verdictForbid)
+		}
+		// Delete entries we installed that fell out of the forbid set.
+		var del4, del6 int
+		for k := range warmed4 {
+			if !next4[k] {
+				_ = objs.VerdictCache.Delete(k)
+				del4++
+			}
+		}
+		for k := range warmed6 {
+			if !next6[k] {
+				_ = objs.VerdictCache6.Delete(k)
+				del6++
+			}
+		}
+		warmed4 = next4
+		warmed6 = next6
+		log.Printf("verdict caches reconciled: %d v4 + %d v6 forbid entries (removed %d v4, %d v6 de-listed)",
+			len(next4), len(next6), del4, del6)
 	}
 	warm()
 	ticker := time.NewTicker(30 * time.Second)

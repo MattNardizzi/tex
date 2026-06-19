@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID, uuid4
@@ -107,6 +108,12 @@ class ProxyConfig:
     # being a non-expiring, anywhere-valid bearer token.
     pep_audience: str | None = None
     require_credential_expiry: bool = False
+    # G7 (vhost binding) — when True (default), a kernel-pinned connection that
+    # carries a Host header rules policy on the HOSTNAME and requires that host to
+    # resolve to the kernel-pinned IP. This catches a forbidden vhost co-located
+    # on an allowed IP (CDN / shared host) and refuses a Host naming an unrelated
+    # IP. False falls back to ruling on the IP alone (the coarser prior behaviour).
+    require_host_dst_match: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +276,7 @@ class TexEnforcementProxy:
         origdst: OrigDstResolver | None = None,
         permit_memory: Any | None = None,
         seal_ledger: Any | None = None,
+        host_resolver: "Callable[[str], set[str]] | None" = None,
     ) -> None:
         self._decide = decision_client
         self._forward = forwarder or HttpxForwarder()
@@ -283,6 +291,9 @@ class TexEnforcementProxy:
         # => seal nothing (gated off by default in __main__, as before).
         self._seal_ledger = seal_ledger
         self.seal_records: list[Any] = []
+        # G7 vhost binding — host -> resolved IP set (default: system DNS).
+        # Injectable for tests and to swap in a pinned/cached resolver.
+        self._host_resolver = host_resolver or _default_host_ips
         # G10 — durable permit subsystem (a MemorySystem-like object exposing
         # issue_permit / verify_permit / .permits). None => no egress permits
         # (today's behaviour, documented). When present, every released action
@@ -333,6 +344,27 @@ class TexEnforcementProxy:
                 "No upstream resolved; refusing to forward blind.", verdict="FORBID"
             )
         recipient = _host_of(upstream_base)
+
+        # ---- G7 (vhost binding): the kernel pins the TCP destination to an IP,
+        # but the agent's Host header still selects which vhost on that IP the
+        # bytes reach. Ruling on the IP alone misses a FORBIDDEN hostname
+        # co-located on an ALLOWED IP (CDN / shared host). So when the dst is
+        # kernel-verified and a Host is present, require the host to resolve to
+        # the pinned IP and rule policy on the NAME the bytes actually reach.
+        if (
+            dst_trusted
+            and verified_dst is not None
+            and self._config.require_host_dst_match
+        ):
+            vhost = _hostname_only(h.get("host"))
+            if vhost and vhost != verified_dst.ip:
+                if verified_dst.ip not in self._host_ips(vhost):
+                    return _refuse(
+                        f"Host {vhost!r} does not resolve to the kernel-verified "
+                        f"destination {verified_dst.ip}; refusing vhost/IP mismatch.",
+                        verdict="FORBID",
+                    )
+                recipient = vhost  # rule policy on the hostname the bytes reach
 
         agent_id = _as_uuid(h.get("x-tex-agent-id")) or _as_uuid(
             self._config.default_agent_id
@@ -436,6 +468,15 @@ class TexEnforcementProxy:
         except Exception:  # noqa: BLE001 — a resolver fault degrades to fallback
             _logger.warning("PEP: orig_dst resolve raised for peer=%s", peer, exc_info=True)
             return None
+
+    def _host_ips(self, host: str) -> set[str]:
+        """Resolved IPs for a vhost. Fail-closed: a resolver error returns an
+        empty set, which makes the kernel-IP pin check refuse the request."""
+        try:
+            return set(self._host_resolver(host))
+        except Exception:  # noqa: BLE001 — a resolver fault must not fail open
+            _logger.warning("PEP: host resolve raised for %r", host, exc_info=True)
+            return set()
 
     # ------------------------------------------------------------------ G6 identity
 
@@ -861,6 +902,30 @@ def _host_of(base_url: str) -> str | None:
         return urlparse(base_url).hostname
     except Exception:  # noqa: BLE001
         return None
+
+
+def _default_host_ips(host: str) -> set[str]:
+    """System-DNS resolution of a hostname to its IP set (A + AAAA)."""
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return set()
+    return {info[4][0] for info in infos}
+
+
+def _hostname_only(value: str | None) -> str | None:
+    """The bare hostname from a Host header, dropping any ``:port`` and brackets."""
+    if not value:
+        return None
+    host = value.strip()
+    if host.startswith("["):  # [::1]:443 -> ::1
+        end = host.find("]")
+        return (host[1:end] if end != -1 else host[1:]) or None
+    if host.count(":") == 1:  # example.com:443 / 10.0.0.5:443 -> drop port
+        host = host.split(":", 1)[0]
+    return host or None
 
 
 def _try_json(body: bytes) -> Any:

@@ -129,26 +129,103 @@ def test_decides_and_forwards_on_kernel_dst_not_spoofed_host():
         decision_client=client,
         forwarder=fwd,
         origdst=_FakeResolver(ResolvedDst("10.0.0.5", 80)),
+        # The vhost legitimately lives on the kernel-pinned IP.
+        host_resolver=lambda h: {"10.0.0.5"} if h == "allowed-api.example" else set(),
     )
     resp = proxy.handle(
         method="POST",
         path="/v1/data",
-        # The agent spoofs an allowed host; the kernel dst says otherwise.
+        # The agent's X-Tex-Upstream is ignored; the kernel dst pins the IP and
+        # the Host (pinned to that IP) is what policy rules on.
         headers={
             "Host": "allowed-api.example",
-            "X-Tex-Upstream": "https://allowed-api.example",
+            "X-Tex-Upstream": "https://elsewhere.example",
         },
         body=b"payload",
         peer=("172.16.0.9", 51111),
     )
     assert resp.status == 200
-    # Ruled on the KERNEL dst, not the spoofed Host.
+    # Ruled on the Host pinned to the kernel IP — not the spoofable X-Tex-Upstream.
     assert client.last is not None
-    assert client.last.recipient == "10.0.0.5"
-    # Forwarded to the kernel dst ip:port, not allowed-api.example.
+    assert client.last.recipient == "allowed-api.example"
+    # Forwarded to the kernel dst ip:port; the connection can't be moved.
     assert fwd.calls[0]["url"] == "http://10.0.0.5:80/v1/data"
-    # Host preserved as display/vhost-only (dst pinned to the verified IP).
     assert fwd.calls[0]["headers"].get("Host") == "allowed-api.example"
+
+
+def test_host_not_resolving_to_kernel_ip_is_forbidden():
+    # A Host naming a vhost that does NOT resolve to the kernel-pinned IP is a
+    # mismatch — refused before the PDP (closes "claim an allowed name while the
+    # IP is elsewhere").
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.5", 443)),
+        host_resolver=lambda h: {"203.0.113.9"},  # resolves elsewhere
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"Host": "claimed.example"},
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert b"mismatch" in resp.body
+    assert fwd.calls == []
+    assert client.last is None  # blocked before the PDP
+
+
+def test_forbidden_vhost_on_allowed_ip_is_ruled_by_name():
+    # THE bypass: forbidden.example is co-located on the allowed IP. It pins to
+    # the IP (DNS ok), but the PDP now rules on the NAME and FORBIDs it.
+    class _HostForbidClient(DecisionClient):
+        def __init__(self):
+            self.last = None
+
+        def decide(self, decision):
+            self.last = decision
+            ok = decision.recipient != "forbidden.example"
+            return DecisionResult(
+                released=ok, verdict="PERMIT" if ok else "FORBID", reason="x"
+            )
+
+    fwd = _RecordingForwarder()
+    client = _HostForbidClient()
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.5", 443)),
+        host_resolver=lambda h: {"10.0.0.5"},  # both vhosts share the allowed IP
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"Host": "forbidden.example"},
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403  # caught by NAME, though the IP was allowed
+    assert client.last.recipient == "forbidden.example"
+    assert fwd.calls == []
+
+
+def test_no_host_header_rules_on_kernel_ip():
+    # No Host => no vhost to bind => rule on the kernel IP, as before.
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.5", 80)),
+    )
+    resp = proxy.handle(
+        method="GET", path="/p", headers={}, body=b"", peer=("1.2.3.4", 5)
+    )
+    assert resp.status == 200
+    assert client.last.recipient == "10.0.0.5"
 
 
 def test_header_fallback_when_no_verified_dst_is_untrusted_but_works():

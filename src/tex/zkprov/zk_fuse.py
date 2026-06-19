@@ -280,4 +280,296 @@ def verify_fuse(
     return False
 
 
-__all__ = ["SCHEME", "SCORE_BITS", "FuseProofError", "prove_fuse", "verify_fuse"]
+# ── ZK proof of the VERDICT (the threshold step), hiding the fused score ──────
+#
+# What this adds over ``prove_fuse`` (the increment)
+# --------------------------------------------------
+# ``prove_fuse`` hides the per-stream scores but PUBLISHES ``fused_q`` — the
+# aggregate risk magnitude the agent earned — and the verdict (the threshold
+# step) is then computed in the clear from that public ``fused_q`` by
+# ``arbiter.evaluate_relation``. So today a verifier of a benign PERMIT still
+# learns the exact risk score. ``prove_verdict`` closes that gap: it proves the
+# claimed VERDICT follows from the public policy and the committed private
+# scores while hiding ``fused_q`` ITSELF. Only the verdict and the public
+# policy (weights, ``permit_q``, ``forbid_q``, ``scale``) are revealed.
+#
+# How (all on the same ``schnorr_group`` primitives, no new crypto)
+# ----------------------------------------------------------------
+# Same per-score Pedersen commitments + range proofs and the same homomorphic
+# accumulator ``C_acc = Π Cᵢ^{wᵢ}`` (a commitment to ``acc = Σ wᵢ·sᵢ`` whose
+# randomness the prover knows) as the fuse proof. Instead of pinning ``fused_q``
+# to a public value, we prove ``acc`` lies in the integer interval that the
+# rounding-then-threshold map sends to the claimed verdict — a verdict-REGION
+# range proof, reusing ``_prove_window``. The interval bounds come ONLY from the
+# public thresholds, so the verifier derives them itself and trusts no
+# prover-supplied bound.
+#
+# Soundness: the three regions partition ``[0, max_acc]`` exactly per
+# ``arbiter.threshold_verdict`` (FORBID-first, clamp-aware), so a forged verdict
+# makes the region range proof unsatisfiable (discrete-log binding + special
+# soundness, 2^-128). Hiding: ``acc``/``fused_q`` and every score stay private;
+# two witnesses with DIFFERENT fused scores that map to the SAME verdict both
+# verify, so the verifier cannot recover the fused score.
+#
+# Scope honesty (cite exactly this, no more)
+# ------------------------------------------
+#   * This proves the THRESHOLD step (the structured policy check) in ZK over a
+#     hidden fused score. It is a path-agnostic PRIMITIVE over a ``streams``
+#     list — it does not see an ``ArbitrationStatement``, so the FUSE-path
+#     restriction is enforced by the caller, not here: a router-skipped
+#     structural FORBID has no fused score (its FORBID is a public structural
+#     fact), so a backend wiring this in must refuse ``router_skipped`` exactly
+#     as ``SchnorrFuseZkBackend`` already does for the fuse proof. The
+#     structural deny-floor, the quarantine pin and the monotone-lowering chain
+#     remain PUBLIC structural facts checked by ``arbiter.evaluate_relation``.
+#   * NOT yet wired into the arbiter. The arbiter's ``ArbitrationStatement`` is
+#     all-public (it publishes ``fused_q``); realizing the hiding here needs a
+#     hiding-statement variant that omits ``fused_q`` + a ``schnorr-verdict-zk-v1``
+#     backend. That wire is the named next step, deliberately deferred to keep
+#     this increment small and self-contained (the primitive + its proof stand
+#     on their own and verify offline).
+#   * NOT a proof of the specialist inference that produced the scores — that is
+#     the L1 North-Star (zkML over real model execution), frontier, NOT done,
+#     and the reason the ``nanozk`` placeholder stays deactivated.
+#   * The primitive (prove a committed value lies on one side of / inside a
+#     public threshold band without revealing it) is TEXTBOOK confidential-
+#     comparison / range-proof prior art (e.g. zero-trust score-based access
+#     control, arXiv:2402.08299; the "prove risk-score ≤ k" compliance idiom).
+#     No crypto novelty is claimed; the Tex-specific part is the STATEMENT —
+#     the PDP verdict region over a hidden fused score that is itself the
+#     homomorphic combination of hidden per-stream risk scores.
+#   * Same maturity collar as the group: ``research-early``, hand-rolled,
+#     unaudited, non-succinct, pre-quantum (2048-bit DLog).
+#
+# Verdict strings are passed as plain "PERMIT"/"ABSTAIN"/"FORBID" so this module
+# keeps its single dependency (``schnorr_group``) and never imports the engine.
+
+VERDICT_SCHEME = "schnorr-verdict-zk-v1"
+
+_PERMIT, _ABSTAIN, _FORBID = "PERMIT", "ABSTAIN", "FORBID"
+_VERDICTS = (_PERMIT, _ABSTAIN, _FORBID)
+
+
+def _max_acc(weights_pub: list[tuple[str, int]]) -> int:
+    """Upper bound on ``acc = Σ wᵢ·sᵢ`` given the per-score range ``[0, 2^SCORE_BITS)``
+    and the PUBLIC weights — recomputed identically by prover and verifier."""
+    return ((1 << SCORE_BITS) - 1) * sum(w for _, w in weights_pub)
+
+
+def _verdict_from_acc(acc: int, permit_q: int, forbid_q: int, scale: int) -> str:
+    """The verdict the live pipeline assigns to this accumulator: round-half-up
+    + clamp to ``fused_q``, then ``arbiter.threshold_verdict`` (FORBID first)."""
+    fused = min(scale, max(0, (acc + scale // 2) // scale))
+    if fused >= forbid_q:
+        return _FORBID
+    if fused <= permit_q:
+        return _PERMIT
+    return _ABSTAIN
+
+
+def verdict_acc_interval(
+    verdict: str, permit_q: int, forbid_q: int, scale: int, max_acc: int
+) -> tuple[int, int]:
+    """Half-open interval ``[lo, hi)`` of accumulator values ``acc`` that yield
+    ``verdict`` under the public thresholds — exactly matching ``_verdict_from_acc``
+    (hence ``arbiter.threshold_verdict``). Empty (``lo >= hi``) means the verdict
+    is impossible for these thresholds.
+
+    Derivation (``half = scale // 2``, ``acc ≥ 0`` so the low clamp never bites):
+      * FORBID  ⟺ fused_q ≥ forbid_q ⟺ acc ≥ ``forbid_lo = forbid_q·scale − half``
+      * fused_q ≤ permit_q          ⟺ acc < ``permit_hi = (permit_q+1)·scale − half``
+    so PERMIT = not-FORBID ∧ fused_q ≤ permit_q, ABSTAIN = the band between.
+    """
+    half = scale // 2
+    forbid_lo = forbid_q * scale - half
+    permit_hi = (permit_q + 1) * scale - half
+    if verdict == _FORBID:
+        return max(0, forbid_lo), max_acc + 1
+    if verdict == _PERMIT:
+        return 0, max(0, min(forbid_lo, permit_hi))
+    if verdict == _ABSTAIN:
+        return permit_hi, forbid_lo
+    return 0, 0  # unknown verdict → empty
+
+
+def _verdict_ctx_bytes(
+    scale: int,
+    verdict: str,
+    permit_q: int,
+    forbid_q: int,
+    weights: list[tuple[str, int]],
+    commitments: list[int],
+) -> bytes:
+    """Canonical public context each Fiat–Shamir challenge binds. Note what is
+    ABSENT vs ``_ctx_bytes``: there is NO ``fused_q`` (it is the hidden value);
+    the public decision is bound through ``verdict`` + the thresholds instead."""
+    return json.dumps(
+        {
+            "scheme": VERDICT_SCHEME,
+            "scale": scale,
+            "verdict": verdict,
+            "permit_q": permit_q,
+            "forbid_q": forbid_q,
+            "weights": [[n, w] for n, w in weights],
+            "commitments": [int(c) for c in commitments],
+            "p": sg.P,
+            "g": sg.G,
+            "h": sg.H,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def prove_verdict(
+    *,
+    scale: int,
+    verdict: str,
+    permit_q: int,
+    forbid_q: int,
+    streams: list[tuple[str, int, int]],
+) -> bytes:
+    """Prove the policy-weighted fusion of the PRIVATE scores yields ``verdict``,
+    hiding the scores AND the fused score. ``streams`` is the ordered
+    ``(name, weight, score)`` list; only ``weight>0`` streams are committed.
+
+    Raises ``FuseProofError`` if the claim is false for the private scores, if a
+    threshold is malformed, or if the verdict's region is impossible — the
+    prover never mints an artifact for a statement it can see is false.
+    """
+    if verdict not in _VERDICTS:
+        raise FuseProofError(f"unknown verdict {verdict!r}")
+    if not (0 <= permit_q <= forbid_q <= scale) or scale <= 0:
+        raise FuseProofError(
+            f"thresholds out of order/range: permit_q={permit_q}, "
+            f"forbid_q={forbid_q}, scale={scale}"
+        )
+    contributing = [(n, w, s) for (n, w, s) in streams if w > 0]
+    for n, w, s in contributing:
+        if not (0 <= s < (1 << SCORE_BITS)):
+            raise FuseProofError(f"score for {n} = {s} not in [0,2^{SCORE_BITS})")
+        if w < 0:
+            raise FuseProofError(f"weight for {n} is negative")
+
+    acc = sum(w * s for _, w, s in contributing)
+    actual = _verdict_from_acc(acc, permit_q, forbid_q, scale)
+    if actual != verdict:
+        raise FuseProofError(
+            f"claimed verdict {verdict} != verdict of private scores {actual}"
+        )
+
+    weights_pub = [(n, w) for n, w, _ in contributing]
+    lo, hi = verdict_acc_interval(
+        verdict, permit_q, forbid_q, scale, _max_acc(weights_pub)
+    )
+    if hi <= lo:
+        raise FuseProofError(
+            f"verdict {verdict} has an empty region for permit_q={permit_q}, "
+            f"forbid_q={forbid_q} (impossible to prove)"
+        )
+
+    rscores = [sg.rand_scalar() for _ in contributing]
+    commitments = [sg.commit(s, r) for (_, _, s), r in zip(contributing, rscores)]
+    ctx = _verdict_ctx_bytes(scale, verdict, permit_q, forbid_q, weights_pub, commitments)
+
+    streams_blob = []
+    for (n, w, s), r, c in zip(contributing, rscores, commitments):
+        rp = sg.prove_range(s, r, SCORE_BITS, ctx, b"score|" + n.encode())
+        streams_blob.append(
+            {"name": n, "weight": w, "commitment": int(c), "range": rp.as_dict()}
+        )
+
+    # C_acc = Π Cᵢ^{wᵢ} = commit(acc, r_acc); prove acc ∈ [lo, hi) via the window
+    # on the shifted commitment C_acc·g^{-lo} = commit(acc - lo, r_acc).
+    r_acc = sum(w * r for (_, w, _), r in zip(contributing, rscores)) % sg.Q
+    window = _prove_window(acc - lo, r_acc, hi - lo, ctx, b"verdict")
+
+    proof = {"scheme": VERDICT_SCHEME, "streams": streams_blob, "verdict": {"window": window}}
+    return json.dumps(proof, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def verify_verdict(
+    *,
+    scale: int,
+    verdict: str,
+    permit_q: int,
+    forbid_q: int,
+    weights: list[tuple[str, int]],
+    proof_bytes: bytes,
+) -> bool:
+    """Verify a verdict proof against the PUBLIC ``(scale, verdict, permit_q,
+    forbid_q, weights)``. The private scores and the fused score are never
+    needed (the hiding property). Returns False on any malformation or check
+    failure — never raises. The verifier derives the verdict region itself from
+    the public thresholds and uses the public weights it is given, not any value
+    taken from the proof."""
+    try:
+        proof = json.loads(proof_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(proof, dict) or proof.get("scheme") != VERDICT_SCHEME:
+        return False
+    if verdict not in _VERDICTS:
+        return False
+    if not (0 <= permit_q <= forbid_q <= scale) or scale <= 0:
+        return False
+
+    expected = [(n, w) for n, w in weights if w > 0]
+    streams = proof.get("streams")
+    vblob = proof.get("verdict")
+    if not isinstance(streams, list) or not isinstance(vblob, dict):
+        return False
+    if len(streams) != len(expected):
+        return False
+
+    commitments: list[int] = []
+    weights_pub: list[tuple[str, int]] = []
+    try:
+        for blob, (en, ew) in zip(streams, expected):
+            if blob.get("name") != en or int(blob.get("weight")) != ew:
+                return False
+            if ew < 0:
+                return False
+            commitments.append(int(blob["commitment"]))
+            weights_pub.append((en, ew))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    ctx = _verdict_ctx_bytes(scale, verdict, permit_q, forbid_q, weights_pub, commitments)
+
+    # per-score range proofs, and the homomorphic accumulator C_acc.
+    c_acc = 1
+    try:
+        for blob, c, (n, w) in zip(streams, commitments, weights_pub):
+            rp = sg.RangeProof.from_dict(blob["range"])
+            if rp.bits != SCORE_BITS:
+                return False
+            if not sg.verify_range(c, rp, ctx, b"score|" + n.encode()):
+                return False
+            c_acc = (c_acc * pow(c, w, sg.P)) % sg.P
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    lo, hi = verdict_acc_interval(
+        verdict, permit_q, forbid_q, scale, _max_acc(weights_pub)
+    )
+    if hi <= lo:
+        return False  # the claimed verdict is impossible for these thresholds
+    try:
+        target = (c_acc * pow(sg.g_exp(lo), sg.Q - 1, sg.P)) % sg.P
+        return _verify_window(target, vblob["window"], hi - lo, ctx, b"verdict")
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+__all__ = [
+    "SCHEME",
+    "VERDICT_SCHEME",
+    "SCORE_BITS",
+    "FuseProofError",
+    "prove_fuse",
+    "verify_fuse",
+    "prove_verdict",
+    "verify_verdict",
+    "verdict_acc_interval",
+]

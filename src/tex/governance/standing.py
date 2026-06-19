@@ -137,6 +137,18 @@ class DecisionOutcome:
     # for floor verdicts (there is no deep response to carry). Never
     # serialized — it is in-process plumbing for the gate path only.
     response: Any | None = None
+    # The agent's permitted tool subset, resolved server-side from the SAME
+    # sealed capability surface this ruling confined against. Carried so a remote
+    # PEP (HttpDecisionClient) can drive its emission gate off the decision it
+    # already made — no extra round-trip, race-free (the surface that ruled is the
+    # surface that tightens the egressed bytes). ``None`` => surface unrestricted
+    # or unresolved (the gate then leaves the body unchanged). Only populated on a
+    # released (PERMIT) outcome.
+    allowed_tools: tuple[str, ...] | None = None
+    # A stable digest of the resolved surface's tool allowlist (the emission
+    # constraint's ``H``), so a relying party can prove WHICH surface drove the
+    # tightening. None when there is no tool restriction to commit.
+    surface_seal_hash: str | None = None
 
     def to_jsonable(self) -> dict[str, Any]:
         return {
@@ -148,6 +160,13 @@ class DecisionOutcome:
             "decision_id": str(self.decision_id) if self.decision_id else None,
             "evidence_hash": self.evidence_hash,
             "held": self.held,
+            # Piggyback the permitted tool subset + its digest so a remote PEP can
+            # drive the emission gate off this same decision (None when there is
+            # no tool restriction to apply).
+            "allowed_tools": (
+                list(self.allowed_tools) if self.allowed_tools is not None else None
+            ),
+            "surface_seal_hash": self.surface_seal_hash,
         }
 
 
@@ -358,7 +377,7 @@ class StandingGovernance:
                 "structural floor alone.",
             )
 
-        return self._adjudicate_deep(
+        outcome = self._adjudicate_deep(
             agent=agent,
             tenant=tid,
             action_type=action_type,
@@ -368,6 +387,44 @@ class StandingGovernance:
             recipient=recipient,
             session_id=session_id,
         )
+        # Piggyback the agent's permitted tool subset on a RELEASED outcome so a
+        # remote PEP can drive its emission gate off this same decision (race-free:
+        # the surface that confined this ruling is the surface that tightens the
+        # egressed bytes). Off-path for FORBID/ABSTAIN — nothing egresses.
+        if outcome.released:
+            return self._attach_surface_piggyback(outcome, surface)
+        return outcome
+
+    @staticmethod
+    def _attach_surface_piggyback(
+        outcome: DecisionOutcome, surface: Any | None
+    ) -> DecisionOutcome:
+        """Stamp a released outcome with the surface's permitted tool subset.
+
+        Reuses ``tex.emission.compile_constraint`` (the SAME compile the in-process
+        emission gate runs) so the digest matches what the gate would seal. Returns
+        the outcome unchanged when there is no tool restriction to commit (an
+        unrestricted surface, or none) — the gate then leaves the body unchanged.
+        Fail-soft: a compile error must never break the ruling, so it degrades to
+        no piggyback (the remote gate falls back to no-op, exactly as today)."""
+        if surface is None:
+            return outcome
+        allowed = getattr(surface, "allowed_tools", None)
+        if not allowed:
+            return outcome  # unrestricted on tools — nothing to tighten
+        try:
+            from dataclasses import replace
+
+            from tex.emission import compile_constraint
+
+            constraint = compile_constraint(surface)
+            return replace(
+                outcome,
+                allowed_tools=tuple(allowed),
+                surface_seal_hash=constraint.digest(),
+            )
+        except Exception:  # noqa: BLE001 — piggyback is best-effort; ruling stands
+            return outcome
 
     def decide_for_request(
         self, request: Any, tenant: str | None = None

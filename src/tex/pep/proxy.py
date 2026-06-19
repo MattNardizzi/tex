@@ -76,6 +76,7 @@ __all__ = [
     "HttpxForwarder",
     "ResolvedDst",
     "OrigDstResolver",
+    "SurfaceResolver",
     "TexEnforcementProxy",
     "build_proxy_app",
 ]
@@ -149,6 +150,23 @@ class Forwarder(Protocol):
     def send(
         self, method: str, url: str, headers: dict[str, str], body: bytes
     ) -> UpstreamResponse: ...
+
+
+class SurfaceResolver(Protocol):
+    """Resolves an agent's sealed ``CapabilitySurface`` WITHOUT an in-process
+    governor — the http-mode path to the emission gate / filtered discovery.
+
+    Returns the surface to confine egress against, or ``None`` (no restriction /
+    unresolved -> the gate leaves the body unchanged, fail-safe). The PRIMARY
+    implementation piggybacks the surface that already drove the PDP decision (no
+    extra round-trip); a SECONDARY one may fetch it from the PDP (opt-in)."""
+
+    def __call__(
+        self,
+        tenant: str,
+        agent_id: "UUID | None",
+        agent_external_id: str | None,
+    ) -> "Any | None": ...
 
 
 class HttpxForwarder:
@@ -324,12 +342,20 @@ class TexEnforcementProxy:
         permit_memory: Any | None = None,
         seal_ledger: Any | None = None,
         host_resolver: "Callable[[str], set[str]] | None" = None,
+        surface_resolver: "SurfaceResolver | None" = None,
     ) -> None:
         self._decide = decision_client
         self._forward = forwarder or HttpxForwarder()
         self._config = config or ProxyConfig()
         # Optional in-process governor, only for filtered tool discovery.
         self._governance = governance
+        # Capability-surface resolver for HTTP sidecar mode (no in-process
+        # governor). When set, the emission gate + filtered discovery activate
+        # without an in-process governor: the resolver supplies the agent's
+        # surface (piggybacked from the PDP decision, or fetched). None => the
+        # gate stays inert in http mode unless a per-request piggyback surface is
+        # present (today's behaviour for a bare sidecar).
+        self._surface_resolver = surface_resolver
         # G7 — kernel-captured destination recovery (None => header fallback).
         self._origdst = origdst
         # G4 — when set, seal ONE ENFORCEMENT receipt per request for the TERMINAL
@@ -452,6 +478,13 @@ class TexEnforcementProxy:
             )
             return _refuse(result.reason or "Forbidden by Tex.", verdict=result.verdict)
 
+        # ---- PERMIT path. The PDP may have piggybacked the agent's permitted
+        # tool subset on the decision (http mode, race-free: the surface that
+        # confined the ruling). Reconstruct it once and feed both gates below, so
+        # the emission gate + filtered discovery fire WITHOUT an in-process
+        # governor. None => fall through to the governor / injected resolver.
+        piggyback_surface = self._surface_from_decision(result)
+
         # ---- PERMIT path. Build the forward headers first.
         fwd_headers = {k: v for k, v in headers.items() if k.lower() not in _STRIP_HEADERS}
         # Preserve the agent's intended vhost ONLY when the TCP dst is pinned to a
@@ -477,6 +510,7 @@ class TexEnforcementProxy:
             agent_external_id=agent_external_id,
             decision_id=result.decision_id,
             content_encoding=h.get("content-encoding"),
+            surface=piggyback_surface,
         )
 
         # ---- G10: mint -> persist -> verify(fresh digest, audience) -> consume
@@ -504,15 +538,21 @@ class TexEnforcementProxy:
         url = upstream_base.rstrip("/") + path
         upstream = self._forward.send(method, url, fwd_headers, body)
 
-        # Filtered discovery: strip tools the agent may not call.
+        # Filtered discovery: strip tools the agent may not call. Activates when a
+        # surface is reachable — an in-process governor OR an http-mode resolver
+        # (piggyback / fetch) — not only inprocess (closes the http-mode gap).
         if (
             mcp == "tools/list"
             and self._config.filter_tool_discovery
-            and self._governance is not None
+            and (
+                self._governance is not None
+                or self._surface_resolver is not None
+                or piggyback_surface is not None
+            )
         ):
             upstream = self._filter_tools_list(
                 upstream, tenant=tenant, agent_id=agent_id,
-                agent_external_id=agent_external_id,
+                agent_external_id=agent_external_id, surface=piggyback_surface,
             )
         return upstream
 
@@ -1008,8 +1048,11 @@ class TexEnforcementProxy:
         tenant: str,
         agent_id: UUID | None,
         agent_external_id: str | None,
+        surface: Any | None = None,
     ) -> UpstreamResponse:
-        surface = self._resolve_surface(tenant, agent_id, agent_external_id)
+        surface = self._resolve_surface(
+            tenant, agent_id, agent_external_id, surface
+        )
         if surface is None:
             return upstream
         body = _try_json(upstream.body)
@@ -1033,16 +1076,56 @@ class TexEnforcementProxy:
         return UpstreamResponse(status=upstream.status, headers=headers, body=new_body)
 
     def _resolve_surface(
-        self, tenant: str, agent_id: UUID | None, agent_external_id: str | None
+        self,
+        tenant: str,
+        agent_id: UUID | None,
+        agent_external_id: str | None,
+        surface: Any | None = None,
     ) -> Any | None:
+        """Resolve the capability surface to confine egress against.
+
+        Precedence: an explicit per-request ``surface`` (piggybacked from the PDP
+        decision — race-free, no round-trip) > the in-process governor fast-path >
+        an injected ``SurfaceResolver`` (http mode). Returns ``None`` when none can
+        supply one, which leaves the gate inert (body unchanged) — exactly today's
+        behaviour for a bare http sidecar."""
+        if surface is not None:
+            return surface
         gov = self._governance
-        if gov is None:
+        if gov is not None:
+            try:
+                agent = gov._resolve_agent(tenant, agent_id, agent_external_id)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                return None
+            return (
+                getattr(agent, "capability_surface", None)
+                if agent is not None
+                else None
+            )
+        resolver = self._surface_resolver
+        if resolver is None:
             return None
         try:
-            agent = gov._resolve_agent(tenant, agent_id, agent_external_id)  # noqa: SLF001
-        except Exception:  # noqa: BLE001
+            return resolver(tenant, agent_id, agent_external_id)
+        except Exception:  # noqa: BLE001 — a resolver fault leaves the gate inert
+            _logger.warning("PEP: surface resolver raised", exc_info=True)
             return None
-        return getattr(agent, "capability_surface", None) if agent is not None else None
+
+    def _surface_from_decision(self, result: DecisionResult) -> Any | None:
+        """Reconstruct a ``CapabilitySurface`` from a decision's piggybacked tool
+        subset, or ``None`` when none was carried. Race-free: the surface that
+        confined the PDP ruling is the surface that tightens the egressed bytes.
+        Fail-safe: a malformed payload yields None (the gate stays inert)."""
+        allowed = getattr(result, "allowed_tools", None)
+        if not allowed:
+            return None
+        try:
+            from tex.domain.agent import CapabilitySurface
+
+            return CapabilitySurface(allowed_tools=tuple(allowed))
+        except Exception:  # noqa: BLE001 — never let a bad piggyback break the request
+            _logger.warning("PEP: piggyback surface reconstruct failed", exc_info=True)
+            return None
 
     # ------------------------------------------------------------------ emission gate
 
@@ -1056,6 +1139,7 @@ class TexEnforcementProxy:
         agent_external_id: str | None,
         decision_id: str | None,
         content_encoding: str | None = None,
+        surface: Any | None = None,
     ) -> bytes:
         """Approach B (provider-trusted) emission gate on the outbound request.
 
@@ -1066,6 +1150,11 @@ class TexEnforcementProxy:
         allowlist ``H`` the turn decoded under. Returns the (possibly rewritten)
         body; on any non-applicable case it returns the body byte-identical.
 
+        The surface is resolved by :meth:`_resolve_surface` (precedence: a
+        per-request ``surface`` piggybacked on the PDP decision > an in-process
+        governor > an injected ``SurfaceResolver``), so the gate now also fires in
+        the http sidecar mode — not only when an in-process governor is wired.
+
         A ``Content-Encoding``-compressed provider body is DECODED before the
         rewrite and re-egressed UN-compressed (the ``content-encoding`` header is
         dropped so the provider reads the plaintext JSON we tightened), so a
@@ -1074,8 +1163,9 @@ class TexEnforcementProxy:
         labels it ``http_opaque_body`` and the PDP holds it (ABSTAIN).
 
         Behaviour on the non-rewrite branches (returns the body byte-identical):
-          * No in-process governor / unresolved surface (the default ``http``
-            sidecar mode passes no governor — see ``pep/__main__``).
+          * Unresolved surface — no governor, no injected resolver, and no
+            piggyback on the decision (a bare ``http`` sidecar with the flag off,
+            see ``pep/__main__``). Fail-safe: no surface => body unchanged.
           * A body Tex cannot decode (defence-in-depth — should have ABSTAINed
             upstream; we never silently rewrite or forward-blind it here).
           * Body is not a JSON object, or ``detect_provider`` does not recognize
@@ -1091,7 +1181,9 @@ class TexEnforcementProxy:
           * ``seal_constraint`` is fail-closed / observation-only: a ``None``
             ledger is a no-op and a seal failure never changes what egresses.
         """
-        surface = self._resolve_surface(tenant, agent_id, agent_external_id)
+        surface = self._resolve_surface(
+            tenant, agent_id, agent_external_id, surface
+        )
         if surface is None:
             return body
         inspect_body, undecodable = _decode_for_inspection(body, content_encoding)

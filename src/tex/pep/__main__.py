@@ -28,6 +28,11 @@ behaviour):
                           aud=tex://<tenant>; a card scoped to another tenant is
                           FORBIDden (cross-tenant binding). default off (degrade-
                           open until issuers mint a tenant aud)
+    TEX_PEP_FETCH_SURFACE "1" => (http mode) when a decision carries no piggyback
+                          surface, FETCH the agent's capability surface from
+                          GET /v1/agents/{id} to drive the emission gate. default
+                          off; the race-free piggyback is primary and needs no
+                          flag. Costs an extra round-trip (short TTL cache)
 
 Trusted issuer keys (G6) — the issuer pubkeys an agent credential is verified
 against. Both unset => {} (no issuer trusted, the unchanged default; with
@@ -153,12 +158,27 @@ def build_app():
         client = HttpDecisionClient(
             client=httpx.Client(), base_url=base, api_key=api_key
         )
+        # Emission gate in http mode. PRIMARY is the race-free PIGGYBACK — the
+        # surface that drove the PDP decision rides back on it and the proxy reads
+        # it off DecisionResult.allowed_tools automatically (no flag, no extra
+        # hop). SECONDARY is an opt-in fetch resolver (TEX_PEP_FETCH_SURFACE),
+        # OFF by default: it costs a round-trip and only helps a hop with no
+        # piggyback (e.g. tools/list discovery). Default behaviour is unchanged
+        # unless the flag is set or a piggyback surface is present.
+        surface_resolver = None
+        if _flag("TEX_PEP_FETCH_SURFACE"):
+            from tex.pep.decision_client import HttpSurfaceClient
+
+            surface_resolver = HttpSurfaceClient(
+                client=httpx.Client(), base_url=base, api_key=api_key
+            )
         proxy = TexEnforcementProxy(
             decision_client=client,
             config=config,
             origdst=origdst,
             permit_memory=permit_memory,
             seal_ledger=seal_ledger,
+            surface_resolver=surface_resolver,
         )
 
     app = build_proxy_app(proxy)

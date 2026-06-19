@@ -216,6 +216,126 @@ def test_no_surface_leaves_provider_body_untouched():
     assert fwd.calls[0]["body"] == raw
 
 
+# --------------------------------------------------------------------------- #
+# http-mode activation — no in-process governor                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_http_mode_surface_resolver_strips_forbidden_tool_end_to_end():
+    # The http sidecar path: NO in-process governor, an injected SurfaceResolver
+    # supplies the surface, and the forbidden tool is stripped before egress —
+    # the same behaviour the inprocess governor gives, now without one.
+    surface = CapabilitySurface(allowed_tools=("get_weather",))
+    fwd = _RecordingForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(_permit()),
+        forwarder=fwd,
+        governance=None,  # http mode
+        surface_resolver=lambda tenant, aid, ext: surface,
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/v1/chat/completions",
+        headers={"X-Tex-Upstream": "https://api.openai.com"},
+        body=json.dumps(_openai_two_tool_body()).encode("utf-8"),
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    sent = json.loads(fwd.calls[0]["body"])
+    assert [t["function"]["name"] for t in sent["tools"]] == ["get_weather"]
+
+
+def test_http_mode_piggyback_surface_strips_forbidden_tool_end_to_end():
+    # The PRIMARY race-free path: NO governor, NO resolver — the surface rides
+    # back on the DecisionResult (allowed_tools), exactly as the PDP piggybacks it.
+    permit_with_surface = DecisionResult(
+        released=True,
+        verdict="PERMIT",
+        reason="ok",
+        decision_id=str(uuid4()),
+        allowed_tools=("get_weather",),
+        surface_seal_hash="deadbeef",
+    )
+    fwd = _RecordingForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(permit_with_surface),
+        forwarder=fwd,
+        governance=None,
+        surface_resolver=None,  # no resolver either — purely piggyback
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/v1/chat/completions",
+        headers={"X-Tex-Upstream": "https://api.openai.com"},
+        body=json.dumps(_openai_two_tool_body()).encode("utf-8"),
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    sent = json.loads(fwd.calls[0]["body"])
+    assert [t["function"]["name"] for t in sent["tools"]] == ["get_weather"]
+
+
+def test_http_surface_client_fetches_caches_and_fails_safe():
+    # The SECONDARY (opt-in) fetch resolver: GET /v1/agents/{id}, parse the
+    # capability_surface, cache by TTL, and return None (fail-safe) on errors.
+    from tex.pep.decision_client import HttpSurfaceClient
+
+    class _Resp:
+        def __init__(self, status, payload):
+            self.status_code = status
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Client:
+        def __init__(self, resp):
+            self.resp = resp
+            self.calls: list[str] = []
+
+        def get(self, url, timeout=None, headers=None):
+            self.calls.append(url)
+            return self.resp
+
+    aid = uuid4()
+    ok = _Client(_Resp(200, {"capability_surface": {"allowed_tools": ["get_weather"]}}))
+    sc = HttpSurfaceClient(client=ok, base_url="http://pdp", ttl_seconds=100)
+    surface = sc("t", aid, None)
+    assert surface is not None and surface.allowed_tools == ("get_weather",)
+    assert ok.calls == [f"http://pdp/v1/agents/{aid}"]
+    # Cached: a second call does not re-fetch.
+    sc("t", aid, None)
+    assert len(ok.calls) == 1
+    # External-id-only (no UUID) -> None, no fetch (endpoint is keyed by UUID).
+    assert sc("t", None, "ext") is None
+
+    # Fail-safe: an HTTP error returns None (the gate then leaves the body alone).
+    err = _Client(_Resp(404, {}))
+    sc_err = HttpSurfaceClient(client=err, base_url="http://pdp")
+    assert sc_err("t", uuid4(), None) is None
+
+
+def test_http_mode_no_resolver_no_governor_no_piggyback_unchanged():
+    # Zero behaviour change for a bare http sidecar: no governor, no resolver, and
+    # a decision that carries no piggyback surface -> the body egresses unchanged.
+    fwd = _RecordingForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(_permit()),  # allowed_tools is None
+        forwarder=fwd,
+        governance=None,
+        surface_resolver=None,
+    )
+    raw = json.dumps(_openai_two_tool_body()).encode("utf-8")
+    proxy.handle(
+        method="POST",
+        path="/v1/chat/completions",
+        headers={"X-Tex-Upstream": "https://api.openai.com"},
+        body=raw,
+        peer=("1.2.3.4", 5),
+    )
+    assert fwd.calls[0]["body"] == raw  # untouched, byte-for-byte
+
+
 def test_unrestricted_surface_keeps_all_tools():
     # An empty surface declares NO tool restriction; the gate must not invent
     # one — both tools survive (honesty: no mask claimed that was not applied).

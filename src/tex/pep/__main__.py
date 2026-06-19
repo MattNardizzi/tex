@@ -25,6 +25,29 @@ behaviour):
     TEX_PEP_SEAL       "1" => seal a receipt per decision (G4)   default off
     TEX_PEP_REQUIRE_IDENTITY "1" => require a verified credential (G6)  default off
 
+Credential brokering (G12) — gate the *credential*, not just the route (off by
+default; opt-in so a bare run stays today's behaviour). When on, a released
+action gets a fresh, single-use, action-scoped Tex credential minted (reusing
+the permit store for single-use/revocation) and injected downstream, and the
+agent's standing credential header is stripped (sole-token-custody):
+    TEX_PEP_BROKER     "1" => mint+inject a brokered downstream credential
+                              (REQUIRES TEX_PEP_PERMITS=1 for the store; minting
+                              additionally needs a signing secret — see below)  default off
+    TEX_PEP_BROKER_TTL    minted credential TTL (seconds)        default 300
+    TEX_PEP_BROKER_AUDIENCE  fixed credential audience id; unset => the resolved
+                             recipient host
+    TEX_PEP_BROKER_HEADER  request header to inject into          default authorization
+
+Brokered credential signing requires ``TEX_AUTHORITY_SIGNING_SECRET`` (or the
+shared ``TEX_PERMIT_SIGNING_SECRET``) in a production-like env; with none set,
+minting fails closed and a brokered released action is refused. The broker is
+PoP-by-default: the agent's identity card must carry an RFC-7800 ``cnf`` key or
+the mint fails closed (no weaker bearer token is handed out).
+
+HONEST: enabling the broker gives Tex sole custody of the downstream token; it
+does NOT by itself make a third-party resource DEMAND a Tex credential — that is
+resource-side trust/federation config (RUNTIME-DEPENDENT). See tex.authority.
+
 External-time anchoring (G11) — runs ONLY when TEX_PEP_SEAL is on AND a TSA is
 configured (anchoring an un-sealed ledger has nothing to attest):
     TEX_PEP_ANCHOR_TSA_URL  RFC-3161 TSA URL; set => start the AnchorScheduler
@@ -69,6 +92,11 @@ def build_app():
         # a card is still honoured).
         pep_audience=os.environ.get("TEX_PEP_AUDIENCE") or None,
         require_credential_expiry=_flag("TEX_PEP_REQUIRE_CRED_EXPIRY"),
+        # G12 — credential brokering at the egress call-site (opt-in).
+        broker_credentials=_flag("TEX_PEP_BROKER"),
+        broker_credential_ttl=int(os.environ.get("TEX_PEP_BROKER_TTL", "300")),
+        broker_audience=os.environ.get("TEX_PEP_BROKER_AUDIENCE") or None,
+        broker_inject_header=os.environ.get("TEX_PEP_BROKER_HEADER", "authorization"),
     )
 
     # G7 — kernel-captured destination loader (Thread T1). Always constructed;
@@ -86,6 +114,26 @@ def build_app():
         from tex.memory.system import MemorySystem
 
         permit_memory = MemorySystem(tenant_id=default_tenant)
+
+    # G12 — the credential broker reuses the permit store for single-use /
+    # revocation, so it is only live when TEX_PEP_PERMITS is also on. Warn loudly
+    # if the operator asked to broker but left the store off (the broker would be
+    # constructed with no store and stay inert) rather than silently no-op.
+    if _flag("TEX_PEP_BROKER") and permit_memory is None:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "PEP: TEX_PEP_BROKER=1 but TEX_PEP_PERMITS is off — credential "
+            "brokering needs the permit store and will stay INERT. Set "
+            "TEX_PEP_PERMITS=1 to activate it."
+        )
+
+    # G12 — the IdP source the broker's RFC-8693 exchange path verifies subject
+    # assertions against. Optional and RUNTIME-DEPENDENT: only the token-exchange
+    # endpoint uses it (the egress mint path binds to the per-request attested
+    # identity the PEP already verified, so it needs no IdP source). Unset => no
+    # exchange identity source wired.
+    identity_source = _maybe_identity_source()
 
     # G4 — terminal-outcome receipt ledger (gated off by default). The proxy is
     # the single seal site: it seals ONE receipt per request for what actually
@@ -122,6 +170,7 @@ def build_app():
             origdst=origdst,
             permit_memory=permit_memory,
             seal_ledger=seal_ledger,
+            identity_source=identity_source,
         )
     else:
         import httpx
@@ -139,6 +188,7 @@ def build_app():
             origdst=origdst,
             permit_memory=permit_memory,
             seal_ledger=seal_ledger,
+            identity_source=identity_source,
         )
 
     app = build_proxy_app(proxy)
@@ -146,6 +196,36 @@ def build_app():
     # health endpoint / test inspect anchor progress (sched.anchor_count, etc.).
     app.state.anchor_scheduler = anchor_scheduler
     return app
+
+
+def _maybe_identity_source():
+    """G12 — the IdP source the broker's RFC-8693 token-exchange path verifies
+    subject assertions against. Returns a ``JwksIdentitySource`` configured from
+    the operator's trusted-issuer list, or None when unset.
+
+    HONEST: the JWKS *fetch* (OIDC discovery / jwks_uri GET, rotation, caching) is
+    a RUNTIME-DEPENDENT shim — this builder does NOT wire a network JWKS provider,
+    so an out-of-the-box source has no keys and verifies nothing (fail-closed). A
+    deployment supplies a JwksKeyProvider (or a pinned trust bundle); the JWT
+    verification crypto is real. Unset (no TEX_PEP_BROKER_TRUSTED_ISSUERS) => None.
+    """
+    issuers = os.environ.get("TEX_PEP_BROKER_TRUSTED_ISSUERS", "").strip()
+    if not issuers:
+        return None
+    import logging
+
+    from tex.authority.identity_source import JwksIdentitySource
+
+    trusted = {i.strip() for i in issuers.split(",") if i.strip()}
+    audiences_raw = os.environ.get("TEX_PEP_BROKER_TRUSTED_AUDIENCES", "").strip()
+    audiences = {a.strip() for a in audiences_raw.split(",") if a.strip()} or None
+    logging.getLogger(__name__).warning(
+        "PEP: G12 JwksIdentitySource configured for issuers %s but NO network "
+        "JWKS provider is wired (RUNTIME-DEPENDENT shim) — token exchange will "
+        "fail closed until a JwksKeyProvider / pinned trust bundle is supplied.",
+        sorted(trusted),
+    )
+    return JwksIdentitySource(trusted_issuers=trusted, audiences=audiences)
 
 
 def _maybe_ledger():

@@ -122,6 +122,25 @@ class ProxyConfig:
     # on an allowed IP (CDN / shared host) and refuses a Host naming an unrelated
     # IP. False falls back to ruling on the IP alone (the coarser prior behaviour).
     require_host_dst_match: bool = True
+    # G12 — credential brokering at the egress call-site. When True AND a broker is
+    # constructed (a permit_memory store is present), a released action that needs
+    # a downstream credential gets a fresh, single-use, action-scoped Tex
+    # credential minted and injected, and the agent's own standing credential
+    # header is stripped (sole-token-custody). Default False => behaviour-neutral:
+    # exactly today's egress, no minted credential, the agent's headers pass as-is
+    # (minus the always-stripped x-tex-* control headers).
+    broker_credentials: bool = False
+    # G12 — TTL (seconds) of a minted downstream credential.
+    broker_credential_ttl: int = 300
+    # G12 — the audience a minted credential names. None => the resolved recipient
+    # (the host the bytes actually reach), which is the safe default. Set this when
+    # the downstream resource expects a fixed logical audience id (e.g. a Vault
+    # mount or an API resource URI) rather than its hostname.
+    broker_audience: str | None = None
+    # G12 — the request header the minted credential is injected into. Default
+    # Authorization (the resource reads "Authorization: DPoP <token>" /
+    # "Bearer <token>"); override for resources that read a custom header.
+    broker_inject_header: str = "authorization"
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +331,7 @@ class TexEnforcementProxy:
         permit_memory: Any | None = None,
         seal_ledger: Any | None = None,
         host_resolver: "Callable[[str], set[str]] | None" = None,
+        identity_source: Any | None = None,
     ) -> None:
         self._decide = decision_client
         self._forward = forwarder or HttpxForwarder()
@@ -334,6 +354,31 @@ class TexEnforcementProxy:
         # (today's behaviour, documented). When present, every released action
         # mints+verifies+consumes a single-use content-bound permit.
         self._permit_memory = permit_memory
+
+        # G12 — the credential broker (authority plane). Constructed ONCE here,
+        # reusing the SAME persistence as the permit gate: the broker's
+        # RevocationStore Protocol (broker.py:130) is duck-typed by PermitStore,
+        # which is permit_memory.permits — so single-use / revocation of a minted
+        # credential rides the existing store with NO new persistence. The broker
+        # is PoP-by-default (allow_bearer=False) and requires exchange-time PoP. We
+        # do NOT reimplement minting — we construct one and call .mint() at the
+        # call-site. It stays inert unless config.broker_credentials is on AND a
+        # store exists, so a bare run is byte-for-byte today's behaviour.
+        self._cred_broker = None
+        store = getattr(permit_memory, "permits", None) if permit_memory is not None else None
+        if store is not None:
+            from tex.authority.broker import CredentialBroker
+
+            self._cred_broker = CredentialBroker(
+                issuer="tex-authority",
+                store=store,
+                identity_source=identity_source,
+                # scope is a function of the RELEASED decision, bound per-request
+                # at the call-site (not a static table) — see _broker_scope_policy.
+                scope_policy=None,
+                allow_bearer=False,
+                require_exchange_pop=True,
+            )
 
     # ------------------------------------------------------------------ core
 
@@ -482,6 +527,26 @@ class TexEnforcementProxy:
             return permit_outcome  # permit verification failed -> FORBID
         if permit_outcome is not None:
             fwd_headers["X-Tex-Permit"] = permit_outcome
+
+        # ---- G12: credential brokering. When enabled, mint a fresh, single-use,
+        # action-scoped Tex credential bound to the released decision and inject it
+        # downstream, STRIPPING any standing credential the agent presented
+        # (sole-token-custody). Gated OFF by default => behaviour-neutral.
+        broker_outcome = self._broker_credential(
+            result=result,
+            decision=decision,
+            recipient=recipient,
+            attested=ident.attested,
+            cnf_jwk=ident.cnf_jwk,
+            fwd_headers=fwd_headers,
+        )
+        if isinstance(broker_outcome, UpstreamResponse):
+            self._seal_outcome(
+                decision, result, executed=False,
+                reason="credential broker refused released action",
+                attested=ident.attested,
+            )
+            return broker_outcome  # fail-closed: cannot mint => do not forward
 
         # The full gate ALLOWED the action: seal the executed outcome before
         # dispatch (the action is now committed to forward).
@@ -641,11 +706,17 @@ class TexEnforcementProxy:
                     verdict="FORBID",
                 )
             )
+        # G12 — surface the holder's PoP key (RFC 7800 cnf) from the verified card
+        # so a brokered downstream credential can be sender-constrained to it.
+        payload = card.get("payload") if isinstance(card, dict) else None
+        cnf = payload.get("cnf") if isinstance(payload, dict) else None
+        cnf_jwk = cnf if isinstance(cnf, dict) else None
         return _IdentityCheck(
             attested=att,
             effective_external_id=(
                 att.claimed_agent_id if principal is None else None
             ),
+            cnf_jwk=cnf_jwk,
         )
 
     # ------------------------------------------------------------------ G10 permit
@@ -755,6 +826,127 @@ class TexEnforcementProxy:
         mem.permits.consume(stored.permit_id)
         self._record_verification(mem, stored.permit_id, minted.nonce, "ok", ok=True)
         return minted.token
+
+    # ------------------------------------------------------------------ G12 broker
+
+    def _broker_credential(
+        self,
+        *,
+        result: DecisionResult,
+        decision: Decision,
+        recipient: str | None,
+        attested: AttestedIdentity | None,
+        cnf_jwk: dict[str, Any] | None,
+        fwd_headers: dict[str, str],
+    ) -> UpstreamResponse | None:
+        """Mint a fresh, single-use, action-scoped Tex credential for a released
+        action and inject it downstream, stripping any standing credential the
+        agent presented (sole-token-custody).
+
+        Returns None when brokering is OFF or no credential is needed (the common,
+        behaviour-neutral case), or an ``UpstreamResponse`` FORBID when brokering
+        is ON but a credential could not be minted (fail-closed — we never forward
+        an action that was supposed to carry a Tex credential but does not).
+
+        WHY this binds issuance to the act/ABSTAIN boundary: we only reach here
+        AFTER ``result.released`` is True and the permit gate passed, and the scope
+        we mint is ``requested ∩ scope_allowed_by(decision)`` — so a credential can
+        only ever carry scope the SAME decision that released the action allows.
+
+        HONEST scope: this gives Tex SOLE CUSTODY of the token the agent presents
+        downstream (the agent holds no standing key on this request) and makes the
+        credential single-use + action-scoped. It does NOT by itself make the
+        third-party resource DEMAND a Tex credential — that is federation /
+        resource-side trust config (RUNTIME-DEPENDENT), exactly as documented in
+        tex.authority. The cnf key here is the agent's attested holder key when the
+        identity source surfaced one; absent that, minting is bearer-only and only
+        succeeds if the broker allows bearer (it does not, by default) — so an
+        unattested request fails closed rather than getting a weaker token.
+        """
+        if not self._config.broker_credentials or self._cred_broker is None:
+            return None  # brokering off => behaviour-neutral
+
+        # Project the per-request attested identity onto what the broker mints from.
+        # No verified identity => we cannot mint a bound credential. Fail closed.
+        att = attested
+        if att is None or not getattr(att, "verified", False):
+            return _refuse(
+                "Credential broker enabled but no verified identity to bind a "
+                "downstream credential to (fail-closed).",
+                verdict="FORBID",
+            )
+
+        audience = self._config.broker_audience or recipient
+        if not audience:
+            return _refuse(
+                "Credential broker enabled but no audience resolved for the "
+                "downstream credential (fail-closed).",
+                verdict="FORBID",
+            )
+
+        # scope = requested ∩ scope_allowed_by(decision). The agent's "requested"
+        # scope here is just the action it is performing; the decision allows
+        # exactly that action's scope. Bound per-request (NOT a static table).
+        policy = self._broker_scope_policy(decision)
+        requested = {f"act:{decision.action_type}"}
+        scope = set(policy(att, requested))
+        if not scope:
+            return _refuse(
+                "Credential broker: released decision allows no scope for this "
+                "action (fail-closed).",
+                verdict="FORBID",
+            )
+
+        # PoP key: the holder cnf from the verified card (RFC 7800). When absent,
+        # cnf_public_key=None and the PoP-only broker refuses the mint below —
+        # fail-closed rather than handing out a weaker bearer token.
+        cnf_public_key = cnf_jwk
+
+        minted = self._cred_broker.mint(
+            att,
+            audience=audience,
+            action=decision.action_type,
+            scope=scope,
+            ttl=self._config.broker_credential_ttl,
+            cnf_public_key=cnf_public_key,
+            decision_id=result.decision_id,
+            single_use=True,
+        )
+        if minted is None:
+            return _refuse(
+                "Credential broker: mint failed (no signing secret, unverified "
+                "identity, or bearer-only request on a PoP broker) — fail-closed.",
+                verdict="FORBID",
+            )
+
+        # Sole-token-custody: strip ANY standing credential the agent presented in
+        # the inject header (and the common Authorization header) before injecting
+        # the fresh Tex credential. The match is case-insensitive on header names.
+        inject = self._config.broker_inject_header
+        _drop_headers_ci(fwd_headers, {inject, "authorization"})
+        token_type = minted.token_type  # "DPoP" (sender-constrained) | "Bearer"
+        fwd_headers[inject] = f"{token_type} {minted.token}"
+        return None
+
+    @staticmethod
+    def _broker_scope_policy(decision: Decision):
+        """A scope_policy CLOSED OVER the released decision: it intersects the
+        agent's requested scope with the scope this decision allows.
+
+        ``scope_allowed_by(decision)`` is the action the decision released, plus a
+        recipient-narrowed scope when a recipient is known — so a credential for a
+        'send_email' decision to 'api.acme' can never carry 'delete_db' scope just
+        because the agent asked. This is the per-decision binding the spec calls
+        for, NOT a static table.
+        """
+        allowed = {f"act:{decision.action_type}"}
+        if decision.recipient:
+            allowed.add(f"act:{decision.action_type}@{decision.recipient}")
+
+        def policy(att: AttestedIdentity, requested: set[str]):
+            return requested & allowed
+
+        return policy
 
     @staticmethod
     def _record_verification(
@@ -1093,6 +1285,19 @@ class _IdentityCheck:
     refuse: UpstreamResponse | None = None
     attested: AttestedIdentity | None = None
     effective_external_id: str | None = None
+    # G12 — the holder's RFC-7800 cnf JWK from the verified credential payload,
+    # when present. Used to sender-constrain a brokered downstream credential to
+    # the same key the agent's identity card was bound to. None => no PoP key.
+    cnf_jwk: dict[str, Any] | None = None
+
+
+def _drop_headers_ci(headers: dict[str, str], names: set[str]) -> None:
+    """Remove every header whose name case-insensitively matches one in ``names``,
+    mutating ``headers`` in place. Used for sole-token-custody: strip any standing
+    credential the agent presented before injecting the brokered Tex token."""
+    targets = {n.lower() for n in names}
+    for key in [k for k in headers if k.lower() in targets]:
+        headers.pop(key, None)
 
 
 def _decode_credential(raw: str) -> dict[str, Any] | None:

@@ -48,7 +48,10 @@ bpf: bpf/tex_redirect.bpf.c bpf/vmlinux.h
 generate:
 	cd agent && BPF2GO_FLAGS="-D__TARGET_ARCH_$(BPF_TARGET_ARCH)" go generate ./...
 
-build: generate
+# `make build` produces vmlinux.h, the object, the Go bindings, then the agent —
+# matching the documented behavior and the Dockerfile's explicit chain (the bare
+# `generate` prereq alone fails on a clean tree because bpf2go needs vmlinux.h).
+build: vmlinux bpf generate
 	cd agent && CGO_ENABLED=0 go build -o ../tex-kernel-pep .
 
 clean:

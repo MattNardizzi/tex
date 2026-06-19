@@ -1,5 +1,6 @@
 """
-Deterministic confidentiality non-interference checker (SECRET ↛ EGRESS).
+Deterministic non-interference checker — two dual sub-properties:
+confidentiality (SECRET ↛ EGRESS) and integrity (UNTRUSTED ↛ PRIVILEGED).
 
 What this module is — and is NOT
 --------------------------------
@@ -7,12 +8,22 @@ General non-interference (Goguen & Meseguer, "Security Policies and
 Security Models," IEEE S&P 1982) is a *2-safety hyperproperty*: it
 quantifies over pairs of executions and, for arbitrary programs, is
 **undecidable**. This module does NOT claim it. It is a **deterministic
-checker for a single, concrete, DECIDABLE sub-property**:
+checker for two concrete, DECIDABLE, dual sub-properties** over the same
+finite, fully-materialized provenance graph:
 
-    P(S, c):  no DATA / DATA_FIELD node whose confidentiality is strictly
-              above the egress sink S's observer clearance c — and whose
-              value is not FIDES-declassifiable — is a data-flow ancestor
-              of S.
+    P_conf(S, c):  no DATA / DATA_FIELD node whose confidentiality is
+              strictly above the egress sink S's observer clearance c —
+              and whose value is not FIDES-declassifiable — is a
+              data-flow ancestor of S. (SECRET ↛ EGRESS)
+
+    P_integ(S):  no DATA / DATA_FIELD node whose integrity is untrusted
+              (``IntegrityLevel.is_untrusted``) is a data-flow ancestor
+              of a privileged sink S. (UNTRUSTED ↛ PRIVILEGED — the
+              integrity dual; the classic taint-explosion direction.)
+
+Both are single-axis reachability checks over the same lattice machinery
+and share the SAME proof object, witness format, and offline verifier;
+only the source predicate and the property statement differ.
 
 Because the ARM provenance graph (``ifc.provenance.ProvenanceGraph``) is
 finite and fully materialized for one request, and the confidentiality
@@ -54,8 +65,10 @@ Both verdicts bind to ``graph.fingerprint()`` so a proof cannot be
 replayed against a different graph.
 
 Maturity: ``research_solid`` — the mechanism is real, deterministic, and
-sound for the stated sub-property, but newly wired and not yet
-CI-benchmarked. It is NOT a general non-interference guarantee.
+sound for the two stated DECIDABLE sub-properties (reachability + a
+lattice comparison), and CI-benchmarked (``test_noninterference_scale_p99``
+asserts a p99 budget at 100/1000/5000 nodes). It is NOT a general
+non-interference guarantee.
 """
 
 from __future__ import annotations
@@ -84,6 +97,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from tex.provenance.models import SealedFact
 
 
+# Stable property-statement prefixes. The offline verifier dispatches the
+# source predicate (``_leaks`` vs ``_taints``) on these so it re-checks a
+# proof under the SAME property the checker decided — a confidentiality
+# witness can never be re-checked as if it were an integrity witness. The
+# sink_id and (for confidentiality) the clearance are appended; see
+# ``check_noninterference`` / ``check_integrity_egress``.
+_CONF_PROPERTY_PREFIX = "no_confidentiality>"
+_INTEG_PROPERTY_PREFIX = "no_untrusted_integrity_datum_reaches_privileged["
+
+
 # Default observer clearance for an external-communication (egress) sink.
 # INTERNAL means: PUBLIC and INTERNAL data may leave; CONFIDENTIAL and
 # RESTRICTED (the lattice's ``is_sensitive`` tier — i.e. "secret") may not.
@@ -94,10 +117,10 @@ DEFAULT_EGRESS_CLEARANCE: ConfidentialityLevel = ConfidentialityLevel.INTERNAL
 
 
 class NonInterferenceVerdict(str, enum.Enum):
-    """The decidable verdict of the confidentiality non-interference check."""
+    """The decidable verdict of either non-interference check (conf/integ)."""
 
-    HOLDS = "holds"          # no leaking secret→egress flow exists
-    FORBID = "forbid"        # a leaking flow exists; witness attached
+    HOLDS = "holds"          # no offending source→sink flow exists
+    FORBID = "forbid"        # an offending flow exists; witness attached
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +298,48 @@ def _leaks(label: IfcLabel, clearance: ConfidentialityLevel) -> bool:
     )
 
 
+def _reconstruct_steps(
+    graph: ProvenanceGraph,
+    source_id: str,
+    sink_id: str,
+    forward_next: dict[str, tuple[str, EdgeKind]],
+) -> list[FlowStep]:
+    """Walk ``forward_next`` from ``source_id`` to ``sink_id`` into FlowSteps.
+
+    Shared by both checkers (confidentiality + integrity): the witness
+    reconstruction is identical — only the source predicate that selected
+    ``source_id`` differs. ``edge_kind_to_next`` is the edge from each node
+    toward the sink (None on the sink tail). Labels are echoed from the
+    graph; the verifier re-reads them rather than trusting the echo.
+    """
+    steps: list[FlowStep] = []
+    cursor = source_id
+    guard = graph.node_count + 1  # cycle backstop (graph is a DAG in practice)
+    while True:
+        node = graph.node(cursor)
+        label = node.label
+        nxt = forward_next.get(cursor)
+        steps.append(
+            FlowStep(
+                node_id=cursor,
+                kind=node.kind,
+                integrity=label.integrity if label is not None else None,
+                confidentiality=(
+                    label.confidentiality if label is not None else None
+                ),
+                capacity=label.capacity if label is not None else None,
+                edge_kind_to_next=nxt[1] if nxt is not None else None,
+            )
+        )
+        if cursor == sink_id or nxt is None:
+            break
+        cursor = nxt[0]
+        guard -= 1
+        if guard < 0:  # pragma: no cover - defensive cycle guard
+            break
+    return steps
+
+
 def check_noninterference(
     graph: ProvenanceGraph,
     sink_id: str,
@@ -294,7 +359,7 @@ def check_noninterference(
     """
     fingerprint = graph.fingerprint()
     property_stmt = (
-        f"no_confidentiality>{sink_clearance.label}"
+        f"{_CONF_PROPERTY_PREFIX}{sink_clearance.label}"
         f"_nondeclassifiable_datum_reaches[{sink_id}]"
     )
 
@@ -348,31 +413,7 @@ def check_noninterference(
         )
 
     # Reconstruct the witness path source→…→sink from forward_next.
-    steps: list[FlowStep] = []
-    cursor = leaking_source
-    guard = graph.node_count + 1  # cycle backstop (graph is a DAG in practice)
-    while True:
-        node = graph.node(cursor)
-        label = node.label
-        nxt = forward_next.get(cursor)
-        steps.append(
-            FlowStep(
-                node_id=cursor,
-                kind=node.kind,
-                integrity=label.integrity if label is not None else None,
-                confidentiality=(
-                    label.confidentiality if label is not None else None
-                ),
-                capacity=label.capacity if label is not None else None,
-                edge_kind_to_next=nxt[1] if nxt is not None else None,
-            )
-        )
-        if cursor == sink_id or nxt is None:
-            break
-        cursor = nxt[0]
-        guard -= 1
-        if guard < 0:  # pragma: no cover - defensive cycle guard
-            break
+    steps = _reconstruct_steps(graph, leaking_source, sink_id, forward_next)
 
     source_label = graph.node(leaking_source).label
     assert source_label is not None  # leaking nodes always carry a label
@@ -397,24 +438,161 @@ def check_noninterference(
 
 
 # ---------------------------------------------------------------------------
+# Integrity dual: UNTRUSTED ↛ PRIVILEGED
+# ---------------------------------------------------------------------------
+
+
+def _taints(label: IfcLabel) -> bool:
+    """True iff ``label`` is untrusted-integrity (the FIDES low-integrity tier).
+
+    The integrity dual of ``_leaks``. Where ``_leaks`` forbids a secret
+    rising to a too-low observer, ``_taints`` forbids an attacker-
+    controllable (``IntegrityLevel.is_untrusted`` — at or below
+    TOOL_UNTRUSTED) value reaching a privileged sink, the classic taint-
+    propagation direction (ARM MinTrust, FIDES §2.2). There is no
+    capacity exemption here: declassification (FIDES §3) downgrades
+    *confidentiality* of a low-capacity value, not the *integrity* of an
+    attacker-controlled one — an injected boolean is still attacker-
+    chosen. Conservative (fail-closed): single-axis, structural.
+    """
+    return label.integrity.is_untrusted
+
+
+def check_integrity_egress(
+    graph: ProvenanceGraph,
+    sink_id: str,
+    *,
+    sink_action: str = "",
+) -> FlowProof:
+    """Decide P_integ(sink) over ``graph`` and return a ``FlowProof``.
+
+    The integrity dual of ``check_noninterference``: walks the data-flow
+    graph **backward** from ``sink_id`` (the same BFS over sorted, non-
+    counterfactual in-edges) looking for a DATA / DATA_FIELD node that
+    ``_taints`` (untrusted integrity). The first such node yields the
+    witness — the shortest, deterministic source→…→sink path. No
+    untrusted node reachable ⇒ HOLDS.
+
+    Reuses ``FlowProof``/``FlowWitness``/``FlowStep`` verbatim; only the
+    source predicate and the ``property_statement`` differ from the
+    confidentiality check, so the SAME ``verify_flow_proof`` re-checks it
+    (it dispatches the predicate on the property statement). The proof's
+    ``sink_clearance`` field is unused by this property and recorded as
+    the conservative ``PUBLIC`` floor purely to satisfy the shared model;
+    the verifier never consults it for an integrity proof.
+
+    Deterministic, side-effect free, O(V+E) — see the CI p99 benchmark.
+    """
+    fingerprint = graph.fingerprint()
+    property_stmt = f"{_INTEG_PROPERTY_PREFIX}{sink_id}]"
+
+    if not graph.has_node(sink_id):
+        raise KeyError(f"sink node not found in graph: {sink_id}")
+
+    forward_next: dict[str, tuple[str, EdgeKind]] = {}
+    visited: set[str] = {sink_id}
+    queue: deque[str] = deque([sink_id])
+    tainted_source: str | None = None
+
+    while queue:
+        current = queue.popleft()
+        node = graph.node(current)
+        if (
+            current != sink_id
+            and node.kind in (NodeKind.DATA, NodeKind.DATA_FIELD)
+            and node.label is not None
+            and _taints(node.label)
+        ):
+            tainted_source = current
+            break
+        for parent_id, edge_kind in graph.data_flow_in_edges(current):
+            if parent_id in visited:
+                continue
+            visited.add(parent_id)
+            forward_next[parent_id] = (current, edge_kind)
+            queue.append(parent_id)
+
+    if tainted_source is None:
+        return FlowProof(
+            property_statement=property_stmt,
+            verdict=NonInterferenceVerdict.HOLDS,
+            sink_id=sink_id,
+            sink_action=sink_action,
+            sink_clearance=ConfidentialityLevel.PUBLIC,
+            graph_fingerprint=fingerprint,
+            checked_node_count=graph.node_count,
+            checked_edge_count=graph.edge_count,
+            proof_kind="exhaustive_replay",
+            witness=None,
+        )
+
+    steps = _reconstruct_steps(graph, tainted_source, sink_id, forward_next)
+    source_label = graph.node(tainted_source).label
+    assert source_label is not None  # tainted nodes always carry a label
+    witness = FlowWitness(
+        source_id=tainted_source,
+        sink_id=sink_id,
+        source_confidentiality=source_label.confidentiality,
+        steps=tuple(steps),
+    )
+    return FlowProof(
+        property_statement=property_stmt,
+        verdict=NonInterferenceVerdict.FORBID,
+        sink_id=sink_id,
+        sink_action=sink_action,
+        sink_clearance=ConfidentialityLevel.PUBLIC,
+        graph_fingerprint=fingerprint,
+        checked_node_count=graph.node_count,
+        checked_edge_count=graph.edge_count,
+        proof_kind="witness_path",
+        witness=witness,
+    )
+
+
+# ---------------------------------------------------------------------------
 # The offline verifier
 # ---------------------------------------------------------------------------
+
+
+def _proof_is_integrity(proof: FlowProof) -> bool | None:
+    """Classify a proof by its property statement. Fail-closed dispatcher.
+
+    Returns True for an integrity (UNTRUSTED ↛ PRIVILEGED) proof, False
+    for a confidentiality (SECRET ↛ EGRESS) proof, and ``None`` for an
+    unrecognized statement — which the verifier treats as a reject. The
+    statement is minted by the checkers from the same prefix constants the
+    verifier reads, so a forged/garbage statement cannot pick a predicate.
+    """
+    stmt = proof.property_statement
+    if stmt.startswith(_INTEG_PROPERTY_PREFIX):
+        return True
+    if stmt.startswith(_CONF_PROPERTY_PREFIX):
+        return False
+    return None
 
 
 def verify_flow_proof(graph: ProvenanceGraph, proof: FlowProof) -> bool:
     """Re-check ``proof`` against ``graph`` independently. Fail-closed.
 
+    Handles BOTH non-interference proofs (confidentiality SECRET ↛ EGRESS
+    and integrity UNTRUSTED ↛ PRIVILEGED); it dispatches the source
+    predicate on the proof's ``property_statement`` so it always re-checks
+    under the property the checker actually decided.
+
     Returns True iff the proof is sound for this graph:
 
       * the proof binds to THIS graph (``graph.fingerprint`` matches);
+      * the property statement is recognized (conf or integ) — an unknown
+        statement is rejected, so a predicate can never be mis-selected;
       * FORBID: the claimed witness is a real source→…→sink path — every
         edge is confirmed via ``graph.has_edge`` (not trusted from the
-        proof), the source genuinely ``_leaks`` above the stated
-        clearance, the tail is the sink CALL node, and echoed labels
-        match the graph;
-      * HOLDS: an independent re-run of ``check_noninterference`` with the
-        same clearance also returns HOLDS (decidable property, finite
-        fingerprint-bound graph — replay is sound).
+        proof), the source genuinely satisfies the offending predicate
+        (``_leaks`` above the stated clearance for conf, ``_taints`` for
+        integ), the tail is the sink CALL node, and echoed labels match
+        the graph;
+      * HOLDS: an independent re-run of the matching checker also returns
+        HOLDS (decidable property, finite fingerprint-bound graph — replay
+        is sound).
 
     Any inconsistency returns False; the verifier never raises into a
     caller on a malformed proof.
@@ -423,16 +601,30 @@ def verify_flow_proof(graph: ProvenanceGraph, proof: FlowProof) -> bool:
         if graph.fingerprint() != proof.graph_fingerprint:
             return False
 
+        is_integrity = _proof_is_integrity(proof)
+        if is_integrity is None:
+            return False  # unrecognized property — reject, never guess
+
         if proof.verdict is NonInterferenceVerdict.HOLDS:
             if proof.witness is not None:
                 return False  # a HOLDS proof must carry no witness
-            recheck = check_noninterference(
-                graph,
-                proof.sink_id,
-                sink_clearance=proof.sink_clearance,
-                sink_action=proof.sink_action,
+            if is_integrity:
+                recheck = check_integrity_egress(
+                    graph, proof.sink_id, sink_action=proof.sink_action
+                )
+            else:
+                recheck = check_noninterference(
+                    graph,
+                    proof.sink_id,
+                    sink_clearance=proof.sink_clearance,
+                    sink_action=proof.sink_action,
+                )
+            # Replay must agree on HOLDS *and* re-mint the same statement,
+            # so a HOLDS proof cannot be relabeled across properties.
+            return (
+                recheck.verdict is NonInterferenceVerdict.HOLDS
+                and recheck.property_statement == proof.property_statement
             )
-            return recheck.verdict is NonInterferenceVerdict.HOLDS
 
         # FORBID: re-walk and re-check the witness independently.
         witness = proof.witness
@@ -454,7 +646,7 @@ def verify_flow_proof(graph: ProvenanceGraph, proof: FlowProof) -> bool:
         if graph.node(proof.sink_id).kind is not NodeKind.CALL:
             return False
 
-        # Head must be a real, leaking secret source.
+        # Head must be a real source that satisfies the offending predicate.
         if not graph.has_node(witness.source_id):
             return False
         source_node = graph.node(witness.source_id)
@@ -463,8 +655,12 @@ def verify_flow_proof(graph: ProvenanceGraph, proof: FlowProof) -> bool:
         source_label = source_node.label
         if source_label is None:
             return False
-        if not _leaks(source_label, proof.sink_clearance):
-            return False
+        if is_integrity:
+            if not _taints(source_label):
+                return False
+        else:
+            if not _leaks(source_label, proof.sink_clearance):
+                return False
         if source_label.confidentiality != witness.source_confidentiality:
             return False
 
@@ -520,5 +716,6 @@ __all__ = [
     "DEFAULT_EGRESS_CLEARANCE",
     "egress_clearance",
     "check_noninterference",
+    "check_integrity_egress",
     "verify_flow_proof",
 ]

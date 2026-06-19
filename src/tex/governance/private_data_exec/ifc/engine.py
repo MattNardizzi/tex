@@ -68,6 +68,7 @@ from tex.governance.private_data_exec.ifc.memory import (
 from tex.governance.private_data_exec.ifc.noninterference import (
     FlowProof,
     NonInterferenceVerdict,
+    check_integrity_egress,
     check_noninterference,
     egress_clearance,
 )
@@ -94,6 +95,14 @@ class IfcViolation(str, enum.Enum):
     # it is a deterministic structural FORBID carrying a re-checkable
     # witness — not a probabilistic signal. See ``noninterference.py``.
     SECRET_EGRESS_NONINTERFERENCE = "ifc.secret_egress_noninterference"
+    # Deterministic, proof-carrying integrity non-interference (UNTRUSTED ↛
+    # PRIVILEGED) — the dual of SECRET_EGRESS. Single-axis (integrity
+    # only): it fires when an untrusted-integrity datum is a data-flow
+    # ancestor of a sink, even when confidentiality is benign (so it
+    # catches the case FLOW_INTEGRITY's dual-axis join can miss when the
+    # data is low-sensitivity). Deterministic structural FORBID carrying a
+    # re-checkable witness. See ``noninterference.check_integrity_egress``.
+    UNTRUSTED_EGRESS_NONINTERFERENCE = "ifc.untrusted_egress_noninterference"
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +164,12 @@ class IfcVerdict:
             # this score — the score is only the voting-tier echo.
             IfcViolation.SECRET_EGRESS_NONINTERFERENCE: 0.97,
             IfcViolation.FLOW_INTEGRITY: 0.95,
+            # UNTRUSTED_EGRESS is a deterministic, witnessed FORBID like
+            # SECRET_EGRESS, but it is NOT (yet) promoted to the hard
+            # structural floor, so it rides as a strong voting-tier signal
+            # rather than a guaranteed short-circuit — weighted just below
+            # the dual-axis FLOW_INTEGRITY to reflect that.
+            IfcViolation.UNTRUSTED_EGRESS_NONINTERFERENCE: 0.93,
             IfcViolation.CAUSALITY_LAUNDERING: 0.90,
             IfcViolation.RULE_OF_TWO_TRIFECTA: 0.85,
             IfcViolation.MIN_TRUST_FLOOR: 0.55,
@@ -479,6 +494,63 @@ class IfcEngine:
                             ],
                             "proof_commitment": flow_proof.commitment(),
                             "graph_fingerprint": flow_proof.graph_fingerprint,
+                        },
+                    )
+                )
+
+            # (g.2) Deterministic integrity non-interference (UNTRUSTED ↛
+            # PRIVILEGED) — the single-axis dual of the check above, under
+            # the SAME sink guard. Fires when an untrusted-integrity datum
+            # is a data-flow ancestor of the sink. This overlaps FLOW_INTEGRITY
+            # (dual-axis) only when the data is ALSO sensitive; on a benign-
+            # sensitivity untrusted input FLOW_INTEGRITY stays silent and this
+            # is the catcher. It carries a re-checkable witness like (g).
+            #
+            # Honesty: unlike the confidentiality FORBID above, this does NOT
+            # set ``structural_forbid`` and is NOT yet in
+            # ``structural_floor._IFC_HARD_VIOLATION_CODES`` (that file is out
+            # of this thread's scope), so the PDP does not hard-short-circuit
+            # on it — it enters the verdict as a voting-tier deterministic
+            # signal (risk_score's default weight). Promoting it to the hard
+            # floor is a one-line follow-up in structural_floor.
+            integrity_proof = check_integrity_egress(
+                graph, call_id, sink_action=request.action_type
+            )
+            if integrity_proof.verdict is NonInterferenceVerdict.FORBID:
+                violations.append(
+                    IfcViolation.UNTRUSTED_EGRESS_NONINTERFERENCE
+                )
+                iwit = integrity_proof.witness
+                assert iwit is not None  # FORBID always carries a witness
+                src_integrity = iwit.steps[0].integrity
+                evidence.append(
+                    IfcEvidenceItem(
+                        violation=(
+                            IfcViolation.UNTRUSTED_EGRESS_NONINTERFERENCE
+                        ),
+                        reason=(
+                            "Deterministic integrity non-interference "
+                            "violation: an untrusted-integrity datum "
+                            f"({iwit.source_id}, integrity="
+                            f"{src_integrity.label if src_integrity else '?'}) "
+                            f"is a data-flow ancestor of sink "
+                            f"{request.action_type!r}. A re-checkable witness "
+                            f"path of {len(iwit.steps)} node(s) proves the "
+                            "explicit flow; this is a deterministic FORBID, "
+                            "not a probabilistic signal."
+                        ),
+                        detail={
+                            "source_id": iwit.source_id,
+                            "source_integrity": (
+                                src_integrity.label if src_integrity else None
+                            ),
+                            "witness_node_ids": [
+                                step.node_id for step in iwit.steps
+                            ],
+                            "proof_commitment": integrity_proof.commitment(),
+                            "graph_fingerprint": (
+                                integrity_proof.graph_fingerprint
+                            ),
                         },
                     )
                 )

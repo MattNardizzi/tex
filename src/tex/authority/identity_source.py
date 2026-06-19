@@ -212,6 +212,7 @@ class JwksIdentitySource:
         trusted_issuers: set[str] | list[str],
         key_provider: JwksKeyProvider | None = None,
         audiences: set[str] | list[str] | None = None,
+        require_audience: bool = True,
         allowed_algs: tuple[str, ...] | None = None,
         subject_claim: str = "sub",
         require_expiry: bool = True,
@@ -223,6 +224,11 @@ class JwksIdentitySource:
         # nothing verifies, never a silent allow.
         self._provider = key_provider or StaticJwksProvider()
         self._audiences = {str(a) for a in audiences} if audiences else None
+        # Fail-closed on audience by default: if neither a configured audience set
+        # nor a per-call expected_audience is present, a positive verification is
+        # refused (a token with no audience constraint is an unbounded token).
+        # Opt out ONLY for a deliberate no-aud mode (e.g. SPIFFE JWT-SVIDs).
+        self._require_audience = bool(require_audience)
         self._algs = tuple(allowed_algs or self._DEFAULT_ALGS)
         self._subject_claim = subject_claim
         self._require_expiry = require_expiry
@@ -292,6 +298,8 @@ class JwksIdentitySource:
             return fail("not_yet_valid")
 
         # Audience: an explicit per-call expectation wins; else the configured set.
+        # Fail closed when NEITHER is present (unless require_audience was opted
+        # off): a token verified with no audience constraint is an unbounded token.
         aud_claim = payload.get("aud")
         aud_values = {str(aud_claim)} if isinstance(aud_claim, str) else {
             str(a) for a in (aud_claim or [])
@@ -299,8 +307,11 @@ class JwksIdentitySource:
         if expected_audience is not None:
             if str(expected_audience) not in aud_values:
                 return fail("audience_mismatch")
-        elif self._audiences is not None and not (aud_values & self._audiences):
-            return fail("audience_mismatch")
+        elif self._audiences is not None:
+            if not (aud_values & self._audiences):
+                return fail("audience_mismatch")
+        elif self._require_audience:
+            return fail("audience_unconfigured")
 
         agent_id = payload.get(self._subject_claim)
         if not agent_id:

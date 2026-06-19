@@ -215,6 +215,30 @@ def test_audience_mismatch_rejected():
     assert res.status == "audience_mismatch"
 
 
+def test_audience_unconfigured_fails_closed():
+    # No configured audiences AND no per-call expected_audience => a validly-signed
+    # token with no audience constraint is UNBOUNDED, so it must be REFUSED by
+    # default (require_audience=True). The opt-out allows a deliberate no-aud mode.
+    signer = RsaSigner()
+    no_aud = _payload()
+    del no_aud["aud"]
+    token = signer.sign_jwt(no_aud)
+    src = JwksIdentitySource(
+        trusted_issuers={ISS},
+        key_provider=StaticJwksProvider({ISS: [signer.jwk]}),
+    )  # audiences=None, require_audience defaults True
+    res = src.verify_subject_assertion(token, now=1000.0)
+    assert res.verified is False
+    assert res.status == "audience_unconfigured"
+    # Explicit opt-out (e.g. SPIFFE JWT-SVID with no aud) is allowed deliberately.
+    src_optout = JwksIdentitySource(
+        trusted_issuers={ISS},
+        key_provider=StaticJwksProvider({ISS: [signer.jwk]}),
+        require_audience=False,
+    )
+    assert src_optout.verify_subject_assertion(token, now=1000.0).verified is True
+
+
 def test_expired_rejected():
     signer = RsaSigner()
     src = JwksIdentitySource(

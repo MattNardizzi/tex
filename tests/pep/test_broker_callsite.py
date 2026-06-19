@@ -351,3 +351,33 @@ def test_flag_on_without_verified_identity_fails_closed():
     )
     assert resp.status == 403
     assert fwd.calls == []
+
+
+def test_broker_strips_enumerated_standing_cred_headers():
+    # Sole-token-custody over the ENUMERATED vectors: Cookie / X-Api-Key /
+    # X-Amz-Security-Token must NOT leak past the strip — Authorization alone is
+    # not enough (a resource may authenticate by cookie or api-key).
+    agent_id = str(uuid4())
+    holder = _holder()
+    card, issuers = _signed_card(agent_id, cnf=_cnf_jwk(holder))
+    proxy, fwd, mem = _build(broker=True, issuers=issuers)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+            "Authorization": "Bearer agent-standing-token",
+            "Cookie": "session=SECRET-STANDING-SESSION",
+            "X-Api-Key": "STANDING-API-KEY",
+            "X-Amz-Security-Token": "AWS-STS-STANDING",
+        },
+        body=b"payload",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200, resp.body
+    sent = json.dumps(fwd.calls[0]["headers"])
+    assert "SECRET-STANDING-SESSION" not in sent  # Cookie stripped
+    assert "STANDING-API-KEY" not in sent  # X-Api-Key stripped
+    assert "AWS-STS-STANDING" not in sent  # X-Amz-Security-Token stripped
+    assert "agent-standing-token" not in sent  # Authorization too

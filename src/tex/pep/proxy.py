@@ -125,10 +125,13 @@ class ProxyConfig:
     # G12 — credential brokering at the egress call-site. When True AND a broker is
     # constructed (a permit_memory store is present), a released action that needs
     # a downstream credential gets a fresh, single-use, action-scoped Tex
-    # credential minted and injected, and the agent's own standing credential
-    # header is stripped (sole-token-custody). Default False => behaviour-neutral:
-    # exactly today's egress, no minted credential, the agent's headers pass as-is
-    # (minus the always-stripped x-tex-* control headers).
+    # credential minted and injected, and the agent's standing-credential headers
+    # are stripped — Authorization + an enumerated set (cookie/x-api-key/... see
+    # _BROKER_STANDING_CRED_HEADERS) + broker_strip_headers. Sole-token-custody
+    # holds over those ENUMERATED vectors; an un-enumerated custom auth header
+    # would still egress (honest limit). Default False => behaviour-neutral:
+    # exactly today's egress, no minted credential, headers pass as-is (minus the
+    # always-stripped x-tex-* control headers).
     broker_credentials: bool = False
     # G12 — TTL (seconds) of a minted downstream credential.
     broker_credential_ttl: int = 300
@@ -141,6 +144,12 @@ class ProxyConfig:
     # Authorization (the resource reads "Authorization: DPoP <token>" /
     # "Bearer <token>"); override for resources that read a custom header.
     broker_inject_header: str = "authorization"
+    # G12 — EXTRA standing-credential header names to strip at the broker call
+    # site, beyond Authorization + the enumerated _BROKER_STANDING_CRED_HEADERS
+    # (cookie/x-api-key/...). For resources whose standing auth rides a custom
+    # header. Honest limit: sole-token-custody holds only over the headers Tex
+    # strips; an un-enumerated custom auth header would still egress.
+    broker_strip_headers: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +324,22 @@ _STRIP_HEADERS = {
     "x-tex-permit",
     "x-tex-agent-credential",
 }
+
+# Standing-credential headers the broker call-site strips so only the Tex-minted
+# token egresses (sole-token-custody over these ENUMERATED vectors). The most
+# common web-auth carriers beyond Authorization; ``proxy-authorization`` is
+# already in ``_STRIP_HEADERS`` above. Arbitrary custom auth headers cannot be
+# enumerated — operators add more via ProxyConfig.broker_strip_headers /
+# TEX_PEP_BROKER_STRIP_HEADERS.
+_BROKER_STANDING_CRED_HEADERS = frozenset(
+    {
+        "cookie",
+        "x-api-key",
+        "api-key",
+        "x-amz-security-token",
+        "x-goog-api-key",
+    }
+)
 
 
 class TexEnforcementProxy:
@@ -530,8 +555,9 @@ class TexEnforcementProxy:
 
         # ---- G12: credential brokering. When enabled, mint a fresh, single-use,
         # action-scoped Tex credential bound to the released decision and inject it
-        # downstream, STRIPPING any standing credential the agent presented
-        # (sole-token-custody). Gated OFF by default => behaviour-neutral.
+        # downstream, stripping the agent's standing-credential headers over an
+        # enumerated set (sole-token-custody over those vectors; see
+        # _broker_credential). Gated OFF by default => behaviour-neutral.
         broker_outcome = self._broker_credential(
             result=result,
             decision=decision,
@@ -840,8 +866,10 @@ class TexEnforcementProxy:
         fwd_headers: dict[str, str],
     ) -> UpstreamResponse | None:
         """Mint a fresh, single-use, action-scoped Tex credential for a released
-        action and inject it downstream, stripping any standing credential the
-        agent presented (sole-token-custody).
+        action and inject it downstream, stripping the agent's standing-credential
+        headers over an enumerated set (Authorization + cookie/x-api-key/... — see
+        _BROKER_STANDING_CRED_HEADERS — plus broker_strip_headers): sole-token-
+        custody over those vectors.
 
         Returns None when brokering is OFF or no credential is needed (the common,
         behaviour-neutral case), or an ``UpstreamResponse`` FORBID when brokering
@@ -853,9 +881,12 @@ class TexEnforcementProxy:
         we mint is ``requested ∩ scope_allowed_by(decision)`` — so a credential can
         only ever carry scope the SAME decision that released the action allows.
 
-        HONEST scope: this gives Tex SOLE CUSTODY of the token the agent presents
-        downstream (the agent holds no standing key on this request) and makes the
-        credential single-use + action-scoped. It does NOT by itself make the
+        HONEST scope: this gives Tex sole custody over the ENUMERATED standing-
+        credential headers it strips (Authorization + _BROKER_STANDING_CRED_HEADERS
+        + broker_strip_headers); a resource whose standing auth rides an
+        un-enumerated custom header would still receive it, so it is not blanket
+        sole-custody. It makes the minted credential single-use + action-scoped.
+        It does NOT by itself make the
         third-party resource DEMAND a Tex credential — that is federation /
         resource-side trust config (RUNTIME-DEPENDENT), exactly as documented in
         tex.authority. The cnf key here is the agent's attested holder key when the
@@ -919,11 +950,25 @@ class TexEnforcementProxy:
                 verdict="FORBID",
             )
 
-        # Sole-token-custody: strip ANY standing credential the agent presented in
-        # the inject header (and the common Authorization header) before injecting
-        # the fresh Tex credential. The match is case-insensitive on header names.
+        # Sole-token-custody (over enumerated vectors): strip the standing-
+        # credential headers the agent presented before injecting the fresh Tex
+        # credential, so a resource that authenticates by Authorization, Cookie,
+        # or a common API-key header cannot be reached with the agent's OWN
+        # standing credential. HONEST scope: this covers the enumerated set in
+        # _BROKER_STANDING_CRED_HEADERS plus any operator-configured extras; an
+        # arbitrary custom auth header Tex does not know about cannot be
+        # enumerated, so this is sole-custody over the ENUMERATED vectors, not all
+        # conceivable ones. Case-insensitive on header names.
         inject = self._config.broker_inject_header
-        _drop_headers_ci(fwd_headers, {inject, "authorization"})
+        _drop_headers_ci(
+            fwd_headers,
+            {
+                inject,
+                "authorization",
+                *_BROKER_STANDING_CRED_HEADERS,
+                *self._config.broker_strip_headers,
+            },
+        )
         token_type = minted.token_type  # "DPoP" (sender-constrained) | "Bearer"
         fwd_headers[inject] = f"{token_type} {minted.token}"
         return None

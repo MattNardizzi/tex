@@ -29,7 +29,9 @@ Credential brokering (G12) — gate the *credential*, not just the route (off by
 default; opt-in so a bare run stays today's behaviour). When on, a released
 action gets a fresh, single-use, action-scoped Tex credential minted (reusing
 the permit store for single-use/revocation) and injected downstream, and the
-agent's standing credential header is stripped (sole-token-custody):
+agent's standing-credential headers are stripped over an enumerated set
+(Authorization + cookie/x-api-key/x-amz-security-token/x-goog-api-key + any
+TEX_PEP_BROKER_STRIP_HEADERS) — sole-token-custody over those vectors:
     TEX_PEP_BROKER     "1" => mint+inject a brokered downstream credential
                               (REQUIRES TEX_PEP_PERMITS=1 for the store; minting
                               additionally needs a signing secret — see below)  default off
@@ -37,6 +39,8 @@ agent's standing credential header is stripped (sole-token-custody):
     TEX_PEP_BROKER_AUDIENCE  fixed credential audience id; unset => the resolved
                              recipient host
     TEX_PEP_BROKER_HEADER  request header to inject into          default authorization
+    TEX_PEP_BROKER_STRIP_HEADERS  comma-list of EXTRA standing-credential headers
+                                  to strip beyond the enumerated set   default none
 
 Brokered credential signing requires ``TEX_AUTHORITY_SIGNING_SECRET`` (or the
 shared ``TEX_PERMIT_SIGNING_SECRET``) in a production-like env; with none set,
@@ -44,9 +48,11 @@ minting fails closed and a brokered released action is refused. The broker is
 PoP-by-default: the agent's identity card must carry an RFC-7800 ``cnf`` key or
 the mint fails closed (no weaker bearer token is handed out).
 
-HONEST: enabling the broker gives Tex sole custody of the downstream token; it
-does NOT by itself make a third-party resource DEMAND a Tex credential — that is
-resource-side trust/federation config (RUNTIME-DEPENDENT). See tex.authority.
+HONEST: the broker gives Tex sole custody of the downstream TOKEN, and strips the
+agent's standing-credential headers only over the ENUMERATED set above (an
+un-enumerated custom auth header would still egress). It does NOT by itself make
+a third-party resource DEMAND a Tex credential — that is resource-side
+trust/federation config (RUNTIME-DEPENDENT). See tex.authority.
 
 External-time anchoring (G11) — runs ONLY when TEX_PEP_SEAL is on AND a TSA is
 configured (anchoring an un-sealed ledger has nothing to attest):
@@ -97,6 +103,11 @@ def build_app():
         broker_credential_ttl=int(os.environ.get("TEX_PEP_BROKER_TTL", "300")),
         broker_audience=os.environ.get("TEX_PEP_BROKER_AUDIENCE") or None,
         broker_inject_header=os.environ.get("TEX_PEP_BROKER_HEADER", "authorization"),
+        broker_strip_headers=frozenset(
+            h.strip().lower()
+            for h in os.environ.get("TEX_PEP_BROKER_STRIP_HEADERS", "").split(",")
+            if h.strip()
+        ),
     )
 
     # G7 — kernel-captured destination loader (Thread T1). Always constructed;

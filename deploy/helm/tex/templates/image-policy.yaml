@@ -1,0 +1,106 @@
+{{- if .Values.imagePolicy.enabled }}
+{{- if and (not .Values.imagePolicy.publicKey) (not .Values.imagePolicy.keyless.issuer) }}
+{{- fail "imagePolicy.enabled=true requires a Tex-trusted identity: set imagePolicy.publicKey (PEM) OR imagePolicy.keyless.issuer + imagePolicy.keyless.subject. Without one, every image would be denied." }}
+{{- end }}
+# ─────────────────────────────────────────────────────────────────────────────
+# cosign signed-image gating, scoped to governed namespaces.
+#
+# Admit a governed-namespace pod ONLY if its images carry a cosign signature
+# from the Tex-trusted identity (verified against Rekor). This is the supply-
+# chain leg of born-in-a-box: the box must be built from images Tex trusts.
+#
+# HONESTY (CLAUDE.md): this is a NEW integration with the sigstore admission
+# stack. Tex's existing src/tex/c2pa/cosign_verifier.py verifies cosign
+# signatures over C2PA *evidence assertions*, NOT OCI image signatures — it does
+# NOT do image gating. Signing proves PROVENANCE (who built/published the
+# image), never BEHAVIOR: a signed image can still be a malicious agent.
+# Necessary, not sufficient — the PEP + emission gate judge what it may DO.
+# ─────────────────────────────────────────────────────────────────────────────
+{{- if eq .Values.imagePolicy.engine "kyverno" }}
+# Engine: Kyverno verifyImages (self-contained scoping via the policy's own
+# match/exclude — no per-namespace label needed). Requires Kyverno installed.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: tex-require-signed-images
+  labels:
+    {{- include "tex.labels" . | nindent 4 }}
+spec:
+  validationFailureAction: Enforce   # deny on unsigned/untrusted (fail closed)
+  failurePolicy: Fail
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-tex-trusted-signature
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              namespaceSelector:
+                matchLabels:
+                  tex.systems/govern: enabled
+      exclude:
+        any:
+          - resources:
+              selector:
+                matchExpressions:
+                  - key: tex.systems/govern-exclude
+                    operator: In
+                    values: ["true", "1", "yes"]
+      verifyImages:
+        - imageReferences: ["*"]
+          required: true
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                {{- if .Values.imagePolicy.publicKey }}
+                - keys:
+                    publicKeys: |-
+{{ .Values.imagePolicy.publicKey | indent 22 }}
+                    rekor:
+                      url: {{ .Values.imagePolicy.keyless.rekorUrl | quote }}
+                {{- else }}
+                - keyless:
+                    issuer: {{ .Values.imagePolicy.keyless.issuer | quote }}
+                    subject: {{ .Values.imagePolicy.keyless.subject | quote }}
+                    rekor:
+                      url: {{ .Values.imagePolicy.keyless.rekorUrl | quote }}
+                {{- end }}
+{{- else if eq .Values.imagePolicy.engine "sigstore" }}
+# Engine: sigstore policy-controller ClusterImagePolicy. Requires
+# sigstore/policy-controller installed AND governed namespaces ALSO labeled
+# policy.sigstore.dev/include=true (that label is how policy-controller scopes
+# enforcement; it is NOT auto-applied here — label your governed namespaces).
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: tex-require-signed-images
+  labels:
+    {{- include "tex.labels" . | nindent 4 }}
+spec:
+  images:
+    - glob: "**"
+  authorities:
+    {{- if .Values.imagePolicy.publicKey }}
+    - name: tex-trusted-key
+      key:
+        data: |-
+{{ .Values.imagePolicy.publicKey | indent 10 }}
+      ctlog:
+        url: {{ .Values.imagePolicy.keyless.rekorUrl | quote }}
+    {{- else }}
+    - name: tex-trusted-keyless
+      keyless:
+        url: https://fulcio.sigstore.dev
+        identities:
+          - issuer: {{ .Values.imagePolicy.keyless.issuer | quote }}
+            subject: {{ .Values.imagePolicy.keyless.subject | quote }}
+      ctlog:
+        url: {{ .Values.imagePolicy.keyless.rekorUrl | quote }}
+    {{- end }}
+{{- else }}
+{{- fail (printf "imagePolicy.engine must be \"kyverno\" or \"sigstore\", got %q" .Values.imagePolicy.engine) }}
+{{- end }}
+{{- end }}

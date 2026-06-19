@@ -29,6 +29,41 @@ webhooks:
         path: /mutate
         port: 443
 {{- end }}
+{{- if and .Values.operator.enabled .Values.admission.webhook.enabled }}
+---
+# Born-in-a-box DENY half, the OPTIONAL code path: the validating webhook twin
+# of the injector. The ValidatingAdmissionPolicy (validating-policy.yaml) is the
+# preferred, dependency-free floor; this webhook exists for deny logic the CEL
+# policy cannot express (future signature/Rekor lookups). failurePolicy: Fail =>
+# fail-closed: if the operator is down, governed-namespace pods do NOT admit.
+# The opt-out (tex.systems/govern-exclude) is honored in code (should_validate).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: tex-admission-validator
+  {{- if .Values.operator.certManager }}
+  annotations: { cert-manager.io/inject-ca-from: "{{ include "tex.namespace" . }}/tex-operator-tls" }
+  {{- end }}
+webhooks:
+  - name: validate.tex.systems
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail        # deny-half MUST fail closed
+    timeoutSeconds: 5
+    namespaceSelector:
+      matchLabels: { tex.systems/govern: enabled }
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    clientConfig:
+      service:
+        name: tex-operator
+        namespace: {{ include "tex.namespace" . }}
+        path: /validate
+        port: 443
+{{- end }}
 {{- if and .Values.operator.enabled .Values.operator.certManager }}
 ---
 # Self-signed serving cert for the webhook (cert-manager).

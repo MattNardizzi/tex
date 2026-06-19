@@ -60,12 +60,67 @@ sidecarInjection:
   enabled: true
   proxyPort: 8088
 
+# Born-in-a-box admission: the DENY half. The injector above brings compliant
+# pods INTO the box; admission REFUSES governed-namespace pods that cannot be —
+# no approved sandbox runtimeClass, not injected, or a host escape. This is what
+# flips Tex from "enroll compliant pods" to "non-compliant agents cannot run".
+admission:
+  # The ValidatingAdmissionPolicy (CEL, in-apiserver, GA k8s 1.30). DEFAULT ON:
+  # it is fail-closed and has NO external dependency — unlike a webhook it cannot
+  # be "down". It only acts on namespaces labeled tex.systems/govern=enabled, so
+  # a fresh install touches nothing until you opt a namespace in.
+  validatingPolicy:
+    enabled: true
+  # The validating WEBHOOK (operator code path, /validate). DEFAULT OFF: it is
+  # the extensible twin (where future signature/lookup checks live) but couples
+  # admission to operator uptime (failurePolicy: Fail => operator down blocks
+  # governed pods). Enable only if you need logic the CEL policy cannot express.
+  webhook:
+    enabled: false
+  # Sandbox RuntimeClass handles a governed pod may declare to be "in the box".
+  # Keep in lock-step with TEX_APPROVED_RUNTIME_CLASSES on the operator and with
+  # operator/webhook.py:InjectorConfig.approved_runtime_classes. The ISOLATION
+  # STRENGTH is RUNTIME-DEPENDENT on which runtime actually runs.
+  approvedRuntimeClasses:
+    - gvisor
+    - kata
+    - kata-qemu
+    - kata-clh
+    - kata-fc
+    - kata-cc
+
+# cosign signed-image gating, scoped to governed namespaces. DEFAULT OFF: with
+# no trusted identity set this would (correctly) deny EVERY image and brick
+# governed namespaces — supply your Tex-trusted signing identity, then enable.
+#
+# HONESTY: this is a NEW integration with the sigstore admission stack. Tex's
+# existing src/tex/c2pa/cosign_verifier.py verifies cosign signatures over C2PA
+# *evidence assertions*, NOT OCI image signatures — it does NOT do image gating.
+# Signing proves PROVENANCE (who built the image), never BEHAVIOR: a signed
+# image can still be a malicious agent. Necessary, not sufficient.
+imagePolicy:
+  enabled: false
+  engine: kyverno        # "kyverno" (ClusterPolicy verifyImages) | "sigstore" (ClusterImagePolicy)
+  # Keyless (Fulcio/OIDC) trusted identity — preferred over a static key.
+  keyless:
+    issuer: ""           # e.g. https://token.actions.githubusercontent.com
+    subject: ""          # e.g. https://github.com/vortexblack/tex/.github/workflows/release.yaml@refs/tags/v*
+    rekorUrl: https://rekor.sigstore.dev
+  # OR a static cosign public key (PEM, multi-line). If set, takes precedence.
+  publicKey: ""
+
 # Sidecarless kernel floor (eBPF DaemonSet). The most automatic per-pod
 # coverage; requires privileged nodes. Enable in clusters where you control
-# the node security posture.
+# the node security posture. ALSO the born-in-a-box apiserver-bypass floor:
+# it redirects egress regardless of how a workload was placed (static pod,
+# direct CRI, compromised kubelet), so admission-bypass traffic still hits the
+# PEP. Run it alongside `admission` for defense-in-depth.
 kernelFloor:
   enabled: false
   proxyPort: 8088
+  # Governed cgroup root the eBPF programs attach under. The cgroup root governs
+  # the whole node; attach under specific workload cgroups to narrow scope.
+  cgroup: "/sys/fs/cgroup"
 
 # Optional bearer key the PEPs present to the PDP. Created as a Secret when set.
 apiKey: ""

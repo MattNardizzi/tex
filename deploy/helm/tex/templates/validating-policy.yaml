@@ -1,0 +1,101 @@
+{{- if and .Values.operator.enabled .Values.admission.validatingPolicy.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Born-in-a-box: the DENY half (in-apiserver, fail-closed).
+#
+# The mutating injector (webhook.yaml) brings compliant pods INTO the box. This
+# ValidatingAdmissionPolicy REFUSES governed-namespace pods that cannot be — the
+# deny twin the operator was missing (build_admission_response used to return
+# allowed:True always). CEL runs INSIDE the API server with NO external
+# dependency, so unlike a webhook it cannot be "down". It mirrors
+# src/tex/operator/webhook.py:admission_violations 1:1.
+#
+# ORDERING (load-bearing): all mutating admission runs BEFORE validating
+# admission, so by the time this policy evaluates, a compliant pod already
+# carries tex.systems/injected=true from the injector. Its ABSENCE here means
+# the injector did not run (it is failurePolicy: Ignore, so a down injector is
+# skipped) — and we DENY. That is the fail-closed composition that makes
+# injection mandatory rather than best-effort.
+#
+# HONEST BOUNDARY: admission only sees what flows through the kube-apiserver.
+# Static pods (kubelet reads from disk), direct CRI/containerd, or a compromised
+# kubelet bypass it entirely. The eBPF node DaemonSet (pep-daemonset.yaml)
+# redirects their egress anyway; the genuine root — DICE/TPM measured boot +
+# SPIRE/Keylime node attestation + Confidential Containers — is research /
+# RUNTIME-DEPENDENT (Tex's attestation is verifier-only today). This closes the
+# common doors; the node-level adversary is closed only by the node-root.
+# Requires Kubernetes >= 1.30 (ValidatingAdmissionPolicy GA).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: tex-born-in-a-box
+  labels:
+    {{- include "tex.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail            # CEL/runtime error => DENY (fail closed)
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  matchConditions:
+    # Skip pods that explicitly opted out. lowerAscii() matches _opted_out's
+    # casefold (Python admits govern-exclude="True"); without it the VAP and the
+    # webhook would diverge on non-lowercase truthy values. lowerAscii is a
+    # Kubernetes admission-CEL string builtin.
+    - name: not-opted-out
+      expression: >-
+        !(has(object.metadata.labels) &&
+          'tex.systems/govern-exclude' in object.metadata.labels &&
+          object.metadata.labels['tex.systems/govern-exclude'].lowerAscii() in ['true','1','yes'])
+  variables:
+    # A CEL list literal as a STRING (the apiserver's expression field is a
+    # string; an unquoted [..] would parse as YAML and fail schema validation).
+    - name: approved
+      expression: "[{{ range $i, $rc := .Values.admission.approvedRuntimeClasses }}{{ if $i }}, {{ end }}'{{ $rc }}'{{ end }}]"
+    - name: rc
+      expression: "has(object.spec.runtimeClassName) ? object.spec.runtimeClassName : ''"
+    - name: ann
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+    - name: allContainers
+      expression: >-
+        (has(object.spec.initContainers) ? object.spec.initContainers : []) +
+        object.spec.containers +
+        (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers : [])
+  validations:
+    # 1. an approved sandbox runtimeClassName — the "box" itself.
+    - expression: "variables.rc in variables.approved"
+      reason: Forbidden
+      message: "Tex admission denied: pod must declare an approved sandbox runtimeClassName (gVisor/Kata/Confidential Containers) to be admitted into the box"
+    # 2. the injected annotation — proves the Tex PEP injector actually ran.
+    - expression: "'tex.systems/injected' in variables.ann && variables.ann['tex.systems/injected'] == 'true'"
+      reason: Forbidden
+      message: "Tex admission denied: pod is missing tex.systems/injected=true (the PEP was not injected — injector down or bypassed; failing closed)"
+    # 3. host-namespace escapes break the sandbox before it starts.
+    - expression: "!(has(object.spec.hostNetwork) && object.spec.hostNetwork) && !(has(object.spec.hostPID) && object.spec.hostPID) && !(has(object.spec.hostIPC) && object.spec.hostIPC)"
+      reason: Forbidden
+      message: "Tex admission denied: host-namespace escapes (hostNetwork/hostPID/hostIPC) are not allowed in a governed namespace"
+    # 4. privileged / privilege-escalation in ANY container (incl. injected).
+    #    NOTE: capability adds (the injected init's NET_ADMIN/NET_RAW) are NOT
+    #    checked — only privileged + allowPrivilegeEscalation — so Tex's own
+    #    injected pod passes. Mirrors webhook.py exactly.
+    - expression: "variables.allContainers.all(c, !(has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged) && !(has(c.securityContext) && has(c.securityContext.allowPrivilegeEscalation) && c.securityContext.allowPrivilegeEscalation))"
+      reason: Forbidden
+      message: "Tex admission denied: privileged / allowPrivilegeEscalation containers are not allowed in a governed namespace"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: tex-born-in-a-box
+  labels:
+    {{- include "tex.labels" . | nindent 4 }}
+spec:
+  policyName: tex-born-in-a-box
+  validationActions: ["Deny"]
+  matchResources:
+    # Only governed namespaces. The opt-out is handled by matchConditions above.
+    namespaceSelector:
+      matchLabels:
+        tex.systems/govern: enabled
+{{- end }}

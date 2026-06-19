@@ -796,6 +796,43 @@ def verify_arbitration(
             ),
         )
 
+    # ── backend <-> statement-variant compatibility (offline-verifiability contract) ──
+    # A hiding statement OMITS fused_q from its published bytes, so a backend whose
+    # verify() consumes fused_q (the FUSE backend) is not reproducible from those
+    # bytes — refuse it rather than report a green an offline party (re-deriving the
+    # statement from canonical_bytes) cannot reproduce. Symmetrically the verdict
+    # (hiding) backend is only meaningful for a fused-score-omitting statement. The
+    # shim is variant-agnostic and is gated separately above.
+    if not stand_in:
+        hiding = _is_hiding(statement)
+        if hiding and backend_id is ProofBackendId.SCHNORR_FUSE_ZK_V1:
+            return ArbitrationVerification(
+                is_valid=False,
+                reason="zkpdp_hiding_requires_verdict_backend",
+                backend=envelope.backend,
+                stand_in=False,
+                regulator_grade=False,
+                relation=None,
+                note=(
+                    "fuse backend consumes the fused score this hiding statement "
+                    "omits from its published bytes — not offline-reproducible; a "
+                    "hiding statement must use schnorr-verdict-zk-v1"
+                ),
+            )
+        if not hiding and backend_id is ProofBackendId.SCHNORR_VERDICT_ZK_V1:
+            return ArbitrationVerification(
+                is_valid=False,
+                reason="zkpdp_public_statement_requires_fuse_backend",
+                backend=envelope.backend,
+                stand_in=False,
+                regulator_grade=False,
+                relation=None,
+                note=(
+                    "the verdict (hiding) backend is for a fused-score-omitting "
+                    "statement; an all-public statement must use schnorr-fuse-zk-v1"
+                ),
+            )
+
     relation = evaluate_relation(statement)
     if not relation.satisfied:
         return ArbitrationVerification(

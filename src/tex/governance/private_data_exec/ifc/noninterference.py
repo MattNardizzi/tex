@@ -107,6 +107,23 @@ _CONF_PROPERTY_PREFIX = "no_confidentiality>"
 _INTEG_PROPERTY_PREFIX = "no_untrusted_integrity_datum_reaches_privileged["
 
 
+def _conf_statement(sink_clearance: "ConfidentialityLevel", sink_id: str) -> str:
+    """Canonical confidentiality property string. The SINGLE source of truth used
+    by both the checker (when minting) and the verifier (when re-checking), so a
+    proof's ``property_statement`` cannot embed a sink_id/clearance that disagrees
+    with its own structured fields and still verify."""
+    return (
+        f"{_CONF_PROPERTY_PREFIX}{sink_clearance.label}"
+        f"_nondeclassifiable_datum_reaches[{sink_id}]"
+    )
+
+
+def _integ_statement(sink_id: str) -> str:
+    """Canonical integrity property string (single source of truth — see
+    :func:`_conf_statement`)."""
+    return f"{_INTEG_PROPERTY_PREFIX}{sink_id}]"
+
+
 # Default observer clearance for an external-communication (egress) sink.
 # INTERNAL means: PUBLIC and INTERNAL data may leave; CONFIDENTIAL and
 # RESTRICTED (the lattice's ``is_sensitive`` tier — i.e. "secret") may not.
@@ -358,10 +375,7 @@ def check_noninterference(
     Deterministic, side-effect free, sub-millisecond on small graphs.
     """
     fingerprint = graph.fingerprint()
-    property_stmt = (
-        f"{_CONF_PROPERTY_PREFIX}{sink_clearance.label}"
-        f"_nondeclassifiable_datum_reaches[{sink_id}]"
-    )
+    property_stmt = _conf_statement(sink_clearance, sink_id)
 
     if not graph.has_node(sink_id):
         # An absent sink is a programming error, not an adversary input:
@@ -484,7 +498,7 @@ def check_integrity_egress(
     Deterministic, side-effect free, O(V+E) — see the CI p99 benchmark.
     """
     fingerprint = graph.fingerprint()
-    property_stmt = f"{_INTEG_PROPERTY_PREFIX}{sink_id}]"
+    property_stmt = _integ_statement(sink_id)
 
     if not graph.has_node(sink_id):
         raise KeyError(f"sink node not found in graph: {sink_id}")
@@ -604,6 +618,19 @@ def verify_flow_proof(graph: ProvenanceGraph, proof: FlowProof) -> bool:
         is_integrity = _proof_is_integrity(proof)
         if is_integrity is None:
             return False  # unrecognized property — reject, never guess
+
+        # Bind the human-readable property_statement to the proof's OWN structured
+        # fields (re-mint from the single source of truth and require equality), so
+        # a FORBID proof cannot embed a sink_id/clearance in its claim string that
+        # disagrees with the sink_id/clearance the witness was actually checked
+        # against. (HOLDS already gets this via the re-mint match below.)
+        expected_statement = (
+            _integ_statement(proof.sink_id)
+            if is_integrity
+            else _conf_statement(proof.sink_clearance, proof.sink_id)
+        )
+        if expected_statement != proof.property_statement:
+            return False
 
         if proof.verdict is NonInterferenceVerdict.HOLDS:
             if proof.witness is not None:

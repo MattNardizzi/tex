@@ -1115,3 +1115,41 @@ def test_fuzz_every_tampering_is_rejected(
         )
 
     assert verify_flow_proof(graph, tampered) is False
+
+
+def test_verifier_rejects_forbid_with_mutated_clearance_label() -> None:
+    """A FORBID proof whose property_statement embeds a DIFFERENT clearance label
+    than its own ``sink_clearance`` field must be rejected: the claim string is
+    bound to the structured fields (re-minted + required equal), not free text, so
+    a forger cannot relabel the proof to a clearance under which it would not
+    leak while keeping a verifying witness."""
+    g = _secret_to_sink_graph(confidentiality=ConfidentialityLevel.RESTRICTED)
+    proof = check_noninterference(g, "call:proposed")
+    assert proof.verdict is NonInterferenceVerdict.FORBID
+    assert verify_flow_proof(g, proof) is True  # genuine accepts
+    tampered = proof.model_copy(
+        update={
+            "property_statement": proof.property_statement.replace(
+                proof.sink_clearance.label, "FORGED_HIGHER_CLEARANCE"
+            )
+        }
+    )
+    assert tampered.property_statement != proof.property_statement
+    assert verify_flow_proof(g, tampered) is False
+
+
+def test_verifier_rejects_forbid_with_mutated_sink_id() -> None:
+    """A FORBID proof whose property_statement embeds a DIFFERENT sink_id than its
+    own ``sink_id`` field must be rejected (same binding, sink dimension)."""
+    g = _secret_to_sink_graph(confidentiality=ConfidentialityLevel.RESTRICTED)
+    proof = check_noninterference(g, "call:proposed")
+    assert proof.verdict is NonInterferenceVerdict.FORBID
+    tampered = proof.model_copy(
+        update={
+            "property_statement": proof.property_statement.replace(
+                "call:proposed", "call:innocent_looking"
+            )
+        }
+    )
+    assert tampered.property_statement != proof.property_statement
+    assert verify_flow_proof(g, tampered) is False

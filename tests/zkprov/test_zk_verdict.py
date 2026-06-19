@@ -460,3 +460,53 @@ def test_router_skipped_arbiter_does_not_select_verdict_backend() -> None:
     )
     env = ab.prove_arbitration(s)
     assert env.backend == ProofBackendId.DETERMINISTIC_SHIM_V1.value
+
+
+# ── backend <-> statement-variant compatibility (offline-verifiability) ──────
+
+
+def test_arbiter_rejects_fuse_backend_on_hiding_statement(
+    hidden_permit_a_envelope,
+) -> None:
+    """A FUSE-backend envelope must be REFUSED for a hiding statement: the fuse
+    backend consumes the fused score the hiding statement omits from its published
+    bytes, so its green is not reproducible by an offline party re-deriving the
+    statement from canonical_bytes. Even though the in-memory fused_q makes the
+    fuse proof verify, the arbiter must reject it by a named reason."""
+    s, _ = hidden_permit_a_envelope
+    fuse_env = ab.prove_arbitration(
+        s, backend_id=ProofBackendId.SCHNORR_FUSE_ZK_V1
+    )
+    assert fuse_env.backend == ProofBackendId.SCHNORR_FUSE_ZK_V1.value
+    res = ab.verify_arbitration(s, fuse_env)
+    assert res.is_valid is False
+    assert res.reason == "zkpdp_hiding_requires_verdict_backend"
+    # The correct (verdict) backend still validates the SAME hiding statement.
+    verdict_env = ab.prove_arbitration(s)  # auto-upgrades to the verdict backend
+    assert verdict_env.backend == ProofBackendId.SCHNORR_VERDICT_ZK_V1.value
+    assert ab.verify_arbitration(s, verdict_env).is_valid is True
+
+
+def test_arbiter_verify_rejects_tampered_zk_proof(hidden_permit_a_envelope) -> None:
+    """The ZK region proof is the DECISIVE rejecter through verify_arbitration:
+    mutate a stream commitment in the proof bytes (the digest still binds the
+    UNCHANGED statement and evaluate_relation stays satisfied), so the rejection
+    comes from the backend's ZK verify, not the digest-binding or relation step."""
+    from dataclasses import replace
+
+    s, env = hidden_permit_a_envelope
+    assert ab.evaluate_relation(s).satisfied  # relation is NOT the rejecter
+    proof = json.loads(bytes.fromhex(env.proof_hex).decode("utf-8"))
+    proof["streams"][0]["commitment"] = str(
+        int(proof["streams"][0]["commitment"]) + 1
+    )
+    mutated_hex = (
+        json.dumps(proof, sort_keys=True, separators=(",", ":"))
+        .encode("utf-8")
+        .hex()
+    )
+    mutated_env = replace(env, proof_hex=mutated_hex)
+    assert mutated_env.statement_sha256 == s.sha256_hex()  # digest still binds
+    res = ab.verify_arbitration(s, mutated_env)
+    assert res.is_valid is False
+    assert res.reason == "zkpdp_proof_invalid"

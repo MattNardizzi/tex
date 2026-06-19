@@ -6,8 +6,9 @@ Run the Tex operator:
 It does two jobs from one process:
   * runs the EnrollmentController (watches namespaces, keeps the scope true);
   * serves the MutatingAdmissionWebhook (/mutate) the API server calls to
-    inject the PEP into new pods, plus /scope (the governed set the node
-    agents poll) and /healthz.
+    inject the PEP into new pods; the ValidatingAdmissionWebhook (/validate)
+    that DENIES in-scope pods that cannot be brought into the box; plus /scope
+    (the governed set the node agents poll) and /healthz.
 
 Env:
     TEX_PDP_BASE        PDP base URL injected into sidecars
@@ -15,6 +16,10 @@ Env:
     TEX_PROXY_IMAGE     proxy sidecar image    default ghcr.io/vortexblack/tex:latest
     TEX_INIT_IMAGE      egress-redirect init   default ghcr.io/vortexblack/tex-init:latest
     TEX_PROXY_PORT      sidecar port           default 8088
+    TEX_APPROVED_RUNTIME_CLASSES
+                        comma-separated sandbox RuntimeClass names the validating
+                        webhook admits (default gvisor,kata,kata-qemu,kata-clh,
+                        kata-fc,kata-cc). Keep in sync with the VAP in the chart.
     TEX_OPERATOR_HOST   bind host              default 0.0.0.0
     TEX_OPERATOR_PORT   bind port (TLS termed by the Service/secret) default 8443
 """
@@ -30,7 +35,7 @@ def build_app(scope=None):
     from tex.operator.webhook import InjectorConfig, build_webhook_app
 
     scope = scope or EnrollmentScope()
-    cfg = InjectorConfig(
+    cfg_kwargs = dict(
         proxy_image=os.environ.get("TEX_PROXY_IMAGE", "ghcr.io/vortexblack/tex:latest"),
         init_image=os.environ.get("TEX_INIT_IMAGE", "ghcr.io/vortexblack/tex-init:latest"),
         proxy_port=int(os.environ.get("TEX_PROXY_PORT", "8088")),
@@ -39,6 +44,14 @@ def build_app(scope=None):
         ),
         environment=os.environ.get("TEX_PEP_ENV", "production"),
     )
+    # Operator-configurable sandbox allowlist; only override the default when set
+    # so the webhook and the chart's VAP stay in lock-step otherwise.
+    rc_env = os.environ.get("TEX_APPROVED_RUNTIME_CLASSES", "").strip()
+    if rc_env:
+        cfg_kwargs["approved_runtime_classes"] = tuple(
+            c.strip() for c in rc_env.split(",") if c.strip()
+        )
+    cfg = InjectorConfig(**cfg_kwargs)
     app = build_webhook_app(scope, cfg)
 
     # Expose the governed set for the node agents (the eBPF/ambient route).

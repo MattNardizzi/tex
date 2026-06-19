@@ -1,9 +1,47 @@
 {{- if .Values.kernelFloor.enabled }}
-# Sidecarless kernel floor: one pod per node, governs every workload incl. new
-# ones, no injection. The agent loads the eBPF redirector; the proxy decides.
+# ─────────────────────────────────────────────────────────────────────────────
+# tex-pep — the eBPF node floor, one pod per node. TWO roles, one DaemonSet:
+#
+#   (a) Sidecarless enrollment: governs every workload in a node's cgroup with
+#       no per-pod injection.
+#   (b) Born-in-a-box APISERVER-BYPASS FLOOR: admission control (the VAP +
+#       validating webhook) only sees pods that flow through the kube-apiserver.
+#       Static pods (kubelet reads from disk), direct CRI/containerd, or a
+#       compromised kubelet bypass admission entirely. This floor redirects
+#       their egress REGARDLESS of how the workload was placed, so a bypass
+#       pod's traffic still hits the Tex PEP. Run it alongside admission for
+#       defense-in-depth.
+#
+# Container 1 (tex-kernel-pep): loads/attaches the redirector eBPF programs from
+#   pep/kernel/bpf/tex_redirect.bpf.c (cgroup/connect4+6, sendmsg4+6, sockops)
+#   via the Go agent (pep/kernel/agent), warms the in-kernel verdict cache from
+#   the PDP, and pins the orig-dst map. FAIL-CLOSED: absence from the verdict
+#   cache is never permit. (Manifest references the program; it does not change
+#   it — the EGRESS thread owns pep/kernel/**.)
+# Container 2 (tex-proxy): the transparent enforcement proxy the redirect
+#   targets; recovers the kernel-captured destination over the shared UDS and
+#   FORBIDs any flow with no verified dst (TEX_PEP_REQUIRE_DST=1) — no silent
+#   header-trust fallback.
+#
+# SCOPE (honest): the Go agent governs by CGROUP attachment (TEX_CGROUP), not by
+# polling the operator's /scope endpoint. "Reads the same EnrollmentScope" is
+# the same governance label intent (tex.systems/govern=enabled) realized via the
+# attached cgroup; scope-driven cgroup selection (consuming /scope) is the
+# integration step the blueprint labels research-solid. Attach under specific
+# workload cgroups to scope to chosen namespaces; the cgroup root governs the
+# whole node.
+#
+# Requires privileged nodes (load eBPF, attach cgroup). Enable only where you
+# control the node security posture.
+# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: DaemonSet
-metadata: { name: tex-pep, namespace: {{ include "tex.namespace" . }} }
+metadata:
+  name: tex-pep
+  namespace: {{ include "tex.namespace" . }}
+  labels:
+    app: tex-pep
+    {{- include "tex.labels" . | nindent 4 }}
 spec:
   selector: { matchLabels: { app: tex-pep } }
   template:
@@ -15,24 +53,44 @@ spec:
       containers:
         - name: tex-kernel-pep
           image: {{ .Values.image.kernelPep }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            privileged: true
+            privileged: true            # required: load eBPF, attach cgroup
             capabilities: { add: ["SYS_ADMIN", "BPF", "NET_ADMIN", "PERFMON"] }
           env:
+            - { name: TEX_CGROUP, value: {{ .Values.kernelFloor.cgroup | quote }} }
             - { name: TEX_PROXY_ADDR, value: "127.0.0.1:{{ .Values.kernelFloor.proxyPort }}" }
             - { name: TEX_PDP_BASE, value: "http://tex.{{ include "tex.namespace" . }}.svc.cluster.local:{{ .Values.pdp.port }}" }
+            - { name: TEX_PDP_API_KEY, valueFrom: { secretKeyRef: { name: tex-pep-secret, key: apiKey, optional: true } } }
+            # Shared orig-dst UDS (the keystone the proxy depends on for the real
+            # destination). Only the tex-proxy below (runAsUser 0) may query it.
+            - { name: TEX_ORIGDST_SOCK, value: "/run/tex/origdst.sock" }
+            - { name: TEX_ORIGDST_ALLOWED_UID, value: "0" }
           volumeMounts:
             - { name: bpffs,  mountPath: /sys/fs/bpf, mountPropagation: Bidirectional }
             - { name: cgroup, mountPath: /sys/fs/cgroup }
+            - { name: origdst, mountPath: /run/tex }
         - name: tex-proxy
           image: {{ .Values.image.proxy }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "-m", "tex.pep"]
+          securityContext:
+            runAsUser: 0   # match TEX_ORIGDST_ALLOWED_UID so SO_PEERCRED admits the proxy
           env:
             - { name: TEX_PDP_MODE, value: "http" }
             - { name: TEX_PDP_BASE, value: "http://tex.{{ include "tex.namespace" . }}.svc.cluster.local:{{ .Values.pdp.port }}" }
+            - { name: TEX_PDP_API_KEY, valueFrom: { secretKeyRef: { name: tex-pep-secret, key: apiKey, optional: true } } }
+            - { name: TEX_PEP_ENV, value: "production" }
             - { name: TEX_PEP_PORT, value: "{{ .Values.kernelFloor.proxyPort }}" }
+            # Recover the kernel-captured dst over the shared UDS and FORBID any
+            # flow with no verified dst (no silent header-trust fallback).
+            - { name: TEX_ORIGDST_SOCK, value: "/run/tex/origdst.sock" }
+            - { name: TEX_PEP_REQUIRE_DST, value: "1" }
+          volumeMounts:
+            - { name: origdst, mountPath: /run/tex }
           ports: [ { containerPort: {{ .Values.kernelFloor.proxyPort }}, name: proxy } ]
       volumes:
         - { name: bpffs,  hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate } }
         - { name: cgroup, hostPath: { path: /sys/fs/cgroup, type: Directory } }
+        - { name: origdst, emptyDir: {} }   # shared between kernel + proxy for the orig-dst UDS
 {{- end }}

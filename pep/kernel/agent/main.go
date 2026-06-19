@@ -34,7 +34,12 @@ import (
 	"github.com/cilium/ebpf/link"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpf texRedirect ../bpf/tex_redirect.bpf.c
+// $BPF2GO_FLAGS (set by ../Makefile from the host arch, e.g.
+// -D__TARGET_ARCH_arm64) is appended after "--" so bpf2go's clang picks the
+// right CO-RE register layout. Empty when invoked via a bare `go generate`,
+// which still compiles (the programs use no arch-gated PT_REGS accessors); the
+// Makefile path sets it so the embedded object matches the build host.
+//go:generate sh -c "go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpf texRedirect ../bpf/tex_redirect.bpf.c -- $BPF2GO_FLAGS"
 
 const (
 	pinPath       = "/sys/fs/bpf/tex"

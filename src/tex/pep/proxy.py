@@ -268,6 +268,7 @@ class TexEnforcementProxy:
         governance: Any | None = None,
         origdst: OrigDstResolver | None = None,
         permit_memory: Any | None = None,
+        seal_ledger: Any | None = None,
     ) -> None:
         self._decide = decision_client
         self._forward = forwarder or HttpxForwarder()
@@ -276,6 +277,12 @@ class TexEnforcementProxy:
         self._governance = governance
         # G7 — kernel-captured destination recovery (None => header fallback).
         self._origdst = origdst
+        # G4 — when set, seal ONE ENFORCEMENT receipt per request for the TERMINAL
+        # outcome (after the PDP verdict AND the permit gate), so a receipt can
+        # never claim "executed" for an action the permit gate later 403'd. None
+        # => seal nothing (gated off by default in __main__, as before).
+        self._seal_ledger = seal_ledger
+        self.seal_records: list[Any] = []
         # G10 — durable permit subsystem (a MemorySystem-like object exposing
         # issue_permit / verify_permit / .permits). None => no egress permits
         # (today's behaviour, documented). When present, every released action
@@ -359,6 +366,10 @@ class TexEnforcementProxy:
 
         result = self._decide.decide(decision)
         if not result.released:
+            self._seal_outcome(
+                decision, result, executed=False,
+                reason=result.reason, attested=ident.attested,
+            )
             return _refuse(result.reason or "Forbidden by Tex.", verdict=result.verdict)
 
         # ---- PERMIT path. Build the forward headers first.
@@ -377,10 +388,23 @@ class TexEnforcementProxy:
             result=result, decision=decision, recipient=recipient, body=body
         )
         if isinstance(permit_outcome, UpstreamResponse):
+            # A released action the permit gate REFUSED: the receipt must record
+            # the true terminal outcome (blocked), never a premature "executed".
+            self._seal_outcome(
+                decision, result, executed=False,
+                reason="permit gate refused released action",
+                attested=ident.attested,
+            )
             return permit_outcome  # permit verification failed -> FORBID
         if permit_outcome is not None:
             fwd_headers["X-Tex-Permit"] = permit_outcome
 
+        # The full gate ALLOWED the action: seal the executed outcome before
+        # dispatch (the action is now committed to forward).
+        self._seal_outcome(
+            decision, result, executed=True,
+            reason=result.reason, attested=ident.attested,
+        )
         url = upstream_base.rstrip("/") + path
         upstream = self._forward.send(method, url, fwd_headers, body)
 
@@ -608,6 +632,54 @@ class TexEnforcementProxy:
             )
         except Exception as exc:  # noqa: BLE001 — audit-log write is best-effort
             _logger.warning("PEP: verification record failed: %s", exc)
+
+    # ------------------------------------------------------------------ G4 seal
+
+    def _seal_outcome(
+        self,
+        decision: Decision,
+        result: DecisionResult,
+        *,
+        executed: bool,
+        reason: str | None,
+        attested: AttestedIdentity | None,
+    ) -> None:
+        """Seal ONE ENFORCEMENT receipt for the TERMINAL outcome of this request.
+
+        Called once, AFTER the full gate (PDP verdict + permit gate) resolves, so
+        ``executed`` is what ACTUALLY happened — not the raw PDP ``released`` bit.
+        This is the fix for the receipt-inversion defect: a permit-gate refusal of
+        a released action now seals ``outcome=blocked``, never ``executed``. The
+        PDP ``verdict`` is still recorded verbatim, so a "verdict PERMIT, outcome
+        blocked" receipt truthfully shows the PDP released it but the PEP stopped
+        it at the permit gate. Fail-soft: a seal failure never changes the
+        response (mirrors ``seal_enforcement_decision``'s own contract)."""
+        ledger = self._seal_ledger
+        if ledger is None:
+            return
+        from tex.provenance.enforcement_seal import seal_enforcement_decision
+
+        record = seal_enforcement_decision(
+            ledger,
+            action_type=decision.action_type,
+            channel=decision.channel,
+            environment=decision.environment,
+            recipient=decision.recipient,
+            agent_id=(
+                str(decision.agent_id)
+                if decision.agent_id is not None
+                else (decision.agent_external_id or None)
+            ),
+            verdict=result.verdict,
+            released=executed,  # the TRUE terminal outcome, not the PDP bit
+            decision_id=result.decision_id,
+            reason=reason,
+            tier=result.tier,
+            held=result.held,
+            attested_identity=attested,
+        )
+        if record is not None:
+            self.seal_records.append(record)
 
     # ------------------------------------------------------------------ mapping
 

@@ -82,6 +82,12 @@ def build_app():
 
         permit_memory = MemorySystem(tenant_id=default_tenant)
 
+    # G4 — terminal-outcome receipt ledger (gated off by default). The proxy is
+    # the single seal site: it seals ONE receipt per request for what actually
+    # happened, after the permit gate — so a receipt can never claim "executed"
+    # for an action the permit gate refused.
+    seal_ledger = _maybe_ledger()
+
     if mode == "inprocess":
         from tex.governance.standing import StandingGovernance
         from tex.main import build_runtime
@@ -95,13 +101,13 @@ def build_app():
             provenance_engine=runtime.provenance_engine,
         )
         client = InProcessDecisionClient(governance)
-        client = _maybe_seal(client)
         proxy = TexEnforcementProxy(
             decision_client=client,
             config=config,
             governance=governance,
             origdst=origdst,
             permit_memory=permit_memory,
+            seal_ledger=seal_ledger,
         )
     else:
         import httpx
@@ -113,30 +119,28 @@ def build_app():
         client = HttpDecisionClient(
             client=httpx.Client(), base_url=base, api_key=api_key
         )
-        client = _maybe_seal(client)
         proxy = TexEnforcementProxy(
             decision_client=client,
             config=config,
             origdst=origdst,
             permit_memory=permit_memory,
+            seal_ledger=seal_ledger,
         )
 
     return build_proxy_app(proxy)
 
 
-def _maybe_seal(client):
-    """G4 — wrap the decision client so each decision seals an offline-verifiable
-    receipt. Gated (default OFF) and mirrors the caution at ``main.py:878``: an
-    in-memory ``SealedFactLedger`` grows one record per decision, so default-on
-    is deferred until a durable (Postgres write-through) ledger backs it. When
-    off, the client is returned unchanged and the PEP seals nothing — exactly
-    today's behaviour."""
+def _maybe_ledger():
+    """G4 — the receipt ledger the proxy seals each request's TERMINAL outcome
+    into. Gated (default OFF) and mirrors the caution at ``main.py:878``: an
+    in-memory ``SealedFactLedger`` grows one record per request, so default-on is
+    deferred until a durable (Postgres write-through) ledger backs it. When off,
+    returns None and the PEP seals nothing — exactly today's behaviour."""
     if not _flag("TEX_PEP_SEAL"):
-        return client
-    from tex.pep.sealing import SealingDecisionClient
+        return None
     from tex.provenance.ledger import SealedFactLedger
 
-    return SealingDecisionClient(client, SealedFactLedger())
+    return SealedFactLedger()
 
 
 def main() -> None:

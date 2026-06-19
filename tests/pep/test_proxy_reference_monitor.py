@@ -313,22 +313,21 @@ def test_no_credential_proceeds_by_default_documented_gap():
     assert fwd.calls
 
 
-def test_proxy_seals_receipt_with_per_request_attested_identity():
-    # End-to-end: the proxy verifies the credential (G6) AND the wrapped sealing
-    # client writes a receipt (G4) carrying that exact attested identity.
-    from tex.pep.sealing import SealingDecisionClient
+def test_proxy_seals_executed_receipt_with_per_request_attested_identity():
+    # End-to-end: the proxy verifies the credential (G6) AND seals a TERMINAL
+    # receipt (G4) carrying that exact attested identity, outcome=executed.
     from tex.provenance.ledger import SealedFactLedger
 
     agent_id = str(uuid4())
     card, issuers = _signed_card(agent_id=agent_id)
     ledger = SealedFactLedger()
-    sealing = SealingDecisionClient(_StaticClient(_permit()), ledger)
     fwd = _RecordingForwarder()
     proxy = TexEnforcementProxy(
-        decision_client=sealing,
+        decision_client=_StaticClient(_permit()),
         forwarder=fwd,
         origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
         config=ProxyConfig(trusted_issuers=issuers),
+        seal_ledger=ledger,
     )
     resp = proxy.handle(
         method="POST",
@@ -341,11 +340,65 @@ def test_proxy_seals_receipt_with_per_request_attested_identity():
         peer=("1.2.3.4", 5),
     )
     assert resp.status == 200
-    assert len(sealing.records) == 1
-    attestation = sealing.records[0].fact.detail["identity_attestation"]
+    assert len(proxy.seal_records) == 1
+    detail = proxy.seal_records[0].fact.detail
+    assert detail["outcome"] == "executed"  # forwarded => executed
+    attestation = detail["identity_attestation"]
     assert attestation["verified"] is True
     assert attestation["claimed_agent_id"] == agent_id
     assert ledger.verify_chain()["intact"] is True
+
+
+def test_permit_block_seals_blocked_not_executed(monkeypatch):
+    # Receipt-inversion fix: a released action the permit gate REFUSES must seal
+    # outcome=blocked — never a false "executed". (No signing secret in a
+    # production-like env makes the permit gate fail closed on a released action.)
+    monkeypatch.delenv("TEX_PERMIT_SIGNING_SECRET", raising=False)
+    monkeypatch.setenv("TEX_REQUIRE_AUTH", "1")
+    from tex.provenance.ledger import SealedFactLedger
+
+    ledger = SealedFactLedger()
+    fwd = _RecordingForwarder()
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(_permit()),  # PDP RELEASED
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.7", 80)),
+        permit_memory=_mem(),
+        seal_ledger=ledger,
+    )
+    resp = proxy.handle(
+        method="POST", path="/x", headers={}, body=b"b", peer=("1.2.3.4", 5)
+    )
+    assert resp.status == 403  # permit gate refused
+    assert fwd.calls == []  # never forwarded
+    assert len(proxy.seal_records) == 1
+    detail = proxy.seal_records[0].fact.detail
+    assert detail["outcome"] == "blocked"  # the TRUTH, not "executed"
+    assert detail["allowed"] is False
+    assert detail["verdict"] == "PERMIT"  # PDP released, but the PEP blocked it
+    assert ledger.verify_chain()["intact"] is True
+
+
+def test_forbidden_decision_seals_blocked():
+    from tex.provenance.ledger import SealedFactLedger
+
+    ledger = SealedFactLedger()
+    fwd = _RecordingForwarder()
+    forbid = DecisionResult(released=False, verdict="FORBID", reason="nope")
+    proxy = TexEnforcementProxy(
+        decision_client=_StaticClient(forbid),
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        seal_ledger=ledger,
+    )
+    resp = proxy.handle(
+        method="POST", path="/x", headers={}, body=b"b", peer=("1.2.3.4", 5)
+    )
+    assert resp.status == 403
+    assert len(proxy.seal_records) == 1
+    detail = proxy.seal_records[0].fact.detail
+    assert detail["outcome"] == "blocked"
+    assert detail["verdict"] == "FORBID"
 
 
 def test_verified_credential_fills_in_absent_principal():

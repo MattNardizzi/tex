@@ -160,10 +160,17 @@ class HttpxForwarder:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedDst:
-    """The true destination the kernel saw for the accepted connection."""
+    """The true destination the kernel saw for the accepted connection.
+
+    ``tls`` is the transport hint when a layer KNOWS it (the tls_front terminator,
+    or a future uprobe): ``True`` => speak TLS upstream, ``False`` => plaintext,
+    ``None`` => unknown (the kernel orig_dst loader only sees ip:port, so it
+    leaves this None and the scheme is guessed from the port — see
+    ``_base_from_dst``)."""
 
     ip: str
     port: int
+    tls: bool | None = None
 
 
 class OrigDstResolver:
@@ -232,12 +239,32 @@ class OrigDstResolver:
 def _base_from_dst(dst: ResolvedDst) -> str:
     """Reconstruct an upstream base URL from a kernel-verified ip:port.
 
-    The kernel gives an ip:port, not a scheme — derive it from the port (443 ->
-    https, else http). The TCP destination is pinned to ``dst.ip``; a downstream
-    ``Host`` header can at most select a vhost on that already-authorized server,
-    never redirect egress elsewhere.
+    The kernel gives an ip:port, not a scheme. Resolution order:
+
+      1. ``dst.tls`` when a layer KNOWS the transport (tls_front terminator /
+         uprobe) — authoritative.
+      2. port 80 — the one unambiguous well-known plaintext port → ``http``.
+      3. anything else (443, 8443, and every unknown port) → ``https``.
+
+    Rationale (the fix for the old ``443 -> https else http`` rule): an opaque
+    TLS service on a non-standard port (8443, a private MCP-over-TLS endpoint)
+    must NOT be silently downgraded to ``http`` — that would make the forwarder
+    speak plaintext to a TLS upstream (a broken/foot-gun egress, and a
+    visibility gap dressed as "it worked"). Defaulting unknown ports to ``https``
+    fails safe; a layer that truly knows it is plaintext pins ``dst.tls=False``.
+
+    The TCP destination is pinned to ``dst.ip``; a downstream ``Host`` header can
+    at most select a vhost on that already-authorized server, never redirect
+    egress elsewhere.
     """
-    scheme = "https" if dst.port == 443 else "http"
+    if dst.tls is True:
+        scheme = "https"
+    elif dst.tls is False:
+        scheme = "http"
+    elif dst.port == 80:
+        scheme = "http"
+    else:
+        scheme = "https"
     return f"{scheme}://{dst.ip}:{dst.port}"
 
 
@@ -451,6 +478,57 @@ class TexEnforcementProxy:
                 agent_external_id=agent_external_id,
             )
         return upstream
+
+    # ------------------------------------------------------------------ opaque L4
+
+    def rule_opaque(self, *, recipient: str | None) -> DecisionResult:
+        """Rule on TLS-opaque HTTPS egress whose content the proxy could NOT read.
+
+        The companion to :meth:`handle` for the ``tls_front`` terminator: it is
+        called for every connection NOT MITM-terminated (destination off the
+        terminate-allowlist, the agent refused our leaf under termination, or
+        ECH/SNI that could not be pinned to the kernel orig_dst). There is no
+        plaintext HTTP request and no readable ``X-Tex-*`` identity header — both
+        are inside the encrypted stream — so we rule on what IS known: the
+        SNI-pinned-to-orig_dst ``recipient`` and the sidecar's configured agent
+        identity, with ``action_type='https_opaque'`` (see :meth:`_to_decision`).
+
+        Returns the ``DecisionResult``. The caller (``tls_front``) splices the TCP
+        through to the verified orig_dst on ``released`` and refuses otherwise — so
+        un-inspectable HTTPS becomes an EXPLICIT verdict the PDP can ABSTAIN on,
+        never a silent bypass. A seal ledger (when wired) records ONE terminal
+        outcome whose channel/recipient say "opaque egress ruled", never "content
+        observed" — the honest scope (CLAUDE.md: name must deliver its property).
+
+        ``executed`` is sealed as ``released`` at the verdict point, mirroring
+        :meth:`handle`'s "committed to forward" seal: a PERMIT here means the front
+        is committed to splicing; a later TCP-level splice failure is an upstream
+        error, not a policy bypass.
+        """
+        tenant = self._config.default_tenant.strip().casefold()
+        agent_id = _as_uuid(self._config.default_agent_id)
+        agent_external_id = self._config.default_agent_external_id
+
+        decision, _ = self._to_decision(
+            method="CONNECT",
+            path="",
+            body=b"",
+            tenant=tenant,
+            recipient=recipient,
+            agent_id=agent_id,
+            agent_external_id=agent_external_id,
+            session_id=None,
+            opaque=True,
+        )
+        result = self._decide.decide(decision)
+        self._seal_outcome(
+            decision,
+            result,
+            executed=result.released,
+            reason=result.reason,
+            attested=None,
+        )
+        return result
 
     # ------------------------------------------------------------------ G7 dst
 
@@ -744,12 +822,44 @@ class TexEnforcementProxy:
         agent_external_id: str | None,
         session_id: str | None,
         attested_identity: AttestedIdentity | None = None,
+        opaque: bool = False,
     ) -> tuple[Decision, str | None]:
         cap = self._config.max_content_bytes
         mcp_kind: str | None = None
         action_type = f"http_{method.lower()}"
         content = f"{method} {path}"
         channel = "network"
+
+        if opaque:
+            # TLS-opaque egress: the body is ciphertext we could NOT terminate or
+            # read (the destination is not on the MITM terminate-allowlist, the
+            # agent refused our leaf under termination, or ECH/SNI could not be
+            # pinned). We know only WHERE it is going (``recipient`` = SNI pinned
+            # to the kernel orig_dst, else the orig_dst IP), never WHAT. Mark it
+            # ``https_opaque`` so the action is LABELLED honestly instead of
+            # slipping through as a silent PERMIT-shaped ``http_<method>`` no-op.
+            # HONEST CAVEAT: labelling alone does NOT yet close G9 — no engine/gate
+            # rule maps ``https_opaque`` -> ABSTAIN/FORBID today, so a benign-scoring
+            # opaque request would currently PERMIT. Activation MUST add that
+            # deterministic rule; the proxy only labels, ABSTAIN is the PDP's to
+            # raise (CLAUDE.md rule 2). Until then this MARKS the gap, not closes it.
+            decision = Decision(
+                tenant=tenant,
+                action_type="https_opaque",
+                content=(
+                    f"TLS-opaque HTTPS egress to "
+                    f"{recipient or 'unknown destination'}; content not "
+                    "inspectable (not MITM-terminated)"
+                ),
+                channel=channel,
+                environment=self._config.environment,
+                recipient=recipient,
+                agent_id=agent_id,
+                agent_external_id=agent_external_id,
+                session_id=session_id,
+                attested_identity=attested_identity,
+            )
+            return decision, None
 
         parsed = _try_json(body)
         if isinstance(parsed, dict) and parsed.get("jsonrpc") == "2.0":

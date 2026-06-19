@@ -25,6 +25,11 @@ behaviour):
     TEX_PEP_SEAL       "1" => seal a receipt per decision (G4)   default off
     TEX_PEP_REQUIRE_IDENTITY "1" => require a verified credential (G6)  default off
 
+External-time anchoring (G11) — runs ONLY when TEX_PEP_SEAL is on AND a TSA is
+configured (anchoring an un-sealed ledger has nothing to attest):
+    TEX_PEP_ANCHOR_TSA_URL  RFC-3161 TSA URL; set => start the AnchorScheduler
+    TEX_PEP_ANCHOR_AUTHORITY  human label for the authority (default: the URL)
+
 Permit signing additionally requires ``TEX_PERMIT_SIGNING_SECRET`` in a
 production-like env (else minting fails closed and released actions are
 refused). See ``tex.enforcement.permit``.
@@ -88,6 +93,15 @@ def build_app():
     # for an action the permit gate refused.
     seal_ledger = _maybe_ledger()
 
+    # G11 — external-time anchoring. The SealedFactLedger's hash chain binds
+    # ORDER, never TIME; the AnchorScheduler periodically checkpoints the live
+    # ledger's tree-head to an RFC-3161 TSA (off the hot path, fail-soft) so a
+    # relying party can prove "an authority that is NOT Tex saw these facts no
+    # later than genTime". Built + tested but never STARTED until now. Gated
+    # consistently with the seal flag: it only runs when there is a sealed ledger
+    # AND a TSA is configured (see _maybe_anchor_scheduler).
+    anchor_scheduler = _maybe_anchor_scheduler(seal_ledger)
+
     if mode == "inprocess":
         from tex.governance.standing import StandingGovernance
         from tex.main import build_runtime
@@ -127,7 +141,11 @@ def build_app():
             seal_ledger=seal_ledger,
         )
 
-    return build_proxy_app(proxy)
+    app = build_proxy_app(proxy)
+    # Keep a strong reference so the daemon thread is not collected; also lets a
+    # health endpoint / test inspect anchor progress (sched.anchor_count, etc.).
+    app.state.anchor_scheduler = anchor_scheduler
+    return app
 
 
 def _maybe_ledger():
@@ -141,6 +159,64 @@ def _maybe_ledger():
     from tex.provenance.ledger import SealedFactLedger
 
     return SealedFactLedger()
+
+
+def _http_poster(timeout: float = 10.0):
+    """A timeout-bounded RFC-3161 HTTP poster (stdlib urllib — no httpx import in
+    this module). ``(tsa_url, request_der) -> response_der``."""
+    import urllib.request
+
+    def poster(url: str, request_der: bytes) -> bytes:
+        req = urllib.request.Request(
+            url,
+            data=request_der,
+            headers={"Content-Type": "application/timestamp-query"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — operator-set TSA URL
+            return resp.read()
+
+    return poster
+
+
+def _maybe_anchor_scheduler(seal_ledger):
+    """G11 — start the background AnchorScheduler on the live enforcement ledger.
+
+    REUSES ``make_rfc3161_anchor`` (the production anchor_fn builder) and
+    ``AnchorScheduler`` (built + tested, but until now never STARTED in the PEP).
+    Returns the started scheduler, or ``None`` when anchoring is not active.
+
+    Gated consistently with the seal flag: no sealed ledger (TEX_PEP_SEAL off) =>
+    nothing to anchor. A sealed ledger but no TSA URL => the chain still proves
+    ORDER, just not external TIME; we log that anchoring is idle rather than spin
+    a daemon with no authority to call.
+    """
+    if seal_ledger is None:
+        return None
+    import logging
+
+    logger = logging.getLogger(__name__)
+    tsa_url = os.environ.get("TEX_PEP_ANCHOR_TSA_URL")
+    if not tsa_url:
+        logger.info(
+            "PEP: seal on but TEX_PEP_ANCHOR_TSA_URL unset — ledger proves order, "
+            "not external time (G11 anchoring idle)."
+        )
+        return None
+
+    from tex.discovery.conduit.seal import make_rfc3161_anchor
+    from tex.provenance.anchor_scheduler import AnchorScheduler
+
+    authority = os.environ.get("TEX_PEP_ANCHOR_AUTHORITY", tsa_url)
+    # A per-process random nonce (the helper binds one nonce for the run; the
+    # offline verifier matches it against the TSA response).
+    nonce = int.from_bytes(os.urandom(8), "big")
+    anchor_fn = make_rfc3161_anchor(
+        authority=authority, tsa_url=tsa_url, poster=_http_poster(), nonce=nonce
+    )
+    sched = AnchorScheduler(seal_ledger, anchor_fn=anchor_fn)
+    logger.info("PEP: G11 anchor scheduler started against TSA %s", tsa_url)
+    return sched.start()
 
 
 def main() -> None:

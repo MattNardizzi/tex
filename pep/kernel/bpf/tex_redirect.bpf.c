@@ -189,7 +189,12 @@ int tex_connect4(struct bpf_sock_addr *ctx)
     __u32 ckey = 0;
     struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
-        return 1; // not configured yet: do not interfere
+        // FAIL-CLOSED: an unconfigured hook DENIES (was `return 1` = allow
+        // untouched, a fail-OPEN window during a loader restart). The loader
+        // writes tex_cfg BEFORE attaching these hooks (agent/main.go), so this is
+        // only reachable if the cfg map is cleared/evicted (it is an ARRAY with
+        // max_entries=1, never LRU-evicted) — dropping there beats leaking egress.
+        return 0;
 
     __u32 dst_ip = ctx->user_ip4;           // network byte order
     __u16 dst_port = (__u16)ctx->user_port; // network byte order
@@ -256,7 +261,7 @@ int tex_connect6(struct bpf_sock_addr *ctx)
     __u32 ckey = 0;
     struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
-        return 1;
+        return 0; // FAIL-CLOSED (see tex_connect4): unconfigured == deny.
 
     __u16 dst_port = (__u16)ctx->user_port; // network byte order
 
@@ -353,7 +358,7 @@ int tex_sendmsg4(struct bpf_sock_addr *ctx)
     __u32 ckey = 0;
     struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
-        return 1;
+        return 0; // FAIL-CLOSED (see tex_connect4): unconfigured == deny.
 
     __u32 dst_ip = ctx->user_ip4;
     __u16 dst_port = (__u16)ctx->user_port;
@@ -413,7 +418,7 @@ int tex_sendmsg6(struct bpf_sock_addr *ctx)
     __u32 ckey = 0;
     struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
-        return 1;
+        return 0; // FAIL-CLOSED (see tex_connect4): unconfigured == deny.
 
     __u16 dst_port = (__u16)ctx->user_port;
 

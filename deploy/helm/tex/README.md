@@ -21,6 +21,66 @@ From that point, **every new pod** in `my-agents` is governed automatically —
 the mutating webhook injects the PEP at creation, no per-pod YAML, no restart.
 A pod can opt out with `tex.systems/govern-exclude=true`.
 
+## Born-in-a-box admission (the deny half)
+
+Enrollment makes compliant pods governed. **Admission makes the box
+mandatory** — it *refuses* a governed-namespace pod that cannot be brought into
+the box. This is what flips Tex from "enroll compliant pods" to "**non-compliant
+agents cannot run.**"
+
+A governed-namespace pod is **denied** (unless it carries
+`tex.systems/govern-exclude`) when it:
+
+- declares no approved sandbox `runtimeClassName` (gVisor / Kata / Confidential
+  Containers — see `admission.approvedRuntimeClasses`);
+- is missing the `tex.systems/injected=true` annotation (the injector runs
+  *before* validation, so its absence means the PEP was **not** injected —
+  fail closed); or
+- requests a host-namespace escape (`hostNetwork` / `hostPID` / `hostIPC`) or a
+  `privileged` / `allowPrivilegeEscalation` container.
+
+Two enforcement points, same rule (kept 1:1 in lock-step):
+
+- **`ValidatingAdmissionPolicy` (CEL, default ON).** Runs **inside** the API
+  server (`failurePolicy: Fail`), so — unlike a webhook — it has no pod that can
+  be "down". Requires Kubernetes ≥ 1.30. It only acts on
+  `tex.systems/govern=enabled` namespaces, so a fresh install changes nothing
+  until you opt a namespace in. **After you label a namespace, its pods must
+  declare an approved sandbox `runtimeClassName`** or they will be refused.
+- **Validating webhook (`/validate`, default OFF).** The operator-code twin
+  (`admission.webhook.enabled=true`), for future deny logic the CEL policy can't
+  express (e.g. signature lookups). `failurePolicy: Fail` ⇒ if the operator is
+  down, governed pods do not admit.
+
+### Signed-image gating (cosign, default OFF)
+
+`imagePolicy.enabled=true` admits a governed pod only if its images carry a
+cosign signature from your Tex-trusted identity (`imagePolicy.engine`:
+`kyverno` ⇒ a `ClusterPolicy verifyImages`, or `sigstore` ⇒ a
+`ClusterImagePolicy`). It is **off by default** because, with no trusted
+identity set, it would (correctly) deny every image; the chart fails the render
+if you enable it without `imagePolicy.publicKey` **or**
+`imagePolicy.keyless.{issuer,subject}`.
+
+> **Honesty.** This is a **new** integration with the sigstore admission stack.
+> Tex's existing `src/tex/c2pa/cosign_verifier.py` verifies cosign signatures
+> over **C2PA evidence assertions**, *not* OCI image signatures — it does **not**
+> do image gating. Signing proves **provenance**, never **behavior**: a signed
+> image can still be a malicious agent. Necessary, not sufficient.
+
+### The honest boundary (necessary, not sufficient)
+
+Admission only sees what flows through the kube-apiserver. **Static pods**
+(kubelet reads from disk), **direct CRI/containerd**, or a **compromised
+kubelet** bypass admission entirely. The **eBPF node floor**
+(`kernelFloor.enabled=true`, below) redirects their egress *regardless of how
+the workload was placed*, so bypass traffic still hits the PEP — run it
+alongside admission for defense-in-depth. The **genuine** root — DICE/TPM
+measured boot + SPIRE/Keylime node attestation + Confidential Containers — is
+**research / RUNTIME-DEPENDENT** (Tex's attestation is verifier-only today). The
+first slice closes the common doors and redirects bypass traffic; a node-level
+adversary is closed only by the not-yet-running node-root.
+
 ## Two enrollment modes
 
 - **Sidecar injection** (`sidecarInjection.enabled=true`, default): portable,
@@ -33,9 +93,13 @@ A pod can opt out with `tex.systems/govern-exclude=true`.
 ## What gets installed
 
 PDP `Deployment`+`Service` (Tex) · operator `Deployment`+`Service` (enrollment
-controller + webhook) · `MutatingWebhookConfiguration` scoped to governed
-namespaces · RBAC (watch namespaces/pods) · cert-manager `Issuer`+`Certificate`
-for the webhook · optional kernel-floor `DaemonSet` · optional API-key `Secret`.
+controller + webhook) · `MutatingWebhookConfiguration` (inject) scoped to
+governed namespaces · `ValidatingAdmissionPolicy`+`Binding` (the deny half,
+default on) · optional `ValidatingWebhookConfiguration` (deny via `/validate`) ·
+optional cosign image policy (`ClusterPolicy`/`ClusterImagePolicy`) · RBAC (watch
+namespaces/pods) · cert-manager `Issuer`+`Certificate` for the webhook ·
+optional kernel-floor `DaemonSet` (also the apiserver-bypass floor) · optional
+API-key `Secret`.
 
 ## The 24/7 watch
 

@@ -18,8 +18,11 @@ field that matters is ``released``. Everything else is provenance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from tex.identity.agent_credential import AttestedIdentity
 
 __all__ = [
     "Decision",
@@ -43,6 +46,11 @@ class Decision:
     agent_id: UUID | None = None
     agent_external_id: str | None = None
     session_id: str | None = None
+    # Per-request cryptographically attested identity (G6), when the PEP verified
+    # one. Used by SealingDecisionClient to bind THIS decision's receipt to the
+    # attested principal; the two decision clients ignore it (the PDP rules on
+    # agent_id / agent_external_id). None => no credential verified this request.
+    attested_identity: "AttestedIdentity | None" = None
 
 
 @dataclass(frozen=True, slots=True)

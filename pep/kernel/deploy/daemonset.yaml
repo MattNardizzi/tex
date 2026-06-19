@@ -34,20 +34,33 @@ spec:
             - { name: TEX_PROXY_ADDR, value: "127.0.0.1:8088" }
             - { name: TEX_PDP_BASE, valueFrom: { configMapKeyRef: { name: tex-pep-config, key: pdpBase } } }
             - { name: TEX_PDP_API_KEY, valueFrom: { secretKeyRef: { name: tex-pep-secret, key: apiKey, optional: true } } }
+            - { name: TEX_ORIGDST_SOCK, value: "/run/tex/origdst.sock" }
+            # Only the tex-proxy sidecar (runAsUser 0, below) may query the map.
+            - { name: TEX_ORIGDST_ALLOWED_UID, value: "0" }
           volumeMounts:
             - { name: bpffs,  mountPath: /sys/fs/bpf, mountPropagation: Bidirectional }
             - { name: cgroup, mountPath: /sys/fs/cgroup }
+            - { name: origdst, mountPath: /run/tex }   # shared orig-dst UDS dir (G7)
         - name: tex-proxy
           image: ghcr.io/vortexblack/tex:latest
           command: ["python", "-m", "tex.pep"]
+          securityContext:
+            runAsUser: 0   # match TEX_ORIGDST_ALLOWED_UID so SO_PEERCRED admits the proxy
           env:
             - { name: TEX_PDP_MODE, value: "http" }
             - { name: TEX_PDP_BASE, valueFrom: { configMapKeyRef: { name: tex-pep-config, key: pdpBase } } }
             - { name: TEX_PDP_API_KEY, valueFrom: { secretKeyRef: { name: tex-pep-secret, key: apiKey, optional: true } } }
             - { name: TEX_PEP_ENV, value: "production" }
             - { name: TEX_PEP_PORT, value: "8088" }
+            # G7 — recover the kernel-captured destination over the shared UDS and
+            # FORBID any flow with no verified dst (no silent header-trust fallback).
+            - { name: TEX_ORIGDST_SOCK, value: "/run/tex/origdst.sock" }
+            - { name: TEX_PEP_REQUIRE_DST, value: "1" }
+          volumeMounts:
+            - { name: origdst, mountPath: /run/tex }   # shared orig-dst UDS dir (G7)
           ports:
             - { containerPort: 8088, name: proxy }
       volumes:
         - { name: bpffs,  hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate } }
         - { name: cgroup, hostPath: { path: /sys/fs/cgroup, type: Directory } }
+        - { name: origdst, emptyDir: {} }   # shared between kernel + proxy for the orig-dst UDS

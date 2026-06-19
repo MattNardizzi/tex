@@ -1,21 +1,65 @@
-# Optional Tetragon alternative for clusters already running Tetragon: kill-
-# based inline enforcement of egress connect() for governed workloads, as a
-# defense-in-depth backstop to the redirect path. Tetragon enforces in-kernel
-# (SIGKILL / override) at sub-millisecond latency. Tune the matchBinaries /
-# namespace selectors to the governed set.
+# Tetragon backstops for the kernel-floor PEP.
+#
+# connect()/sendmsg() egress is intentionally NOT backstopped by a Tetragon kill
+# policy here. That egress is enforced by the eBPF cgroup/connect4|6 +
+# cgroup/sendmsg4|6 redirect floor (see ../bpf/tex_redirect.bpf.c): known-FORBID
+# destinations are refused in-kernel and everything else is redirected to the
+# enforcement proxy. A Tetragon "Post" policy on tcp_connect would only LOG, not
+# block — shipping it would imply a kill backstop that does not exist, so it is
+# omitted. A REAL connect()-kill backstop would need per-destination argument
+# matching plus a PDP-driven kill-list updater (the loader does not write any
+# TracingPolicy kill map today); that is future work, not shipped.
+#
+# The io_uring backstop below IS real (Sigkill): io_uring egress cannot be
+# mediated by the cgroup/connect* hooks, so the ring is blocked outright.
+---
+# io_uring backstop (G3). io_uring lets an agent submit network ops (CONNECT,
+# SENDMSG, ...) via a shared ring WITHOUT issuing the connect()/sendmsg()
+# syscalls — so the cgroup/connect* + cgroup/sendmsg* hooks never fire and the
+# redirect/fast-block floor is bypassed. This policy closes that hole for
+# governed workloads.
+#
+# HONEST POSTURE — read before relying on this:
+#   * This is POST-COMMIT KILL, not pre-dispatch filtering. Tetragon fires in
+#     the syscall kprobe and sends SIGKILL; the call has already entered the
+#     kernel. It prevents the *effect* (a usable ring / a submitted batch), not
+#     the syscall attempt.
+#   * Killing on io_uring_setup is the robust, kernel-version-independent move:
+#     no ring is ever created, so io_uring-based egress is structurally
+#     impossible for the governed agent. The cost is bluntness — a governed
+#     workload that legitimately needs io_uring (for disk I/O, say) cannot use
+#     it. Scope the selectors to the governed set accordingly.
+#   * Surgically killing only on io_uring network *opcodes* (IORING_OP_CONNECT
+#     / IORING_OP_SENDMSG) instead of all ring creation would require matching
+#     the sqe->opcode argument inside io_uring_enter, which is version- and
+#     Tetragon-feature dependent (opcode arg extraction is not stable across
+#     kernels). We deliberately take the blunt-but-reliable setup block as the
+#     floor and document the surgical path rather than ship a fragile match.
+#   * Override (return -EPERM instead of SIGKILL) is the gentler alternative
+#     (action: Override, argError: -1) but depends on fmod_ret/kprobe-override
+#     support (CONFIG_BPF_KPROBE_OVERRIDE) — not universally available, hence
+#     Sigkill as the default.
+#   * Requires a kernel with io_uring compiled in and a Tetragon that resolves
+#     the io_uring syscalls; on kernels with io_uring disabled this is a no-op
+#     (and the hole does not exist).
 apiVersion: cilium.io/v1alpha1
 kind: TracingPolicy
 metadata:
-  name: tex-egress-backstop
+  name: tex-io-uring-backstop
 spec:
   kprobes:
-    - call: "tcp_connect"
-      syscall: false
-      args:
-        - { index: 0, type: "sock" }
+    # Block ring creation outright: the structural prevention.
+    - call: "sys_io_uring_setup"
+      syscall: true
       selectors:
         - matchActions:
-            # Default posture is observe; the agent flips this to a kill list
-            # populated from the PDP forbid-set for the highest-confidence
-            # denials. Shown here as the enforcement shape.
-            - action: Post
+            - action: Sigkill
+    # Backstop for a ring created before this policy loaded: kill on submission.
+    # io_uring_enter is the entrypoint that dispatches queued SQEs (incl. net
+    # ops). Killing here is coarse (it also catches non-net submissions) — keep
+    # it as defense-in-depth behind the setup block, and scope to governed pods.
+    - call: "sys_io_uring_enter"
+      syscall: true
+      selectors:
+        - matchActions:
+            - action: Sigkill

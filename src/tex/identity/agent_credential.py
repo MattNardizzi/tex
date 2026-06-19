@@ -41,12 +41,61 @@ class CredentialVerification(StrEnum):
     UNTRUSTED_ISSUER = "untrusted_issuer"
     OVERSIZE = "oversize"
     EGRESS_BLOCKED = "egress_blocked"
+    EXPIRED = "expired"
+    NOT_YET_VALID = "not_yet_valid"
+    AUDIENCE_MISMATCH = "audience_mismatch"
+    STALE_NO_EXPIRY = "stale_no_expiry"
 
 
 def _jcs(payload: Any) -> bytes:
     return json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
+
+
+def _check_freshness_audience(
+    payload: Any,
+    *,
+    now: float | None,
+    expected_audience: str | None,
+    require_expiry: bool,
+) -> CredentialVerification:
+    """Enforce the SIGNED temporal + audience claims of a verified card.
+
+    Returns ``VERIFIED`` only when the (signature-valid) payload is within its
+    ``exp``/``nbf`` window and, when an audience is expected, names it. This is
+    what turns a credential from a non-expiring, anywhere-valid bearer token into
+    a short-lived, audience-scoped one — captured credentials stop working at
+    ``exp`` and outside their ``aud``. Fail-closed: an unparseable ``exp``/``nbf``
+    is treated as out-of-window. ``require_expiry`` rejects a card with no ``exp``
+    at all (use in deployments that mandate freshness)."""
+    import time as _time
+
+    clock = now if now is not None else _time.time()
+    claims = payload if isinstance(payload, dict) else {}
+
+    exp = claims.get("exp")
+    if exp is not None:
+        try:
+            if float(exp) < clock:
+                return CredentialVerification.EXPIRED
+        except (TypeError, ValueError):
+            return CredentialVerification.EXPIRED
+    elif require_expiry:
+        return CredentialVerification.STALE_NO_EXPIRY
+
+    nbf = claims.get("nbf")
+    if nbf is not None:
+        try:
+            if float(nbf) > clock:
+                return CredentialVerification.NOT_YET_VALID
+        except (TypeError, ValueError):
+            return CredentialVerification.NOT_YET_VALID
+
+    if expected_audience is not None and claims.get("aud") != expected_audience:
+        return CredentialVerification.AUDIENCE_MISMATCH
+
+    return CredentialVerification.VERIFIED
 
 
 def verify_signed_card(
@@ -56,11 +105,19 @@ def verify_signed_card(
     egress_allowlist: set[str] | None = None,
     max_bytes: int = 64 * 1024,
     source_url: str | None = None,
+    now: float | None = None,
+    expected_audience: str | None = None,
+    require_expiry: bool = False,
 ) -> CredentialVerification:
     """Verify an Ed25519-signed identity card OFFLINE. Fail-closed: any defect
     returns a non-VERIFIED status. ``trusted_issuers`` maps issuer id -> base64
     raw-32-byte Ed25519 public key. ``source_url`` (if given) must be on the
-    ``egress_allowlist``; omit it when the credential is presented directly."""
+    ``egress_allowlist``; omit it when the credential is presented directly.
+
+    Freshness (anti-replay): a signature-valid card is additionally rejected when
+    it is outside its signed ``exp``/``nbf`` window or, when ``expected_audience``
+    is given, does not carry that ``aud`` — so a captured credential is not a
+    forever-valid, anywhere-valid bearer token."""
     if source_url is not None:
         host = urlparse(source_url).hostname or ""
         if host not in (egress_allowlist or set()):
@@ -86,9 +143,16 @@ def verify_signed_card(
             base64.b64decode(issuer_key.encode("ascii"))
         )
         pub.verify(base64.b64decode(str(sig_b64).encode("ascii")), _jcs(payload))
-        return CredentialVerification.VERIFIED
     except Exception:  # noqa: BLE001 — any verify failure is tampered, fail-closed
         return CredentialVerification.TAMPERED
+    # Signature valid. Enforce freshness (exp/nbf) + audience on the SIGNED payload
+    # so a captured credential is not a non-expiring, anywhere-valid bearer token.
+    return _check_freshness_audience(
+        payload,
+        now=now,
+        expected_audience=expected_audience,
+        require_expiry=require_expiry,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,16 +183,24 @@ def verify_agent_credential(
     max_bytes: int = 64 * 1024,
     source_url: str | None = None,
     method: str = "ed25519_agent_card",
+    now: float | None = None,
+    expected_audience: str | None = None,
+    require_expiry: bool = False,
 ) -> AttestedIdentity:
     """Verify a signed identity credential and return the attested identity.
     ``verified`` is True iff the signature checked out against an allow-listed
-    issuer; otherwise ``status`` carries the fail-closed reason."""
+    issuer AND the card is within its ``exp``/``nbf`` window and (when
+    ``expected_audience`` is given) names that audience; otherwise ``status``
+    carries the fail-closed reason."""
     status = verify_signed_card(
         signed_card,
         trusted_issuers=trusted_issuers,
         egress_allowlist=egress_allowlist,
         max_bytes=max_bytes,
         source_url=source_url,
+        now=now,
+        expected_audience=expected_audience,
+        require_expiry=require_expiry,
     )
     payload = signed_card.get("payload") if isinstance(signed_card, dict) else None
     claimed = payload.get("agent_id") if isinstance(payload, dict) else None

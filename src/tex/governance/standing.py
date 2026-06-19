@@ -99,6 +99,21 @@ __all__ = [
 # fail-closed floor must cover.
 _NON_ACTING_STATUSES = {"SLEEPING", "REVOKED", "QUARANTINED"}
 
+# Action types whose CONTENT Tex could not read. The PEP labels them so the
+# honest verdict can be ASK rather than a content-blind PERMIT:
+#   * ``http_opaque_body`` — a request whose body uses a Content-Encoding Tex
+#     cannot decode (br/zstd/unknown, a malformed stream, or a decompression
+#     bomb). LIVE on the plaintext proxy path (pep/proxy._to_decision): every
+#     real request is checked, so a forbidden payload cannot ride out gzipped.
+#   * ``https_opaque`` — TLS egress the PEP could not MITM-terminate. The PDP
+#     rule is live, but its only PRODUCER (rule_opaque -> TlsFront) is still
+#     test-only / off the live deploy path (pep/tls_front.py), so it does not
+#     yet fire on real TLS traffic until the TLS front is deployed.
+# Such an action cannot be adjudicated on content, so it resolves to ABSTAIN (a
+# held decision), never a content-blind PERMIT and, by doctrine, not a blanket
+# FORBID. See ``decide``.
+_UNINSPECTABLE_ACTION_TYPES = frozenset({"https_opaque", "http_opaque_body"})
+
 
 @dataclass(frozen=True, slots=True)
 class DecisionOutcome:
@@ -307,6 +322,30 @@ class StandingGovernance:
                 "Action falls outside the agent's sealed capability surface.",
             )
 
+        # ---- G9: un-inspectable content -> ABSTAIN (ASK), never a silent PERMIT.
+        # The PEP labels content it could not read: a compressed/undecodable
+        # request body ``http_opaque_body`` (live on the plaintext path) or TLS
+        # egress it could not MITM-terminate ``https_opaque`` (PDP rule live;
+        # producer TlsFront still deploy-gated). Its
+        # content cannot be adjudicated, so Tex refuses to settle alone (rule 2:
+        # uncertainty -> ABSTAIN) and surfaces a hold. This sits AFTER the
+        # structural FORBID floor — an unknown / ungovernable / out-of-surface
+        # agent is still FORBIDden, the more-cautious deterministic deny winning
+        # — and BEFORE deep adjudication, so an opaque action that clears the
+        # floor can never reach a content-blind PERMIT. It is the action CLASS
+        # that is uninspectable, not a probabilistic score, so it never fires a
+        # structural FORBID and only ever holds an otherwise-PERMIT-eligible
+        # action (monotone: PERMIT -> ABSTAIN, never FORBID -> ABSTAIN).
+        if action_type in _UNINSPECTABLE_ACTION_TYPES:
+            return self._abstain_uninspectable(
+                self._agent_uuid(agent),
+                tenant=tid,
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+            )
+
         # ---- Tier 2: deep adjudication (full six-layer PDP, sealed) ----
 
         if self._evaluate is None:
@@ -485,6 +524,68 @@ class StandingGovernance:
             reason=reason,
             tier=tier,
             agent_id=agent_id,
+        )
+
+    def _abstain_uninspectable(
+        self,
+        agent_id: UUID | None,
+        *,
+        tenant: str,
+        action_type: str,
+        channel: str,
+        environment: str,
+        recipient: str | None,
+    ) -> DecisionOutcome:
+        """ABSTAIN on un-inspectable egress: surface a hold and block (G9).
+
+        The companion to :meth:`_forbid_floor` for the cases where Tex cannot
+        read the content — TLS egress it could not terminate (``https_opaque``)
+        or a request body in an encoding it cannot decode (``http_opaque_body``).
+        The content is unreadable, so the verdict is ASK, not a guess: push a
+        ``HeldDecision`` to the one voice and return ``released=False`` so an
+        unresolved hold never lets the action through (fail-closed). ABSTAIN is
+        the only verdict that raises a user-facing hold (CLAUDE.md rule 2); a
+        FORBID here would be a silent blanket block, which is exactly what the
+        doctrine says un-inspectability must NOT collapse to.
+        """
+        body_case = action_type == "http_opaque_body"
+        if body_case:
+            note = (
+                f"An agent is sending a request to "
+                f"{recipient or 'an unknown destination'} whose body is in a "
+                "format I can't decode. I can't see what's inside, so I can't "
+                "clear it on my own — it's yours to decide."
+            )
+            reason_code = "uninspectable_request_body"
+        else:
+            note = (
+                f"An agent is sending traffic to "
+                f"{recipient or 'an unknown destination'} over a channel I can't "
+                "read. I can't see what's inside, so I can't clear it on my own — "
+                "it's yours to decide."
+            )
+            reason_code = "uninspectable_tls_content"
+        self._raise_hold(
+            agent_id=agent_id,
+            kind=str(action_type),
+            confidence=0.0,
+            note=note,
+            detail={
+                "channel": channel,
+                "environment": environment,
+                "recipient": recipient,
+                "tenant_id": tenant,
+                "dimension": "execution",
+                "reason": reason_code,
+            },
+        )
+        return DecisionOutcome(
+            verdict=Verdict.ABSTAIN,
+            released=False,
+            reason="Un-inspectable content; held for a human (not released).",
+            tier="floor",
+            agent_id=agent_id,
+            held=True,
         )
 
     # ------------------------------------------------------------------ helpers

@@ -69,6 +69,16 @@ from tex.governance.private_data_exec.ifc.memory import (
     MemoryItem,
     MemoryStream,
 )
+from tex.governance.private_data_exec.ifc.noninterference import (
+    DEFAULT_EGRESS_CLEARANCE,
+    FlowProof,
+    FlowStep,
+    FlowWitness,
+    NonInterferenceVerdict,
+    check_noninterference,
+    egress_clearance,
+    verify_flow_proof,
+)
 from tex.governance.private_data_exec.ifc.provenance import (
     EdgeKind,
     NodeKind,
@@ -100,6 +110,15 @@ __all__ = [
     "ProvenanceGraph",
     "NodeKind",
     "EdgeKind",
+    # Non-interference checker (SECRET ↛ EGRESS) + checkable proof
+    "check_noninterference",
+    "verify_flow_proof",
+    "egress_clearance",
+    "FlowProof",
+    "FlowWitness",
+    "FlowStep",
+    "NonInterferenceVerdict",
+    "DEFAULT_EGRESS_CLEARANCE",
     # NeuroTaint memory
     "MemoryStream",
     "MemoryItem",

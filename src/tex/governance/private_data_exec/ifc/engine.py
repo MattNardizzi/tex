@@ -65,6 +65,12 @@ from tex.governance.private_data_exec.ifc.memory import (
     MemoryItem,
     MemoryStream,
 )
+from tex.governance.private_data_exec.ifc.noninterference import (
+    FlowProof,
+    NonInterferenceVerdict,
+    check_noninterference,
+    egress_clearance,
+)
 from tex.governance.private_data_exec.ifc.provenance import (
     EdgeKind,
     NodeKind,
@@ -82,6 +88,12 @@ class IfcViolation(str, enum.Enum):
     CI_NORM_VIOLATION = "ifc.ci_norm_violation"  # CA-CI norm mismatch
     NEUROTAINT_CROSS_SESSION = "ifc.neurotaint_cross_session"
     RULE_OF_TWO_TRIFECTA = "ifc.rule_of_two_trifecta"  # all three buckets
+    # Deterministic, proof-carrying confidentiality non-interference
+    # (SECRET ↛ EGRESS). Distinct from FLOW_INTEGRITY: single-axis
+    # (confidentiality only), so it fires even on a *trusted* secret, and
+    # it is a deterministic structural FORBID carrying a re-checkable
+    # witness — not a probabilistic signal. See ``noninterference.py``.
+    SECRET_EGRESS_NONINTERFERENCE = "ifc.secret_egress_noninterference"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +117,19 @@ class IfcVerdict:
     fingerprint: str
     graph_node_count: int
     graph_edge_count: int
+    # Deterministic confidentiality non-interference (SECRET ↛ EGRESS).
+    # ``flow_proof`` is the proof-carrying, offline-re-checkable object
+    # (HOLDS or FORBID) for an egress sink; None for non-sink actions
+    # where no egress boundary exists. ``structural_forbid`` is True iff
+    # that proof is a FORBID. That FORBID is now CONSUMED as a hard PDP
+    # DENY: the engine emits the ``SECRET_EGRESS_NONINTERFERENCE`` violation
+    # code in lockstep, and ``tex.specialists.structural_floor`` lists it in
+    # ``_IFC_HARD_VIOLATION_CODES`` so the PDP short-circuits to FORBID
+    # (monotone — the floor only raises severity). ``structural_forbid`` is
+    # the in-band carrier of the same fact for any direct consumer.
+    # Defaults keep every existing constructor valid.
+    flow_proof: FlowProof | None = None
+    structural_forbid: bool = False
 
     @property
     def has_violations(self) -> bool:
@@ -122,6 +147,13 @@ class IfcVerdict:
         if not self.violations:
             return 0.05  # specialist floor
         weights = {
+            # SECRET_EGRESS is the deterministic structural floor; its soft
+            # echo here is the strongest weight so the probabilistic score
+            # never *understates* a deterministic FORBID. The live authority is
+            # the structural-floor promotion of this violation code (see
+            # tex.specialists.structural_floor._IFC_HARD_VIOLATION_CODES), not
+            # this score — the score is only the voting-tier echo.
+            IfcViolation.SECRET_EGRESS_NONINTERFERENCE: 0.97,
             IfcViolation.FLOW_INTEGRITY: 0.95,
             IfcViolation.CAUSALITY_LAUNDERING: 0.90,
             IfcViolation.RULE_OF_TWO_TRIFECTA: 0.85,
@@ -403,6 +435,54 @@ class IfcEngine:
                 )
             )
 
+        # (g) Deterministic confidentiality non-interference (SECRET ↛
+        # EGRESS). Unlike the probabilistic checks above, this emits a
+        # DECIDABLE verdict carrying a re-checkable witness, and fires
+        # even on a *trusted* secret (the FIDES dual-axis check misses
+        # that case). It is the structural floor; everything it does not
+        # decide stays the PDP's ABSTAIN residue.
+        flow_proof: FlowProof | None = None
+        structural_forbid = False
+        if sink:
+            flow_proof = check_noninterference(
+                graph,
+                call_id,
+                sink_clearance=egress_clearance(metadata=request.metadata),
+                sink_action=request.action_type,
+            )
+            if flow_proof.verdict is NonInterferenceVerdict.FORBID:
+                structural_forbid = True
+                violations.append(IfcViolation.SECRET_EGRESS_NONINTERFERENCE)
+                witness = flow_proof.witness
+                assert witness is not None  # FORBID always carries a witness
+                evidence.append(
+                    IfcEvidenceItem(
+                        violation=IfcViolation.SECRET_EGRESS_NONINTERFERENCE,
+                        reason=(
+                            "Deterministic non-interference violation: a "
+                            f"{witness.source_confidentiality.label} datum "
+                            f"({witness.source_id}) flows to egress sink "
+                            f"{request.action_type!r} cleared only for "
+                            f"{flow_proof.sink_clearance.label}. A re-checkable "
+                            f"witness path of {len(witness.steps)} node(s) "
+                            "proves the explicit flow; this is a structural "
+                            "FORBID, not a probabilistic signal."
+                        ),
+                        detail={
+                            "source_id": witness.source_id,
+                            "source_confidentiality": (
+                                witness.source_confidentiality.label
+                            ),
+                            "sink_clearance": flow_proof.sink_clearance.label,
+                            "witness_node_ids": [
+                                step.node_id for step in witness.steps
+                            ],
+                            "proof_commitment": flow_proof.commitment(),
+                            "graph_fingerprint": flow_proof.graph_fingerprint,
+                        },
+                    )
+                )
+
         # Record memory item for this request's tainted content so
         # downstream sessions see the carry.
         if self._memory_stream is not None and session_key:
@@ -427,6 +507,8 @@ class IfcEngine:
             fingerprint=graph.fingerprint(),
             graph_node_count=graph.node_count,
             graph_edge_count=graph.edge_count,
+            flow_proof=flow_proof,
+            structural_forbid=structural_forbid,
         )
 
         telemetry.emit_event(
@@ -439,6 +521,10 @@ class IfcEngine:
             node_count=verdict.graph_node_count,
             edge_count=verdict.graph_edge_count,
             fingerprint=verdict.fingerprint,
+            ni_verdict=(
+                flow_proof.verdict.value if flow_proof is not None else "n/a"
+            ),
+            structural_forbid=structural_forbid,
         )
         if verdict.has_violations:
             telemetry.emit_event(

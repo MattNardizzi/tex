@@ -153,16 +153,20 @@ def build_governance_standing_router() -> APIRouter:
         # This is deliberately the HOT SET only — not the policy. Absence from
         # it is never permit: every destination not listed flows through the
         # transparent redirect to the proxy for the full two-tier decision.
-        # The set is empty until the PDP accumulates destination-level denials;
-        # an empty set means "decide everything at the proxy," the safe default.
-        gov = _governance(request)
-        entries = []
-        getter = getattr(gov, "forbid_destinations", None)
-        if callable(getter):
-            try:
-                entries = list(getter(principal.tenant))
-            except Exception:  # noqa: BLE001
-                entries = []
+        # An empty set means "decide everything at the proxy," the safe default.
+        #
+        # The set is sourced by a ForbidSource (governance/forbid_source.py):
+        # high-confidence FORBID host:port destinations fed at composition or
+        # via the TEX_FORBID_SET env, resolved to IPv4 at read time (each poll).
+        # Fail-closed throughout: no source / unresolvable / malformed -> [].
+        _governance(request)  # same precondition as the rest of /v1/govern
+        try:
+            from tex.governance.forbid_source import resolve_forbid_source
+
+            source = resolve_forbid_source(request.app.state)
+            entries = source.for_tenant(principal.tenant) if source is not None else []
+        except Exception:  # noqa: BLE001 — a degraded source never fails open
+            entries = []
         return {"forbid": entries, "count": len(entries)}
 
     return router

@@ -41,7 +41,10 @@ from tex.authority.broker import (
 )
 from tex.authority.identity_source import (
     IdentitySource,
+    JwksIdentitySource,
+    JwksKeyProvider,
     LocalEd25519IdentitySource,
+    StaticJwksProvider,
     SubjectVerification,
 )
 
@@ -53,6 +56,9 @@ __all__ = [
     "RevocationStore",
     "authority_secret",
     "IdentitySource",
+    "JwksIdentitySource",
+    "JwksKeyProvider",
     "LocalEd25519IdentitySource",
+    "StaticJwksProvider",
     "SubjectVerification",
 ]

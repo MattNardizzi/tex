@@ -384,7 +384,9 @@ def build_default_semantic_analyzer() -> DefaultSemanticAnalyzer:
 
     Wiring behavior:
     - when settings.semantic_provider == "openai", use the OpenAI structured
-      semantic provider
+      semantic provider (gpt-5.5)
+    - when settings.semantic_provider == "anthropic", use the Anthropic
+      structured semantic provider (claude-opus-4-8)
     - otherwise fall back to provider-less semantic execution, which remains
       valid because Tex's deterministic fallback analyzer is schema-safe
 
@@ -420,23 +422,37 @@ def build_semantic_prompts(
 def _build_semantic_provider_from_settings() -> StructuredSemanticProvider | None:
     settings = get_settings()
 
-    if settings.semantic_provider is None:
+    provider = settings.semantic_provider
+    if provider is None:
         return None
 
-    if settings.semantic_provider != "openai":
-        raise ValueError(
-            "unsupported semantic_provider value. Expected 'openai' or None."
+    # ``semantic_model`` is provider-neutral (default None → each provider's own
+    # recommended June-2026 default: OpenAI gpt-5.5, Anthropic claude-opus-4-8).
+    if provider == "openai":
+        from tex.semantic.openai import OpenAIStructuredSemanticProvider
+
+        return OpenAIStructuredSemanticProvider(
+            api_key=settings.openai_api_key,
+            model=settings.semantic_model,
+            timeout_seconds=settings.semantic_timeout_seconds,
+            max_retries=settings.semantic_max_retries,
+            reasoning_effort=settings.semantic_reasoning_effort,
+            base_url=settings.openai_base_url,
+            organization=settings.openai_org_id,
+            project=settings.openai_project_id,
         )
 
-    from tex.semantic.openai import OpenAIStructuredSemanticProvider
+    if provider == "anthropic":
+        from tex.semantic.anthropic import AnthropicStructuredSemanticProvider
 
-    return OpenAIStructuredSemanticProvider(
-        api_key=settings.openai_api_key,
-        model=settings.semantic_model,
-        timeout_seconds=settings.semantic_timeout_seconds,
-        max_retries=settings.semantic_max_retries,
-        reasoning_effort=settings.semantic_reasoning_effort,
-        base_url=settings.openai_base_url,
-        organization=settings.openai_org_id,
-        project=settings.openai_project_id,
+        return AnthropicStructuredSemanticProvider(
+            api_key=settings.anthropic_api_key,
+            model=settings.semantic_model,
+            timeout_seconds=settings.semantic_timeout_seconds,
+            max_retries=settings.semantic_max_retries,
+            base_url=settings.anthropic_base_url,
+        )
+
+    raise ValueError(
+        "unsupported semantic_provider value. Expected 'openai', 'anthropic', or None."
     )

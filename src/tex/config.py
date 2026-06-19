@@ -8,7 +8,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-SemanticProviderName = Literal["openai"]
+SemanticProviderName = Literal["openai", "anthropic"]
 SemanticReasoningEffort = Literal[
     "minimal",
     "low",
@@ -75,8 +75,12 @@ class Settings(BaseSettings):
         default=True,
         alias="TEX_ALLOW_SEMANTIC_FALLBACK",
     )
-    semantic_model: str = Field(
-        default="gpt-5-mini",
+    # Provider-neutral: ``None`` means "use the configured provider's own
+    # recommended June-2026 default" (OpenAI → ``gpt-5.5``; Anthropic →
+    # ``claude-opus-4-8``). Set TEX_SEMANTIC_MODEL only to pin a specific model
+    # (e.g. ``claude-fable-5`` once/if it is re-enabled, or ``gpt-5.5-pro``).
+    semantic_model: str | None = Field(
+        default=None,
         alias="TEX_SEMANTIC_MODEL",
     )
     semantic_timeout_seconds: float = Field(
@@ -96,6 +100,13 @@ class Settings(BaseSettings):
     openai_base_url: str | None = Field(default=None, alias="OPENAI_BASE_URL")
     openai_org_id: str | None = Field(default=None, alias="OPENAI_ORG_ID")
     openai_project_id: str | None = Field(default=None, alias="OPENAI_PROJECT_ID")
+
+    # Anthropic transport for the semantic judge / vigil explainer when
+    # TEX_SEMANTIC_PROVIDER='anthropic'. The judge is a lowering-only signal,
+    # never the speaking seat (see voice/voice_ask.py), so binding a model here
+    # cannot move a verdict toward release.
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_base_url: str | None = Field(default=None, alias="ANTHROPIC_BASE_URL")
 
     # ---- Production secrets / fail-closed guards -----------------------
     #
@@ -128,6 +139,8 @@ class Settings(BaseSettings):
         "openai_base_url",
         "openai_org_id",
         "openai_project_id",
+        "anthropic_api_key",
+        "anthropic_base_url",
         mode="before",
     )
     @classmethod
@@ -305,6 +318,11 @@ class Settings(BaseSettings):
         if self.semantic_provider == "openai" and not self.openai_api_key:
             raise ValueError(
                 "TEX_SEMANTIC_PROVIDER is set to 'openai' but OPENAI_API_KEY is missing."
+            )
+
+        if self.semantic_provider == "anthropic" and not self.anthropic_api_key:
+            raise ValueError(
+                "TEX_SEMANTIC_PROVIDER is set to 'anthropic' but ANTHROPIC_API_KEY is missing."
             )
 
 

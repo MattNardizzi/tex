@@ -21,11 +21,14 @@ class OpenAITextProvider:
 
     __slots__ = ("_api_key", "_model", "_timeout", "_client")
 
+    # June-2026 SOTA default (GPT-5.5). Distinct from the semantic JUDGE only in
+    # that this surface generates prose from the sealed fact sheet — it never
+    # touches a verdict.
     def __init__(
         self,
         *,
         api_key: str | None = None,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5.5",
         timeout_seconds: float = 20.0,
     ) -> None:
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
@@ -48,11 +51,13 @@ class OpenAITextProvider:
 
     def complete(self, *, system_prompt: str, user_prompt: str) -> str:
         client = self._get_client()
+        # GPT-5.x reasoning models on the Responses API reject ``temperature``;
+        # steer with a low reasoning effort instead (fast, low-variance prose).
         response = client.responses.create(
             model=self._model,
             instructions=system_prompt,
             input=user_prompt,
-            temperature=0.2,
+            reasoning={"effort": "low"},
         )
         text = getattr(response, "output_text", None)
         if not text:

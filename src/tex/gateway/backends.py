@@ -49,8 +49,10 @@ __all__ = [
     "OfflineTTS",
     "ParakeetSTT",
     "WhisperSTT",
+    "OpenAICloudSTT",
     "KokoroTTS",
     "ElevenLabsTTS",
+    "OpenAICloudTTS",
     "select_stt",
     "select_tts",
     "synthesize_tts",
@@ -299,6 +301,102 @@ class WhisperSTT:
                 "or model files); use select_stt() so OfflineSTT handles the fallback."
             )
         return _WhisperSTTSession(self._load(), sample_rate=sample_rate)
+
+
+class _OpenAICloudSTTSession:
+    """Buffered push-to-talk through OpenAI's gpt-4o-transcribe. ``feed`` buffers
+    PCM and returns a neutral interim partial (it does NOT claim recognition);
+    ``finish`` uploads the whole utterance as a WAV and returns the REAL cloud
+    transcript. Vendor in the audio path — named honestly by the backend."""
+
+    def __init__(self, client, model: str, *, sample_rate: int) -> None:
+        self._client = client
+        self._model = model
+        self._sample_rate = sample_rate
+        self._pcm = bytearray()
+
+    def feed(self, pcm: bytes) -> Transcript | None:
+        self._pcm += pcm
+        # One interim "…" so the client's partial path is exercised without
+        # implying mid-stream recognition (this backend transcribes the whole
+        # utterance once, at finish — accurate over choppy).
+        return Transcript(text="…", is_final=False, sample_rate=self._sample_rate)
+
+    def finish(self) -> Transcript:
+        if not self._pcm:
+            return Transcript(text="", is_final=True, sample_rate=self._sample_rate)
+        wav = _pcm_to_wav(bytes(self._pcm), self._sample_rate)
+        resp = self._client.audio.transcriptions.create(
+            model=self._model,
+            file=("utterance.wav", wav, "audio/wav"),
+        )
+        text = getattr(resp, "text", None)
+        if text is None and isinstance(resp, str):
+            text = resp
+        return Transcript(
+            text=(text or "").strip(), is_final=True, sample_rate=self._sample_rate
+        )
+
+
+class OpenAICloudSTT:
+    """OpenAI cloud STT via gpt-4o-transcribe (June-2026 SOTA REST transcription;
+    far better WER than the local base.en whisper, and CPU-free). PREFERRED when
+    OPENAI_API_KEY is present so the spoken loop is smooth; the local
+    faster-whisper / OfflineSTT remain the offline fallback.
+
+    GROUNDING BOUNDARY: this transcribes audio ONLY — the transcript flows into
+    the deterministic ``/v1/ask`` pipeline, which decides WHAT Tex says. It is
+    never end-to-end speech-to-speech (GPT-Realtime-2 is deliberately NOT used —
+    that would put a free-running model in the speaking seat). Streaming
+    GPT-Realtime-Whisper is the future low-latency upgrade; this REST path fits
+    the existing buffered push-to-talk session cleanly and is verifiable offline.
+
+    Honest gate: ``available()`` is True only when the ``openai`` SDK is
+    importable AND OPENAI_API_KEY is set. ``name`` reads exactly
+    ``"openai-transcribe"`` only when live. Model override: ``TEX_OPENAI_STT_MODEL``.
+    """
+
+    requires = ("openai",)
+    MODEL = "gpt-4o-transcribe"
+
+    def __init__(self) -> None:
+        self._client = None
+
+    @property
+    def name(self) -> str:
+        return "openai-transcribe" if self.available() else "openai-transcribe(seam)"
+
+    @classmethod
+    def _model(cls) -> str:
+        return os.environ.get("TEX_OPENAI_STT_MODEL", cls.MODEL)
+
+    @staticmethod
+    def _api_key() -> str | None:
+        key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        return key or None
+
+    def available(self) -> bool:
+        return _deps_present(*self.requires) and self._api_key() is not None
+
+    def _get_client(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            key = self._api_key()
+            if key is None:
+                raise RuntimeError("OPENAI_API_KEY is not set")
+            self._client = OpenAI(api_key=key)
+        return self._client
+
+    def session(self, *, sample_rate: int) -> STTSession:
+        if not self.available():
+            raise RuntimeError(
+                "OpenAICloudSTT.session called while unavailable (missing openai "
+                "SDK or OPENAI_API_KEY); use select_stt() for the fallback."
+            )
+        return _OpenAICloudSTTSession(
+            self._get_client(), self._model(), sample_rate=sample_rate
+        )
 
 
 class KokoroTTS:
@@ -648,13 +746,96 @@ class ElevenLabsTTS:
             raise RuntimeError(f"ElevenLabs TTS unreachable: {exc.reason}") from exc
 
 
+class OpenAICloudTTS:
+    """OpenAI cloud TTS via gpt-4o-mini-tts (June-2026 SOTA, steerable, natural).
+    A second cloud voice for deployments with an OpenAI key but no ElevenLabs
+    key. ElevenLabs stays Tex's signature voice (preferred first); Kokoro is the
+    local no-vendor fallback; OfflineTTS the always-on floor.
+
+    VENDOR IN THE AUDIO PATH — named honestly (``name`` == ``"openai-tts"`` when
+    live). Invoked ONLY on a line Tex has ALREADY sealed in ``/v1/ask`` — OpenAI
+    never decides or paraphrases WHAT Tex says, it only voices authored bytes.
+
+    Overridable: ``TEX_OPENAI_TTS_MODEL`` (model), ``TEX_OPENAI_TTS_VOICE`` (voice).
+    """
+
+    requires = ("openai",)
+    MODEL = "gpt-4o-mini-tts"
+    VOICE = "alloy"
+    _NATIVE_RATE = 24000  # OpenAI speech pcm is 24 kHz s16le mono
+    _TIMEOUT_S = 30.0
+
+    def __init__(self) -> None:
+        self._client = None
+
+    @property
+    def name(self) -> str:
+        return "openai-tts" if self.available() else "openai-tts(seam)"
+
+    @classmethod
+    def _model(cls) -> str:
+        return os.environ.get("TEX_OPENAI_TTS_MODEL", cls.MODEL)
+
+    @classmethod
+    def _voice(cls) -> str:
+        return os.environ.get("TEX_OPENAI_TTS_VOICE", cls.VOICE)
+
+    @staticmethod
+    def _api_key() -> str | None:
+        key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        return key or None
+
+    def available(self) -> bool:
+        return _deps_present(*self.requires) and self._api_key() is not None
+
+    def _get_client(self):
+        if self._client is None:
+            from openai import OpenAI
+
+            key = self._api_key()
+            if key is None:
+                raise RuntimeError("OPENAI_API_KEY is not set")
+            self._client = OpenAI(api_key=key, timeout=self._TIMEOUT_S)
+        return self._client
+
+    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+        """Real OpenAI speech for the EXACT sealed ``text`` → audio/wav bytes.
+        Callers must gate on ``available()`` — the selectors do. Requests raw
+        24 kHz PCM and resamples to the caller's rate (keeps pitch/duration
+        truthful), mirroring :class:`ElevenLabsTTS`/:class:`KokoroTTS`."""
+        if not self.available():
+            raise RuntimeError(
+                "OpenAICloudTTS.synthesize called while unavailable (missing openai "
+                "SDK or OPENAI_API_KEY); use synthesize_tts()/select_tts() so "
+                "ElevenLabs/Kokoro/OfflineTTS handle the fallback."
+            )
+        if not (text or "").strip():
+            return _pcm_to_wav(b"", sample_rate)  # valid silent WAV, no vendor call
+        client = self._get_client()
+        resp = client.audio.speech.create(
+            model=self._model(),
+            voice=self._voice(),
+            input=text,
+            response_format="pcm",  # raw 24 kHz s16le mono
+        )
+        pcm = resp.read() if hasattr(resp, "read") else getattr(resp, "content", b"")
+        pcm = bytes(pcm)
+        if sample_rate != self._NATIVE_RATE:
+            pcm = _resample_pcm16(pcm, src_rate=self._NATIVE_RATE, dst_rate=sample_rate)
+        return _pcm_to_wav(pcm, sample_rate)
+
+
 # --------------------------------------------------------------------------- selection
 
 
-_STT_PREFERENCE: tuple[STTBackend, ...] = (ParakeetSTT(), WhisperSTT())
+# OpenAI cloud transcription (gpt-4o-transcribe) preferred when its key is
+# present — SOTA WER, smooth, CPU-free; local faster-whisper then OfflineSTT are
+# the offline fallback (no silent cap — select_stt logs every skip).
+_STT_PREFERENCE: tuple[STTBackend, ...] = (OpenAICloudSTT(), ParakeetSTT(), WhisperSTT())
 # ElevenLabs (cloud, Tex's signature voice) preferred when its key is present;
-# local Kokoro is the no-vendor fallback; OfflineTTS the always-on floor.
-_TTS_PREFERENCE: tuple[TTSBackend, ...] = (ElevenLabsTTS(), KokoroTTS())
+# then OpenAI cloud TTS (gpt-4o-mini-tts) for OpenAI-key deployments; local
+# Kokoro is the no-vendor fallback; OfflineTTS the always-on floor.
+_TTS_PREFERENCE: tuple[TTSBackend, ...] = (ElevenLabsTTS(), OpenAICloudTTS(), KokoroTTS())
 
 
 def select_stt() -> STTBackend:

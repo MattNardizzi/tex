@@ -10,58 +10,65 @@ from tex.semantic.analyzer import SemanticProviderError
 from tex.semantic.schema import SemanticAnalysis, SemanticAnalysisParseTarget
 
 try:
-    from openai import APIConnectionError
-    from openai import APITimeoutError
-    from openai import BadRequestError
-    from openai import OpenAI
-    from openai import RateLimitError
+    import anthropic
+    from anthropic import Anthropic
+    from anthropic import APIConnectionError
+    from anthropic import APITimeoutError
+    from anthropic import BadRequestError
+    from anthropic import RateLimitError
 except ImportError as exc:  # pragma: no cover - import guard for environments without SDK
-    OpenAI = None  # type: ignore[assignment]
+    anthropic = None  # type: ignore[assignment]
+    Anthropic = None  # type: ignore[assignment]
     APIConnectionError = Exception  # type: ignore[assignment]
     APITimeoutError = Exception  # type: ignore[assignment]
     BadRequestError = Exception  # type: ignore[assignment]
     RateLimitError = Exception  # type: ignore[assignment]
-    _OPENAI_IMPORT_ERROR = exc
+    _ANTHROPIC_IMPORT_ERROR = exc
 else:
-    _OPENAI_IMPORT_ERROR = None
+    _ANTHROPIC_IMPORT_ERROR = None
 
 
-# June-2026 SOTA default. GPT-5.5 (`gpt-5.5`, GA 2026-04-24) is OpenAI's current
-# frontier model — Responses API + strict structured outputs + reasoning effort.
-# GPT-5.6 was unreleased as of this writing (expected late June 2026); pin
-# TEX_SEMANTIC_MODEL=gpt-5.6 once it ships. Snapshot: gpt-5.5-2026-04-23.
-_DEFAULT_MODEL: Final[str] = "gpt-5.5"
+# June-2026 SOTA default for the governance judge. Claude Opus 4.8
+# (``claude-opus-4-8``) is Anthropic's most capable *available* model — Claude
+# Fable 5 (`claude-fable-5`) was the launch-day top model but was disabled
+# globally on 2026-06-12 by a US export-control directive, so Opus 4.8 is the
+# correct default. To pin Fable 5 if/when it returns: TEX_SEMANTIC_MODEL=claude-fable-5.
+_DEFAULT_MODEL: Final[str] = "claude-opus-4-8"
 _DEFAULT_TIMEOUT_SECONDS: Final[float] = 30.0
 _DEFAULT_MAX_RETRIES: Final[int] = 2
-_ALLOWED_REASONING_EFFORTS: Final[frozenset[str]] = frozenset(
-    {"none", "minimal", "low", "medium", "high", "xhigh"}
-)
+# The slim parse target is bounded (per-dimension results + a <=2000-char
+# summary), so a modest cap is ample. Opus 4.8 runs without extended thinking
+# unless asked, so these are answer tokens only.
+_DEFAULT_MAX_TOKENS: Final[int] = 4096
 
 
-class OpenAIStructuredSemanticProvider:
+class AnthropicStructuredSemanticProvider:
     """
-    Structured semantic provider for Tex using OpenAI's Responses API.
+    Structured semantic provider for Tex over Anthropic's Messages API.
 
-    Design goals:
-    - strict schema-bound output into SemanticAnalysis
-    - zero-verbosity, evaluation-style calls
-    - explicit failure surfaces for timeout/rate-limit/refusal/parse issues
+    Design goals mirror :class:`tex.semantic.openai.OpenAIStructuredSemanticProvider`
+    exactly so the two providers are drop-in interchangeable behind
+    ``TEX_SEMANTIC_PROVIDER``:
+    - strict schema-bound output into SemanticAnalysis (via ``messages.parse``,
+      which generates the JSON schema from ``SemanticAnalysisParseTarget`` and
+      validates the result client-side against the pydantic model)
+    - explicit failure surfaces for timeout/rate-limit/refusal/parse issues — a
+      refusal or transport error becomes a ``SemanticProviderError`` so the
+      analyzer falls back to its deterministic floor (the judge is a lowering-only
+      signal; it must never fail open)
     - rich runtime metadata for audit and semantic evals
     - no prompt construction here; Tex already owns that boundary
 
-    This class intentionally keeps a synchronous interface because Tex's
-    existing StructuredSemanticProvider protocol is synchronous.
+    Synchronous to match Tex's existing ``StructuredSemanticProvider`` protocol.
     """
 
     __slots__ = (
         "_api_key",
         "_base_url",
-        "_organization",
-        "_project",
         "_model",
         "_timeout_seconds",
         "_max_retries",
-        "_reasoning_effort",
+        "_max_tokens",
         "_client",
     )
 
@@ -72,30 +79,22 @@ class OpenAIStructuredSemanticProvider:
         model: str | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = _DEFAULT_MAX_RETRIES,
-        reasoning_effort: str = "low",
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
         base_url: str | None = None,
-        organization: str | None = None,
-        project: str | None = None,
     ) -> None:
         self._api_key = self._normalize_optional_string(api_key) or os.getenv(
-            "OPENAI_API_KEY"
+            "ANTHROPIC_API_KEY"
         )
         self._base_url = self._normalize_optional_string(base_url) or os.getenv(
-            "OPENAI_BASE_URL"
+            "ANTHROPIC_BASE_URL"
         )
-        self._organization = self._normalize_optional_string(
-            organization
-        ) or self._normalize_optional_string(os.getenv("OPENAI_ORG_ID"))
-        self._project = self._normalize_optional_string(
-            project
-        ) or self._normalize_optional_string(os.getenv("OPENAI_PROJECT_ID"))
         self._model = self._normalize_required_string(
             model or _DEFAULT_MODEL, field_name="model"
         )
         self._timeout_seconds = self._validate_timeout_seconds(timeout_seconds)
         self._max_retries = self._validate_max_retries(max_retries)
-        self._reasoning_effort = self._validate_reasoning_effort(reasoning_effort)
-        self._client: OpenAI | None = None
+        self._max_tokens = self._validate_max_tokens(max_tokens)
+        self._client: Anthropic | None = None
 
     @property
     def model_name(self) -> str:
@@ -103,7 +102,7 @@ class OpenAIStructuredSemanticProvider:
 
     @property
     def provider_name(self) -> str:
-        return "openai"
+        return "anthropic"
 
     def analyze(
         self,
@@ -133,54 +132,57 @@ class OpenAIStructuredSemanticProvider:
         started_at = time.perf_counter()
 
         try:
-            response = client.responses.parse(
+            response = client.messages.parse(
                 model=self._model,
-                input=[
-                    {"role": "system", "content": instructions},
-                    {"role": "user", "content": request_prompt},
-                ],
-                text_format=SemanticAnalysisParseTarget,
-                reasoning={"effort": self._reasoning_effort},
+                max_tokens=self._max_tokens,
+                system=instructions,
+                messages=[{"role": "user", "content": request_prompt}],
+                output_format=SemanticAnalysisParseTarget,
                 timeout=self._timeout_seconds,
             )
         except APITimeoutError as exc:
             raise SemanticProviderError(
-                f"OpenAI semantic request timed out after {self._timeout_seconds:.1f}s"
+                f"Anthropic semantic request timed out after {self._timeout_seconds:.1f}s"
             ) from exc
         except RateLimitError as exc:
             raise SemanticProviderError(
-                "OpenAI semantic request was rate-limited"
+                "Anthropic semantic request was rate-limited"
             ) from exc
         except APIConnectionError as exc:
             raise SemanticProviderError(
-                "OpenAI semantic request failed due to connection error"
+                "Anthropic semantic request failed due to connection error"
             ) from exc
         except BadRequestError as exc:
             raise SemanticProviderError(
-                f"OpenAI semantic request was rejected: {exc}"
+                f"Anthropic semantic request was rejected: {exc}"
             ) from exc
         except Exception as exc:
             raise SemanticProviderError(
-                f"unexpected OpenAI semantic provider failure: {type(exc).__name__}: {exc}"
+                f"unexpected Anthropic semantic provider failure: {type(exc).__name__}: {exc}"
             ) from exc
 
         elapsed_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
 
-        refusal_text = self._extract_refusal_text(response)
-        if refusal_text is not None:
+        # Safety classifiers (or a model refusal) surface as a 200 with
+        # stop_reason == "refusal" and no parsed output. Treat it as a provider
+        # failure so the analyzer drops to its deterministic floor — never as a
+        # silent PERMIT.
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
             raise SemanticProviderError(
-                f"OpenAI semantic provider refused the request: {refusal_text}"
+                "Anthropic semantic provider declined the request (stop_reason=refusal)"
             )
 
-        parsed = getattr(response, "output_parsed", None)
+        parsed = getattr(response, "parsed_output", None)
         if parsed is None:
-            raw_text = self._extract_output_text(response)
-            if raw_text is not None:
+            if stop_reason == "max_tokens":
                 raise SemanticProviderError(
-                    "OpenAI semantic provider returned text but no parsed SemanticAnalysisParseTarget"
+                    "Anthropic semantic provider hit max_tokens before producing "
+                    "a parsed SemanticAnalysisParseTarget"
                 )
             raise SemanticProviderError(
-                "OpenAI semantic provider returned neither parsed output nor usable text"
+                "Anthropic semantic provider returned no parsed "
+                f"SemanticAnalysisParseTarget (stop_reason={stop_reason!r})"
             )
 
         if not isinstance(parsed, SemanticAnalysisParseTarget):
@@ -188,18 +190,20 @@ class OpenAIStructuredSemanticProvider:
                 parsed = SemanticAnalysisParseTarget.model_validate(parsed)
             except Exception as exc:
                 raise SemanticProviderError(
-                    "OpenAI semantic provider returned a parsed object that "
+                    "Anthropic semantic provider returned a parsed object that "
                     "failed SemanticAnalysisParseTarget validation"
                 ) from exc
 
         usage = getattr(response, "usage", None)
 
-        openai_metadata = {
-            "provider": "openai",
-            "sdk_surface": "responses.parse",
-            "response_id": getattr(response, "id", None),
+        anthropic_metadata = {
+            "provider": "anthropic",
+            "sdk_surface": "messages.parse",
+            "response_id": getattr(response, "id", None)
+            or getattr(response, "_request_id", None),
             "latency_ms": elapsed_ms,
-            "reasoning_effort": self._reasoning_effort,
+            "stop_reason": stop_reason,
+            "max_tokens": self._max_tokens,
             "timeout_seconds": self._timeout_seconds,
             "prompt_fingerprints": {
                 "system_prompt_sha256": self._sha256_hex(instructions),
@@ -211,47 +215,31 @@ class OpenAIStructuredSemanticProvider:
         return parsed.to_full_analysis(
             provider_name=self.provider_name,
             model_name=self._model,
-            metadata={"openai": openai_metadata},
+            metadata={"anthropic": anthropic_metadata},
         )
 
-    def _get_client(self) -> OpenAI:
-        if OpenAI is None:
+    def _get_client(self) -> Anthropic:
+        if Anthropic is None:
             raise SemanticProviderError(
-                "openai package is not installed. Install it before using "
-                "OpenAIStructuredSemanticProvider."
-            ) from _OPENAI_IMPORT_ERROR
+                "anthropic package is not installed. Install it before using "
+                "AnthropicStructuredSemanticProvider."
+            ) from _ANTHROPIC_IMPORT_ERROR
 
         if self._api_key is None:
             raise SemanticProviderError(
-                "OPENAI_API_KEY is not set and no api_key was provided"
+                "ANTHROPIC_API_KEY is not set and no api_key was provided"
             )
 
         if self._client is None:
-            self._client = OpenAI(
-                api_key=self._api_key,
-                base_url=self._base_url,
-                organization=self._organization,
-                project=self._project,
-                timeout=self._timeout_seconds,
-                max_retries=self._max_retries,
-            )
+            kwargs: dict[str, Any] = {
+                "api_key": self._api_key,
+                "timeout": self._timeout_seconds,
+                "max_retries": self._max_retries,
+            }
+            if self._base_url is not None:
+                kwargs["base_url"] = self._base_url
+            self._client = Anthropic(**kwargs)
         return self._client
-
-    @staticmethod
-    def _extract_refusal_text(response: object) -> str | None:
-        refusal = getattr(response, "refusal", None)
-        if isinstance(refusal, str):
-            normalized = refusal.strip()
-            return normalized or None
-        return None
-
-    @staticmethod
-    def _extract_output_text(response: object) -> str | None:
-        output_text = getattr(response, "output_text", None)
-        if isinstance(output_text, str):
-            normalized = output_text.strip()
-            return normalized or None
-        return None
 
     @staticmethod
     def _serialize_usage(usage: object) -> dict[str, Any] | None:
@@ -273,9 +261,8 @@ class OpenAIStructuredSemanticProvider:
         for field_name in (
             "input_tokens",
             "output_tokens",
-            "total_tokens",
-            "reasoning_tokens",
-            "cached_input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
         ):
             value = getattr(usage, field_name, None)
             if value is not None:
@@ -314,11 +301,7 @@ class OpenAIStructuredSemanticProvider:
         return int(value)
 
     @staticmethod
-    def _validate_reasoning_effort(value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized not in _ALLOWED_REASONING_EFFORTS:
-            allowed = ", ".join(sorted(_ALLOWED_REASONING_EFFORTS))
-            raise ValueError(
-                f"reasoning_effort must be one of: {allowed}. Got: {value!r}"
-            )
-        return normalized
+    def _validate_max_tokens(value: int) -> int:
+        if value <= 0:
+            raise ValueError("max_tokens must be greater than 0")
+        return int(value)

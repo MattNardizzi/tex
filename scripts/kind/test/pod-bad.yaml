@@ -1,0 +1,19 @@
+# NON-compliant pod: no approved sandbox runtimeClassName, no Tex injection.
+# In the governed `agents` namespace this MUST be denied by the in-apiserver
+# ValidatingAdmissionPolicy (and the validating webhook when enabled):
+#   * no runtimeClassName               -> not in the approved sandbox allowlist
+#   * no tex.systems/injected=true      -> the PEP was not injected
+# We deliberately declare runc-equivalent (default) runtime + skip injection to
+# trip the deny half. The apiserver should reject CREATE with reason Forbidden.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-agent
+  namespace: agents
+spec:
+  # No runtimeClassName (default runtime, not a sandbox) and no injected
+  # annotation — the two load-bearing violations.
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: registry.k8s.io/pause:3.10

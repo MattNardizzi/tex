@@ -544,3 +544,31 @@ int tex_sock_ops(struct bpf_sock_ops *skops)
     bpf_map_delete_elem(&orig_dst, &cookie);
     return 0;
 }
+
+// ============== SOTA hardening leg (NOT shipped here — see note) ========= //
+//
+// The intended hook was a SECOND, INDEPENDENT enforcement point at the LSM
+// Mandatory-Access-Control boundary (lsm/socket_connect) reading the SAME
+// verdict_cache / verdict_cache6 maps and returning -EPERM on a known-FORBID
+// destination — defense-in-depth behind the cgroup connect hooks.
+//
+// It was BUILT and TESTED in the build VM (Ubuntu 24.04, kernel 6.8 arm64) and
+// found to be BLOCKED by a hard licensing constraint, not a verifier or
+// availability issue:
+//
+//   * BPF LSM is available here: CONFIG_BPF_LSM=y, and a standalone
+//     lsm/socket_connect program LOADS, VERIFIES, and ATTACHES cleanly via
+//     link.AttachLSM (confirmed empirically).
+//   * BUT the kernel requires LSM programs to carry a GPL-compatible license,
+//     while this object is Apache-2.0 ("LSM programs must have a GPL compatible
+//     license", verified). A single .o has ONE license section, so an LSM
+//     program CANNOT coexist in this Apache-2.0 object — adding it inline makes
+//     loadTexRedirectObjects() fail for the WHOLE collection, taking down the
+//     working 5-program floor.
+//
+// Shipping it correctly therefore needs a SEPARATE, GPL-licensed object that
+// shares verdict_cache/verdict_cache6 via LIBBPF_PIN_BY_NAME pinning, plus its
+// own bpf2go target and best-effort loader attach. That is a deliberate,
+// scoped follow-up (a relicensing or second-object decision a human should
+// make) — NOT folded in here, to keep this commit from regressing the floor.
+// The cgroup connect4/6 FORBID fast-block remains the in-kernel deny path.

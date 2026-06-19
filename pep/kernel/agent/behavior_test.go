@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -200,56 +199,45 @@ func runInCgroup(t *testing.T, cg, mode, dst string) int {
 		"TEX_TEST_DST="+dst,
 	)
 	cmd.Stderr = os.Stderr
-	// Join the cgroup via CgroupFD on the child's clone (kernel >= 5.7). This is
-	// race-free: the child starts already inside the governed cgroup, so its very
-	// first syscall is mediated. Fallback below for older kernels.
-	if joinViaClone(cmd, cg) {
-		// joined at clone time
-	} else if err := writeProcsAfterStart(t, cmd, cg); err != nil {
-		t.Fatalf("place child in cgroup: %v", err)
+
+	// Prefer clone3 CLONE_INTO_CGROUP (kernel >= 5.7): the child is BORN inside
+	// the governed cgroup, so even its very first syscall is mediated (race-free,
+	// no window between fork and cgroup join). The cgroup-dir fd must stay open
+	// until the child has been cloned, so we keep it and close after Run().
+	var cgFile *os.File
+	if f, err := os.Open(cg); err == nil {
+		cgFile = f
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			UseCgroupFD: true,
+			CgroupFD:    int(f.Fd()),
+		}
 	}
-	err = cmd.Run()
-	if err == nil {
+
+	var runErr error
+	if cgFile != nil {
+		runErr = cmd.Run()
+		cgFile.Close()
+	} else {
+		// Pre-5.7 fallback: start, then write the child's pid into cgroup.procs
+		// before it reaches the syscall under test.
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start child: %v", err)
+		}
+		if err := os.WriteFile(cg+"/cgroup.procs", []byte(strconv.Itoa(cmd.Process.Pid)), 0); err != nil {
+			_ = cmd.Process.Kill()
+			t.Fatalf("place child in cgroup: %v", err)
+		}
+		runErr = cmd.Wait()
+	}
+
+	if runErr == nil {
 		return childOK
 	}
-	if ee, ok := err.(*exec.ExitError); ok {
+	if ee, ok := runErr.(*exec.ExitError); ok {
 		return ee.ExitCode()
 	}
-	t.Fatalf("run child: %v", err)
+	t.Fatalf("run child: %v", runErr)
 	return -1
-}
-
-// joinViaClone uses clone3 CLONE_INTO_CGROUP via SysProcAttr.CgroupFD when the
-// kernel supports it, so the child is born inside the cgroup. Returns false if
-// unsupported (caller falls back to writing cgroup.procs).
-func joinViaClone(cmd *exec.Cmd, cg string) bool {
-	f, err := os.Open(cg)
-	if err != nil {
-		return false
-	}
-	// NOTE: we intentionally leak f until the command runs; close after.
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		UseCgroupFD: true,
-		CgroupFD:    int(f.Fd()),
-	}
-	// Keep f alive past Run by stashing it on the cmd via a closure in Cancel.
-	cmd.Cancel = func() error { f.Close(); return nil }
-	// Best-effort close after the process exits is handled by the GC/Cancel; the
-	// fd is dup'd into the child at clone, so an early close after Start is fine.
-	return true
-}
-
-// writeProcsAfterStart is the pre-5.7 fallback: start the child stopped-ish and
-// write its pid into cgroup.procs. We approximate by starting then immediately
-// writing the pid; a tiny window exists but the child's blocking step is the
-// syscall under test, which it reaches after this returns.
-func writeProcsAfterStart(t *testing.T, cmd *exec.Cmd, cg string) error {
-	t.Helper()
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	pid := cmd.Process.Pid
-	return os.WriteFile(cg+"/cgroup.procs", []byte(strconv.Itoa(pid)), 0)
 }
 
 // ---- (a) FORBID is blocked in-kernel -------------------------------------- //
@@ -423,6 +411,3 @@ func codeName(c int) string {
 		return "exit=" + strconv.Itoa(c)
 	}
 }
-
-// silence unused-import vetting if strings is not referenced in some build perms.
-var _ = strings.TrimSpace

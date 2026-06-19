@@ -30,7 +30,7 @@ import base64
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from tex.identity.agent_credential import AttestedIdentity, verify_agent_credential
 
@@ -246,9 +246,8 @@ class JwksIdentitySource:
     def _verify(
         self, assertion: Any, *, now: float | None, expected_audience: str | None
     ) -> SubjectVerification:
-        fail = lambda status: SubjectVerification(  # noqa: E731
-            False, status, None, None, None, method="jwks_jwt"
-        )
+        def fail(status: str) -> SubjectVerification:
+            return SubjectVerification(False, status, None, None, None, method="jwks_jwt")
 
         if not isinstance(assertion, str) or assertion.count(".") != 2:
             return fail("malformed_jwt")

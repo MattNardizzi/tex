@@ -25,6 +25,14 @@ behaviour):
     TEX_PEP_SEAL       "1" => seal a receipt per decision (G4)   default off
     TEX_PEP_REQUIRE_IDENTITY "1" => require a verified credential (G6)  default off
 
+Trusted issuer keys (G6) — the issuer pubkeys an agent credential is verified
+against. Both unset => {} (no issuer trusted, the unchanged default; with
+require_identity off this is the documented header-trust gap). A malformed key
+in either var REFUSES TO BOOT (fail-closed at startup, not per-request):
+    TEX_PEP_TRUSTED_ISSUERS_FILE  path to JSON {issuer_id: base64_ed25519_pubkey}
+                                  (preferred when set)
+    TEX_PEP_TRUSTED_ISSUERS       same JSON object inline (used only if _FILE unset)
+
 External-time anchoring (G11) — runs ONLY when TEX_PEP_SEAL is on AND a TSA is
 configured (anchoring an un-sealed ledger has nothing to attest):
     TEX_PEP_ANCHOR_TSA_URL  RFC-3161 TSA URL; set => start the AnchorScheduler
@@ -49,12 +57,18 @@ def build_app():
     config_env = os.environ.get("TEX_PEP_ENV", "production")
     default_tenant = os.environ.get("TEX_PEP_TENANT", "default")
 
+    from tex.identity.issuer_keys import load_trusted_issuers
     from tex.pep.proxy import (
         OrigDstResolver,
         ProxyConfig,
         TexEnforcementProxy,
         build_proxy_app,
     )
+
+    # G6 — issuer pubkeys an agent credential is verified against. Loaded
+    # fail-closed: a malformed key raises here so the proxy refuses to boot
+    # rather than rejecting every credential at runtime (see issuer_keys).
+    trusted_issuers = load_trusted_issuers(os.environ)
 
     config = ProxyConfig(
         environment=config_env,
@@ -64,6 +78,7 @@ def build_app():
         default_agent_external_id=os.environ.get("TEX_AGENT") or None,
         require_verified_dst=_flag("TEX_PEP_REQUIRE_DST"),
         require_identity=_flag("TEX_PEP_REQUIRE_IDENTITY"),
+        trusted_issuers=trusted_issuers,
         # G6 anti-replay: this PEP's expected credential audience + whether a
         # credential MUST carry an expiry. Unset leaves aud unchecked (an exp on
         # a card is still honoured).

@@ -1,24 +1,17 @@
-# Optional Tetragon alternative for clusters already running Tetragon: kill-
-# based inline enforcement of egress connect() for governed workloads, as a
-# defense-in-depth backstop to the redirect path. Tetragon enforces in-kernel
-# (SIGKILL / override) at sub-millisecond latency. Tune the matchBinaries /
-# namespace selectors to the governed set.
-apiVersion: cilium.io/v1alpha1
-kind: TracingPolicy
-metadata:
-  name: tex-egress-backstop
-spec:
-  kprobes:
-    - call: "tcp_connect"
-      syscall: false
-      args:
-        - { index: 0, type: "sock" }
-      selectors:
-        - matchActions:
-            # Default posture is observe; the agent flips this to a kill list
-            # populated from the PDP forbid-set for the highest-confidence
-            # denials. Shown here as the enforcement shape.
-            - action: Post
+# Tetragon backstops for the kernel-floor PEP.
+#
+# connect()/sendmsg() egress is intentionally NOT backstopped by a Tetragon kill
+# policy here. That egress is enforced by the eBPF cgroup/connect4|6 +
+# cgroup/sendmsg4|6 redirect floor (see ../bpf/tex_redirect.bpf.c): known-FORBID
+# destinations are refused in-kernel and everything else is redirected to the
+# enforcement proxy. A Tetragon "Post" policy on tcp_connect would only LOG, not
+# block — shipping it would imply a kill backstop that does not exist, so it is
+# omitted. A REAL connect()-kill backstop would need per-destination argument
+# matching plus a PDP-driven kill-list updater (the loader does not write any
+# TracingPolicy kill map today); that is future work, not shipped.
+#
+# The io_uring backstop below IS real (Sigkill): io_uring egress cannot be
+# mediated by the cgroup/connect* hooks, so the ring is blocked outright.
 ---
 # io_uring backstop (G3). io_uring lets an agent submit network ops (CONNECT,
 # SENDMSG, ...) via a shared ring WITHOUT issuing the connect()/sendmsg()

@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -288,7 +289,7 @@ type origDstResp struct {
 }
 
 func serveOrigDst(sockPath string, m *ebpf.Map) {
-	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o750); err != nil {
 		log.Printf("origdst: mkdir %s: %v", filepath.Dir(sockPath), err)
 		return
 	}
@@ -303,15 +304,60 @@ func serveOrigDst(sockPath string, m *ebpf.Map) {
 	}
 	// The proxy runs as a sidecar; allow it to connect.
 	_ = os.Chmod(sockPath, 0o660)
-	log.Printf("origdst: serving lookups on %s", sockPath)
+	allowed := allowedPeerUIDs()
+	log.Printf("origdst: serving lookups on %s (allowed peer uids %v)", sockPath, allowed)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			log.Printf("origdst: accept: %v", err)
 			return
 		}
+		// SO_PEERCRED: only the enforcement proxy (a known uid) may read the
+		// src-tuple -> orig-dst map. A co-tenant process on this hostPID,
+		// privileged pod is refused, so it cannot enumerate the live
+		// destinations the proxy trusts for forwarding. Fail closed: a peer whose
+		// credentials cannot be read is rejected.
+		if uid, ok := peerUID(conn); !ok || !allowed[uid] {
+			log.Printf("origdst: refusing peer uid=%d ok=%v (not allowed)", uid, ok)
+			_ = conn.Close()
+			continue
+		}
 		go handleOrigDst(conn, m)
 	}
+}
+
+// allowedPeerUIDs is the set of UNIX uids permitted to query the orig-dst map:
+// this process's own uid plus an optional TEX_ORIGDST_ALLOWED_UID (the proxy's
+// uid when the sidecar runs as a different user than the loader).
+func allowedPeerUIDs() map[uint32]bool {
+	s := map[uint32]bool{uint32(os.Getuid()): true}
+	if v := os.Getenv("TEX_ORIGDST_ALLOWED_UID"); v != "" {
+		if u, err := strconv.Atoi(v); err == nil && u >= 0 {
+			s[uint32(u)] = true
+		}
+	}
+	return s
+}
+
+// peerUID returns the connecting peer's uid via SO_PEERCRED. ok=false when the
+// credential cannot be read, so the caller fails closed.
+func peerUID(conn net.Conn) (uint32, bool) {
+	uc, ok := conn.(*net.UnixConn)
+	if !ok {
+		return 0, false
+	}
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		return 0, false
+	}
+	var cred *syscall.Ucred
+	var credErr error
+	if ctrlErr := raw.Control(func(fd uintptr) {
+		cred, credErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+	}); ctrlErr != nil || credErr != nil || cred == nil {
+		return 0, false
+	}
+	return cred.Uid, true
 }
 
 func handleOrigDst(conn net.Conn, m *ebpf.Map) {

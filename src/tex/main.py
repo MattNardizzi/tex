@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -48,18 +47,22 @@ from tex.provenance.feed import (  # PROVENANCE: continuous feed
 )
 from tex.discovery.connectors import (
     AwsBedrockConnector,
-    CloudAuditConnector,
     GitHubConnector,
-    KernelEbpfConnector,
     MCPServerConnector,
     MicrosoftGraphConnector,
-    NetworkEgressConnector,
     OpenAIAssistantsLiveConnector,
     OpenAIConnector,
     SalesforceConnector,
     SlackConnector,
     SlackLiveConnector,
 )
+# NOTE: KernelEbpfConnector / CloudAuditConnector / NetworkEgressConnector are
+# real observation-plane connectors but are not instantiated here — the live
+# discovery roots are the IdP consent-graph + OCSF audit planes wired in
+# ``_build_discovery_connectors`` (Entra/OCSF/OpenAI/Slack/...). They were
+# previously imported-but-unused (a dead import flagged in the blueprint §3);
+# import them at the call site if/when an event source is fed to them, rather
+# than carrying a misleading module-level import that implies they run.
 from tex.discovery.dormancy import DormancyController  # discovery: dormant-agent doctrine
 from tex.discovery.ignition import IgnitionRegistry  # discovery: count-once
 from tex.discovery.service import DiscoveryService
@@ -705,12 +708,10 @@ def build_runtime(
     # tenants the moment they're wired. If a live connector raises a
     # ConnectorError mid-scan, the discovery service catches it and
     # records a structured error on the run — it never crashes the
-    # runtime.
-    discovery_service = DiscoveryService(
-        registry=agent_registry,
-        ledger=discovery_ledger,
-        connectors=_build_discovery_connectors(),
-    )
+    # runtime. The single authoritative DiscoveryService is constructed
+    # below (once the V15/V16 stores exist) so it is bound with scan-run
+    # idempotency, connector health, and provenance. (A prior duplicate
+    # allocation here was immediately shadowed — blueprint §3 boot bug.)
 
     # V15: governance snapshots, drift detection, real-time alerts,
     # and the background scheduler. All optional; when DATABASE_URL
@@ -947,6 +948,24 @@ def build_runtime(
         event_registry=EventTypeRegistry(),
         event_lookup=_ecosystem_ledger,
     )
+    # Step-7 systemic-risk scorer (ProbGuard PCTL reachability). Built ONLY
+    # when TEX_ECOSYSTEM_SYSTEMIC=1, read through the SAME canonical parser the
+    # engine's step 7 uses (``ecosystem_config.is_flag_on``) so the
+    # construction gate and the call-site gate cannot drift (this drift was the
+    # root cause of KNOWN_BUGS.md Bug #2). Default boot → flag off → None →
+    # step 7 stays the inert 0.0 axis it is today. The engine itself still
+    # re-checks the flag on every ``evaluate()`` and never short-circuits to
+    # FORBID on a scorer failure, so wiring the collaborator cannot change a
+    # default boot and cannot DoS the request path.
+    from tex.ecosystem_config import is_flag_on as _eco_flag_on
+
+    if _eco_flag_on("TEX_ECOSYSTEM_SYSTEMIC"):
+        from tex.systemic.risk_evaluator import SystemicRiskEvaluator
+
+        _systemic_scorer: object | None = SystemicRiskEvaluator()
+    else:
+        _systemic_scorer = None
+
     # ``enabled=None`` → engine reads TEX_ECOSYSTEM from env. Default off.
     ecosystem_engine = EcosystemEngine(
         ontology=_ecosystem_ontology,
@@ -961,6 +980,10 @@ def build_runtime(
         # ``None``. When ``None``, the engine reports
         # ``contract_violation_severity=0.0`` (no contracts evaluated).
         contracts=contract_enforcer,
+        # Step-7 systemic-risk axis. ``None`` unless TEX_ECOSYSTEM_SYSTEMIC=1
+        # (see above) — required for the flag to do anything, since the engine
+        # only scores when the flag is on AND a collaborator is wired.
+        systemic=_systemic_scorer,
     )
     ecosystem_bridge = EcosystemBridge(engine=ecosystem_engine)
 
@@ -1249,20 +1272,23 @@ def _should_defer_runtime() -> bool:
     goes green) and the runtime lands a few seconds later on a background
     thread, gated by :class:`_WarmupGateMiddleware`.
 
-    Deferral is enabled ONLY for a real production-like server boot. It is
-    DISABLED under pytest (the suite builds the app synchronously and asserts
-    against a fully wired app) and overridable explicitly with
-    ``TEX_DEFER_RUNTIME=1`` / ``0``.
+    Deferral is **off by default** and engaged only by an explicit
+    ``TEX_DEFER_RUNTIME=1`` (or ``true``/``yes``/``on``).
+
+    History (blueprint §3 boot bug): an earlier revision tried to auto-enable
+    deferral for production-like boots via ``get_settings().is_production_like()``
+    — but ``is_production_like`` is a ``@property`` (config.py), so calling it
+    ``()`` raised ``TypeError`` that the bare ``except`` swallowed, making the
+    auto path *always* return ``False``. Auto-deferral therefore never engaged
+    in any environment. Rather than silently flip every production boot to the
+    deferred background-build path now (an unrequested change to a deploy that
+    has only ever booted synchronously), deferral stays an explicit operator
+    opt-in. Set ``TEX_DEFER_RUNTIME=1`` to turn it on.
     """
     override = os.environ.get("TEX_DEFER_RUNTIME")
     if override is not None:
         return override.strip().lower() in {"1", "true", "yes", "on"}
-    if "pytest" in sys.modules:
-        return False
-    try:
-        return get_settings().is_production_like()
-    except Exception:  # pragma: no cover - settings already validated by caller
-        return False
+    return False
 
 
 class _WarmupGateMiddleware:
@@ -1588,6 +1614,59 @@ def create_app(
     return app
 
 
+def _bind_reflexive_governor_if_enabled(app: FastAPI, runtime: TexRuntime) -> None:
+    """Activate reflexive self-governance (selfgov L5) on the live path.
+
+    Routes Tex's OWN controller mutations — policy activate/save/delete/clear,
+    proposal apply/rollback, agent lifecycle/capability-surface writes, and
+    in-process key material — through the SAME ``PolicyDecisionPoint`` +
+    metaguard structural floor + ABSTAIN surface that rules customer actions,
+    and seals each ruling as a ``SealedFact(ENFORCEMENT)`` into the decision
+    ledger. The six gate chokepoints (``stores.policy_store``,
+    ``memory.policy_snapshot_store``, ``learning.feedback_loop``,
+    ``governance.standing``, ``stores.agent_registry``, ``c2pa.signer``,
+    ``evidence.seal``) are already live; they return ``_UNGATED`` until the
+    governor is bound here.
+
+    Safe-by-default: bound ONLY when ``TEX_SEAL_DECISIONS=1`` (i.e. a decision
+    ledger exists). With the flag off the governor stays unbound and every
+    ``gate_controller_mutation`` call is today's behaviour byte-for-byte.
+
+    Behavioural note (read before flipping the flag): once bound, a controller
+    mutation that *weakens* governance — raising a permit threshold, widening a
+    capability surface, a QUARANTINED→ACTIVE lifecycle flip — can be demoted to
+    ABSTAIN/FORBID by metaguard and thus DENIED (the chokepoint denies by not
+    mutating, never by raising). New-version stage writes, new-agent
+    registrations, and byte-identical re-persists pass free. This is the
+    intended self-governance property; it is opt-in precisely because it can
+    block a weakening calibration the automated flywheel would otherwise apply.
+
+    Idempotent + process-global: the governor binds once for the life of the
+    server and is never unbound. A second ``create_app()`` in the same process
+    finds it already bound and leaves it (re-binding while bound is denied AND
+    raises by design, so we must never call ``bind`` twice).
+    """
+    ledger = app.state.decision_ledger
+    if ledger is None:
+        return
+    from tex.selfgov.governor import (
+        bind_reflexive_governor,
+        reflexive_governor_bound,
+    )
+
+    if reflexive_governor_bound():
+        return
+    # Bind to the SAME PDP that StandingGovernance/EvaluateActionCommand use
+    # (runtime.pdp) — that reuse is exactly what "reflexive" means. Policy
+    # defaults to the deploy-frozen GOVERNOR_FROZEN_POLICY inside bind().
+    bind_reflexive_governor(pdp=runtime.pdp, ledger=ledger)
+    _logger.info(
+        "selfgov: reflexive governor bound to the live PDP + decision ledger "
+        "(TEX_SEAL_DECISIONS=1) — controller mutations are now governed and "
+        "sealed as SealedFact(ENFORCEMENT)."
+    )
+
+
 def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     """
     Publish the runtime and command stack into FastAPI app state.
@@ -1764,7 +1843,32 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # send = gate.wrap(raw_send, content_arg="body", action_type="wire_transfer").
     from tex.enforcement.standing_transport import build_standing_gate
 
-    app.state.standing_gate = build_standing_gate(app.state.standing_governance)
+    _gate_ledger = app.state.decision_ledger
+    if _gate_ledger is not None:
+        # TEX_SEAL_DECISIONS=1: make the in-process PEP proof-carrying. A
+        # SealingGateObserver seals exactly one offline-verifiable
+        # SealedFact(ENFORCEMENT) per gate allow/deny into the SAME
+        # SealedFactLedger /v1/govern/decide writes to — one chain, one
+        # verifier (verify_chain / verify_signatures), no new ledger. Without
+        # this the live gate (TexGate / standing_transport) emitted no receipts
+        # — only POST /v1/govern/decide did (blueprint §8 honest gap #1).
+        from tex.enforcement.seal import build_proof_carrying_gate
+
+        app.state.standing_gate, app.state.standing_gate_observer = (
+            build_proof_carrying_gate(
+                app.state.standing_governance, ledger=_gate_ledger
+            )
+        )
+    else:
+        # Default deploy: decision_ledger is None → no observer → the gate's
+        # NullObserver (zero overhead). Behaviour is byte-for-byte today's.
+        app.state.standing_gate = build_standing_gate(app.state.standing_governance)
+        app.state.standing_gate_observer = None
+
+    # REFLEXIVE SELF-GOVERNANCE (selfgov L5). Bind the reflexive governor to the
+    # live PDP so Tex's OWN controller mutations are governed + sealed. Gated on
+    # TEX_SEAL_DECISIONS (same flag, same ledger) — a no-op on a default boot.
+    _bind_reflexive_governor_if_enabled(app, runtime)
 
     # VIGIL: the selection layer's engine. Stateless-per-cycle in v1 (warms
     # the model of normal from ledger history each cycle). Attached here so

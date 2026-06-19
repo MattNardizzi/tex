@@ -191,7 +191,7 @@ func main() {
 		ProxyIP6:     ip6ToBE(proxy6),
 		AllowDNS:     allowDNS,
 	}
-	if err := objs.Config.Put(uint32(0), cfg); err != nil {
+	if err := objs.TexCfg.Put(uint32(0), cfg); err != nil {
 		log.Fatalf("write config: %v", err)
 	}
 

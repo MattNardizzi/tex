@@ -102,7 +102,7 @@ struct {
     __uint(max_entries, 1);
     __type(key, __u32);
     __type(value, struct tex_config);
-} config SEC(".maps");
+} tex_cfg SEC(".maps"); // NB: not "config" — collides with a typedef in some kernels' vmlinux.h
 
 // ---- Verdict caches: destination -> verdict (PDP-warmed) ----------------- //
 struct dst_key {
@@ -187,7 +187,7 @@ int tex_connect4(struct bpf_sock_addr *ctx)
         return 1; // allow non-IPv4 to proceed untouched (v6 handled separately)
 
     __u32 ckey = 0;
-    struct tex_config *cfg = bpf_map_lookup_elem(&config, &ckey);
+    struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
         return 1; // not configured yet: do not interfere
 
@@ -254,7 +254,7 @@ int tex_connect6(struct bpf_sock_addr *ctx)
         return 1; // allow non-IPv6 to proceed untouched
 
     __u32 ckey = 0;
-    struct tex_config *cfg = bpf_map_lookup_elem(&config, &ckey);
+    struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
         return 1;
 
@@ -351,7 +351,7 @@ int tex_sendmsg4(struct bpf_sock_addr *ctx)
         return 1;
 
     __u32 ckey = 0;
-    struct tex_config *cfg = bpf_map_lookup_elem(&config, &ckey);
+    struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
         return 1;
 
@@ -411,7 +411,7 @@ int tex_sendmsg6(struct bpf_sock_addr *ctx)
         return 1;
 
     __u32 ckey = 0;
-    struct tex_config *cfg = bpf_map_lookup_elem(&config, &ckey);
+    struct tex_config *cfg = bpf_map_lookup_elem(&tex_cfg, &ckey);
     if (!cfg)
         return 1;
 

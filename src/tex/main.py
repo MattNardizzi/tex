@@ -1884,17 +1884,45 @@ def _build_discovery_connectors() -> list:
 
     # Demo seed (Entra consent-graph + OCSF audit fixtures) lets the first-run
     # "click Begin" map a believable estate when no live cloud credentials are
-    # configured. ON by default — the demo/first-run experience depends on it.
-    # Set TEX_DISCOVERY_DEMO_SEED=0 to suppress it: a production deploy that
-    # must never surface fixture agents, or the test suite, which relies on the
-    # documented "empty connectors" surface. The connector logic, reconciliation
-    # and ledger are identical either way — only the transport's seed differs.
-    _demo_seed = os.environ.get("TEX_DISCOVERY_DEMO_SEED", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    # configured. The connector logic, reconciliation and ledger are identical
+    # either way — only the transport's seed differs.
+    #
+    # Resolution:
+    #   * An explicit TEX_DISCOVERY_DEMO_SEED ALWAYS wins (set =1 to force the
+    #     seed on even alongside live creds, e.g. a staging box; =0 to force off).
+    #   * Unset → ON only when NO live discovery source is configured. The moment
+    #     any auto-on-boot live source is present we default the seed OFF, so a
+    #     live tenant never sees its REAL estate polluted with fixture agents.
+    #     This matters because the OCSF audit fixtures (the 8 shadow-agents) ride
+    #     a SEPARATE plane from Entra: with live Entra creds but the seed left on,
+    #     they would survive and mix 8 fabricated rows into a real inventory —
+    #     exactly the fabrication this system exists to prevent.
+    #
+    # NOTE: the per-tenant conduit ("Connect your directory") creds are
+    # deliberately NOT in this set — the conduit is on-demand and inert for the
+    # demo tenant until a real tenant seals a connection, so it never pollutes
+    # the credential-less preview. Only the auto-on-boot scan sources count.
+    _live_discovery_source = any(
+        os.environ.get(_name, "").strip()
+        for _name in (
+            "TEX_DISCOVERY_ENTRA_TENANT_ID",
+            "TEX_DISCOVERY_ENTRA_CLIENT_ID",
+            "TEX_DISCOVERY_ENTRA_CLIENT_SECRET",
+            "TEX_DISCOVERY_OPENAI_API_KEY",
+            "TEX_DISCOVERY_SLACK_TOKEN",
+            "TEX_DISCOVERY_AUDIT_QUERY",
+        )
+    )
+    _demo_seed_env = os.environ.get("TEX_DISCOVERY_DEMO_SEED", "").strip().lower()
+    if _demo_seed_env:
+        _demo_seed = _demo_seed_env not in {"0", "false", "no", "off"}
+    else:
+        _demo_seed = not _live_discovery_source
+    if _live_discovery_source and _demo_seed:
+        _logger.warning(
+            "discovery: TEX_DISCOVERY_DEMO_SEED forced ON alongside a live "
+            "discovery source — fixture agents will be mixed into the real estate"
+        )
 
     connectors: list = [
         MicrosoftGraphConnector(),

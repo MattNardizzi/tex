@@ -121,9 +121,13 @@ class IfcVerdict:
     # ``flow_proof`` is the proof-carrying, offline-re-checkable object
     # (HOLDS or FORBID) for an egress sink; None for non-sink actions
     # where no egress boundary exists. ``structural_forbid`` is True iff
-    # that proof is a FORBID — the deterministic structural floor a
-    # consumer (specialist/PDP) maps to a DENY (1-line wire, out of this
-    # track). Defaults keep every existing constructor valid.
+    # that proof is a FORBID. That FORBID is now CONSUMED as a hard PDP
+    # DENY: the engine emits the ``SECRET_EGRESS_NONINTERFERENCE`` violation
+    # code in lockstep, and ``tex.specialists.structural_floor`` lists it in
+    # ``_IFC_HARD_VIOLATION_CODES`` so the PDP short-circuits to FORBID
+    # (monotone — the floor only raises severity). ``structural_forbid`` is
+    # the in-band carrier of the same fact for any direct consumer.
+    # Defaults keep every existing constructor valid.
     flow_proof: FlowProof | None = None
     structural_forbid: bool = False
 
@@ -145,8 +149,10 @@ class IfcVerdict:
         weights = {
             # SECRET_EGRESS is the deterministic structural floor; its soft
             # echo here is the strongest weight so the probabilistic score
-            # never *understates* a deterministic FORBID. The authority is
-            # ``structural_forbid`` on the verdict, not this score.
+            # never *understates* a deterministic FORBID. The live authority is
+            # the structural-floor promotion of this violation code (see
+            # tex.specialists.structural_floor._IFC_HARD_VIOLATION_CODES), not
+            # this score — the score is only the voting-tier echo.
             IfcViolation.SECRET_EGRESS_NONINTERFERENCE: 0.97,
             IfcViolation.FLOW_INTEGRITY: 0.95,
             IfcViolation.CAUSALITY_LAUNDERING: 0.90,

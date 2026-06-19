@@ -66,6 +66,20 @@ def test_ifc_floor_only_on_real_violation_code() -> None:
     assert detect_structural_floor(bundle).fired is False
 
 
+def test_ifc_secret_egress_noninterference_fires_floor() -> None:
+    # The deterministic SECRET-not->EGRESS non-interference FORBID must promote to
+    # a hard structural DENY, not survive only as a probabilistic vote (which PDP
+    # fusion can dilute below threshold -> ABSTAIN). The IfcEngine surfaces this
+    # code in matched_policy_clause_ids exactly when verdict.structural_forbid is
+    # True; this is the consuming wire that makes the "structural floor" real.
+    bundle = SpecialistBundle(
+        results=(_result("ifc", 0.97, ("ifc.secret_egress_noninterference",)),)
+    )
+    out = detect_structural_floor(bundle)
+    assert out.fired is True
+    assert "ifc" in out.denying_specialists
+
+
 def test_argus_observation_driven_fires_floor() -> None:
     bundle = SpecialistBundle(
         results=(_result("argus", 0.8, ("ARGUS_DECISION_OBSERVATION_DRIVEN",)),)

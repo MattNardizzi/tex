@@ -138,6 +138,69 @@ def test_https_opaque_raises_a_hold_to_the_voice():
 
 
 # --------------------------------------------------------------------------- #
+# The same rule for an un-decodable request BODY (http_opaque_body)            #
+# --------------------------------------------------------------------------- #
+
+
+def test_http_opaque_body_abstains_never_permits():
+    # A request whose body uses a Content-Encoding the PEP cannot decode is
+    # labelled http_opaque_body; like https_opaque it must ABSTAIN (held), never
+    # a content-blind PERMIT, even though the deep PDP here would permit.
+    agent_id = uuid4()
+    gov = _gov(_Agent(agent_id))
+    out = gov.decide(
+        tenant="acme",
+        action_type="http_opaque_body",
+        content="POST /v1/chat/completions; body uses Content-Encoding 'br'",
+        channel="network",
+        environment="production",
+        recipient="api.openai.com",
+        agent_id=agent_id,
+    )
+    assert out.verdict is Verdict.ABSTAIN
+    assert out.released is False
+    assert out.held is True
+
+
+def test_http_opaque_body_raises_a_hold_with_body_reason():
+    sink = _ListSink()
+    agent_id = uuid4()
+    gov = _gov(_Agent(agent_id), held_sink=sink)
+    gov.decide(
+        tenant="acme",
+        action_type="http_opaque_body",
+        content="opaque body",
+        channel="network",
+        environment="production",
+        recipient="api.openai.com",
+        agent_id=agent_id,
+    )
+    assert len(sink.items) == 1
+    held = sink.items[0]
+    assert held.kind == "http_opaque_body"
+    assert held.detail["reason"] == "uninspectable_request_body"
+
+
+def test_http_opaque_body_unknown_agent_still_forbids():
+    # Monotone: the structural FORBID floor still wins over the body-opaque rule.
+    gov = StandingGovernance(
+        agent_registry=_EmptyRegistry(), evaluate_command=_PermitEvaluate()
+    )
+    out = gov.decide(
+        tenant="acme",
+        action_type="http_opaque_body",
+        content="opaque body",
+        channel="network",
+        environment="production",
+        recipient="api.openai.com",
+        agent_id=uuid4(),
+    )
+    assert out.verdict is Verdict.FORBID
+    assert out.released is False
+    assert out.tier == "floor"
+
+
+# --------------------------------------------------------------------------- #
 # Monotone safety — the structural FORBID floor still wins                     #
 # --------------------------------------------------------------------------- #
 

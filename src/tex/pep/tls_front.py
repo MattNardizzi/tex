@@ -6,11 +6,13 @@ WIRING STATUS (read first): BUILT + UNIT-TESTED, but NOT on the live deploy path
 server; this ``TlsFront`` / ``InBoxCA`` is never instantiated outside tests.
 Activation is a deploy effort (a TLS-front listener on the eBPF proxy port, a
 constructed ``InBoxCA``, a loaded ``terminate_allowlist``, the agent trust store
-injected with the PUBLIC anchor) PLUS a Linux node. Also: the "fail visible, never
-silent" property below is only real once a deterministic gate rule maps
-``action_type=="https_opaque"`` → ABSTAIN/FORBID — NO engine rule consumes that
-marker yet (so a benign-scoring opaque request would currently PERMIT). Treat this
-module as research-early / test-only until both the wiring AND that gate rule land.
+injected with the PUBLIC anchor) PLUS a Linux node. The PDP half is now DONE: a
+deterministic rule maps ``action_type=="https_opaque"`` → ABSTAIN/held
+(governance/standing.py ``_UNINSPECTABLE_ACTION_TYPES`` → ``_abstain_uninspectable``),
+so a benign-scoring opaque request is HELD, not PERMITted. What remains is purely
+the PRODUCER: this ``TlsFront`` is the only thing that emits the marker and is
+still test-only / off the live deploy path. Treat this module as research-early /
+test-only until the deploy wiring lands; the gate rule it depends on already has.
 
 This is the scoped, custody-disciplined in-box MITM terminator the design doc
 (``docs/blueprint/exec-layer/tls-visibility.md``) recommends. It sits in front of

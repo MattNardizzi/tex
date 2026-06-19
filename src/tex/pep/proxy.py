@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import logging
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -428,6 +429,7 @@ class TexEnforcementProxy:
             agent_external_id=agent_external_id,
             session_id=session_id,
             attested_identity=ident.attested,
+            content_encoding=h.get("content-encoding"),
         )
 
         result = self._decide.decide(decision)
@@ -462,6 +464,7 @@ class TexEnforcementProxy:
             agent_id=agent_id,
             agent_external_id=agent_external_id,
             decision_id=result.decision_id,
+            content_encoding=h.get("content-encoding"),
         )
 
         # ---- G10: mint -> persist -> verify(fresh digest, audience) -> consume
@@ -845,6 +848,7 @@ class TexEnforcementProxy:
         session_id: str | None,
         attested_identity: AttestedIdentity | None = None,
         opaque: bool = False,
+        content_encoding: str | None = None,
     ) -> tuple[Decision, str | None]:
         cap = self._config.max_content_bytes
         mcp_kind: str | None = None
@@ -860,11 +864,14 @@ class TexEnforcementProxy:
             # to the kernel orig_dst, else the orig_dst IP), never WHAT. Mark it
             # ``https_opaque`` so the action is LABELLED honestly instead of
             # slipping through as a silent PERMIT-shaped ``http_<method>`` no-op.
-            # HONEST CAVEAT: labelling alone does NOT yet close G9 — no engine/gate
-            # rule maps ``https_opaque`` -> ABSTAIN/FORBID today, so a benign-scoring
-            # opaque request would currently PERMIT. Activation MUST add that
-            # deterministic rule; the proxy only labels, ABSTAIN is the PDP's to
-            # raise (CLAUDE.md rule 2). Until then this MARKS the gap, not closes it.
+            # WIRING STATUS: the PDP now CONSUMES this label — StandingGovernance
+            # maps ``https_opaque`` -> ABSTAIN/held (governance/standing.py,
+            # ``_UNINSPECTABLE_ACTION_TYPES`` -> ``_abstain_uninspectable``), so an
+            # opaque request is HELD, never a content-blind PERMIT (CLAUDE.md rule
+            # 2). The remaining gap is the PRODUCER: this opaque branch is reached
+            # only via ``rule_opaque()`` -> ``TlsFront``, which is still test-only /
+            # off the live deploy path (see pep/tls_front.py). So the DECISION half
+            # of G9 is live; the live-path producer is the deploy follow-up.
             decision = Decision(
                 tenant=tenant,
                 action_type="https_opaque",
@@ -883,7 +890,34 @@ class TexEnforcementProxy:
             )
             return decision, None
 
-        parsed = _try_json(body)
+        # Decode the body per its Content-Encoding so the PDP rules on what the
+        # agent is ACTUALLY sending — not the compressed bytes. A body Tex cannot
+        # decode (br/zstd/unknown/bomb) is UN-inspectable: label it
+        # ``http_opaque_body`` so the PDP holds it (ABSTAIN) rather than scoring
+        # garbage as a benign ``http_<method>`` and content-blind PERMITting a
+        # forbidden payload (the gzip-smuggle bypass). Mirrors the https_opaque
+        # honesty for the TLS-opaque case.
+        inspect_body, undecodable = _decode_for_inspection(body, content_encoding)
+        if undecodable:
+            decision = Decision(
+                tenant=tenant,
+                action_type="http_opaque_body",
+                content=(
+                    f"{method} {path}; request body uses Content-Encoding "
+                    f"{(content_encoding or '').strip() or 'unknown'!r} that Tex "
+                    "cannot decode — content not inspectable"
+                ),
+                channel=channel,
+                environment=self._config.environment,
+                recipient=recipient,
+                agent_id=agent_id,
+                agent_external_id=agent_external_id,
+                session_id=session_id,
+                attested_identity=attested_identity,
+            )
+            return decision, None
+
+        parsed = _try_json(inspect_body)
         if isinstance(parsed, dict) and parsed.get("jsonrpc") == "2.0":
             mcp_method = parsed.get("method")
             channel = "mcp"
@@ -901,8 +935,8 @@ class TexEnforcementProxy:
                 action_type = f"mcp_{mcp_method or 'unknown'}"
                 content = json.dumps(parsed.get("params", {}))[:cap] or "{}"
         else:
-            # Plain HTTP egress: fold a bounded slice of the body in as content.
-            text = body[:cap].decode("utf-8", errors="replace") if body else ""
+            # Plain HTTP egress: fold a bounded slice of the (decoded) body in.
+            text = inspect_body[:cap].decode("utf-8", errors="replace") if inspect_body else ""
             content = (f"{method} {path}\n{text}").strip()[:cap] or f"{method} {path}"
 
         decision = Decision(
@@ -975,6 +1009,7 @@ class TexEnforcementProxy:
         agent_id: UUID | None,
         agent_external_id: str | None,
         decision_id: str | None,
+        content_encoding: str | None = None,
     ) -> bytes:
         """Approach B (provider-trusted) emission gate on the outbound request.
 
@@ -985,13 +1020,25 @@ class TexEnforcementProxy:
         allowlist ``H`` the turn decoded under. Returns the (possibly rewritten)
         body; on any non-applicable case it returns the body byte-identical.
 
-        Fail-safe by construction:
-          * No in-process governor / unresolved surface -> body unchanged.
+        A ``Content-Encoding``-compressed provider body is DECODED before the
+        rewrite and re-egressed UN-compressed (the ``content-encoding`` header is
+        dropped so the provider reads the plaintext JSON we tightened), so a
+        forbidden tool cannot ride out inside a gzip body. A body Tex cannot
+        decode never reaches here as a PERMIT — :meth:`_to_decision` already
+        labels it ``http_opaque_body`` and the PDP holds it (ABSTAIN).
+
+        Behaviour on the non-rewrite branches (returns the body byte-identical):
+          * No in-process governor / unresolved surface (the default ``http``
+            sidecar mode passes no governor — see ``pep/__main__``).
+          * A body Tex cannot decode (defence-in-depth — should have ABSTAINed
+            upstream; we never silently rewrite or forward-blind it here).
           * Body is not a JSON object, or ``detect_provider`` does not recognize
             the dialect -> body unchanged (no silent mis-rewrite). The
             ``isinstance(parsed, dict)`` guard is load-bearing: ``detect_provider``
             and ``rewrite_provider_request`` index the body, so a non-dict
-            (``None``/list/scalar) must never reach them.
+            (``None``/list/scalar) must never reach them. These bodies were
+            already ruled on (decoded) by the PDP; the gate only declines to
+            REWRITE them, it is not the gate that PERMITted them.
           * ``rewrite_provider_request`` is pure (never mutates ``body``) and only
             ever TIGHTENS — strips a forbidden tool, narrows ``tool_choice`` — so
             the egressed request is always a subset of what the PDP PERMITted.
@@ -1001,7 +1048,10 @@ class TexEnforcementProxy:
         surface = self._resolve_surface(tenant, agent_id, agent_external_id)
         if surface is None:
             return body
-        parsed = _try_json(body)
+        inspect_body, undecodable = _decode_for_inspection(body, content_encoding)
+        if undecodable:
+            return body
+        parsed = _try_json(inspect_body)
         if not isinstance(parsed, dict) or detect_provider(parsed) is None:
             return body
         constraint = compile_constraint(surface)
@@ -1011,6 +1061,11 @@ class TexEnforcementProxy:
         # content-length was stripped building fwd_headers; set it to the new size
         # (mirrors _filter_tools_list, which resets it on the response side).
         fwd_headers["content-length"] = str(len(new_body))
+        # We egress the rewritten body UNCOMPRESSED — drop any content-encoding
+        # the agent set (else the provider would try to gunzip plaintext JSON,
+        # and a stale gzip header beside un-gzipped bytes is a smuggling seam).
+        for key in [k for k in fwd_headers if k.lower() == "content-encoding"]:
+            del fwd_headers[key]
         seal_constraint(
             self._seal_ledger,
             constraint,
@@ -1131,6 +1186,62 @@ def _try_json(body: bytes) -> Any:
         return json.loads(body.decode("utf-8", errors="replace"))
     except Exception:  # noqa: BLE001
         return None
+
+
+# Hard ceiling on a decompressed body (decompression-bomb guard). A body that
+# inflates past this is treated as UN-decodable rather than expanded in memory.
+_DECODE_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _inflate(data: bytes, wbits: int) -> bytes | None:
+    """Bounded zlib/gzip inflate. Returns the decoded bytes, or ``None`` if the
+    stream is malformed OR would exceed ``_DECODE_MAX_BYTES`` (bomb guard)."""
+    try:
+        d = zlib.decompressobj(wbits)
+        out = d.decompress(data, _DECODE_MAX_BYTES)
+        if d.unconsumed_tail:  # more than the cap would inflate -> treat as bomb
+            return None
+        out += d.flush()
+    except (zlib.error, OSError, ValueError):
+        return None
+    return out
+
+
+def _decode_for_inspection(
+    body: bytes, content_encoding: str | None
+) -> tuple[bytes, bool]:
+    """Decode ``body`` per its ``Content-Encoding`` so Tex can inspect what an
+    agent is actually sending — the bytes that egress are NOT what Tex can read
+    until this runs.
+
+    Returns ``(decoded_bytes, undecodable)``:
+      * no encoding / ``identity`` -> ``(body, False)`` (the common case; byte
+        for byte unchanged, so plaintext traffic behaves exactly as before).
+      * ``gzip``/``x-gzip``/``deflate`` -> the inflated bytes + ``False`` when it
+        decodes within the bomb ceiling.
+      * an encoding Tex cannot decode (``br``, ``zstd``, ``compress``, unknown),
+        a malformed stream, or one that exceeds the ceiling -> ``(b"", True)``.
+        An ``undecodable`` body is an UN-inspectable action: the caller must
+        treat it like opaque TLS (ABSTAIN / fail-closed), never content-blind
+        PERMIT it. Multiple stacked encodings are also undecodable here.
+    """
+    if not body:
+        return body, False
+    enc = (content_encoding or "").strip().lower()
+    if enc in ("", "identity"):
+        return body, False
+    if "," in enc:  # stacked encodings (e.g. "gzip, br") — not handled here
+        return b"", True
+    if enc in ("gzip", "x-gzip"):
+        out = _inflate(body, zlib.MAX_WBITS | 16)
+        return (out, False) if out is not None else (b"", True)
+    if enc == "deflate":
+        # "deflate" is ambiguous in the wild: try zlib-wrapped, then raw.
+        out = _inflate(body, zlib.MAX_WBITS)
+        if out is None:
+            out = _inflate(body, -zlib.MAX_WBITS)
+        return (out, False) if out is not None else (b"", True)
+    return b"", True  # br / zstd / compress / unknown -> uninspectable
 
 
 def _as_uuid(value: str | None) -> UUID | None:

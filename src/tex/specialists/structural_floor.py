@@ -86,6 +86,15 @@ _IFC_HARD_VIOLATION_CODES = frozenset(
         "ifc.ci_norm_violation",
         "ifc.neurotaint_cross_session",
         "ifc.rule_of_two_trifecta",
+        # Deterministic SECRET ↛ EGRESS non-interference: a decidable
+        # reachability+lattice proof carrying a re-checkable witness path
+        # (ifc/noninterference.py). Single-axis (confidentiality only), so it
+        # fires even on a *trusted* secret the dual-axis FLOW_INTEGRITY check
+        # misses. The engine sets verdict.structural_forbid for it; consuming it
+        # here as a hard FORBID is what makes that "structural floor" real on the
+        # live PDP path rather than a 0.97 vote that fusion can dilute below
+        # threshold. Monotone: the floor only ever raises severity.
+        "ifc.secret_egress_noninterference",
     }
 )
 

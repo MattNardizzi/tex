@@ -16,7 +16,9 @@ provider decodes, not the sampler. True un-emittability is Approach A
 
 from __future__ import annotations
 
+import gzip
 import json
+import zlib
 from uuid import uuid4
 
 from tex.domain.agent import CapabilitySurface
@@ -334,3 +336,112 @@ def test_no_seal_ledger_still_rewrites():
     )
     sent = json.loads(fwd.calls[0]["body"])
     assert [t["function"]["name"] for t in sent["tools"]] == ["get_weather"]
+
+
+# --------------------------------------------------------------------------- #
+# Compressed-body bypass regression (gzip/deflate must NOT smuggle a tool)     #
+# --------------------------------------------------------------------------- #
+
+
+def _lower(headers: dict) -> dict:
+    return {k.lower(): v for k, v in headers.items()}
+
+
+def test_gzip_provider_body_is_decoded_stripped_and_decompressed():
+    # A gzipped OpenAI request offering delete_database must NOT egress with the
+    # forbidden tool. The gate decodes it, strips the tool, and re-egresses the
+    # tightened body UNCOMPRESSED (the content-encoding header is dropped so the
+    # provider reads the plaintext JSON, never a stale gzip beside un-gzipped
+    # bytes). Pre-fix this fell through fail-open and delete_database egressed.
+    surface = CapabilitySurface(allowed_tools=("get_weather",))
+    fwd = _RecordingForwarder()
+    proxy = _proxy(surface, forwarder=fwd)
+    gz = gzip.compress(json.dumps(_openai_two_tool_body()).encode("utf-8"))
+
+    resp = proxy.handle(
+        method="POST",
+        path="/v1/chat/completions",
+        headers={"X-Tex-Upstream": "https://api.openai.com", "Content-Encoding": "gzip"},
+        body=gz,
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    egressed = fwd.calls[0]["body"]
+    sent = json.loads(egressed)  # egressed plaintext, not gzip
+    assert [t["function"]["name"] for t in sent["tools"]] == ["get_weather"]
+    assert b"delete_database" not in egressed
+    sent_headers = _lower(fwd.calls[0]["headers"])
+    assert "content-encoding" not in sent_headers  # stale gzip header dropped
+    assert sent_headers["content-length"] == str(len(egressed))
+
+
+def test_deflate_provider_body_is_decoded_and_stripped():
+    surface = CapabilitySurface(allowed_tools=("get_weather",))
+    fwd = _RecordingForwarder()
+    proxy = _proxy(surface, forwarder=fwd)
+    deflated = zlib.compress(json.dumps(_openai_two_tool_body()).encode("utf-8"))
+
+    proxy.handle(
+        method="POST",
+        path="/v1/chat/completions",
+        headers={"X-Tex-Upstream": "https://api.openai.com", "Content-Encoding": "deflate"},
+        body=deflated,
+        peer=("1.2.3.4", 5),
+    )
+    egressed = fwd.calls[0]["body"]
+    assert b"delete_database" not in egressed
+    assert [t["function"]["name"] for t in json.loads(egressed)["tools"]] == ["get_weather"]
+
+
+def test_gzipped_forbidden_toolcall_is_seen_by_the_pdp():
+    # The PDP mapping must rule on the DECODED content: a gzipped MCP tools/call
+    # to a forbidden tool must surface as action_type==<tool>, so the PDP can
+    # FORBID it — not as a benign garbage http_post (the pre-fix bypass).
+    surface = CapabilitySurface(allowed_tools=("get_weather",))
+    proxy = _proxy(surface)
+    call = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": "delete_database", "arguments": {}},
+    }
+    gz = gzip.compress(json.dumps(call).encode("utf-8"))
+    decision, kind = proxy._to_decision(
+        method="POST",
+        path="/mcp",
+        body=gz,
+        tenant="default",
+        recipient="api.example",
+        agent_id=None,
+        agent_external_id="a",
+        session_id=None,
+        content_encoding="gzip",
+    )
+    assert decision.action_type == "delete_database"
+    assert kind == "tools/call"
+
+
+def test_undecodable_encoding_labeled_opaque_body():
+    # An encoding Tex cannot decode (br/zstd/unknown) or a malformed stream is
+    # UN-inspectable: the PDP mapping labels it http_opaque_body so
+    # StandingGovernance holds it (ABSTAIN), never content-blind PERMIT.
+    surface = CapabilitySurface(allowed_tools=("get_weather",))
+    proxy = _proxy(surface)
+    for enc, body in (
+        ("br", b"\x1b\x00\x00garbage-brotli"),
+        ("zstd", b"\x28\xb5\x2f\xfd-not-zstd"),
+        ("gzip", b"not-actually-gzip"),  # malformed stream for a claimed encoding
+        ("gzip, br", gzip.compress(b"{}")),  # stacked encodings
+    ):
+        decision, kind = proxy._to_decision(
+            method="POST",
+            path="/v1/chat/completions",
+            body=body,
+            tenant="default",
+            recipient="api.openai.com",
+            agent_id=None,
+            agent_external_id="a",
+            session_id=None,
+            content_encoding=enc,
+        )
+        assert decision.action_type == "http_opaque_body", enc
+        assert kind is None, enc

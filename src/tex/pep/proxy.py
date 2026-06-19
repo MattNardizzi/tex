@@ -63,7 +63,11 @@ from tex.emission import (
     rewrite_provider_request,
     seal_constraint,
 )
-from tex.identity.agent_credential import AttestedIdentity, verify_agent_credential
+from tex.identity.agent_credential import (
+    AttestedIdentity,
+    CredentialVerification,
+    verify_agent_credential,
+)
 from tex.pep.decision_client import Decision, DecisionClient, DecisionResult
 
 __all__ = [
@@ -107,6 +111,14 @@ class ProxyConfig:
     # presented credential, but we do not require one (and never claim an
     # unattested header is attested).
     require_identity: bool = False
+    # Cross-tenant binding (wave-1 medium d) — when True, a presented credential
+    # must carry ``aud == "tex://<request-tenant>"`` (the reused audience
+    # primitive); a card scoped to a different tenant (or with no aud) is
+    # FORBIDden EVEN when require_identity is False, so a credential minted for
+    # tenant A cannot be replayed against tenant B. Default False: degrade-open
+    # for issuers not yet minting ``aud=tex://<tenant>`` (honest — flagged, not
+    # claimed as enforced until issuers populate the claim and operators set it).
+    require_tenant_binding: bool = False
     # G10 — TTL of a minted egress permit (seconds).
     permit_ttl_seconds: int = 30
     # G6 — credential freshness (anti-replay). When ``pep_audience`` is set a
@@ -410,7 +422,7 @@ class TexEnforcementProxy:
 
         # ---- G6: authenticate identity instead of trusting X-Tex-Agent-Id
         ident = self._verify_identity(
-            h, agent_id=agent_id, agent_external_id=agent_external_id
+            h, agent_id=agent_id, agent_external_id=agent_external_id, tenant=tenant
         )
         if ident.refuse is not None:
             return ident.refuse
@@ -589,6 +601,7 @@ class TexEnforcementProxy:
         *,
         agent_id: UUID | None,
         agent_external_id: str | None,
+        tenant: str,
     ) -> "_IdentityCheck":
         """Authenticate a presented identity credential (fail-closed).
 
@@ -600,6 +613,14 @@ class TexEnforcementProxy:
         ``require_identity`` is False, we proceed on the (unverified) header but
         never seal it as attested: that is the documented header-trust gap for
         deployments without an identity issuer wired, not a solved property.
+
+        Cross-tenant binding: when ``require_tenant_binding`` is set the presented
+        credential must carry ``aud == "tex://<tenant>"`` (the reused audience
+        primitive), so a card minted for another tenant cannot be replayed here.
+        A mismatch is FORBIDden EVEN when ``require_identity`` is False (a *bad*
+        presented credential always loses). With the flag off, ``aud`` is left to
+        ``pep_audience`` (None by default) — the documented degrade-open for
+        issuers not yet minting a tenant ``aud``.
         """
         cfg = self._config
         principal = str(agent_id) if agent_id is not None else (agent_external_id or None)
@@ -621,12 +642,37 @@ class TexEnforcementProxy:
                 refuse=_refuse("Malformed agent credential.", verdict="FORBID")
             )
 
+        # When tenant binding is required, the credential's audience MUST be this
+        # request's tenant URI; otherwise fall back to the per-PEP-instance
+        # ``pep_audience`` (the existing scoping concept). Both reuse the same
+        # signed ``aud`` claim and the same offline check in agent_credential.
+        expected_audience = (
+            f"tex://{tenant}" if cfg.require_tenant_binding else cfg.pep_audience
+        )
+
         att = verify_agent_credential(
             card,
             trusted_issuers=cfg.trusted_issuers or {},
-            expected_audience=cfg.pep_audience,
+            expected_audience=expected_audience,
             require_expiry=cfg.require_credential_expiry,
         )
+        # Cross-tenant binding: an aud that does not name this tenant fails the
+        # audience check above (status == audience_mismatch). Refuse it with an
+        # explicit, tenant-scoped reason BEFORE the generic not-verified branch,
+        # so the verdict says WHY — and so the requirement is enforced even when
+        # require_identity is False (a presented-but-wrongly-scoped card loses).
+        if (
+            cfg.require_tenant_binding
+            and not att.verified
+            and att.status == CredentialVerification.AUDIENCE_MISMATCH.value
+        ):
+            return _IdentityCheck(
+                refuse=_refuse(
+                    f"Agent credential not scoped to this tenant "
+                    f"(expected aud=tex://{tenant}).",
+                    verdict="FORBID",
+                )
+            )
         if not att.verified:
             return _IdentityCheck(
                 refuse=_refuse(

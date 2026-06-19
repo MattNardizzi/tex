@@ -557,6 +557,109 @@ def test_credential_audience_mismatch_forbids_at_proxy():
 
 
 # --------------------------------------------------------------------------- #
+# Cross-tenant binding (wave-1 medium d) — aud=tex://<tenant>                  #
+# --------------------------------------------------------------------------- #
+
+
+def _tenant_proxy(issuers, *, require_tenant_binding):
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(
+            trusted_issuers=issuers,
+            require_tenant_binding=require_tenant_binding,
+        ),
+    )
+    return proxy, fwd
+
+
+def test_tenant_bound_credential_matches_request_tenant_ok():
+    # aud=tex://t1 presented on a tenant-t1 request -> verifies and forwards.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t1",
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls  # scoped to this tenant -> allowed
+
+
+def test_cross_tenant_credential_is_forbidden_when_binding_required():
+    # aud=tex://t1 replayed against tenant t2 -> FORBID (cross-tenant replay),
+    # even though require_identity is False.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t2",  # different tenant than the card's aud
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert b"tenant" in resp.body.lower()
+    assert fwd.calls == []
+
+
+def test_credential_with_no_aud_forbidden_when_binding_required():
+    # A card with NO aud at all cannot be tenant-bound -> FORBID under the flag.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id)  # no aud
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t1",
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert fwd.calls == []
+
+
+def test_cross_tenant_credential_degrades_open_when_binding_off():
+    # Same mismatched card, but require_tenant_binding=False -> the tenant aud is
+    # NOT checked (degrade-open for issuers not yet minting it): forwards.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=False)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t2",  # mismatched, but binding is off
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls  # degrade-open: aud left unchecked
+
+
+# --------------------------------------------------------------------------- #
 # G10 — single-use content-bound permit                                        #
 # --------------------------------------------------------------------------- #
 

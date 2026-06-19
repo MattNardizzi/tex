@@ -24,6 +24,10 @@ behaviour):
     TEX_PEP_PERMITS    "1" => mint/verify/consume egress permits (G10)  default off
     TEX_PEP_SEAL       "1" => seal a receipt per decision (G4)   default off
     TEX_PEP_REQUIRE_IDENTITY "1" => require a verified credential (G6)  default off
+    TEX_PEP_REQUIRE_TENANT_BINDING "1" => a credential must carry
+                          aud=tex://<tenant>; a card scoped to another tenant is
+                          FORBIDden (cross-tenant binding). default off (degrade-
+                          open until issuers mint a tenant aud)
 
 Trusted issuer keys (G6) — the issuer pubkeys an agent credential is verified
 against. Both unset => {} (no issuer trusted, the unchanged default; with
@@ -78,6 +82,7 @@ def build_app():
         default_agent_external_id=os.environ.get("TEX_AGENT") or None,
         require_verified_dst=_flag("TEX_PEP_REQUIRE_DST"),
         require_identity=_flag("TEX_PEP_REQUIRE_IDENTITY"),
+        require_tenant_binding=_flag("TEX_PEP_REQUIRE_TENANT_BINDING"),
         trusted_issuers=trusted_issuers,
         # G6 anti-replay: this PEP's expected credential audience + whether a
         # credential MUST carry an expiry. Unset leaves aud unchecked (an exp on

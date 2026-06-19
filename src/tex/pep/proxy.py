@@ -55,6 +55,13 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
+from tex.emission import (
+    APPROACH_PROVIDER_TRUSTED,
+    compile_constraint,
+    detect_provider,
+    rewrite_provider_request,
+    seal_constraint,
+)
 from tex.identity.agent_credential import AttestedIdentity, verify_agent_credential
 from tex.pep.decision_client import Decision, DecisionClient, DecisionResult
 
@@ -441,6 +448,21 @@ class TexEnforcementProxy:
             orig_host = h.get("host")
             if orig_host:
                 fwd_headers["Host"] = orig_host
+
+        # ---- Emission gate (Approach B, provider-trusted): when the outbound
+        # body is a known LLM-provider chat request, re-assert the agent's
+        # permitted tool subset BEFORE it egresses. Placed BEFORE the permit gate
+        # so the content-bound egress permit (G10) binds to the bytes that
+        # ACTUALLY egress — the rewrite only ever TIGHTENS, so the released
+        # request stays within what the PDP already PERMITted.
+        body = self._apply_emission_gate(
+            body=body,
+            fwd_headers=fwd_headers,
+            tenant=tenant,
+            agent_id=agent_id,
+            agent_external_id=agent_external_id,
+            decision_id=result.decision_id,
+        )
 
         # ---- G10: mint -> persist -> verify(fresh digest, audience) -> consume
         permit_outcome = self._mint_check_consume_permit(
@@ -941,6 +963,62 @@ class TexEnforcementProxy:
         except Exception:  # noqa: BLE001
             return None
         return getattr(agent, "capability_surface", None) if agent is not None else None
+
+    # ------------------------------------------------------------------ emission gate
+
+    def _apply_emission_gate(
+        self,
+        *,
+        body: bytes,
+        fwd_headers: dict[str, str],
+        tenant: str,
+        agent_id: UUID | None,
+        agent_external_id: str | None,
+        decision_id: str | None,
+    ) -> bytes:
+        """Approach B (provider-trusted) emission gate on the outbound request.
+
+        When the body is a recognizable LLM-provider chat request, rewrite it to
+        the agent's permitted tool subset off the SAME sealed ``CapabilitySurface``
+        :meth:`_filter_tools_list` reads (discovery → **emission** → adjudication),
+        reset ``content-length`` to the rewritten size, and optionally seal WHICH
+        allowlist ``H`` the turn decoded under. Returns the (possibly rewritten)
+        body; on any non-applicable case it returns the body byte-identical.
+
+        Fail-safe by construction:
+          * No in-process governor / unresolved surface -> body unchanged.
+          * Body is not a JSON object, or ``detect_provider`` does not recognize
+            the dialect -> body unchanged (no silent mis-rewrite). The
+            ``isinstance(parsed, dict)`` guard is load-bearing: ``detect_provider``
+            and ``rewrite_provider_request`` index the body, so a non-dict
+            (``None``/list/scalar) must never reach them.
+          * ``rewrite_provider_request`` is pure (never mutates ``body``) and only
+            ever TIGHTENS — strips a forbidden tool, narrows ``tool_choice`` — so
+            the egressed request is always a subset of what the PDP PERMITted.
+          * ``seal_constraint`` is fail-closed / observation-only: a ``None``
+            ledger is a no-op and a seal failure never changes what egresses.
+        """
+        surface = self._resolve_surface(tenant, agent_id, agent_external_id)
+        if surface is None:
+            return body
+        parsed = _try_json(body)
+        if not isinstance(parsed, dict) or detect_provider(parsed) is None:
+            return body
+        constraint = compile_constraint(surface)
+        new_body = json.dumps(
+            rewrite_provider_request(parsed, constraint)
+        ).encode("utf-8")
+        # content-length was stripped building fwd_headers; set it to the new size
+        # (mirrors _filter_tools_list, which resets it on the response side).
+        fwd_headers["content-length"] = str(len(new_body))
+        seal_constraint(
+            self._seal_ledger,
+            constraint,
+            subject_id=decision_id or str(uuid4()),
+            approach=APPROACH_PROVIDER_TRUSTED,
+            agent_id=(str(agent_id) if agent_id is not None else agent_external_id),
+        )
+        return new_body
 
 
 # --------------------------------------------------------------------------- #

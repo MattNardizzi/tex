@@ -1,0 +1,9 @@
+# A governed namespace: the label is what turns born-in-a-box ON. The VAP's
+# namespaceSelector and the webhooks' namespaceSelector both match
+# tex.systems/govern=enabled, and the operator's EnrollmentController watches it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agents
+  labels:
+    tex.systems/govern: enabled

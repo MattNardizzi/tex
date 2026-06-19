@@ -54,6 +54,13 @@ operator:
   port: 8443
   # cert-manager is the prerequisite for the webhook's serving cert.
   certManager: true
+  # Self-bootstrap the official `kubernetes` python client at operator startup
+  # (into a writable dir, prepended to PYTHONPATH) so the EnrollmentController's
+  # namespace watch can run on an image that does not bake the client in.
+  # DEFAULT OFF: production should bake the client into the image; this is the
+  # no-image-rebuild path the local kind harness (scripts/kind/) turns ON. It
+  # adds a one-time pip install at pod start and needs egress to PyPI.
+  installKubernetesClient: false
 
 # Per-pod auto-injection via the mutating webhook (portable, no node privilege).
 sidecarInjection:
@@ -82,6 +89,15 @@ admission:
   # governed pods). Enable only if you need logic the CEL policy cannot express.
   webhook:
     enabled: false
+  # Render node.k8s.io/v1 RuntimeClass objects (runtimeclass.yaml) for the
+  # approved sandbox runtimes, so a compliant pod's runtimeClassName resolves to
+  # a real handler on the node. DEFAULT OFF: it requires the matching containerd
+  # runtime to actually exist on every node (e.g. gVisor's runsc shim) — shipping
+  # a RuntimeClass whose handler has no runtime would make those pods
+  # un-schedulable. Turn ON only where the runtime is provisioned (the kind
+  # harness installs gVisor/runsc on its node; see scripts/kind/). Only the
+  # "gvisor" entry renders an object (handler: runsc); kata* stays allowlist-only.
+  shipRuntimeClass: false
   # Sandbox RuntimeClass handles a governed pod may declare to be "in the box".
   # Keep in lock-step with TEX_APPROVED_RUNTIME_CLASSES on the operator and with
   # operator/webhook.py:InjectorConfig.approved_runtime_classes. The ISOLATION

@@ -24,6 +24,23 @@ behaviour):
     TEX_PEP_PERMITS    "1" => mint/verify/consume egress permits (G10)  default off
     TEX_PEP_SEAL       "1" => seal a receipt per decision (G4)   default off
     TEX_PEP_REQUIRE_IDENTITY "1" => require a verified credential (G6)  default off
+    TEX_PEP_REQUIRE_TENANT_BINDING "1" => a credential must carry
+                          aud=tex://<tenant>; a card scoped to another tenant is
+                          FORBIDden (cross-tenant binding). default off (degrade-
+                          open until issuers mint a tenant aud)
+    TEX_PEP_FETCH_SURFACE "1" => (http mode) when a decision carries no piggyback
+                          surface, FETCH the agent's capability surface from
+                          GET /v1/agents/{id} to drive the emission gate. default
+                          off; the race-free piggyback is primary and needs no
+                          flag. Costs an extra round-trip (short TTL cache)
+
+Trusted issuer keys (G6) — the issuer pubkeys an agent credential is verified
+against. Both unset => {} (no issuer trusted, the unchanged default; with
+require_identity off this is the documented header-trust gap). A malformed key
+in either var REFUSES TO BOOT (fail-closed at startup, not per-request):
+    TEX_PEP_TRUSTED_ISSUERS_FILE  path to JSON {issuer_id: base64_ed25519_pubkey}
+                                  (preferred when set)
+    TEX_PEP_TRUSTED_ISSUERS       same JSON object inline (used only if _FILE unset)
 
 Credential brokering (G12) — gate the *credential*, not just the route (off by
 default; opt-in so a bare run stays today's behaviour). When on, a released
@@ -78,12 +95,18 @@ def build_app():
     config_env = os.environ.get("TEX_PEP_ENV", "production")
     default_tenant = os.environ.get("TEX_PEP_TENANT", "default")
 
+    from tex.identity.issuer_keys import load_trusted_issuers
     from tex.pep.proxy import (
         OrigDstResolver,
         ProxyConfig,
         TexEnforcementProxy,
         build_proxy_app,
     )
+
+    # G6 — issuer pubkeys an agent credential is verified against. Loaded
+    # fail-closed: a malformed key raises here so the proxy refuses to boot
+    # rather than rejecting every credential at runtime (see issuer_keys).
+    trusted_issuers = load_trusted_issuers(os.environ)
 
     config = ProxyConfig(
         environment=config_env,
@@ -93,6 +116,8 @@ def build_app():
         default_agent_external_id=os.environ.get("TEX_AGENT") or None,
         require_verified_dst=_flag("TEX_PEP_REQUIRE_DST"),
         require_identity=_flag("TEX_PEP_REQUIRE_IDENTITY"),
+        require_tenant_binding=_flag("TEX_PEP_REQUIRE_TENANT_BINDING"),
+        trusted_issuers=trusted_issuers,
         # G6 anti-replay: this PEP's expected credential audience + whether a
         # credential MUST carry an expiry. Unset leaves aud unchecked (an exp on
         # a card is still honoured).
@@ -193,6 +218,20 @@ def build_app():
         client = HttpDecisionClient(
             client=httpx.Client(), base_url=base, api_key=api_key
         )
+        # Emission gate in http mode. PRIMARY is the race-free PIGGYBACK — the
+        # surface that drove the PDP decision rides back on it and the proxy reads
+        # it off DecisionResult.allowed_tools automatically (no flag, no extra
+        # hop). SECONDARY is an opt-in fetch resolver (TEX_PEP_FETCH_SURFACE),
+        # OFF by default: it costs a round-trip and only helps a hop with no
+        # piggyback (e.g. tools/list discovery). Default behaviour is unchanged
+        # unless the flag is set or a piggyback surface is present.
+        surface_resolver = None
+        if _flag("TEX_PEP_FETCH_SURFACE"):
+            from tex.pep.decision_client import HttpSurfaceClient
+
+            surface_resolver = HttpSurfaceClient(
+                client=httpx.Client(), base_url=base, api_key=api_key
+            )
         proxy = TexEnforcementProxy(
             decision_client=client,
             config=config,
@@ -200,6 +239,7 @@ def build_app():
             permit_memory=permit_memory,
             seal_ledger=seal_ledger,
             identity_source=identity_source,
+            surface_resolver=surface_resolver,
         )
 
     app = build_proxy_app(proxy)

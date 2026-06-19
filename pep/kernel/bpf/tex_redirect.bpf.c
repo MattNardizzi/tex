@@ -82,6 +82,19 @@ char LICENSE[] SEC("license") = "Apache-2.0";
 // "ask the proxy."
 #define TEX_FORBID 2
 
+// CTX_U32 — read one 32-bit word out of a context/sock field as a DIRECT,
+// verifier-safe load. The cgroup/sock_addr and sock_ops verifier rejects a
+// dereference of a ctx pointer that has had an offset added to it ("dereference
+// of modified ctx ptr ... disallowed"). Plain `dst[i] = ctx->user_ip6[i]` lets
+// clang's optimizer reassociate the later words into `r = ctx + N; *(r + M)`,
+// which is exactly that rejected form (observed: tex_connect6 rejected on kernel
+// 6.8 at user_ip6[2]). The `&(x)` + `volatile` cast forces clang to emit a
+// single addressed load `*(u32*)(ctx + off)` per word and inhibits the
+// reassociation, so every word is a direct context access. Semantics-preserving;
+// applies only to READS out of ctx/sk/skops. Writes back into
+// ctx->user_ip6[N] = const are already direct stores and stay inline.
+#define CTX_U32(x) (*(const volatile __u32 *)&(x))
+
 // ---- Configuration, set once by the loader at attach time ---------------- //
 // Layout is fixed: the Go loader's texConfig mirrors it byte-for-byte. All
 // addresses/ports are network byte order. Append-only — connect4 reads
@@ -265,20 +278,27 @@ int tex_connect6(struct bpf_sock_addr *ctx)
 
     __u16 dst_port = (__u16)ctx->user_port; // network byte order
 
+    // Read the destination v6 address ONCE into locals via direct ctx loads,
+    // then use the locals everywhere below. This is the verifier-safe shape: it
+    // emits four direct `*(u32*)(ctx + off)` loads and leaves no `ctx + N`
+    // register alive for clang to reassociate a later word against (the form the
+    // cgroup/sock_addr verifier rejects: "dereference of modified ctx ptr").
+    __u32 d0 = CTX_U32(ctx->user_ip6[0]);
+    __u32 d1 = CTX_U32(ctx->user_ip6[1]);
+    __u32 d2 = CTX_U32(ctx->user_ip6[2]);
+    __u32 d3 = CTX_U32(ctx->user_ip6[3]);
+
     // Avoid looping the proxy's own upstream call back in (proxy is ::1).
-    if (ctx->user_ip6[0] == cfg->proxy_ip6[0] &&
-        ctx->user_ip6[1] == cfg->proxy_ip6[1] &&
-        ctx->user_ip6[2] == cfg->proxy_ip6[2] &&
-        ctx->user_ip6[3] == cfg->proxy_ip6[3] &&
+    if (d0 == cfg->proxy_ip6[0] &&
+        d1 == cfg->proxy_ip6[1] &&
+        d2 == cfg->proxy_ip6[2] &&
+        d3 == cfg->proxy_ip6[3] &&
         (dst_port == cfg->proxy_port || dst_port == cfg->udp_proxy_port))
         return 1;
 
     // 1) Inline fast-block: known FORBID v6 destinations die here.
     struct dst6_key dk = {};
-    dk.ip6[0] = ctx->user_ip6[0];
-    dk.ip6[1] = ctx->user_ip6[1];
-    dk.ip6[2] = ctx->user_ip6[2];
-    dk.ip6[3] = ctx->user_ip6[3];
+    dk.ip6[0] = d0; dk.ip6[1] = d1; dk.ip6[2] = d2; dk.ip6[3] = d3;
     dk.port = dst_port;
     __u8 *v = bpf_map_lookup_elem(&verdict_cache6, &dk);
     if (v && *v == TEX_FORBID)
@@ -293,16 +313,19 @@ int tex_connect6(struct bpf_sock_addr *ctx)
         if (sk && sk->src_port != 0) {
             struct src_key skey = {};
             skey.family = 6;
-            skey.src_ip[0] = sk->src_ip6[0];
-            skey.src_ip[1] = sk->src_ip6[1];
-            skey.src_ip[2] = sk->src_ip6[2];
-            skey.src_ip[3] = sk->src_ip6[3];
+            // Read sk->src_ip6 once into locals via direct loads: pointer
+            // arithmetic on a `sock` pointer is prohibited by the verifier, so a
+            // folded `sk + N; *(sk + M)` form (which clang may emit for the
+            // later words) is rejected. Per-word direct reads avoid that.
+            __u32 s0 = CTX_U32(sk->src_ip6[0]);
+            __u32 s1 = CTX_U32(sk->src_ip6[1]);
+            __u32 s2 = CTX_U32(sk->src_ip6[2]);
+            __u32 s3 = CTX_U32(sk->src_ip6[3]);
+            skey.src_ip[0] = s0; skey.src_ip[1] = s1;
+            skey.src_ip[2] = s2; skey.src_ip[3] = s3;
             skey.src_port = bpf_htons((__u16)sk->src_port);
             struct orig_dst_val od = {};
-            od.ip[0] = ctx->user_ip6[0];
-            od.ip[1] = ctx->user_ip6[1];
-            od.ip[2] = ctx->user_ip6[2];
-            od.ip[3] = ctx->user_ip6[3];
+            od.ip[0] = d0; od.ip[1] = d1; od.ip[2] = d2; od.ip[3] = d3;
             od.port = dst_port;
             od.family = 6;
             bpf_map_update_elem(&src_to_orig, &skey, &od, BPF_ANY);
@@ -319,10 +342,7 @@ int tex_connect6(struct bpf_sock_addr *ctx)
     //    proxy. tex_sock_ops re-keys it under the source tuple at established.
     __u64 cookie = bpf_get_socket_cookie(ctx);
     struct orig_dst_val od = {};
-    od.ip[0] = ctx->user_ip6[0];
-    od.ip[1] = ctx->user_ip6[1];
-    od.ip[2] = ctx->user_ip6[2];
-    od.ip[3] = ctx->user_ip6[3];
+    od.ip[0] = d0; od.ip[1] = d1; od.ip[2] = d2; od.ip[3] = d3;
     od.port = dst_port;
     od.family = 6;
     bpf_map_update_elem(&orig_dst, &cookie, &od, BPF_ANY);
@@ -422,19 +442,22 @@ int tex_sendmsg6(struct bpf_sock_addr *ctx)
 
     __u16 dst_port = (__u16)ctx->user_port;
 
-    if (ctx->user_ip6[0] == cfg->proxy_ip6[0] &&
-        ctx->user_ip6[1] == cfg->proxy_ip6[1] &&
-        ctx->user_ip6[2] == cfg->proxy_ip6[2] &&
-        ctx->user_ip6[3] == cfg->proxy_ip6[3] &&
+    // Read the v6 destination once into locals (verifier-safe; see tex_connect6).
+    __u32 d0 = CTX_U32(ctx->user_ip6[0]);
+    __u32 d1 = CTX_U32(ctx->user_ip6[1]);
+    __u32 d2 = CTX_U32(ctx->user_ip6[2]);
+    __u32 d3 = CTX_U32(ctx->user_ip6[3]);
+
+    if (d0 == cfg->proxy_ip6[0] &&
+        d1 == cfg->proxy_ip6[1] &&
+        d2 == cfg->proxy_ip6[2] &&
+        d3 == cfg->proxy_ip6[3] &&
         (dst_port == cfg->udp_proxy_port || dst_port == cfg->proxy_port))
         return 1;
 
     // 1) Inline fast-block.
     struct dst6_key dk = {};
-    dk.ip6[0] = ctx->user_ip6[0];
-    dk.ip6[1] = ctx->user_ip6[1];
-    dk.ip6[2] = ctx->user_ip6[2];
-    dk.ip6[3] = ctx->user_ip6[3];
+    dk.ip6[0] = d0; dk.ip6[1] = d1; dk.ip6[2] = d2; dk.ip6[3] = d3;
     dk.port = dst_port;
     __u8 *v = bpf_map_lookup_elem(&verdict_cache6, &dk);
     if (v && *v == TEX_FORBID)
@@ -451,16 +474,17 @@ int tex_sendmsg6(struct bpf_sock_addr *ctx)
     if (sk && sk->src_port != 0) {
         struct src_key skey = {};
         skey.family = 6;
-        skey.src_ip[0] = sk->src_ip6[0];
-        skey.src_ip[1] = sk->src_ip6[1];
-        skey.src_ip[2] = sk->src_ip6[2];
-        skey.src_ip[3] = sk->src_ip6[3];
+        // Read sk->src_ip6 once into locals (sock pointer arithmetic is
+        // prohibited by the verifier; see tex_connect6's SOCK_DGRAM path).
+        __u32 s0 = CTX_U32(sk->src_ip6[0]);
+        __u32 s1 = CTX_U32(sk->src_ip6[1]);
+        __u32 s2 = CTX_U32(sk->src_ip6[2]);
+        __u32 s3 = CTX_U32(sk->src_ip6[3]);
+        skey.src_ip[0] = s0; skey.src_ip[1] = s1;
+        skey.src_ip[2] = s2; skey.src_ip[3] = s3;
         skey.src_port = bpf_htons((__u16)sk->src_port);
         struct orig_dst_val od = {};
-        od.ip[0] = ctx->user_ip6[0];
-        od.ip[1] = ctx->user_ip6[1];
-        od.ip[2] = ctx->user_ip6[2];
-        od.ip[3] = ctx->user_ip6[3];
+        od.ip[0] = d0; od.ip[1] = d1; od.ip[2] = d2; od.ip[3] = d3;
         od.port = dst_port;
         od.family = 6;
         bpf_map_update_elem(&src_to_orig, &skey, &od, BPF_ANY);
@@ -501,10 +525,14 @@ int tex_sock_ops(struct bpf_sock_ops *skops)
     struct src_key sk = {};
     if (skops->family == AF_INET6) {
         sk.family = 6;
-        sk.src_ip[0] = skops->local_ip6[0];
-        sk.src_ip[1] = skops->local_ip6[1];
-        sk.src_ip[2] = skops->local_ip6[2];
-        sk.src_ip[3] = skops->local_ip6[3];
+        // Read skops->local_ip6 once into locals via direct loads (same
+        // verifier constraint as the sock_addr ip6 reads; see tex_connect6).
+        __u32 l0 = CTX_U32(skops->local_ip6[0]);
+        __u32 l1 = CTX_U32(skops->local_ip6[1]);
+        __u32 l2 = CTX_U32(skops->local_ip6[2]);
+        __u32 l3 = CTX_U32(skops->local_ip6[3]);
+        sk.src_ip[0] = l0; sk.src_ip[1] = l1;
+        sk.src_ip[2] = l2; sk.src_ip[3] = l3;
     } else {
         sk.family = 4;
         sk.src_ip[0] = skops->local_ip4;            // network byte order
@@ -516,3 +544,31 @@ int tex_sock_ops(struct bpf_sock_ops *skops)
     bpf_map_delete_elem(&orig_dst, &cookie);
     return 0;
 }
+
+// ============== SOTA hardening leg (NOT shipped here — see note) ========= //
+//
+// The intended hook was a SECOND, INDEPENDENT enforcement point at the LSM
+// Mandatory-Access-Control boundary (lsm/socket_connect) reading the SAME
+// verdict_cache / verdict_cache6 maps and returning -EPERM on a known-FORBID
+// destination — defense-in-depth behind the cgroup connect hooks.
+//
+// It was BUILT and TESTED in the build VM (Ubuntu 24.04, kernel 6.8 arm64) and
+// found to be BLOCKED by a hard licensing constraint, not a verifier or
+// availability issue:
+//
+//   * BPF LSM is available here: CONFIG_BPF_LSM=y, and a standalone
+//     lsm/socket_connect program LOADS, VERIFIES, and ATTACHES cleanly via
+//     link.AttachLSM (confirmed empirically).
+//   * BUT the kernel requires LSM programs to carry a GPL-compatible license,
+//     while this object is Apache-2.0 ("LSM programs must have a GPL compatible
+//     license", verified). A single .o has ONE license section, so an LSM
+//     program CANNOT coexist in this Apache-2.0 object — adding it inline makes
+//     loadTexRedirectObjects() fail for the WHOLE collection, taking down the
+//     working 5-program floor.
+//
+// Shipping it correctly therefore needs a SEPARATE, GPL-licensed object that
+// shares verdict_cache/verdict_cache6 via LIBBPF_PIN_BY_NAME pinning, plus its
+// own bpf2go target and best-effort loader attach. That is a deliberate,
+// scoped follow-up (a relicensing or second-object decision a human should
+// make) — NOT folded in here, to keep this commit from regressing the floor.
+// The cgroup connect4/6 FORBID fast-block remains the in-kernel deny path.

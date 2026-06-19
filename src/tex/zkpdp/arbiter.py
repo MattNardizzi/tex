@@ -307,6 +307,74 @@ class ArbitrationStatement:
         return hashlib.sha256(self.canonical_bytes()).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class HiddenScoreArbitrationStatement(ArbitrationStatement):
+    """A HIDING arbitration statement: it OMITS the cleartext fused score (and
+    the raw per-stream scores) from its public serialization, publishing only
+    the verdict + thresholds + weights + structural flags + the monotone chain.
+
+    Same fields and ``__init__`` as ``ArbitrationStatement`` (the prover still
+    holds ``fused_q`` and ``stream_scores_q`` as the PRIVATE witness the ZK
+    backend consumes), but ``canonical_bytes``/``to_dict`` never emit them. The
+    verdict the hidden fused score yields under the public thresholds is exposed
+    as the public ``verdict`` field and bound by the ``schnorr-verdict-zk-v1``
+    proof (``zk_fuse.prove_verdict`` / ``verify_verdict``). Hiding is realized
+    here: an accepting proof + this public dict reveal the verdict, never the
+    fused score (two distinct fused scores in the same verdict region both
+    verify).
+
+    Honesty: this is the hiding deployment the module banner describes. The
+    structural invariants (floor/pin/chain legality) are still PUBLIC and
+    checked by ``evaluate_relation``; only the fuse arithmetic and its fused
+    score are inside the ZK proof. Same maturity collar as the fuse path:
+    research-early, unaudited, non-succinct, pre-quantum.
+    """
+
+    @property
+    def verdict(self) -> str:
+        """The THRESHOLD verdict the (hidden) fused score yields — exactly what
+        ``zk_fuse.prove_verdict`` proves and the public input the verifier binds
+        against. This is the base-threshold stage only; the deny-floor,
+        quarantine pin and monotone chain are applied PUBLICLY on top of it (see
+        ``base_verdict`` / ``evaluate_relation``)."""
+        return threshold_verdict(self.fused_q, self.permit_q, self.forbid_q)
+
+    def canonical_bytes(self) -> bytes:
+        # Deliberately OMITS ``fused_q`` and ``stream_scores_q`` (the hidden
+        # witness). Publishes the bound ``verdict`` plus everything structural so
+        # offline re-verification of the invariants stays byte-stable. The
+        # ``hiding`` marker keeps this digest distinct from the public variant's.
+        return json.dumps(
+            {
+                "hiding": True,
+                "version": self.version,
+                "scale": self.scale,
+                "weights_q": [[k, v] for k, v in self.weights_q],
+                "verdict": self.verdict,
+                "permit_q": self.permit_q,
+                "forbid_q": self.forbid_q,
+                "router_skipped": self.router_skipped,
+                "deny_floor": self.deny_floor,
+                "floor_sources": list(self.floor_sources),
+                "quarantine_pin": self.quarantine_pin,
+                "chain": [step.as_dict() for step in self.chain],
+                "claimed_verdict": self.claimed_verdict,
+                "request_id": self.request_id,
+                "policy_id": self.policy_id,
+                "policy_version": self.policy_version,
+                "content_sha256": self.content_sha256,
+                "determinism_fingerprint": self.determinism_fingerprint,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
+def _is_hiding(statement: ArbitrationStatement) -> bool:
+    """Whether the statement is the hiding (fused-score-omitting) variant."""
+    return isinstance(statement, HiddenScoreArbitrationStatement)
+
+
 # ── Fixed-point helpers ──────────────────────────────────────────────────────
 
 
@@ -359,6 +427,11 @@ def base_verdict(statement: ArbitrationStatement) -> str:
         return Verdict.FORBID.value
     if statement.quarantine_pin:
         return Verdict.ABSTAIN.value
+    if _is_hiding(statement):
+        # The fused score is hidden; the threshold-stage verdict is the public,
+        # ZK-bound ``verdict`` field (bound by the schnorr-verdict-zk-v1 proof),
+        # NOT a recomputation from a cleartext fused_q the verifier never sees.
+        return statement.verdict
     return threshold_verdict(
         statement.fused_q, statement.permit_q, statement.forbid_q
     )
@@ -399,11 +472,18 @@ def evaluate_relation(statement: ArbitrationStatement) -> RelationResult:
     if tuple(k for k, _ in statement.weights_q) != STREAM_NAMES:
         v.append("bad_weight_keys")
 
-    quantities = (
-        [s for _, s in statement.stream_scores_q]
-        + [w for _, w in statement.weights_q]
-        + [statement.fused_q, statement.permit_q, statement.forbid_q]
-    )
+    hiding = _is_hiding(statement)
+    # On the hiding path the per-stream scores and the fused score are the
+    # PRIVATE witness — the verifier never sees them as cleartext quantities,
+    # and the schnorr-verdict-zk-v1 range proofs (not this re-eval) bound them.
+    # Only the PUBLIC quantities are range-checked here.
+    quantities = [w for _, w in statement.weights_q] + [
+        statement.permit_q,
+        statement.forbid_q,
+    ]
+    if not hiding:
+        quantities += [s for _, s in statement.stream_scores_q]
+        quantities.append(statement.fused_q)
     if any(not (0 <= q <= SCALE) for q in quantities):
         v.append("value_out_of_range")
     if statement.permit_q > statement.forbid_q:
@@ -417,13 +497,24 @@ def evaluate_relation(statement: ArbitrationStatement) -> RelationResult:
     # live pipeline pins final_score = 1.0; otherwise the committed fused
     # score must EXACTLY equal the canonical integer fuse of the committed
     # streams (UNSAT on any deviation — no tolerance inside the relation).
+    #
+    # HIDING PATH: there is no cleartext fused score or cleartext scores to
+    # re-fuse — the fuse arithmetic (Σ w·s → fused → threshold verdict) is what
+    # the schnorr-verdict-zk-v1 proof discharges over the PRIVATE witness, and
+    # ``base_verdict`` consumes the ZK-bound public ``verdict`` field directly.
+    # So the cleartext fuse re-check is NOT performed here; it is replaced by the
+    # ZK proof (verified in ``verify_arbitration``). Only the public verdict
+    # vocabulary is validated, so a bogus ``verdict`` string still fails.
     if statement.router_skipped:
         if not statement.deny_floor or not (
             set(statement.floor_sources) & _SHORT_CIRCUIT_SOURCES
         ):
             v.append("short_circuit_without_structural_cause")
-        if statement.fused_q != SCALE:
+        if not hiding and statement.fused_q != SCALE:
             v.append("short_circuit_fused_not_max")
+    elif hiding:
+        if statement.verdict not in _SEVERITY:
+            v.append("hiding_verdict_unknown")
     else:
         if statement.fused_q != canonical_fuse(
             statement.stream_scores_q, statement.weights_q
@@ -590,6 +681,18 @@ def prove_arbitration(
             "refusing to attest an UNSAT arbitration statement: "
             f"{', '.join(relation.violations)}"
         )
+    # The hiding variant has a fused score to HIDE, so when the caller left the
+    # default (shim) in place we dispatch the real schnorr-verdict-zk-v1 backend
+    # — the public/legacy ArbitrationStatement keeps the shim default so
+    # capstone/compose.py's green_test_mode path is unchanged. A router-skipped
+    # statement has no fuse, so it stays on the requested backend (the verdict
+    # backend would refuse it). An explicitly-requested backend always wins.
+    if (
+        _is_hiding(statement)
+        and not statement.router_skipped
+        and backend_id == ProofBackendId.DETERMINISTIC_SHIM_V1
+    ):
+        backend_id = ProofBackendId.SCHNORR_VERDICT_ZK_V1
     backend = resolve_backend_with_fallback(backend_id, allow_shim_fallback=False)
     proof_bytes = backend.prove(
         statement=statement, private_witness=statement.canonical_bytes()
@@ -692,6 +795,43 @@ def verify_arbitration(
                 "(tests/dev only) to validate the wiring; this is never a proof"
             ),
         )
+
+    # ── backend <-> statement-variant compatibility (offline-verifiability contract) ──
+    # A hiding statement OMITS fused_q from its published bytes, so a backend whose
+    # verify() consumes fused_q (the FUSE backend) is not reproducible from those
+    # bytes — refuse it rather than report a green an offline party (re-deriving the
+    # statement from canonical_bytes) cannot reproduce. Symmetrically the verdict
+    # (hiding) backend is only meaningful for a fused-score-omitting statement. The
+    # shim is variant-agnostic and is gated separately above.
+    if not stand_in:
+        hiding = _is_hiding(statement)
+        if hiding and backend_id is ProofBackendId.SCHNORR_FUSE_ZK_V1:
+            return ArbitrationVerification(
+                is_valid=False,
+                reason="zkpdp_hiding_requires_verdict_backend",
+                backend=envelope.backend,
+                stand_in=False,
+                regulator_grade=False,
+                relation=None,
+                note=(
+                    "fuse backend consumes the fused score this hiding statement "
+                    "omits from its published bytes — not offline-reproducible; a "
+                    "hiding statement must use schnorr-verdict-zk-v1"
+                ),
+            )
+        if not hiding and backend_id is ProofBackendId.SCHNORR_VERDICT_ZK_V1:
+            return ArbitrationVerification(
+                is_valid=False,
+                reason="zkpdp_public_statement_requires_fuse_backend",
+                backend=envelope.backend,
+                stand_in=False,
+                regulator_grade=False,
+                relation=None,
+                note=(
+                    "the verdict (hiding) backend is for a fused-score-omitting "
+                    "statement; an all-public statement must use schnorr-fuse-zk-v1"
+                ),
+            )
 
     relation = evaluate_relation(statement)
     if not relation.satisfied:
@@ -810,7 +950,20 @@ def verify_arbitration(
                 "evaluate_relation. Hiding is realized when the statement omits "
                 "raw scores."
                 if backend_id is ProofBackendId.SCHNORR_FUSE_ZK_V1
-                else ""
+                else (
+                    "schnorr-verdict-zk-v1: real discrete-log proof of the "
+                    "FUSE-path THRESHOLD verdict over PRIVATE per-stream scores, "
+                    "ALSO hiding the fused score (same toolkit/maturity as "
+                    "schnorr-fuse-zk-v1: research-early/unaudited, NON-succinct, "
+                    "2048-bit, pre-quantum, no soundness against the dev key "
+                    "holder). Proves only the weighted-fusion → threshold-verdict "
+                    "arithmetic; floor/pin/chain stay public in "
+                    "evaluate_relation. Hiding is realized on this path — the "
+                    "public statement omits both the raw scores and the fused "
+                    "score."
+                    if backend_id is ProofBackendId.SCHNORR_VERDICT_ZK_V1
+                    else ""
+                )
             )
         ),
     )

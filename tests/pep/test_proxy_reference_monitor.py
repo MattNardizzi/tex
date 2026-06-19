@@ -557,6 +557,141 @@ def test_credential_audience_mismatch_forbids_at_proxy():
 
 
 # --------------------------------------------------------------------------- #
+# Cross-tenant binding (wave-1 medium d) — aud=tex://<tenant>                  #
+# --------------------------------------------------------------------------- #
+
+
+def _tenant_proxy(issuers, *, require_tenant_binding):
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(
+            trusted_issuers=issuers,
+            require_tenant_binding=require_tenant_binding,
+        ),
+    )
+    return proxy, fwd
+
+
+def test_tenant_bound_credential_matches_request_tenant_ok():
+    # aud=tex://t1 presented on a tenant-t1 request -> verifies and forwards.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t1",
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls  # scoped to this tenant -> allowed
+
+
+def test_cross_tenant_credential_is_forbidden_when_binding_required():
+    # aud=tex://t1 replayed against tenant t2 -> FORBID (cross-tenant replay),
+    # even though require_identity is False.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t2",  # different tenant than the card's aud
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert b"tenant" in resp.body.lower()
+    assert fwd.calls == []
+
+
+def test_credential_with_no_aud_forbidden_when_binding_required():
+    # A card with NO aud at all cannot be tenant-bound -> FORBID under the flag.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id)  # no aud
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t1",
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert fwd.calls == []
+
+
+def test_cross_tenant_credential_degrades_open_when_binding_off():
+    # Same mismatched card, but require_tenant_binding=False -> the tenant aud is
+    # NOT checked (degrade-open for issuers not yet minting it): forwards.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="tex://t1")
+    proxy, fwd = _tenant_proxy(issuers, require_tenant_binding=False)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Tenant": "t2",  # mismatched, but binding is off
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls  # degrade-open: aud left unchecked
+
+
+def test_no_credential_forbidden_when_tenant_binding_required():
+    # A MISSING credential cannot be bound to a tenant -> FORBID under the flag,
+    # even when require_identity is False. A missing card is strictly weaker than
+    # a no-aud card (already FORBIDden above), so it must not pass where that fails.
+    proxy, fwd = _tenant_proxy({}, require_tenant_binding=True)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"X-Tex-Tenant": "t1", "X-Tex-Agent-Id": str(uuid4())},  # no cred
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert b"tenant" in resp.body.lower()
+    assert fwd.calls == []
+
+
+def test_no_credential_degrades_open_when_binding_off():
+    # Without the flag (and require_identity False), a missing credential still
+    # proceeds on the documented header-trust gap — unchanged default behaviour.
+    proxy, fwd = _tenant_proxy({}, require_tenant_binding=False)
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={"X-Tex-Tenant": "t1", "X-Tex-Agent-Id": str(uuid4())},  # no cred
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls
+
+
+# --------------------------------------------------------------------------- #
 # G10 — single-use content-bound permit                                        #
 # --------------------------------------------------------------------------- #
 
@@ -725,6 +860,173 @@ def test_rule_opaque_non_permit_does_not_release_and_seals_blocked():
     assert result.verdict == "ABSTAIN"
     detail = proxy.seal_records[0].fact.detail
     assert detail["outcome"] == "blocked"  # never spliced -> fail-closed
+
+
+# --------------------------------------------------------------------------- #
+# G6 — env-loadable trusted issuer keys (issuer_keys.load_trusted_issuers)     #
+# --------------------------------------------------------------------------- #
+
+
+def test_load_trusted_issuers_unset_is_empty(monkeypatch):
+    # Neither var set => {} (the unchanged default: no issuer trusted).
+    from tex.identity.issuer_keys import load_trusted_issuers
+
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS", raising=False)
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    assert load_trusted_issuers(dict(os.environ)) == {}
+
+
+def test_env_inline_issuer_verifies_a_card_from_that_issuer(monkeypatch):
+    # The exact boot path: TEX_PEP_TRUSTED_ISSUERS -> load_trusted_issuers ->
+    # ProxyConfig(trusted_issuers=...) -> a card from that issuer verifies.
+    from tex.identity.issuer_keys import load_trusted_issuers
+
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, issuer="issuer-env")
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps(issuers))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+
+    loaded = load_trusted_issuers(dict(os.environ))
+    assert loaded == issuers
+
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(trusted_issuers=loaded),
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 200
+    assert fwd.calls  # forwarded — the env-configured issuer verified the card
+
+
+def test_env_issuer_does_not_trust_a_different_issuer(monkeypatch):
+    # A card from an issuer NOT in the env map is untrusted -> FORBID (the bad
+    # presented-credential branch fires even with require_identity False).
+    from tex.identity.issuer_keys import load_trusted_issuers
+
+    agent_id = str(uuid4())
+    # The card is from "issuer-A"; the env trusts a DIFFERENT, unrelated issuer.
+    card, _ = _signed_card(agent_id=agent_id, issuer="issuer-A")
+    _, other_issuers = _signed_card(agent_id="z", issuer="issuer-B")
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps(other_issuers))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+
+    loaded = load_trusted_issuers(dict(os.environ))
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(trusted_issuers=loaded),
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403  # untrusted issuer
+    assert fwd.calls == []
+
+
+def test_env_file_preferred_over_inline(monkeypatch, tmp_path):
+    # When both are set the FILE wins (operator file beats an inline override).
+    from tex.identity.issuer_keys import load_trusted_issuers
+
+    _, file_issuers = _signed_card(agent_id="x", issuer="from-file")
+    _, inline_issuers = _signed_card(agent_id="y", issuer="from-inline")
+    path = tmp_path / "issuers.json"
+    path.write_text(json.dumps(file_issuers), encoding="utf-8")
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS_FILE", str(path))
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps(inline_issuers))
+
+    loaded = load_trusted_issuers(dict(os.environ))
+    assert loaded == file_issuers
+    assert "from-inline" not in loaded
+
+
+def test_malformed_inline_json_raises_at_boot(monkeypatch):
+    from tex.identity.issuer_keys import IssuerKeyError, load_trusted_issuers
+
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", "{not json")
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    with pytest.raises(IssuerKeyError):
+        load_trusted_issuers(dict(os.environ))
+
+
+def test_bad_base64_key_raises_at_boot(monkeypatch):
+    from tex.identity.issuer_keys import IssuerKeyError, load_trusted_issuers
+
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps({"issuer-x": "!!!not-base64!!!"}))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    with pytest.raises(IssuerKeyError):
+        load_trusted_issuers(dict(os.environ))
+
+
+def test_wrong_length_key_raises_at_boot(monkeypatch):
+    # Valid base64 but NOT a 32-byte Ed25519 key -> reject at boot, not per-request.
+    from tex.identity.issuer_keys import IssuerKeyError, load_trusted_issuers
+
+    short = base64.b64encode(b"too-short").decode("ascii")
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps({"issuer-x": short}))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    with pytest.raises(IssuerKeyError):
+        load_trusted_issuers(dict(os.environ))
+
+
+def test_unreadable_file_raises_at_boot(monkeypatch, tmp_path):
+    from tex.identity.issuer_keys import IssuerKeyError, load_trusted_issuers
+
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS_FILE", str(tmp_path / "nope.json"))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS", raising=False)
+    with pytest.raises(IssuerKeyError):
+        load_trusted_issuers(dict(os.environ))
+
+
+def test_build_app_boots_with_valid_issuer_env_and_carries_it(monkeypatch):
+    # The full boot path: build_app() loads the issuer map and threads it into
+    # the proxy's ProxyConfig (no raise => booted).
+    _, issuers = _signed_card(agent_id="x", issuer="issuer-boot")
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", json.dumps(issuers))
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    monkeypatch.setenv("TEX_PDP_MODE", "http")  # avoid building the in-process runtime
+
+    from tex.pep.__main__ import build_app
+
+    app = build_app()  # must not raise
+    assert app is not None
+
+
+def test_build_app_refuses_to_boot_on_malformed_issuer_env(monkeypatch):
+    # Fail-closed at startup: a malformed key map makes build_app raise rather
+    # than booting and rejecting every credential at runtime.
+    from tex.identity.issuer_keys import IssuerKeyError
+
+    monkeypatch.setenv("TEX_PEP_TRUSTED_ISSUERS", "{not json")
+    monkeypatch.delenv("TEX_PEP_TRUSTED_ISSUERS_FILE", raising=False)
+    monkeypatch.setenv("TEX_PDP_MODE", "http")
+
+    from tex.pep.__main__ import build_app
+
+    with pytest.raises(IssuerKeyError):
+        build_app()
 
 
 def test_base_from_dst_does_not_downgrade_unknown_ports_to_http():

@@ -63,7 +63,11 @@ from tex.emission import (
     rewrite_provider_request,
     seal_constraint,
 )
-from tex.identity.agent_credential import AttestedIdentity, verify_agent_credential
+from tex.identity.agent_credential import (
+    AttestedIdentity,
+    CredentialVerification,
+    verify_agent_credential,
+)
 from tex.pep.decision_client import Decision, DecisionClient, DecisionResult
 
 __all__ = [
@@ -72,6 +76,7 @@ __all__ = [
     "HttpxForwarder",
     "ResolvedDst",
     "OrigDstResolver",
+    "SurfaceResolver",
     "TexEnforcementProxy",
     "build_proxy_app",
 ]
@@ -107,6 +112,14 @@ class ProxyConfig:
     # presented credential, but we do not require one (and never claim an
     # unattested header is attested).
     require_identity: bool = False
+    # Cross-tenant binding (wave-1 medium d) — when True, a presented credential
+    # must carry ``aud == "tex://<request-tenant>"`` (the reused audience
+    # primitive); a card scoped to a different tenant (or with no aud) is
+    # FORBIDden EVEN when require_identity is False, so a credential minted for
+    # tenant A cannot be replayed against tenant B. Default False: degrade-open
+    # for issuers not yet minting ``aud=tex://<tenant>`` (honest — flagged, not
+    # claimed as enforced until issuers populate the claim and operators set it).
+    require_tenant_binding: bool = False
     # G10 — TTL of a minted egress permit (seconds).
     permit_ttl_seconds: int = 30
     # G6 — credential freshness (anti-replay). When ``pep_audience`` is set a
@@ -165,6 +178,23 @@ class Forwarder(Protocol):
     def send(
         self, method: str, url: str, headers: dict[str, str], body: bytes
     ) -> UpstreamResponse: ...
+
+
+class SurfaceResolver(Protocol):
+    """Resolves an agent's sealed ``CapabilitySurface`` WITHOUT an in-process
+    governor — the http-mode path to the emission gate / filtered discovery.
+
+    Returns the surface to confine egress against, or ``None`` (no restriction /
+    unresolved -> the gate leaves the body unchanged, fail-safe). The PRIMARY
+    implementation piggybacks the surface that already drove the PDP decision (no
+    extra round-trip); a SECONDARY one may fetch it from the PDP (opt-in)."""
+
+    def __call__(
+        self,
+        tenant: str,
+        agent_id: "UUID | None",
+        agent_external_id: str | None,
+    ) -> "Any | None": ...
 
 
 class HttpxForwarder:
@@ -357,12 +387,20 @@ class TexEnforcementProxy:
         seal_ledger: Any | None = None,
         host_resolver: "Callable[[str], set[str]] | None" = None,
         identity_source: Any | None = None,
+        surface_resolver: "SurfaceResolver | None" = None,
     ) -> None:
         self._decide = decision_client
         self._forward = forwarder or HttpxForwarder()
         self._config = config or ProxyConfig()
         # Optional in-process governor, only for filtered tool discovery.
         self._governance = governance
+        # Capability-surface resolver for HTTP sidecar mode (no in-process
+        # governor). When set, the emission gate + filtered discovery activate
+        # without an in-process governor: the resolver supplies the agent's
+        # surface (piggybacked from the PDP decision, or fetched). None => the
+        # gate stays inert in http mode unless a per-request piggyback surface is
+        # present (today's behaviour for a bare sidecar).
+        self._surface_resolver = surface_resolver
         # G7 — kernel-captured destination recovery (None => header fallback).
         self._origdst = origdst
         # G4 — when set, seal ONE ENFORCEMENT receipt per request for the TERMINAL
@@ -480,7 +518,7 @@ class TexEnforcementProxy:
 
         # ---- G6: authenticate identity instead of trusting X-Tex-Agent-Id
         ident = self._verify_identity(
-            h, agent_id=agent_id, agent_external_id=agent_external_id
+            h, agent_id=agent_id, agent_external_id=agent_external_id, tenant=tenant
         )
         if ident.refuse is not None:
             return ident.refuse
@@ -510,6 +548,13 @@ class TexEnforcementProxy:
             )
             return _refuse(result.reason or "Forbidden by Tex.", verdict=result.verdict)
 
+        # ---- PERMIT path. The PDP may have piggybacked the agent's permitted
+        # tool subset on the decision (http mode, race-free: the surface that
+        # confined the ruling). Reconstruct it once and feed both gates below, so
+        # the emission gate + filtered discovery fire WITHOUT an in-process
+        # governor. None => fall through to the governor / injected resolver.
+        piggyback_surface = self._surface_from_decision(result)
+
         # ---- PERMIT path. Build the forward headers first.
         fwd_headers = {k: v for k, v in headers.items() if k.lower() not in _STRIP_HEADERS}
         # Preserve the agent's intended vhost ONLY when the TCP dst is pinned to a
@@ -535,6 +580,7 @@ class TexEnforcementProxy:
             agent_external_id=agent_external_id,
             decision_id=result.decision_id,
             content_encoding=h.get("content-encoding"),
+            surface=piggyback_surface,
         )
 
         # ---- G10: mint -> persist -> verify(fresh digest, audience) -> consume
@@ -583,15 +629,21 @@ class TexEnforcementProxy:
         url = upstream_base.rstrip("/") + path
         upstream = self._forward.send(method, url, fwd_headers, body)
 
-        # Filtered discovery: strip tools the agent may not call.
+        # Filtered discovery: strip tools the agent may not call. Activates when a
+        # surface is reachable — an in-process governor OR an http-mode resolver
+        # (piggyback / fetch) — not only inprocess (closes the http-mode gap).
         if (
             mcp == "tools/list"
             and self._config.filter_tool_discovery
-            and self._governance is not None
+            and (
+                self._governance is not None
+                or self._surface_resolver is not None
+                or piggyback_surface is not None
+            )
         ):
             upstream = self._filter_tools_list(
                 upstream, tenant=tenant, agent_id=agent_id,
-                agent_external_id=agent_external_id,
+                agent_external_id=agent_external_id, surface=piggyback_surface,
             )
         return upstream
 
@@ -680,6 +732,7 @@ class TexEnforcementProxy:
         *,
         agent_id: UUID | None,
         agent_external_id: str | None,
+        tenant: str,
     ) -> "_IdentityCheck":
         """Authenticate a presented identity credential (fail-closed).
 
@@ -691,16 +744,31 @@ class TexEnforcementProxy:
         ``require_identity`` is False, we proceed on the (unverified) header but
         never seal it as attested: that is the documented header-trust gap for
         deployments without an identity issuer wired, not a solved property.
+
+        Cross-tenant binding: when ``require_tenant_binding`` is set the presented
+        credential must carry ``aud == "tex://<tenant>"`` (the reused audience
+        primitive), so a card minted for another tenant cannot be replayed here.
+        A mismatch is FORBIDden EVEN when ``require_identity`` is False (a *bad*
+        presented credential always loses). With the flag off, ``aud`` is left to
+        ``pep_audience`` (None by default) — the documented degrade-open for
+        issuers not yet minting a tenant ``aud``.
         """
         cfg = self._config
         principal = str(agent_id) if agent_id is not None else (agent_external_id or None)
         raw = h.get("x-tex-agent-credential")
 
         if not raw:
-            if cfg.require_identity:
+            # Fail-closed for tenant binding too: a MISSING card is strictly
+            # weaker evidence than a card with a wrong/absent aud (already
+            # FORBIDden below), so it must not pass where that card fails. When
+            # require_tenant_binding is on, a no-credential request cannot be
+            # bound to this tenant -> FORBID, even if require_identity is False.
+            if cfg.require_identity or cfg.require_tenant_binding:
                 return _IdentityCheck(
                     refuse=_refuse(
-                        "No agent credential presented (identity required).",
+                        "No agent credential presented (cannot bind to tenant)."
+                        if cfg.require_tenant_binding
+                        else "No agent credential presented (identity required).",
                         verdict="FORBID",
                     )
                 )
@@ -712,12 +780,37 @@ class TexEnforcementProxy:
                 refuse=_refuse("Malformed agent credential.", verdict="FORBID")
             )
 
+        # When tenant binding is required, the credential's audience MUST be this
+        # request's tenant URI; otherwise fall back to the per-PEP-instance
+        # ``pep_audience`` (the existing scoping concept). Both reuse the same
+        # signed ``aud`` claim and the same offline check in agent_credential.
+        expected_audience = (
+            f"tex://{tenant}" if cfg.require_tenant_binding else cfg.pep_audience
+        )
+
         att = verify_agent_credential(
             card,
             trusted_issuers=cfg.trusted_issuers or {},
-            expected_audience=cfg.pep_audience,
+            expected_audience=expected_audience,
             require_expiry=cfg.require_credential_expiry,
         )
+        # Cross-tenant binding: an aud that does not name this tenant fails the
+        # audience check above (status == audience_mismatch). Refuse it with an
+        # explicit, tenant-scoped reason BEFORE the generic not-verified branch,
+        # so the verdict says WHY — and so the requirement is enforced even when
+        # require_identity is False (a presented-but-wrongly-scoped card loses).
+        if (
+            cfg.require_tenant_binding
+            and not att.verified
+            and att.status == CredentialVerification.AUDIENCE_MISMATCH.value
+        ):
+            return _IdentityCheck(
+                refuse=_refuse(
+                    f"Agent credential not scoped to this tenant "
+                    f"(expected aud=tex://{tenant}).",
+                    verdict="FORBID",
+                )
+            )
         if not att.verified:
             return _IdentityCheck(
                 refuse=_refuse(
@@ -1199,8 +1292,11 @@ class TexEnforcementProxy:
         tenant: str,
         agent_id: UUID | None,
         agent_external_id: str | None,
+        surface: Any | None = None,
     ) -> UpstreamResponse:
-        surface = self._resolve_surface(tenant, agent_id, agent_external_id)
+        surface = self._resolve_surface(
+            tenant, agent_id, agent_external_id, surface
+        )
         if surface is None:
             return upstream
         body = _try_json(upstream.body)
@@ -1209,13 +1305,18 @@ class TexEnforcementProxy:
         result = body.get("result")
         if not isinstance(result, dict) or not isinstance(result.get("tools"), list):
             return upstream
-        permits = getattr(surface, "permits_action_type", None)
-        if not callable(permits):
-            return upstream
+        # Gate discovery on the TOOL-NAME allowlist (the dimension a piggyback
+        # surface carries), via the SAME compile the emission gate + sealed H use
+        # — so discovery, emission, and the seal all agree on one allowlist.
+        # (permits_action_type reads allowed_action_types, which the piggyback
+        # surface leaves empty -> it would keep every tool, leaking a forbidden
+        # tool's existence on the primary http path.) is_tool_allowed returns True
+        # when no name allowlist is declared, so an unrestricted surface is a no-op.
+        constraint = compile_constraint(surface)
         kept = [
             t
             for t in result["tools"]
-            if isinstance(t, dict) and permits(str(t.get("name", "")))
+            if isinstance(t, dict) and constraint.is_tool_allowed(str(t.get("name", "")))
         ]
         result["tools"] = kept
         new_body = json.dumps(body).encode("utf-8")
@@ -1224,16 +1325,62 @@ class TexEnforcementProxy:
         return UpstreamResponse(status=upstream.status, headers=headers, body=new_body)
 
     def _resolve_surface(
-        self, tenant: str, agent_id: UUID | None, agent_external_id: str | None
+        self,
+        tenant: str,
+        agent_id: UUID | None,
+        agent_external_id: str | None,
+        surface: Any | None = None,
     ) -> Any | None:
+        """Resolve the capability surface to confine egress against.
+
+        Precedence: an explicit per-request ``surface`` (piggybacked from the PDP
+        decision — race-free, no round-trip) > the in-process governor fast-path >
+        an injected ``SurfaceResolver`` (http mode). Returns ``None`` when none can
+        supply one, which leaves the gate inert (body unchanged) — exactly today's
+        behaviour for a bare http sidecar."""
+        if surface is not None:
+            return surface
         gov = self._governance
-        if gov is None:
+        if gov is not None:
+            try:
+                agent = gov._resolve_agent(tenant, agent_id, agent_external_id)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                return None
+            return (
+                getattr(agent, "capability_surface", None)
+                if agent is not None
+                else None
+            )
+        resolver = self._surface_resolver
+        if resolver is None:
             return None
         try:
-            agent = gov._resolve_agent(tenant, agent_id, agent_external_id)  # noqa: SLF001
-        except Exception:  # noqa: BLE001
+            return resolver(tenant, agent_id, agent_external_id)
+        except Exception:  # noqa: BLE001 — a resolver fault leaves the gate inert
+            _logger.warning("PEP: surface resolver raised", exc_info=True)
             return None
-        return getattr(agent, "capability_surface", None) if agent is not None else None
+
+    def _surface_from_decision(self, result: DecisionResult) -> Any | None:
+        """Reconstruct a ``CapabilitySurface`` from a decision's piggybacked tool
+        subset, or ``None`` when none was carried. The piggyback round-trips the
+        TOOL-NAME allowlist ONLY — NOT the full surface (e.g. recipient-domain
+        dims are not carried). That is exactly what the emission gate and filtered
+        discovery consume here (both read tool names via ``compile_constraint``;
+        the actuator never reads recipient regexes), so on the egressed bytes the
+        piggyback path is identical to in-process — but it is NOT a full-surface
+        equivalent, and a future gate dimension would need to be piggybacked too.
+        Race-free: the tool allowlist that confined the PDP ruling is the one that
+        tightens egress. Fail-safe: a malformed payload yields None (gate inert)."""
+        allowed = getattr(result, "allowed_tools", None)
+        if not allowed:
+            return None
+        try:
+            from tex.domain.agent import CapabilitySurface
+
+            return CapabilitySurface(allowed_tools=tuple(allowed))
+        except Exception:  # noqa: BLE001 — never let a bad piggyback break the request
+            _logger.warning("PEP: piggyback surface reconstruct failed", exc_info=True)
+            return None
 
     # ------------------------------------------------------------------ emission gate
 
@@ -1247,6 +1394,7 @@ class TexEnforcementProxy:
         agent_external_id: str | None,
         decision_id: str | None,
         content_encoding: str | None = None,
+        surface: Any | None = None,
     ) -> bytes:
         """Approach B (provider-trusted) emission gate on the outbound request.
 
@@ -1257,6 +1405,11 @@ class TexEnforcementProxy:
         allowlist ``H`` the turn decoded under. Returns the (possibly rewritten)
         body; on any non-applicable case it returns the body byte-identical.
 
+        The surface is resolved by :meth:`_resolve_surface` (precedence: a
+        per-request ``surface`` piggybacked on the PDP decision > an in-process
+        governor > an injected ``SurfaceResolver``), so the gate now also fires in
+        the http sidecar mode — not only when an in-process governor is wired.
+
         A ``Content-Encoding``-compressed provider body is DECODED before the
         rewrite and re-egressed UN-compressed (the ``content-encoding`` header is
         dropped so the provider reads the plaintext JSON we tightened), so a
@@ -1265,8 +1418,9 @@ class TexEnforcementProxy:
         labels it ``http_opaque_body`` and the PDP holds it (ABSTAIN).
 
         Behaviour on the non-rewrite branches (returns the body byte-identical):
-          * No in-process governor / unresolved surface (the default ``http``
-            sidecar mode passes no governor — see ``pep/__main__``).
+          * Unresolved surface — no governor, no injected resolver, and no
+            piggyback on the decision (a bare ``http`` sidecar with the flag off,
+            see ``pep/__main__``). Fail-safe: no surface => body unchanged.
           * A body Tex cannot decode (defence-in-depth — should have ABSTAINed
             upstream; we never silently rewrite or forward-blind it here).
           * Body is not a JSON object, or ``detect_provider`` does not recognize
@@ -1282,7 +1436,9 @@ class TexEnforcementProxy:
           * ``seal_constraint`` is fail-closed / observation-only: a ``None``
             ledger is a no-op and a seal failure never changes what egresses.
         """
-        surface = self._resolve_surface(tenant, agent_id, agent_external_id)
+        surface = self._resolve_surface(
+            tenant, agent_id, agent_external_id, surface
+        )
         if surface is None:
             return body
         inspect_body, undecodable = _decode_for_inspection(body, content_encoding)

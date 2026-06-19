@@ -1,0 +1,31 @@
+# Tex born-in-a-box kind cluster.
+#
+# Registers the gVisor "runsc" runtime in the node's containerd so the
+# `gvisor` RuntimeClass (handler: runsc, shipped by
+# deploy/helm/tex/templates/runtimeclass.yaml) resolves to a real sandbox. The
+# runsc + containerd-shim-runsc-v1 binaries are baked into the node image by
+# scripts/kind/Dockerfile.node; this patch tells containerd how to invoke them.
+#
+# The patch targets the containerd v2 (NRI/cri) config layout used by the
+# kindest/node image: a runtime named "runsc" of type io.containerd.runsc.v1,
+# whose binary the shim resolves from PATH (/usr/local/bin).
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+name: tex-bib
+nodes:
+  - role: control-plane
+    # Bake the gVisor runtime into the node image (see Dockerfile.node) — the
+    # Makefile builds it and passes it as the node image via --image; this is a
+    # belt-and-suspenders marker so a reader knows the node is non-stock.
+    image: tex-kind-node:gvisor
+containerdConfigPatches:
+  # containerd >= 2.x (kindest/node v1.33+) uses the v3 plugin id
+  # "io.containerd.cri.v1.runtime"; v1.x nodes used the v2 grpc plugin
+  # "io.containerd.grpc.v1.cri". Patch BOTH so the harness works across the
+  # kind node versions; containerd ignores a patch for a plugin it does not have.
+  - |-
+    [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runsc]
+      runtime_type = "io.containerd.runsc.v1"
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+      runtime_type = "io.containerd.runsc.v1"

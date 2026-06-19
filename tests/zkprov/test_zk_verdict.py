@@ -225,3 +225,288 @@ def test_verdict_acc_interval_partitions_the_space() -> None:
         v = zf._verdict_from_acc(acc, PERMIT_Q, FORBID_Q, SCALE)
         lo, hi = zf.verdict_acc_interval(v, PERMIT_Q, FORBID_Q, SCALE, max_acc)
         assert lo <= acc < hi, (acc, v, lo, hi)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WIRING: the schnorr-verdict-zk-v1 BACKEND + the arbiter HIDING statement path.
+#
+# The tests above earn the zk_fuse PRIMITIVE. These earn the wiring that calls
+# it: (a) the backend dispatched by id round-trips on the hiding statement;
+# (b) the arbiter's prove→verify selects the real verdict backend (NOT the shim)
+# for the hiding statement, the public dict omits the fused score, and two
+# distinct fused scores in the same verdict region both verify (hiding through
+# the whole arbiter, not just zk_fuse); (c) a router-skipped statement is
+# refused (no fuse to attest). These run WITHOUT TEX_ZKPDP_ALLOW_SHIM — the
+# verdict backend is a real (non-shim) proof, so the verdict path is green, not
+# green_test_mode.
+# ══════════════════════════════════════════════════════════════════════════════
+
+from tex.zkprov.backends import ProofBackendId, get_proof_backend  # noqa: E402
+from tex.zkpdp import arbiter as ab  # noqa: E402
+
+# The arbiter's canonical seven-stream order and a two-contributing-stream
+# policy (weights sum to ab.SCALE), keeping the pure-Python honest proofs cheap.
+_AB_WEIGHTS = tuple(
+    (n, w) for n, w in zip(ab.STREAM_NAMES, [5_000, 5_000, 0, 0, 0, 0, 0])
+)
+
+
+def _hidden_statement(
+    scores: dict[str, int],
+    *,
+    permit_q: int = 3_000,
+    forbid_q: int = 7_000,
+    router_skipped: bool = False,
+    deny_floor: bool = False,
+    floor_sources: tuple[str, ...] = (),
+    quarantine_pin: bool = False,
+    chain: tuple = (),
+    fused_q_override: int | None = None,
+    claimed_verdict: str | None = None,
+) -> ab.HiddenScoreArbitrationStatement:
+    """A hiding arbitration statement over the two-stream policy. Defaults to a
+    clean FUSE path; the fused score and claimed verdict are derived from the
+    committed scores unless explicitly overridden (for the refusal case)."""
+    sq = tuple((n, scores.get(n, 0)) for n in ab.STREAM_NAMES)
+    fused = (
+        fused_q_override
+        if fused_q_override is not None
+        else ab.canonical_fuse(sq, _AB_WEIGHTS)
+    )
+    cv = (
+        claimed_verdict
+        if claimed_verdict is not None
+        else ab.threshold_verdict(fused, permit_q, forbid_q)
+    )
+    return ab.HiddenScoreArbitrationStatement(
+        stream_scores_q=sq,
+        weights_q=_AB_WEIGHTS,
+        fused_q=fused,
+        permit_q=permit_q,
+        forbid_q=forbid_q,
+        router_skipped=router_skipped,
+        deny_floor=deny_floor,
+        floor_sources=floor_sources,
+        quarantine_pin=quarantine_pin,
+        chain=chain,
+        claimed_verdict=cv,
+        request_id="zk-verdict-wiring",
+        policy_id="policy-test",
+        policy_version="v1",
+        content_sha256="c" * 64,
+        determinism_fingerprint="d" * 64,
+    )
+
+
+# Two PERMIT witnesses with DIFFERENT fused scores (2000 vs 1000) — the hiding
+# property is that both verify under the same public verdict.
+_HID_PERMIT_A = {"deterministic": 2_000, "specialists": 2_000}  # fused 2000
+_HID_PERMIT_B = {"deterministic": 1_000, "specialists": 1_000}  # fused 1000
+
+
+@pytest.fixture(scope="module")
+def hidden_permit_a_envelope() -> tuple[ab.HiddenScoreArbitrationStatement, object]:
+    s = _hidden_statement(_HID_PERMIT_A)
+    return s, ab.prove_arbitration(s)
+
+
+@pytest.fixture(scope="module")
+def hidden_permit_b_envelope() -> tuple[ab.HiddenScoreArbitrationStatement, object]:
+    s = _hidden_statement(_HID_PERMIT_B)
+    return s, ab.prove_arbitration(s)
+
+
+# ── (a) backend round-trip via get_proof_backend ─────────────────────────────
+
+
+def test_backend_id_equals_verdict_scheme() -> None:
+    """The enum value IS the zk_fuse scheme constant (one wire string)."""
+    assert ProofBackendId.SCHNORR_VERDICT_ZK_V1.value == zf.VERDICT_SCHEME
+
+
+def test_backend_round_trip_via_dispatcher() -> None:
+    """get_proof_backend('schnorr-verdict-zk-v1') resolves to the real backend
+    and round-trips prove→verify on a hiding statement (FORBID region)."""
+    backend = get_proof_backend("schnorr-verdict-zk-v1")
+    assert backend.backend_id is ProofBackendId.SCHNORR_VERDICT_ZK_V1
+    s = _hidden_statement({"deterministic": 8_000, "specialists": 8_000})  # FORBID
+    assert s.verdict == "FORBID"
+    pf = backend.prove(statement=s, private_witness=s.canonical_bytes())
+    assert backend.verify(statement=s, proof_bytes=pf) is True
+    # a forged claim under a different public verdict does NOT verify (the
+    # verifier derives the region from ITS public verdict field, not the proof).
+    other = _hidden_statement(
+        {"deterministic": 2_000, "specialists": 2_000}  # PERMIT region
+    )
+    assert backend.verify(statement=other, proof_bytes=pf) is False
+
+
+# ── (b) arbiter prove→verify on the hiding statement ─────────────────────────
+
+
+def test_arbiter_dispatches_real_verdict_backend_not_shim(
+    hidden_permit_a_envelope,
+) -> None:
+    """prove_arbitration on a hiding statement (default backend arg) selects the
+    REAL schnorr-verdict-zk-v1 backend, and verify_arbitration reports a non-shim
+    regulator-grade proof WITHOUT TEX_ZKPDP_ALLOW_SHIM."""
+    s, env = hidden_permit_a_envelope
+    assert env.backend == ProofBackendId.SCHNORR_VERDICT_ZK_V1.value
+    res = ab.verify_arbitration(s, env)
+    assert res.is_valid is True
+    assert res.stand_in is False
+    assert res.regulator_grade is True
+    assert res.reason is None
+    assert "schnorr-verdict-zk-v1" in res.note
+
+
+def test_hiding_public_dict_omits_fused_and_scores(
+    hidden_permit_a_envelope,
+) -> None:
+    """The public canonical dict publishes the verdict + thresholds + structural
+    flags + chain, but NEVER the fused score or the raw per-stream scores."""
+    s, _ = hidden_permit_a_envelope
+    doc = json.loads(s.canonical_bytes())
+    assert "fused" not in doc and "fused_q" not in doc
+    assert "stream_scores_q" not in doc
+    assert doc["hiding"] is True
+    assert doc["verdict"] == "PERMIT"
+    # the public policy + structure ARE published (these are not secrets)
+    for key in (
+        "verdict",
+        "permit_q",
+        "forbid_q",
+        "weights_q",
+        "deny_floor",
+        "quarantine_pin",
+        "floor_sources",
+        "chain",
+        "claimed_verdict",
+    ):
+        assert key in doc, key
+
+
+def test_distinct_fused_scores_same_verdict_both_verify_through_arbiter(
+    hidden_permit_a_envelope, hidden_permit_b_envelope
+) -> None:
+    """The headline hiding property AT THE ARBITER: two witnesses whose fused
+    scores DIFFER (2000 vs 1000) but share the PERMIT verdict both verify, so an
+    accepting arbiter proof cannot recover the fused score."""
+    sa, ea = hidden_permit_a_envelope
+    sb, eb = hidden_permit_b_envelope
+    assert sa.fused_q != sb.fused_q  # genuinely different hidden scores
+    assert sa.verdict == sb.verdict == "PERMIT"
+    assert ab.verify_arbitration(sa, ea).is_valid is True
+    assert ab.verify_arbitration(sb, eb).is_valid is True
+    # and the fused score is in neither public statement
+    for s in (sa, sb):
+        doc = json.loads(s.canonical_bytes())
+        assert "fused_q" not in doc and "stream_scores_q" not in doc
+
+
+def test_arbiter_verify_rejects_wrong_statement(
+    hidden_permit_a_envelope,
+) -> None:
+    """A PERMIT proof bound to statement A must not verify against a DIFFERENT
+    statement (digest binding + ZK region mismatch)."""
+    sa, ea = hidden_permit_a_envelope
+    forbid_stmt = _hidden_statement({"deterministic": 8_000, "specialists": 8_000})
+    res = ab.verify_arbitration(forbid_stmt, ea)
+    assert res.is_valid is False
+    assert res.reason == "zkpdp_statement_binding_mismatch"
+
+
+def test_abstain_completeness_through_arbiter() -> None:
+    """A hiding ABSTAIN statement (fused in the band) proves and verifies."""
+    s = _hidden_statement({"deterministic": 5_000, "specialists": 5_000})
+    assert s.verdict == "ABSTAIN"
+    env = ab.prove_arbitration(s)
+    assert env.backend == ProofBackendId.SCHNORR_VERDICT_ZK_V1.value
+    assert ab.verify_arbitration(s, env).is_valid is True
+
+
+# ── (c) router_skipped refusal ───────────────────────────────────────────────
+
+
+def test_router_skipped_backend_refuses_to_prove() -> None:
+    """The verdict backend attests the FUSE path; a router-skipped structural
+    short-circuit has no fuse, so prove() refuses (FuseProofError) and verify()
+    returns False — exactly the fuse backend's contract."""
+    backend = get_proof_backend("schnorr-verdict-zk-v1")
+    s = _hidden_statement(
+        {"deterministic": 5_000, "specialists": 5_000},
+        router_skipped=True,
+        deny_floor=True,
+        floor_sources=("structural_specialist_deny",),
+        fused_q_override=ab.SCALE,
+        claimed_verdict="FORBID",
+    )
+    with pytest.raises(zf.FuseProofError):
+        backend.prove(statement=s, private_witness=s.canonical_bytes())
+    assert backend.verify(statement=s, proof_bytes=b"{}") is False
+
+
+def test_router_skipped_arbiter_does_not_select_verdict_backend() -> None:
+    """At the arbiter level a router-skipped hiding statement keeps the default
+    (shim) backend — the verdict backend would refuse it — so it stays on the
+    legacy path (hard-gated as a stand-in, never silently a real proof)."""
+    s = _hidden_statement(
+        {"deterministic": 5_000, "specialists": 5_000},
+        router_skipped=True,
+        deny_floor=True,
+        floor_sources=("structural_specialist_deny",),
+        fused_q_override=ab.SCALE,
+        claimed_verdict="FORBID",
+    )
+    env = ab.prove_arbitration(s)
+    assert env.backend == ProofBackendId.DETERMINISTIC_SHIM_V1.value
+
+
+# ── backend <-> statement-variant compatibility (offline-verifiability) ──────
+
+
+def test_arbiter_rejects_fuse_backend_on_hiding_statement(
+    hidden_permit_a_envelope,
+) -> None:
+    """A FUSE-backend envelope must be REFUSED for a hiding statement: the fuse
+    backend consumes the fused score the hiding statement omits from its published
+    bytes, so its green is not reproducible by an offline party re-deriving the
+    statement from canonical_bytes. Even though the in-memory fused_q makes the
+    fuse proof verify, the arbiter must reject it by a named reason."""
+    s, _ = hidden_permit_a_envelope
+    fuse_env = ab.prove_arbitration(
+        s, backend_id=ProofBackendId.SCHNORR_FUSE_ZK_V1
+    )
+    assert fuse_env.backend == ProofBackendId.SCHNORR_FUSE_ZK_V1.value
+    res = ab.verify_arbitration(s, fuse_env)
+    assert res.is_valid is False
+    assert res.reason == "zkpdp_hiding_requires_verdict_backend"
+    # The correct (verdict) backend still validates the SAME hiding statement.
+    verdict_env = ab.prove_arbitration(s)  # auto-upgrades to the verdict backend
+    assert verdict_env.backend == ProofBackendId.SCHNORR_VERDICT_ZK_V1.value
+    assert ab.verify_arbitration(s, verdict_env).is_valid is True
+
+
+def test_arbiter_verify_rejects_tampered_zk_proof(hidden_permit_a_envelope) -> None:
+    """The ZK region proof is the DECISIVE rejecter through verify_arbitration:
+    mutate a stream commitment in the proof bytes (the digest still binds the
+    UNCHANGED statement and evaluate_relation stays satisfied), so the rejection
+    comes from the backend's ZK verify, not the digest-binding or relation step."""
+    from dataclasses import replace
+
+    s, env = hidden_permit_a_envelope
+    assert ab.evaluate_relation(s).satisfied  # relation is NOT the rejecter
+    proof = json.loads(bytes.fromhex(env.proof_hex).decode("utf-8"))
+    proof["streams"][0]["commitment"] = str(
+        int(proof["streams"][0]["commitment"]) + 1
+    )
+    mutated_hex = (
+        json.dumps(proof, sort_keys=True, separators=(",", ":"))
+        .encode("utf-8")
+        .hex()
+    )
+    mutated_env = replace(env, proof_hex=mutated_hex)
+    assert mutated_env.statement_sha256 == s.sha256_hex()  # digest still binds
+    res = ab.verify_arbitration(s, mutated_env)
+    assert res.is_valid is False
+    assert res.reason == "zkpdp_proof_invalid"

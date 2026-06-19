@@ -1,0 +1,67 @@
+# tex-ebpf.lima.yaml — Lima template for the kernel-floor build/test VM.
+#
+# This is the recipe that produced the `tex-ebpf` VM used by `make vm-test`.
+# It is a NOTE/reference: macOS cannot compile or load eBPF (no vmlinux.h /
+# libbpf / bpf2go / verifier), so the floor is built + loaded + verified inside
+# this Ubuntu 24.04 VM against its running kernel's BTF.
+#
+# Create / start:
+#   limactl create --name tex-ebpf hack/tex-ebpf.lima.yaml
+#   limactl start tex-ebpf
+#   make vm-test            # copies pep/kernel into the VM and runs the suite
+#
+# Requirements the suite checks at runtime (hack/build-and-test.sh):
+#   - /sys/kernel/btf/vmlinux present   (CONFIG_DEBUG_INFO_BTF=y)  -> CO-RE
+#   - clang >= 14, go >= 1.22, bpftool, libbpf-dev
+#   - cgroup-v2 unified hierarchy mounted at /sys/fs/cgroup
+#   - root (sudo) for bpf load + cgroup attach
+#
+# On an Apple-silicon host this resolves to the arm64 image, so the Makefile's
+# arch auto-detect compiles with -D__TARGET_ARCH_arm64. On an x86_64 host it
+# resolves to the amd64 image and compiles with -D__TARGET_ARCH_x86. Both work.
+
+minimumLimaVersion: 2.0.0
+
+# Ubuntu 24.04 LTS (Noble) — kernel 6.8 ships BTF + cgroup-v2 by default.
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+  - location: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+
+cpus: 4
+memory: "4GiB"
+disk: "100GiB"
+
+# The host home is mounted READ-ONLY at the same path inside the VM, so the
+# kernel source resolves on both sides; build-and-test.sh copies it into a
+# writable VM dir (~/kbuild) before compiling.
+mounts:
+  - location: "~"
+    writable: false
+
+# Toolchain: clang/llvm (BPF target), bpftool + libbpf-dev (vmlinux.h, headers),
+# Go (agent + bpf2go), make. linux-tools-* provides bpftool matched to the kernel.
+provision:
+  - mode: system
+    script: |
+      #!/usr/bin/env bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        clang llvm libbpf-dev linux-headers-generic make ca-certificates \
+        linux-tools-common "linux-tools-$(uname -r)" golang-go
+      # Confirm cgroup-v2 unified + BTF are live (the suite re-checks these).
+      test -e /sys/fs/cgroup/cgroup.controllers
+      test -r /sys/kernel/btf/vmlinux
+
+# Verify the toolchain is reachable before the suite runs.
+probes:
+  - script: |
+      #!/usr/bin/env bash
+      set -eu
+      command -v clang
+      command -v bpftool
+      command -v go
+    hint: "clang / bpftool / go not on PATH yet (provisioning may still be running)"

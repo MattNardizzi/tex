@@ -1,0 +1,51 @@
+# Tex born-in-a-box kind node image: a kind node with the gVisor sandbox runtime
+# baked in, so a compliant pod's `runtimeClassName: gvisor` (handler "runsc")
+# actually resolves to a real sandbox on the node.
+#
+# WHY a custom node image: stock kindest/node has containerd but NO runsc shim.
+# The Helm RuntimeClass (deploy/helm/tex/templates/runtimeclass.yaml) maps
+# gvisor -> handler "runsc"; kind-config.yaml registers a [runsc] containerd
+# runtime; and THIS image installs the two binaries that handler needs:
+#   * runsc                        — the gVisor sandbox kernel
+#   * containerd-shim-runsc-v1     — the containerd v2 shim that launches it
+# into /usr/local/bin so containerd's PATH finds them.
+#
+# ARCH-AWARE: gVisor publishes x86_64 and aarch64 builds. We map the Debian dpkg
+# arch (amd64/arm64) to gVisor's naming so this builds on both Intel and Apple
+# Silicon (Colima) hosts.
+#
+# Pin via NODE_IMAGE build-arg to match your kind version's default node image
+# (kind v0.32.0 -> v1.36.1). The Makefile passes it.
+ARG NODE_IMAGE=kindest/node:v1.36.1
+FROM ${NODE_IMAGE}
+
+# gVisor release point. "latest" is the rolling nightly-stable channel gVisor
+# publishes; pin to a dated release (e.g. release-20240916.0) for reproducibility.
+ARG GVISOR_RELEASE=latest
+
+# hadolint ignore=DL3008,DL3009
+RUN set -eux; \
+    dpkg_arch="$(dpkg --print-architecture)"; \
+    case "${dpkg_arch}" in \
+        amd64) gvisor_arch="x86_64" ;; \
+        arm64) gvisor_arch="aarch64" ;; \
+        *) echo "unsupported arch ${dpkg_arch}" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    url="https://storage.googleapis.com/gvisor/releases/release/${GVISOR_RELEASE}/${gvisor_arch}"; \
+    # gVisor's .sha512 is `<hash>  <bare-filename>`; download into /usr/local/bin
+    # and verify there so sha512sum -c resolves the bare name against the binary.
+    cd /usr/local/bin; \
+    for bin in runsc containerd-shim-runsc-v1; do \
+        curl -fsSL "${url}/${bin}" -o "${bin}"; \
+        curl -fsSL "${url}/${bin}.sha512" -o "${bin}.sha512"; \
+        sha512sum -c "${bin}.sha512"; \
+        chmod 0755 "${bin}"; \
+        rm -f "${bin}.sha512"; \
+    done; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
+    # sanity: the shim and sandbox are on PATH where containerd will look.
+    /usr/local/bin/runsc --version; \
+    test -x /usr/local/bin/containerd-shim-runsc-v1

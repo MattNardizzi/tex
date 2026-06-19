@@ -1,0 +1,36 @@
+# COMPLIANT pod: declares the approved gVisor sandbox runtimeClassName and lets
+# the injector do the rest. This is the ADMIT-ON-MERIT proof.
+#
+# In the governed `agents` namespace the admission chain runs:
+#   1. the MUTATING injector adds tex.systems/injected=true (+ the PEP sidecar
+#      and egress-redirect init) — proving the injector ran;
+#   2. the ValidatingAdmissionPolicy then ADMITS it: an approved sandbox
+#      runtimeClass + the injected annotation + no host escape + no privileged
+#      container = all four validations pass.
+# kind-test asserts the CREATE succeeds AND tex.systems/injected=true is present
+# on the persisted pod — i.e. it was admitted because the injector ran, not by
+# carrying a hand-written annotation. That is the whole born-in-a-box claim.
+#
+# NOTE ON RUNNING: whether this pod then reaches Running depends on the injected
+# images. In the kind harness the injected init/proxy are a stand-in (busybox,
+# so the harness is self-contained); busybox has no iptables, and gVisor's
+# netstack does not implement the init's `-m owner` REDIRECT anyway, so the
+# injected init does not complete here. The RUNTIME proof (a pod actually
+# running under gVisor/runsc) is therefore done by pod-gvisor.yaml, which
+# isolates the runtime from the injected egress redirect. With the real
+# ghcr.io/vortexblack/tex-init image on a node whose sandbox supports the
+# redirect, this pod runs end-to-end.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-agent
+  namespace: agents
+spec:
+  runtimeClassName: gvisor
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["/bin/sh", "-c"]
+      args:
+        - 'echo "kernel: $(cat /proc/version)"; sleep 3600'

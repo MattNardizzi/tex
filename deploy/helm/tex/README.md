@@ -68,6 +68,41 @@ if you enable it without `imagePolicy.publicKey` **or**
 > do image gating. Signing proves **provenance**, never **behavior**: a signed
 > image can still be a malicious agent. Necessary, not sufficient.
 
+### Prove it locally on a real kind cluster
+
+The repo ships a self-contained harness that brings up a local
+[kind](https://kind.sigs.k8s.io) cluster with the gVisor (`runsc`) sandbox
+runtime baked into the node and installs this chart with the full admission
+stack on (injector + VAP + validating webhook + the `gvisor` RuntimeClass):
+
+```bash
+make kind-up     # build the gVisor node image, create the cluster, install
+                 # cert-manager + Tex (admission on), seed a governed namespace
+make kind-test   # the live assertion (below); make kind-down to tear it all down
+```
+
+`make kind-test` then, against the **real kube-apiserver**:
+
+1. applies a **non-compliant** pod (no sandbox `runtimeClassName`, not injected)
+   and asserts the apiserver **denies** it — e.g. the actual message returned is
+
+   > `ValidatingAdmissionPolicy 'tex-born-in-a-box' ... denied request: Tex
+   > admission denied: pod must declare an approved sandbox runtimeClassName
+   > (gVisor/Kata/Confidential Containers) to be admitted into the box`;
+2. applies a **compliant** pod and asserts it is **admitted because the injector
+   ran** (`tex.systems/injected=true` and the `tex-proxy` sidecar are present on
+   the persisted pod — not hand-written); and
+3. runs a pod under `runtimeClassName: gvisor` and asserts it is **really
+   sandboxed** (`/proc/version` reports `gvisor`, containerd handler `runsc`).
+
+Two harness-only notes the scripts make explicit: the operator image must carry
+the `kubernetes` client for the namespace watch (`operator.installKubernetesClient`
+self-bootstraps it without an image rebuild), and the injected egress-redirect
+init uses `iptables -m owner`, which gVisor's userspace netstack does not
+implement — so under gVisor the redirect must run via the eBPF node floor, not
+the in-pod init. Admission (deny/admit) is unaffected; only the in-pod redirect
+path is gVisor-incompatible.
+
 ### The honest boundary (necessary, not sufficient)
 
 Admission only sees what flows through the kube-apiserver. **Static pods**

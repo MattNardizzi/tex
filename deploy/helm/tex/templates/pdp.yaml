@@ -30,6 +30,12 @@ spec:
         prometheus.io/path: "{{ .Values.pdp.metrics.path }}"
       {{- end }}
     spec:
+      # Kubernetes' legacy service-link env vars inject {SVCNAME}_PORT=tcp://ip:port
+      # for every Service in the namespace. The PDP Service is named `tex`, so
+      # that yields TEX_PORT=tcp://... — which collides with the app's TEX_PORT
+      # setting (pydantic parses it as an int and fails closed at startup). The
+      # app reads config from explicit env only; disable the link vars.
+      enableServiceLinks: false
       containers:
         - name: tex
           image: {{ .Values.image.pdp }}

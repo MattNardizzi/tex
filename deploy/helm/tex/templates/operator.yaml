@@ -9,11 +9,35 @@ spec:
   template:
     metadata: { labels: { app: tex-operator } }
     spec:
+      # Same reason as the PDP: avoid the legacy TEX_PORT=tcp://... service-link
+      # env (the `tex` Service) poisoning the operator's config parsing.
+      enableServiceLinks: false
       serviceAccountName: tex-operator
       containers:
         - name: operator
           image: {{ .Values.image.pdp }}
+          {{- if .Values.operator.installKubernetesClient }}
+          # The EnrollmentController's namespace list-then-watch needs the
+          # official `kubernetes` client (controller.py imports it lazily and
+          # raises if absent). The base image ships only the app's runtime deps,
+          # so when this flag is on the operator self-bootstraps the client into
+          # a writable dir (the venv is root-owned; the pod runs as uid 10001)
+          # and prepends it to PYTHONPATH before launching. DEFAULT OFF: bake the
+          # client into the image for production; this is the no-image-rebuild
+          # path the kind harness uses. Honest cost: a one-time pip install at
+          # pod start (needs egress to PyPI).
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              TARGET=/tmp/operator-libs
+              python -c 'import kubernetes' 2>/dev/null \
+                || pip install --no-cache-dir --target="$TARGET" kubernetes
+              export PYTHONPATH="$TARGET:${PYTHONPATH}"
+              exec python -m tex.operator
+          {{- else }}
           command: ["python", "-m", "tex.operator"]
+          {{- end }}
           env:
             - { name: TEX_PDP_BASE, value: "http://tex.{{ include "tex.namespace" . }}.svc.cluster.local:{{ .Values.pdp.port }}" }
             - { name: TEX_PROXY_IMAGE, value: {{ .Values.image.proxy | quote }} }

@@ -1,0 +1,54 @@
+{{- if .Values.admission.shipRuntimeClass }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Born-in-a-box: the RUNTIME half.
+#
+# admission/webhook.py + the ValidatingAdmissionPolicy DECIDE which sandbox
+# RuntimeClass names a governed pod may declare; this renders the actual
+# node.k8s.io/v1 RuntimeClass objects so a compliant pod's runtimeClassName
+# resolves to a real sandbox runtime on the node. WITHOUT a RuntimeClass object
+# the apiserver REJECTS the pod ("RuntimeClass ... not found") before admission
+# even gets to admit it — so the admit-good-pod half of the harness needs these.
+#
+# SOURCE OF TRUTH: the allowlist is .Values.admission.approvedRuntimeClasses,
+# the SAME list the VAP (validating-policy.yaml) and the operator
+# (admission/webhook.py:InjectorConfig.approved_runtime_classes) read. We do NOT
+# introduce a second list — we render an object per approved name.
+#
+# HANDLER MAPPING (load-bearing, runtime-dependent):
+#   * gvisor  -> handler "runsc". containerd must have a [runsc] runtime
+#     configured (scripts/kind/kind-config.yaml does this for the kind node, and
+#     scripts/kind/Dockerfile.node installs the runsc + containerd-shim-runsc-v1
+#     binaries). This is the one we PROVE live: a compliant pod runs under it.
+#   * kata*   -> allowlist-only. We do NOT render a Kata RuntimeClass by default
+#     because Kata needs hardware virtualization / a nested-virt node that a kind
+#     node does not provide; rendering a RuntimeClass whose handler has no
+#     containerd runtime would make every kata pod un-schedulable ("failed to
+#     find runtime handler"). Kata stays a valid ADMISSION choice (the VAP admits
+#     it) but you must provision the Kata runtime + its own RuntimeClass on nodes
+#     that support it. See the comment below.
+#
+# The handler name must match a containerd runtime stanza on the node; the map
+# below is the only place we translate an approved allowlist NAME to a node
+# HANDLER. Add a runtime to the cluster, add its name here + to the allowlist.
+# ─────────────────────────────────────────────────────────────────────────────
+{{- range $rc := .Values.admission.approvedRuntimeClasses }}
+{{- if eq $rc "gvisor" }}
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: {{ $rc }}
+  labels:
+    {{- include "tex.labels" $ | nindent 4 }}
+# gVisor: containerd runtime handler is "runsc" (the gVisor shim,
+# containerd-shim-runsc-v1). Configured on the kind node by kind-config.yaml.
+handler: runsc
+---
+{{- else }}
+# {{ $rc }}: allowlist-only. The VAP admits a pod declaring runtimeClassName:
+# {{ $rc }}, but no RuntimeClass object is shipped here because the {{ $rc }}
+# runtime is not provisioned on a stock kind node (Kata needs nested virt). To
+# use it: install the runtime + its containerd handler on a capable node, then
+# create a node.k8s.io/v1 RuntimeClass named {{ $rc }} pointing at that handler.
+{{- end }}
+{{- end }}
+{{- end }}

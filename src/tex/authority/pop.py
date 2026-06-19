@@ -34,6 +34,15 @@ Honesty / boundary (do not overstate):
   * Ed25519 is classical (pre-quantum). ``research-solid`` for today's threat
     model; not PQ. The credential MAC and the PoP key are independent — a PQ PoP
     key would slot in here without touching the broker.
+
+Citation honesty: RFC 8693 / 7800 / 9449 were verified against the live specs
+this session. RFC 7638 (JWK thumbprint) and RFC 8037 (OKP/Ed25519 JOSE) are
+cited ``UNVERIFIED-FROM-MEMORY`` (not re-fetched this session). The thumbprint
+is implemented to the RFC-7638 shape (SHA-256 over the lexicographically-sorted
+required members ``{crv,kty,x}``) and is byte-for-byte *internally* consistent
+across mint/exchange/use (the tests prove that); it has NOT been validated
+against an external reference vector, so interop with a third-party DPoP
+resource server is ``UNVERIFIED`` until checked against one.
 """
 
 from __future__ import annotations

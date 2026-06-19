@@ -100,6 +100,13 @@ class ProxyConfig:
     require_identity: bool = False
     # G10 — TTL of a minted egress permit (seconds).
     permit_ttl_seconds: int = 30
+    # G6 — credential freshness (anti-replay). When ``pep_audience`` is set a
+    # presented credential must carry that ``aud``; an ``exp`` on the card is
+    # always honoured, and ``require_credential_expiry`` additionally rejects a
+    # card with no ``exp`` at all. Together these stop a captured credential from
+    # being a non-expiring, anywhere-valid bearer token.
+    pep_audience: str | None = None
+    require_credential_expiry: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,7 +453,12 @@ class TexEnforcementProxy:
                 refuse=_refuse("Malformed agent credential.", verdict="FORBID")
             )
 
-        att = verify_agent_credential(card, trusted_issuers=cfg.trusted_issuers or {})
+        att = verify_agent_credential(
+            card,
+            trusted_issuers=cfg.trusted_issuers or {},
+            expected_audience=cfg.pep_audience,
+            require_expiry=cfg.require_credential_expiry,
+        )
         if not att.verified:
             return _IdentityCheck(
                 refuse=_refuse(

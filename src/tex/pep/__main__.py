@@ -59,6 +59,11 @@ def build_app():
         default_agent_external_id=os.environ.get("TEX_AGENT") or None,
         require_verified_dst=_flag("TEX_PEP_REQUIRE_DST"),
         require_identity=_flag("TEX_PEP_REQUIRE_IDENTITY"),
+        # G6 anti-replay: this PEP's expected credential audience + whether a
+        # credential MUST carry an expiry. Unset leaves aud unchecked (an exp on
+        # a card is still honoured).
+        pep_audience=os.environ.get("TEX_PEP_AUDIENCE") or None,
+        require_credential_expiry=_flag("TEX_PEP_REQUIRE_CRED_EXPIRY"),
     )
 
     # G7 — kernel-captured destination loader (Thread T1). Always constructed;

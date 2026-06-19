@@ -84,8 +84,11 @@ def _mem():
     return MemorySystem(tenant_id="default", evidence_path=os.path.join(d, "ev.jsonl"))
 
 
-def _signed_card(agent_id: str, issuer: str = "issuer-1"):
-    """Build an Ed25519-signed identity card + its trusted_issuers map."""
+def _signed_card(agent_id: str, issuer: str = "issuer-1", **claims):
+    """Build an Ed25519-signed identity card + its trusted_issuers map.
+
+    Extra signed claims (e.g. ``exp``, ``nbf``, ``aud``) can be passed as kwargs;
+    ``None`` values are dropped so the default card stays exp/aud-free."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -93,7 +96,11 @@ def _signed_card(agent_id: str, issuer: str = "issuer-1"):
     raw_pub = sk.public_key().public_bytes(
         serialization.Encoding.Raw, serialization.PublicFormat.Raw
     )
-    payload = {"agent_id": agent_id, "name": "demo"}
+    payload = {
+        "agent_id": agent_id,
+        "name": "demo",
+        **{k: v for k, v in claims.items() if v is not None},
+    }
     jcs = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
@@ -363,6 +370,59 @@ def test_verified_credential_fills_in_absent_principal():
     )
     assert resp.status == 200
     assert client.last.agent_external_id == agent_id
+
+
+def test_expired_credential_forbids_at_proxy():
+    # Anti-replay: a signature-valid but EXPIRED credential is refused even
+    # without require_identity (exp=1000 is decades in the past vs the real clock).
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, exp=1000)
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(trusted_issuers=issuers),
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert fwd.calls == []  # captured/expired credential never forwards
+
+
+def test_credential_audience_mismatch_forbids_at_proxy():
+    # A credential minted for another PEP (aud) is refused at this one.
+    agent_id = str(uuid4())
+    card, issuers = _signed_card(agent_id=agent_id, aud="pep-other")
+    fwd = _RecordingForwarder()
+    client = _StaticClient(_permit())
+    proxy = TexEnforcementProxy(
+        decision_client=client,
+        forwarder=fwd,
+        origdst=_FakeResolver(ResolvedDst("10.0.0.1", 80)),
+        config=ProxyConfig(trusted_issuers=issuers, pep_audience="pep-this"),
+    )
+    resp = proxy.handle(
+        method="POST",
+        path="/p",
+        headers={
+            "X-Tex-Agent-Id": agent_id,
+            "X-Tex-Agent-Credential": _cred_header(card),
+        },
+        body=b"x",
+        peer=("1.2.3.4", 5),
+    )
+    assert resp.status == 403
+    assert fwd.calls == []
 
 
 # --------------------------------------------------------------------------- #

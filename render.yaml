@@ -88,6 +88,20 @@ services:
       # (sync:false keeps the secret out of this file).
       - key: TEX_API_KEYS
         sync: false
+      # PRESENCE: the grounded brain proposes which claims the truth-gate should
+      # verify. The gate recomputes + re-authors every answer, so the model is
+      # NEVER load-bearing for truth — honesty is identical on any model. Sonnet
+      # routes ambiguous questions better than Haiku (fewer needless abstentions);
+      # flip to claude-haiku-4-5 to cut cost once traffic scales.
+      - key: TEX_PRESENCE_BRAIN
+        value: claude
+      - key: TEX_PRESENCE_MODEL
+        value: claude-sonnet-4-6
+      # Claude key for the presence brain. SECRET — set it in the dashboard
+      # (sync:false keeps it out of this public file). Until it is set, the brain
+      # stays safely OFF (fail-safe) and the voice path is byte-identical.
+      - key: ANTHROPIC_API_KEY
+        sync: false
 
   # ⚠ DEACTIVATED — REAL-ONLY MODE (2026-06). This worker drives the SYNTHETIC
   # meridian-7 demo estate (~1 invented agent-action/sec). It must NOT run in

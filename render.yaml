@@ -89,6 +89,11 @@ services:
       - key: TEX_API_KEYS
         sync: false
 
+  # ⚠ DEACTIVATED — REAL-ONLY MODE (2026-06). This worker drives the SYNTHETIC
+  # meridian-7 demo estate (~1 invented agent-action/sec). It must NOT run in
+  # production. Keep it SUSPENDED in the Render dashboard (the service →
+  # Settings → Suspend). The definition is kept (not deleted) so the
+  # practice-course can be revived in a non-production environment.
   - type: worker
     name: tex-sim-driver
     runtime: python

@@ -1987,24 +1987,36 @@ def _build_discovery_connectors() -> list:
     The discovery service does not care which is which — they both
     satisfy the ``DiscoveryConnector`` Protocol.
     """
+    import os
+    from tex.config import is_production_env
+
+    # A production deployment must NEVER surface synthetic agents. Both the
+    # simulator sandbox estate (TEX_SANDBOX) and the first-run demo seed are
+    # dev/demo affordances; in production they are forced OFF regardless of env
+    # flags, so the standing discovery surface reflects only real connectors and
+    # the per-tenant conduit connector (which carries each connected directory's
+    # real Entra grant). Any synthetic meridian-* estate already in the store is
+    # left untouched — simply never fed or served.
+    _production = is_production_env()
+
     # --- SANDBOX: watch a synthetic estate through the real pipeline ---
     # With TEX_SANDBOX=1 the discovery roots are fed by tex.sim's generated
-    # estate via fixture transports instead of demo_seed / live tenants. The
-    # connector logic, reconciliation, ledger, and provenance are unchanged —
-    # only the data source differs. See SANDBOX_SIMULATOR.md.
-    import os
-    if os.environ.get("TEX_SANDBOX") == "1":
+    # estate via fixture transports instead of demo_seed / live tenants. DEV /
+    # DEMO ONLY — disabled in production. See SANDBOX_SIMULATOR.md.
+    if not _production and os.environ.get("TEX_SANDBOX") == "1":
         from tex.sim.connectors import build_sandbox_connectors
         return build_sandbox_connectors()
 
     # Demo seed (Entra consent-graph + OCSF audit fixtures) lets the first-run
     # "click Begin" map a believable estate when no live cloud credentials are
-    # configured. ON by default — the demo/first-run experience depends on it.
-    # Set TEX_DISCOVERY_DEMO_SEED=0 to suppress it: a production deploy that
-    # must never surface fixture agents, or the test suite, which relies on the
-    # documented "empty connectors" surface. The connector logic, reconciliation
-    # and ledger are identical either way — only the transport's seed differs.
-    _demo_seed = os.environ.get("TEX_DISCOVERY_DEMO_SEED", "1").strip().lower() not in {
+    # configured. ON by default in dev; FORCED OFF in production (a real deploy
+    # must never surface fixture agents). Set TEX_DISCOVERY_DEMO_SEED=0 to also
+    # suppress it in dev/test (the test suite relies on the documented "empty
+    # connectors" surface). The connector logic, reconciliation and ledger are
+    # identical either way — only the transport's seed differs.
+    _demo_seed = (not _production) and os.environ.get(
+        "TEX_DISCOVERY_DEMO_SEED", "1"
+    ).strip().lower() not in {
         "0",
         "false",
         "no",

@@ -98,9 +98,14 @@ def _sandbox_real_tenant() -> str:
     ephemeral preview override and strip the standing watch. Declaring it here
     (``TEX_SANDBOX_TENANT``) lets ignition treat it as the real estate it is:
     full discovery, standing watch enrolled, live PDP switched on, holds
-    surfaced. Empty in a keyed production deployment, where the key carries the
-    tenant and this seam is never reached.
+    surfaced. DEV/DEMO ONLY — forced empty in production, so a real deploy never
+    treats meridian-<seed> as its keyed estate (the key, or the connected
+    directory, carries the real tenant).
     """
+    from tex.config import is_production_env
+
+    if is_production_env():
+        return ""
     return os.environ.get("TEX_SANDBOX_TENANT", "").strip().casefold()
 
 

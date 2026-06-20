@@ -32,6 +32,22 @@ _NON_PRODUCTION_APP_ENVS: frozenset[str] = frozenset(
     {"dev", "development", "test", "testing", "local"}
 )
 
+
+def is_production_env() -> bool:
+    """True when ``TEX_APP_ENV`` names a production-like environment.
+
+    The single, Settings-free source of truth for "are we in production?", so
+    runtime seams (e.g. discovery connector building) can refuse synthetic data
+    in production without constructing the full Settings object.
+    """
+    import os
+
+    return (
+        os.environ.get("TEX_APP_ENV", "development").strip().lower()
+        not in _NON_PRODUCTION_APP_ENVS
+    )
+
+
 # Sentinel HMAC secret shipped in the repo. Real deployments MUST
 # override ``TEX_EVIDENCE_SUMMARY_SECRET`` with a high-entropy value
 # (>= 32 bytes from a CSPRNG). The startup guard refuses to boot when

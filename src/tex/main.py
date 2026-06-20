@@ -1913,6 +1913,49 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # and a key is present. Never generates a claim — narrates sealed facts.
     app.state.vigil_explainer = build_default_explainer()
 
+    # PRESENCE: the grounded brain (Session 1) proposes which claims the truth-gate
+    # should verify. OFF by default — with no brain the voice answer is byte-identical
+    # (NULL_BRAIN proposes nothing → AskOutcome.presence stays None). The gate
+    # re-verifies and re-authors every claim regardless, so the model is never
+    # load-bearing. Fail-safe: any setup error leaves it None.
+    app.state.presence_brain = _build_presence_brain()
+
+
+def _build_presence_brain() -> Any:
+    """Build the Presence grounded brain when explicitly enabled, else None.
+
+    Enabled by ``TEX_PRESENCE_BRAIN`` in {``claude``, ``anthropic``} together with
+    an ``ANTHROPIC_API_KEY``. Returns None (inert) on any missing dependency or
+    construction error so the deterministic voice path is never broken. Model
+    override via ``TEX_PRESENCE_MODEL`` (default ``claude-opus-4-8``)."""
+    choice = os.environ.get("TEX_PRESENCE_BRAIN", "").strip().lower()
+    if choice not in {"claude", "anthropic"}:
+        return None
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        _logger.warning(
+            "presence: TEX_PRESENCE_BRAIN=%s but ANTHROPIC_API_KEY is unset — "
+            "presence brain stays OFF (voice path unchanged).",
+            choice,
+        )
+        return None
+    try:
+        from tex.presence.brain import build_grounded_brain
+        from tex.semantic.anthropic import AnthropicStructuredSemanticProvider
+
+        model = os.environ.get("TEX_PRESENCE_MODEL", "").strip() or "claude-opus-4-8"
+        brain = build_grounded_brain(
+            provider=AnthropicStructuredSemanticProvider(model=model)
+        )
+        _logger.info(
+            "presence: grounded brain ON (provider=anthropic, model=%s).", model
+        )
+        return brain
+    except Exception as exc:  # defensive — never break boot over an optional brain
+        _logger.warning(
+            "presence: failed to build grounded brain (%s) — staying OFF.", exc
+        )
+        return None
+
 
 def _seed_default_policies(policy_store: InMemoryPolicyStore) -> None:
     """

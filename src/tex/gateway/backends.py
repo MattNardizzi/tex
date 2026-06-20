@@ -324,7 +324,12 @@ class KokoroTTS:
     """
 
     requires = ("onnxruntime", "soundfile", "kokoro_onnx")
-    VOICE = "af_heart"
+    # The local-dev stand-in voice. Overridable via TEX_KOKORO_VOICE (mirrors
+    # TEX_ELEVENLABS_VOICE for the cloud path) so the dev voice can be swapped
+    # without code. Production speaks through ElevenLabs, not this — Kokoro is the
+    # keyless fallback. Default kept neutral; 13 male / 15 female voices ship in
+    # voices-v1.0.bin (am_*/bm_* male, af_*/bf_* female).
+    VOICE = os.environ.get("TEX_KOKORO_VOICE", "af_heart")
     MODEL_FILE = "kokoro-v1.0.onnx"
     VOICES_FILE = "voices-v1.0.bin"
 
@@ -611,6 +616,63 @@ class ElevenLabsTTS:
             "words": words,
         }
 
+    def stream(self, text: str, *, chunk_size: int = 4096):
+        """Stream the EXACT sealed ``text`` as MP3 chunks from ElevenLabs'
+        ``/stream`` endpoint — the first audio bytes arrive in ~hundreds of ms
+        instead of after the whole clip is generated (the ``synthesize`` convert
+        path waits for the full body). A generator of raw MP3 bytes. Same honest
+        gate + verbatim semantics as ``synthesize`` (flash_v2_5 pinned,
+        normalization OFF, Tex's already-sealed string only — never generates).
+        Raises BEFORE the first yield on a connect/auth/HTTP error, so a caller
+        can fall back to the no-vendor path; a failure mid-stream simply truncates."""
+        import json
+        import urllib.error
+        import urllib.request
+
+        key = self._api_key()
+        if key is None:
+            raise RuntimeError(
+                "ElevenLabsTTS.stream called while unavailable (ELEVENLABS_API_KEY not set)."
+            )
+        if not (text or "").strip():
+            return  # nothing sealed → empty stream, no vendor call, no cost
+        payload = json.dumps(
+            {
+                "text": text,
+                "model_id": self._model(),          # SOTA real-time; pinned
+                "apply_text_normalization": "off",  # voice the SEALED string verbatim
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.API_BASE}/v1/text-to-speech/{self._voice()}/stream?output_format=mp3_44100_128",
+            data=payload,
+            method="POST",
+            headers={
+                "xi-api-key": key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+        )
+        try:
+            resp = urllib.request.urlopen(request, timeout=self._TIMEOUT_S)
+        except urllib.error.HTTPError as exc:
+            detail = b""
+            try:
+                detail = exc.read()[:300]
+            except Exception:  # pragma: no cover - defensive
+                pass
+            raise RuntimeError(
+                f"ElevenLabs stream HTTP {exc.code} for voice {self._voice()}: {detail!r}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"ElevenLabs stream unreachable: {exc.reason}") from exc
+        with resp:
+            while True:
+                chunk = resp.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+
     def _post(self, *, path: str, key: str, text: str) -> bytes:
         """POST the SEALED ``text`` to an ElevenLabs TTS endpoint (flash_v2_5
         pinned, normalization OFF) and return the raw response body. Shared by
@@ -715,3 +777,49 @@ def synthesize_tts(text: str, *, sample_rate: int) -> tuple[bytes, str]:
         return audio, backend.name
     # OfflineTTS is always available and never raises, so this is unreachable.
     raise RuntimeError(f"no TTS backend could synthesize; failures={failures}")
+
+
+def synthesize_tts_stream(text: str, *, sample_rate: int):
+    """Streaming sibling of :func:`synthesize_tts`. Returns
+    ``(iterator_of_bytes, backend_name, media_type)``.
+
+    Prefers ElevenLabs' progressive MP3 stream — the first audio arrives in
+    ~hundreds of ms instead of after the whole clip — and on ANY connect / auth /
+    HTTP failure BEFORE the first byte falls THROUGH to the no-vendor path (the
+    full Kokoro WAV / offline tone as a single chunk). So Tex is never muted by a
+    vendor hiccup and the no-vendor fallbacks stay intact, exactly like
+    :func:`synthesize_tts`. ``backend_name`` names who ACTUALLY produced the audio,
+    so ``X-Tex-Voice-Backend`` is honest. Grounding is unchanged: this only voices
+    a string the caller already sealed in ``/v1/ask`` — it never authors text.
+    ``sample_rate`` applies ONLY to the no-vendor WAV fallback; the cloud path
+    streams self-describing MP3 (``mp3_44100_128``) and ignores it."""
+    el = ElevenLabsTTS()
+    if el.available():
+        gen = el.stream(text)
+        try:
+            first = next(gen)  # forces connect + first chunk; raises on vendor failure
+        except StopIteration:
+            pass  # empty/sealed-silent line → fall through to the no-vendor path
+        except Exception as exc:  # connect/auth/HTTP before any audio → fall through
+            _logger.warning(
+                "voice gateway: ElevenLabs stream pre-roll failed (%r); falling through", exc
+            )
+        else:
+            def _eleven_stream():
+                try:
+                    yield first
+                    yield from gen
+                except Exception as exc:  # rare mid-stream break → truncate, never mute
+                    _logger.warning(
+                        "voice gateway: ElevenLabs stream broke mid-clip (%r)", exc
+                    )
+                finally:
+                    # Deterministically close the upstream ElevenLabs socket on a
+                    # natural end, a mid-stream error, OR client abandonment /
+                    # barge-in (when the response generator is closed) — don't lean
+                    # on GC of ``with resp:`` to finalize the HTTPS connection.
+                    gen.close()
+            return _eleven_stream(), el.name, "audio/mpeg"
+    # No vendor (or vendor failed pre-roll): the local no-vendor path, one chunk.
+    audio, name = synthesize_tts(text, sample_rate=sample_rate)
+    return iter([audio]), name, "audio/wav"

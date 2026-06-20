@@ -31,13 +31,13 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.vigil_routes import _resolve_effective_tenant
 from tex.gateway import grant
-from tex.gateway.backends import ElevenLabsTTS, synthesize_tts
+from tex.gateway.backends import ElevenLabsTTS, synthesize_tts, synthesize_tts_stream
 from tex.voice import voice_ask
 
 __all__ = ["build_voice_router"]
@@ -170,10 +170,17 @@ def build_voice_router() -> APIRouter:
         # Kokoro, else the honest offline tone — and a RUNTIME vendor failure falls
         # through too, so Tex is never muted. The header names whoever ACTUALLY
         # spoke, so a cloud vendor in the audio path is labeled on every byte.
-        audio, backend_name = synthesize_tts(text, sample_rate=_SPEAK_SAMPLE_RATE)
-        return Response(
-            content=audio,
-            media_type="audio/wav",
+        # STREAMED: the first audio plays in ~hundreds of ms (ElevenLabs
+        # progressive MP3) instead of after the whole clip is generated. The
+        # no-vendor fallback (full Kokoro WAV / offline tone) is delivered as a
+        # single chunk, so the contract is identical for callers — just faster on
+        # the cloud path. The header still names whoever ACTUALLY spoke.
+        iterator, backend_name, media_type = synthesize_tts_stream(
+            text, sample_rate=_SPEAK_SAMPLE_RATE
+        )
+        return StreamingResponse(
+            iterator,
+            media_type=media_type,
             headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": backend_name},
         )
 

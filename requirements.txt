@@ -16,3 +16,8 @@ PyYAML
 blake3
 pyasn1-modules
 rustworkx
+# Presence grounded brain (Session 1): the Claude SDK for the question→claims
+# proposal step. Used only when TEX_PRESENCE_BRAIN=claude + ANTHROPIC_API_KEY are
+# set; the truth-gate re-verifies and re-authors every claim, so the model is
+# never load-bearing. Without this package the brain logs ON but silently no-ops.
+anthropic>=0.111.0

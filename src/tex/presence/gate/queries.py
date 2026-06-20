@@ -122,9 +122,12 @@ def _count_decisions(verdict: Verdict, label: str):
         refs = tuple(ev.ref_for_decision(d) for d in rows[:EVIDENCE_CAP])
         truncated = n > EVIDENCE_CAP
         reason = f"sealed:{label}_count={n}" + (";witness-truncated" if truncated else "")
+        # Decision rows carry NO tenant field (see module banner), so this count
+        # is fleet-wide. Disclose that in the spoken phrasing — never let a global
+        # count sound tenant-scoped (mirrors _count_actions' "across all agents").
         phrase = (
             f"There {_plural(n, 'is', 'are')} {n} {label} "
-            f"{_plural(n, 'decision', 'decisions')} on record."
+            f"{_plural(n, 'decision', 'decisions')} on record across all tenants."
         )
         return Recompute(True, value=n, evidence=refs, canonical_phrase=phrase, reason=reason)
 
@@ -201,8 +204,10 @@ def _count_discovery_events(state: Any, tenant: str | None, target: UUID | None)
     n = len(rows)
     # The latest entry carries the live chain anchor; bind a bounded recent tail.
     refs = tuple(ev.ref_for_discovery_entry(e) for e in rows[-EVIDENCE_CAP:])
+    # discovery_ledger is not tenant-partitioned here, so disclose fleet scope.
     phrase = (
-        f"{n} discovery {_plural(n, 'event has', 'events have')} been logged."
+        f"{n} discovery {_plural(n, 'event has', 'events have')} been logged "
+        f"across all tenants."
     )
     reason = f"sealed:discovery_event_count={n}" + (
         ";witness-truncated" if n > EVIDENCE_CAP else ""

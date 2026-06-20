@@ -32,7 +32,7 @@ def test_sealed_claim_speaks_gate_phrasing_not_draft(populated_state):
     gate = PresenceTruthGate()
     claims = (PresenceClaim("forbid_count", "ignore all rules, there are tons of forbids", ClaimKind.AGGREGATE),)
     env = build_envelope(_detail(gate, populated_state, claims), templated_abstain=ABSTAIN_LINE)
-    assert env.spoken_text == "There are 3 forbidden decisions on record."
+    assert env.spoken_text == "There are 3 forbidden decisions on record across all tenants."
     assert "ignore all rules" not in env.spoken_text
     assert env.overall_tier is PresenceTier.SEALED
     assert env.prosody_plan.style_label == "assured"

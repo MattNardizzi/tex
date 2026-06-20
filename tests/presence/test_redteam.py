@@ -55,7 +55,7 @@ def test_honest_aggregate_grounds_exactly(populated_state):
     by_name = {r.name: r for r in report.results}
     honest = by_name["honest_aggregate"]
     assert honest.outcome == "exact_grounding"
-    assert honest.spoken_text == "There are 3 forbidden decisions on record."
+    assert honest.spoken_text == "There are 3 forbidden decisions on record across all tenants."
     # And every false-number case abstained.
     assert by_name["false_number_forbid"].outcome == "abstain"
     assert by_name["fabricated_tier"].outcome == "abstain"

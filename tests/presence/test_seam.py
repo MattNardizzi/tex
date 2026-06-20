@@ -69,7 +69,7 @@ def test_dimension_branch_attaches_presence_without_replacing(monkeypatch, popul
     assert out.answer == answer_forms.ABSTAIN_NO_FACT
     # Presence attached in parallel, grounded from the SAME sealed rows.
     assert out.presence is not None
-    assert out.presence.spoken_text == "There are 3 forbidden decisions on record."
+    assert out.presence.spoken_text == "There are 3 forbidden decisions on record across all tenants."
     assert out.presence.overall_tier.value == "sealed"
 
 

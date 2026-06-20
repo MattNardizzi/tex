@@ -12,7 +12,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
+
+
+def _sim_enabled() -> bool:
+    """The simulator drives a SYNTHETIC estate, so it is opt-in. It drives a
+    backend only when TEX_SIM_ENABLED=1; otherwise (the default — including any
+    production deploy) it refuses. This is what keeps the practice-course
+    simulator from ever seeding a real deployment."""
+    return os.environ.get("TEX_SIM_ENABLED", "").strip() == "1"
+
+
+def _refuse(mode: str) -> None:
+    print(
+        "[tex.sim] DEACTIVATED — real-only mode. The simulator drives a synthetic "
+        "estate and is opt-in: set TEX_SIM_ENABLED=1 to run it (dev/demo only). "
+        f"Refusing to {mode}.",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,6 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "run":
+        if not args.dry_run and not _sim_enabled():
+            _refuse("drive a backend")
+            return 0
         from tex.sim.runner import run
         report = run(args.scenario, base_url=args.base_url, api_key=args.api_key,
                      report_path=args.report, proof_sample=args.proof_sample,
@@ -64,6 +87,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report.ok else 1
 
     if args.cmd == "live":
+        if not _sim_enabled():
+            _refuse("drive a backend")
+            # Stay alive but inert so a background-worker host does not crash-loop
+            # on a fast exit. Drives nothing; suspend the worker to reclaim it.
+            while True:
+                time.sleep(3600)
         from tex.sim.live import LiveConfig, parse_duration, run_live
         config = LiveConfig(
             scenario=args.scenario, rate=args.rate,

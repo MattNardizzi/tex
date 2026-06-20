@@ -38,13 +38,15 @@ from typing import Any
 from uuid import UUID
 
 from tex.domain.verdict import Verdict
+from tex.presence.contract import NULL_BRAIN, AnswerEnvelope
+from tex.presence.gate import PresenceTelemetry, PresenceTruthGate, run_presence
 from tex.vigil import Explainer
 from tex.voice import answer_forms
 from tex.voice.attestation import VoiceAttestor
 from tex.voice.intent import HandleKind, Intent, IntentKind, route_intent
 from tex.voice.voice_gate import VoiceGate
 
-__all__ = ["AskOutcome", "answer_question", "get_attestor"]
+__all__ = ["AskOutcome", "answer_question", "get_attestor", "get_presence_telemetry"]
 
 
 # A deterministic, provider-free explainer: it builds the sealed EvidenceFacts
@@ -52,7 +54,40 @@ __all__ = ["AskOutcome", "answer_question", "get_attestor"]
 _FACTS_EXPLAINER = Explainer(provider=None)
 _GATE = VoiceGate()
 
+# The presence truth-gate runs in PARALLEL to VoiceGate (it never replaces the
+# deterministic sealed-fact floor). It is INERT by default: with no brain on
+# app.state the NULL_BRAIN proposes no claims, so presence stays None and the
+# live answer is byte-identical to before this wiring.
+_PRESENCE_GATE = PresenceTruthGate()
+_PRESENCE_TELEMETRY = PresenceTelemetry()
+
 _ATTESTOR_LOCK = threading.Lock()
+
+
+def get_presence_telemetry() -> PresenceTelemetry:
+    """The process-wide presence telemetry (abstain / grounding / mismatch)."""
+    return _PRESENCE_TELEMETRY
+
+
+def _run_presence(
+    request: Any, *, transcript: str, tenant: str | None, facts: Any, templated_abstain: str
+) -> AnswerEnvelope | None:
+    """Run the presence channel for a dimension question. Best-effort and inert
+    unless a GroundedBrain is configured on ``app.state.presence_brain``."""
+    state = getattr(getattr(request, "app", None), "state", None)
+    brain = getattr(state, "presence_brain", None) or NULL_BRAIN
+    held_sink = getattr(state, "held_decision_sink", None)
+    return run_presence(
+        gate=_PRESENCE_GATE,
+        request=request,
+        tenant=tenant,
+        brain=brain,
+        transcript=transcript,
+        facts=facts,
+        templated_abstain=templated_abstain,
+        telemetry=_PRESENCE_TELEMETRY,
+        held_sink=held_sink,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +100,10 @@ class AskOutcome:
     attestation_anchor: str | None = None
     attestation_algorithm: str | None = None
     gate: dict[str, Any] = field(default_factory=dict)
+    # The presence channel's bound answer (words + per-claim verdicts + prosody),
+    # produced by the truth-gate running in parallel to VoiceGate. None unless a
+    # GroundedBrain is engaged; the legacy fields above are untouched either way.
+    presence: AnswerEnvelope | None = None
 
 
 def get_attestor(request: Any) -> VoiceAttestor:
@@ -140,7 +179,10 @@ def answer_question(
     intent = route_intent(transcript)
     attestor = get_attestor(request)
 
-    def _seal(outcome_verdict: Verdict, answer: str, obj, proof, dim, gate_dict) -> AskOutcome:
+    def _seal(
+        outcome_verdict: Verdict, answer: str, obj, proof, dim, gate_dict,
+        presence: AnswerEnvelope | None = None,
+    ) -> AskOutcome:
         rec = attestor.seal(
             transcript=transcript,
             routed_dimension=dim,
@@ -160,6 +202,7 @@ def answer_question(
             attestation_anchor=rec.record_hash,
             attestation_algorithm=attestor.algorithm,
             gate=gate_dict,
+            presence=presence,
         )
 
     # ── No sealed source could be resolved ──────────────────────────────────
@@ -206,11 +249,19 @@ def answer_question(
             Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_FACT, None, None, dimension,
             {"reason": "no-sealed-fact", "scorer": "router"},
         )
+    # Presence runs in PARALLEL to VoiceGate, off the SAME sealed facts. It never
+    # replaces the deterministic floor below; it only attaches an optional bound
+    # answer. Inert (None) unless a GroundedBrain is configured.
+    presence_env = _run_presence(
+        request, transcript=transcript, tenant=tenant, facts=facts,
+        templated_abstain=answer_forms.ABSTAIN_NO_FACT,
+    )
+
     build = answer_forms.build_dimension_answer(dimension, facts)
     if build is None:
         return _seal(
             Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_FACT, None, None, dimension,
-            {"reason": "no-fillable-form", "scorer": "router"},
+            {"reason": "no-fillable-form", "scorer": "router"}, presence_env,
         )
     # A dimension question has no single sealed verdict to contradict, so the
     # structural FORBID (Rule B) cannot fire here — sealed_verdict stays None.
@@ -220,5 +271,5 @@ def answer_question(
     )
     gate_dict = _gate_summary(gate)
     if gate.verdict is Verdict.PERMIT:
-        return _seal(Verdict.PERMIT, build.answer, build.object, build.proof_ref, dimension, gate_dict)
-    return _seal(Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_FACT, None, None, dimension, gate_dict)
+        return _seal(Verdict.PERMIT, build.answer, build.object, build.proof_ref, dimension, gate_dict, presence_env)
+    return _seal(Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_FACT, None, None, dimension, gate_dict, presence_env)

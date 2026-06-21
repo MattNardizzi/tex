@@ -825,14 +825,19 @@ def build_runtime(
         dormancy_controller=dormancy_controller,
     )
 
-    # Until a real client connects, run the standing system against a demo
-    # tenant so the full loop — periodic re-scan (the standing watch),
-    # dormancy sweep, and held-decision surfacing — is live and visible
-    # against the demo seed. A real tenant is enrolled on its ignition.
+    # A standing-watch demo tenant is a DEV-ONLY affordance: enrolling one lets
+    # the full loop — periodic re-scan (the standing watch), dormancy sweep, and
+    # held-decision surfacing — run and be visible before any real client
+    # connects. It is OPT-IN (no default tenant, so a fresh app has zero tenants)
+    # and, mirroring the demo-seed gate, is FORCED OFF in production so a
+    # baked-in env var can never plant a synthetic tenant on a real deploy. Real
+    # tenants are enrolled on their ignition regardless of this flag.
+    from tex.config import is_production_env
+
     _demo_watch_tenant = os.environ.get(
-        "TEX_DISCOVERY_DEMO_TENANT", "demo"
+        "TEX_DISCOVERY_DEMO_TENANT", ""
     ).strip().casefold()
-    if _demo_watch_tenant:
+    if _demo_watch_tenant and not is_production_env():
         scan_scheduler.enroll_tenant(_demo_watch_tenant)
 
     # ── Thread 1 / 1.5: behavioral contracts (LTLf) wiring ────────────────
@@ -1389,11 +1394,19 @@ def create_app(
         resolved_runtime = build_runtime(evidence_path=evidence_path)
 
     def _start_scheduler(rt: TexRuntime) -> Any:
-        # V15: start the background discovery scheduler. ``start()`` is
-        # idempotent and a no-op when no tenants are configured, so local-dev
-        # boots stay quiet.
+        # V15: start the background discovery scheduler. The standing watch is
+        # real-only: from boot it runs when tenants are already configured
+        # (TEX_DISCOVERY_SCAN_TENANTS, or a dev opt-in demo tenant), or in
+        # production — where it must be live so a real client's ignition simply
+        # joins the running watch. With zero tenants in dev/test it stays quiet:
+        # a fresh app has nothing real to watch. ``start()`` is idempotent.
+        from tex.config import is_production_env
+
         scheduler = getattr(rt, "scan_scheduler", None)
-        if scheduler is not None:
+        if scheduler is None:
+            return None
+        has_tenants = bool(scheduler.status.get("tenants"))
+        if has_tenants or is_production_env():
             try:
                 scheduler.start()
             except Exception as exc:  # pragma: no cover

@@ -78,18 +78,33 @@ def _run_presence(
     brain = getattr(state, "presence_brain", None) or NULL_BRAIN
     held_sink = getattr(state, "held_decision_sink", None)
     attestor = getattr(state, "presence_attestor", None)
-    return run_presence(
-        gate=_PRESENCE_GATE,
-        request=request,
-        tenant=tenant,
-        brain=brain,
-        transcript=transcript,
-        facts=facts,
-        templated_abstain=templated_abstain,
-        telemetry=_PRESENCE_TELEMETRY,
-        held_sink=held_sink,
-        attestor=attestor,
-    )
+    def _go() -> AnswerEnvelope | None:
+        return run_presence(
+            gate=_PRESENCE_GATE,
+            request=request,
+            tenant=tenant,
+            brain=brain,
+            transcript=transcript,
+            facts=facts,
+            templated_abstain=templated_abstain,
+            telemetry=_PRESENCE_TELEMETRY,
+            held_sink=held_sink,
+            attestor=attestor,
+        )
+
+    # L1 flywheel: when a per-tenant calibration feed exists, let the conformal
+    # gate read THIS tenant's calibration so it tightens as holds resolve. Inert
+    # (plain transductive) when no feed or no tenant — never changes behavior then.
+    feed = getattr(state, "presence_calibration", None)
+    if feed is not None and tenant:
+        try:
+            from tex.presence.memory import tenant_calibration_env
+
+            with tenant_calibration_env(feed, tenant):
+                return _go()
+        except Exception:  # calibration must never break the voice path
+            return _go()
+    return _go()
 
 
 @dataclass(frozen=True, slots=True)

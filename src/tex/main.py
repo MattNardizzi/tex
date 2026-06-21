@@ -1543,6 +1543,14 @@ def create_app(
     # V17: Learning/Drift layer
     from tex.api.learning_routes import build_learning_router
     app.include_router(build_learning_router())
+    # PRESENCE: the L2 profile confirm/correct loop (/v1/presence/profile/*).
+    # Additive + auth-gated; its correct() handler feeds the L1 calibration
+    # flywheel via app.state.presence_calibration. Fail-safe mount.
+    try:
+        from tex.api.presence_profile_routes import build_presence_profile_router
+        app.include_router(build_presence_profile_router())
+    except Exception as exc:  # never break boot over an optional leg
+        _logger.warning("presence: profile router not mounted (%s).", exc)
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
     app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
     app.include_router(guardrail_streaming_router)  # GUARDRAIL: SSE + async + chunk streaming
@@ -1925,6 +1933,38 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # attestor whose attest() yields None (contract-allowed). Fail-safe: any
     # import/build error leaves it None and the voice path is unaffected.
     app.state.presence_attestor = _build_presence_attestor()
+
+    # PRESENCE LEARNING (L1 calibration flywheel · L2 profile/correct loop · L3
+    # habit hypotheses). OFF-impact by default: sealed per-tenant stores + an
+    # opt-in route; with no brain engaged and no operator corrections they are
+    # inert and the voice path is byte-identical. Each leg is fail-safe — any
+    # setup error leaves it None and never breaks boot.
+    try:
+        from tex.presence.memory import build_calibration_feed, build_presence_memory
+
+        app.state.presence_memory = build_presence_memory(durable=True)
+        app.state.presence_calibration = build_calibration_feed()
+    except Exception as exc:  # never break boot over an optional leg
+        _logger.warning("presence: calibration/memory setup failed (%s) — OFF.", exc)
+        app.state.presence_memory = None
+        app.state.presence_calibration = None
+    try:
+        from tex.presence.profile import build_profile_memory
+
+        app.state.presence_profile = build_profile_memory(durable=True)
+    except Exception as exc:
+        _logger.warning("presence: profile store setup failed (%s) — OFF.", exc)
+        app.state.presence_profile = None
+    try:
+        from tex.presence.habits import build_habit_surface
+
+        app.state.presence_habits = build_habit_surface(
+            memory=getattr(app.state, "presence_memory", None),
+            profile=getattr(app.state, "presence_profile", None),
+        )
+    except Exception as exc:
+        _logger.warning("presence: habit surface setup failed (%s) — OFF.", exc)
+        app.state.presence_habits = None
 
 
 def _build_presence_attestor() -> Any:

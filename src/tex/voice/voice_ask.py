@@ -77,6 +77,7 @@ def _run_presence(
     state = getattr(getattr(request, "app", None), "state", None)
     brain = getattr(state, "presence_brain", None) or NULL_BRAIN
     held_sink = getattr(state, "held_decision_sink", None)
+    attestor = getattr(state, "presence_attestor", None)
     return run_presence(
         gate=_PRESENCE_GATE,
         request=request,
@@ -87,6 +88,7 @@ def _run_presence(
         templated_abstain=templated_abstain,
         telemetry=_PRESENCE_TELEMETRY,
         held_sink=held_sink,
+        attestor=attestor,
     )
 
 

@@ -72,6 +72,7 @@ def build_envelope(
     detailed: tuple[ClaimEvaluation, ...],
     *,
     templated_abstain: str,
+    attestor: Any = None,
 ) -> AnswerEnvelope:
     """Assemble the envelope spoken to the user. Supported claims contribute the
     gate's canonical phrasing; ABSTAIN claims are stripped. Prosody is bound to
@@ -124,6 +125,16 @@ def build_envelope(
             prosody_plan=ProsodyPlan.from_tier(PresenceTier.ABSTAIN),
             surface_object=surface,
         )
+
+    # Post-gate proof step (Session 3): sign the (claim → evidence → tier) binding
+    # so the proof glass can show a verifiable attestation. No-op when no attestor
+    # is wired or sealing is OFF (TEX_SEAL_DECISIONS unset) → attestation stays
+    # None (contract-allowed). Only ever SETS .attestation on the verdicts; never
+    # touches tier/claims/prosody, so the invariant asserted above still holds.
+    if attestor is not None:
+        from tex.presence.attest import apply_attestation  # local import: keep the gate decoupled
+
+        envelope = apply_attestation(envelope, attestor)
     return envelope
 
 
@@ -173,6 +184,7 @@ def run_presence(
     templated_abstain: str,
     telemetry: PresenceTelemetry | None = None,
     held_sink: Any = None,
+    attestor: Any = None,
 ) -> AnswerEnvelope | None:
     """Run the presence channel in PARALLEL to the deterministic voice path.
 
@@ -203,7 +215,7 @@ def run_presence(
     if telemetry is not None:
         telemetry.observe_answer([e.verdict for e in detailed])
 
-    envelope = build_envelope(detailed, templated_abstain=templated_abstain)
+    envelope = build_envelope(detailed, templated_abstain=templated_abstain, attestor=attestor)
 
     if not envelope.verdicts:  # answer-level ABSTAIN → surface one hold
         raise_presence_hold(held_sink, detailed, transcript=transcript)

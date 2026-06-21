@@ -233,3 +233,49 @@ def test_ask_presence_abstains_honestly(client: TestClient) -> None:
     assert pres["overall_tier"] == "abstain"
     assert pres["claims"] == []
     assert pres["verdicts"] == []
+
+
+def test_ask_attaches_attestation_when_attestor_enabled(client: TestClient) -> None:
+    # Wiring proof: an enabled attestor on app.state flows brain → gate →
+    # build_envelope → apply_attestation, and the signed binding is serialized onto
+    # the verdict for the proof glass. (The real crypto/forgery resistance is
+    # covered by tests/presence/attest; this asserts the INTEGRATION carries it.)
+    # A stub keeps the test hermetic — no signing key is minted.
+    from tex.presence.contract import Attestation, ClaimKind, PresenceClaim, PresenceTier
+
+    store = client.app.state.decision_store
+    for _ in range(3):
+        store.save(_decision(Verdict.FORBID))
+
+    client.app.state.presence_brain = _FakeBrain(
+        "how many forbids",
+        (PresenceClaim("forbid_count", "how many forbids", ClaimKind.AGGREGATE),),
+    )
+
+    class _StubAttestor:
+        enabled = True
+
+        def attest(self, *, claim, verdict):
+            if verdict.tier is PresenceTier.ABSTAIN:
+                return None
+            return Attestation(
+                algorithm="ecdsa-p256",
+                signed_digest_sha256="a" * 64,
+                signature_b64="c2lnbmF0dXJl",
+                is_post_quantum=False,
+                key_id="presence-attest-key-v1",
+            )
+
+    client.app.state.presence_attestor = _StubAttestor()
+
+    resp = client.post(
+        "/v1/ask", json={"transcript": "how many forbidden actions were there"}
+    )
+    assert resp.status_code == 200
+    v0 = resp.json()["presence"]["verdicts"][0]
+    att = v0["attestation"]
+    assert att is not None, "an enabled attestor must attach a signed binding to the verdict"
+    assert att["algorithm"] == "ecdsa-p256"
+    assert att["is_post_quantum"] is False
+    assert att["signed_digest_sha256"] and att["signature_b64"]
+    assert att["key_id"] == "presence-attest-key-v1"

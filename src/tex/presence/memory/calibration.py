@@ -81,6 +81,7 @@ import logging
 import os
 import re
 import threading
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
@@ -90,7 +91,13 @@ _logger = logging.getLogger(__name__)
 __all__ = [
     "MIN_CALIBRATION_N",
     "PresenceCalibrationFeed",
+    "CalibrationResolution",
     "tenant_calibration_env",
+    "calibration_disabled_env",
+    "calibration_available",
+    "default_calibration_feed",
+    "record_resolution_for_calibration",
+    "forget_resolution_for_calibration",
 ]
 
 # Below this many confirmed labels, calibrated mode does NOT engage: the scores
@@ -101,8 +108,12 @@ MIN_CALIBRATION_N: int = 30
 _DEFAULT_DIR = "./data/presence_calibration"
 
 # Serializes the process-global TEX_CONFORMAL_CALIBRATION_PATH env var across
-# concurrent tenants in one process (see module docstring).
-_ENV_LOCK = threading.Lock()
+# concurrent tenants in one process (see module docstring). RE-ENTRANT on purpose:
+# the gate composes tenant_calibration_env with calibration_disabled_env, and a
+# legacy caller may still wrap the gate in tenant_calibration_env — same-thread
+# nesting must not self-deadlock. Cross-thread serialization (single-flight) is
+# unchanged: a different thread still blocks until the owner fully releases.
+_ENV_LOCK = threading.RLock()
 
 # Per-path write locks so concurrent record/forget on one tenant serialize.
 _PATH_LOCKS: dict[str, threading.Lock] = {}
@@ -234,6 +245,13 @@ class PresenceCalibrationFeed:
 
     # ---- status (telemetry / tests) ----------------------------------
 
+    def label_count(self, tenant: str) -> int:
+        """How many confirmed calibration labels this tenant has accrued (ledger
+        rows). A cheap audit counter — the gate surfaces it on the verdict as
+        ``calibration_n`` so the active mode is explainable (n vs MIN_CALIBRATION_N)
+        without building the full :meth:`status` dict."""
+        return len(self._read_ledger(self._ledger_path(tenant)))
+
     def status(self, tenant: str) -> dict[str, Any]:
         """Honest snapshot: how many points, whether calibrated mode is active,
         and the selection-conditional coverage label."""
@@ -333,3 +351,126 @@ def tenant_calibration_env(feed: PresenceCalibrationFeed, tenant: str) -> Iterat
                 os.environ.pop("TEX_CONFORMAL_CALIBRATION_PATH", None)
             else:
                 os.environ["TEX_CONFORMAL_CALIBRATION_PATH"] = prior
+
+
+@contextlib.contextmanager
+def calibration_disabled_env() -> Iterator[None]:
+    """Force ``transductive`` mode for the enclosed conformal computation by
+    removing ``TEX_CONFORMAL_CALIBRATION_PATH`` for its duration, under the SAME
+    process-global lock :func:`tenant_calibration_env` uses (so the two compose
+    without a cross-thread env race). Restores the prior value on exit.
+
+    The gate uses this to compute its transductive *baseline* before consulting a
+    tenant's calibrated file — so a globally-set calibration path can never leak
+    into a tenant-scoped baseline, and the monotone combine (gate side) always has
+    a clean reference point.
+    """
+    with _ENV_LOCK:
+        prior = os.environ.pop("TEX_CONFORMAL_CALIBRATION_PATH", None)
+        try:
+            yield
+        finally:
+            if prior is not None:
+                os.environ["TEX_CONFORMAL_CALIBRATION_PATH"] = prior
+
+
+def calibration_available(feed: PresenceCalibrationFeed, tenant: str) -> bool:
+    """True iff this tenant has a calibrated scores file on disk. Because the feed
+    is the SOLE producer and withholds the file below ``MIN_CALIBRATION_N`` (the
+    writer-side floor; see module banner), existence ⇒ n ≥ MIN_CALIBRATION_N ⇒
+    calibrated mode is legitimately engageable. Fail-safe: any error ⇒ False."""
+    try:
+        return feed.scores_path(tenant).exists()
+    except Exception:  # noqa: BLE001 — availability is advisory; never raise into the gate
+        return False
+
+
+def default_calibration_feed() -> PresenceCalibrationFeed:
+    """The feed the gate's reader AND the seal-flow writer share by default.
+
+    Both default their ``base_dir`` to ``TEX_PRESENCE_CALIBRATION_DIR`` (else
+    ``./data/presence_calibration``), so a tenant's scores file written by the seal
+    hook is the very file the gate reads — they agree on the path by construction.
+    A fresh instance each call (it holds only a ``Path``); no global mutable state,
+    so tests can repoint it by setting that env var.
+    """
+    return PresenceCalibrationFeed()
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationResolution:
+    """The minimal sealed-resolution the calibration hook consumes.
+
+    The orchestrator builds this inside ``/decisions/{id}/seal`` from the
+    SERVER-LOOKED-UP ``Decision`` (``decision_store.get(...)``) and the named human
+    act — NEVER a request-body score, so a client cannot inject a calibration point.
+
+      * ``decision`` — must expose ``final_score`` ∈ [0,1] and ``decision_id``.
+      * ``human_verdict`` — ``"approved" | "held" | "refused"`` (only ``refused``
+        produces a label; the others record nothing — see
+        :meth:`PresenceCalibrationFeed.record_resolution`).
+    """
+
+    decision: Any
+    human_verdict: str
+
+
+def record_resolution_for_calibration(
+    tenant: str,
+    resolution: Any,
+    *,
+    feed: PresenceCalibrationFeed | None = None,
+) -> bool:
+    """ORCHESTRATOR HOOK — wire this into the ``/decisions/{id}/seal`` flow, AFTER
+    a presence-tagged held decision is sealed. Feeds one sealed human resolution
+    into ``tenant``'s per-tenant calibration set (each confirmed ``refused``
+    resolution = one label; ``approved``/``held`` record nothing). Returns True iff
+    a real calibration label was recorded.
+
+    ``resolution`` is a :class:`CalibrationResolution` (recommended) or any object/
+    dict exposing ``decision`` and ``human_verdict`` — duck-typed so the
+    orchestrator need not import this module's dataclass.
+
+    Contract + honest edges:
+      * ``tenant`` MUST be the AUTHENTICATED request tenant. ``Decision`` carries no
+        tenant field in this codebase, so the hook cannot derive it; passing the
+        wrong tenant would mis-route the label. Per-tenant isolation is the caller's
+        contract at this boundary.
+      * NEVER raises into the seal flow. Capture is best-effort (mirrors
+        ``outcome_autoseal``): any error is logged and returns False, so a
+        calibration hiccup can never sink a seal.
+    """
+    feed = feed or default_calibration_feed()
+    decision = _extract(resolution, "decision")
+    human_verdict = _extract(resolution, "human_verdict")
+    if decision is None or human_verdict is None:
+        return False
+    try:
+        return feed.record_resolution(
+            tenant=tenant, decision=decision, human_verdict=str(human_verdict)
+        )
+    except Exception:  # noqa: BLE001 — best-effort capture; must not break the seal
+        _logger.exception(
+            "calibration hook: failed recording resolution for tenant %r", tenant
+        )
+        return False
+
+
+def forget_resolution_for_calibration(
+    tenant: str,
+    decision_id: str,
+    *,
+    feed: PresenceCalibrationFeed | None = None,
+) -> bool:
+    """ORCHESTRATOR HOOK — right-to-be-forgotten for the flywheel. Drop a tenant's
+    calibration contribution(s) for ``decision_id`` and regenerate the scores file
+    (which the writer re-withholds if the count falls back below
+    ``MIN_CALIBRATION_N``). Returns True iff something was removed. Never raises."""
+    feed = feed or default_calibration_feed()
+    try:
+        return feed.forget_resolution(tenant=tenant, decision_id=str(decision_id))
+    except Exception:  # noqa: BLE001 — forgetting must degrade gracefully, never raise
+        _logger.exception(
+            "calibration hook: failed forgetting %s for tenant %r", decision_id, tenant
+        )
+        return False

@@ -188,9 +188,16 @@ class DurableEvidenceStore:
         try:
             with connect() as conn:
                 with conn.cursor() as cur:
+                    # Per-tenant isolation: an aggregate_id is only unique
+                    # WITHIN a tenant, so a tenant-blind lookup would leak
+                    # another tenant's chain. Scope every read to this
+                    # store's tenant_id (application-layer WHERE filter; no
+                    # Postgres RLS).
                     cur.execute(
-                        _SELECT_SQL + " WHERE aggregate_id = %s ORDER BY sequence_number ASC",
-                        (str(aggregate_id),),
+                        _SELECT_SQL
+                        + " WHERE tenant_id = %s AND aggregate_id = %s "
+                        "ORDER BY sequence_number ASC",
+                        (self._tenant_id, str(aggregate_id)),
                     )
                     rows = cur.fetchall()
                     return tuple(_row_to_stored(r) for r in rows)

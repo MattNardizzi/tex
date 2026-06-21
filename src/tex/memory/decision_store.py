@@ -172,9 +172,15 @@ class DurableDecisionStore:
             try:
                 with connect() as conn:
                     with conn.cursor() as cur:
+                        # Per-tenant isolation: never delete by decision_id
+                        # alone — a decision_id collision (or a forged id)
+                        # from another tenant must not remove this tenant's
+                        # row. Scope the DELETE to this store's tenant_id
+                        # (application-layer WHERE filter; no Postgres RLS).
                         cur.execute(
-                            "DELETE FROM tex_decisions WHERE decision_id = %s",
-                            (str(decision_id),),
+                            "DELETE FROM tex_decisions "
+                            "WHERE tenant_id = %s AND decision_id = %s",
+                            (self._tenant_id, str(decision_id)),
                         )
             except Exception:
                 _logger.exception(

@@ -281,7 +281,10 @@ def _root_cause_region(state: Any, tenant: str | None, target: UUID | None) -> R
     if ledger is None or not hasattr(ledger, "list_for_agent"):
         return Recompute(False, reason="action_ledger-unavailable")
     entries = tuple(ledger.list_for_agent(target, limit=200))
-    region = derive_root_cause_region(entries)
+    # Pass the tenant so the gate selects this tenant's calibration mode itself
+    # (the L1 flywheel) — transductive until MIN_CALIBRATION_N confirmed labels,
+    # then calibrated. tenant=None falls back to the legacy global-env behaviour.
+    region = derive_root_cause_region(entries, tenant=tenant)
     if region is None:
         return Recompute(False, reason="root_cause-insufficient-trace")
     value, refs, floor, mode = region

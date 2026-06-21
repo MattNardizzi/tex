@@ -13,14 +13,42 @@ INTEGRATION CONTRACT (for the orchestrator owner)
     contract's ``PresenceMemory`` protocol. Pass ``durable=True`` to enable the
     Postgres mirror (no-op unless ``DATABASE_URL`` is set). A signer is attached
     only when sealing is on (``sign=True`` or ``TEX_SEAL_DECISIONS=1``).
-  * ``build_calibration_feed()`` → a
-    :class:`~tex.presence.memory.calibration.PresenceCalibrationFeed`. Wire it in
-    the ``/decisions/{id}/seal`` handler: AFTER ``recorder.record_human_resolution``
-    for a presence-tagged hold, call
-    ``feed.record_resolution(tenant=..., decision=decision, human_verdict=body.verdict)``.
-    Around the DERIVED gate call, wrap with
-    ``tenant_calibration_env(feed, tenant)`` so the gate reads the tenant's file
-    (and concurrent tenants serialize on the process-global env var).
+  * RECORDING (the flywheel's fuel) — wire ONE call into the
+    ``/decisions/{id}/seal`` handler, AFTER ``recorder.record_human_resolution``
+    for a presence-tagged hold::
+
+        from tex.presence.memory import (
+            record_resolution_for_calibration, CalibrationResolution,
+        )
+        record_resolution_for_calibration(
+            tenant,  # the AUTHENTICATED request tenant — Decision carries no tenant
+            CalibrationResolution(
+                decision=decision,            # the SERVER-LOOKED-UP Decision
+                human_verdict=body.verdict,   # "approved" | "held" | "refused"
+            ),
+        )
+
+    Only a ``refused`` resolution records a label; it never raises into the seal
+    flow (best-effort, like ``outcome_autoseal``). ``resolution`` may also be a
+    plain dict ``{"decision": ..., "human_verdict": ...}`` — it is duck-typed.
+
+  * READING (L1 — the gate self-selects per tenant). DO **NOT** wrap the gate call
+    in ``tenant_calibration_env`` any more: the DERIVED gate now points at the
+    tenant's calibration file itself (``tex.presence.gate.conformal``), so a
+    forgotten wrap can't silently defeat the flywheel, and double-wrapping can't
+    deadlock (the env lock is re-entrant). Just pass the ``tenant`` into the gate
+    as it already does.
+
+  * PATH AGREEMENT (do not get this wrong, or the flywheel silently no-ops). The
+    seal hook's writer and the gate's reader must resolve to the SAME directory for
+    a tenant. Both ``record_resolution_for_calibration`` (no explicit feed) and the
+    gate use ``default_calibration_feed()``, which reads ``TEX_PRESENCE_CALIBRATION_DIR``
+    (default ``./data/presence_calibration``). So the safe wiring is: **set
+    ``TEX_PRESENCE_CALIBRATION_DIR`` once at startup and pass NO custom ``base_dir``
+    anywhere.** If you must inject a feed with a custom ``base_dir`` into the hook,
+    you MUST also point the gate at the same dir (set the env to it) — otherwise the
+    writer fills one directory while the reader watches another and nothing ever
+    calibrates.
 """
 
 from __future__ import annotations

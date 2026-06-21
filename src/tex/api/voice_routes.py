@@ -39,6 +39,8 @@ from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.vigil_routes import _resolve_effective_tenant
 from tex.gateway import grant
 from tex.gateway.backends import ElevenLabsTTS, synthesize_tts, synthesize_tts_stream
+from tex.presence.contract import DEFAULT_PROSODY
+from tex.presence.prosody import plan_from_token, prosody_param_for_envelope
 from tex.voice import voice_ask
 
 __all__ = ["build_voice_router"]
@@ -98,9 +100,14 @@ class AskResponse(BaseModel):
     # prosody_plan + overall_tier — that the tex-systems glass renders as a real
     # credibility tier and reachable evidence. None whenever no GroundedBrain is
     # engaged, so the legacy response is unchanged (mirrors object/proof_ref, which
-    # are likewise null when absent). Serialized WHOLE, including prosody_plan, so
-    # the Session-4 voice merge needs no shape change here.
+    # are likewise null when absent). Serialized WHOLE, including prosody_plan.
     presence: dict | None = None
+    # Convenience mirror of presence["overall_tier"] (Session 4): the verdict's TIER
+    # token ("sealed"/"derived"/"abstain"), or None when presence isn't engaged. The
+    # MONOTONE fold of the answer's per-claim verdicts — not the draft, not a "vibe".
+    # The client echoes it verbatim to GET /v1/speak?prosody=<token> so the spoken
+    # line's perceived confidence equals the gate's verdict.
+    prosody: str | None = None
 
 
 # --------------------------------------------------------------- presence serialization
@@ -258,15 +265,26 @@ def build_voice_router() -> APIRouter:
                 routed_dimension=outcome.routed_dimension,
             ),
             presence=_serialize_presence(outcome.presence),
+            # Session 4: read-only hand-off of the presence TIER token (pure function
+            # of the gate's monotone verdict; a convenience mirror of
+            # presence["overall_tier"]) for the client to echo to /v1/speak.
+            prosody=prosody_param_for_envelope(getattr(outcome, "presence", None)),
         )
 
     @router.get(
         "/speak",
-        summary="Synthesize a grounded line in Tex's one voice (streamed audio)",
+        summary="Synthesize a grounded line in Tex's one voice (epistemic prosody)",
     )
     def speak(
         request: Request,
         text: str = Query(default="", max_length=4000),
+        prosody: str | None = Query(
+            default=None,
+            max_length=32,
+            description="Verdict TIER token ('sealed'/'derived'/'abstain') from "
+            "/v1/ask's `prosody` field. Carries the gate's monotone verdict so the "
+            "voice's perceived confidence equals it. Omit for today's neutral voice.",
+        ),
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> Response:
         # The grounding already happened in /v1/ask; this is pure synthesis of a
@@ -275,18 +293,56 @@ def build_voice_router() -> APIRouter:
         # Kokoro, else the honest offline tone — and a RUNTIME vendor failure falls
         # through too, so Tex is never muted. The header names whoever ACTUALLY
         # spoke, so a cloud vendor in the audio path is labeled on every byte.
-        # STREAMED: the first audio plays in ~hundreds of ms (ElevenLabs
-        # progressive MP3) instead of after the whole clip is generated. The
-        # no-vendor fallback (full Kokoro WAV / offline tone) is delivered as a
-        # single chunk, so the contract is identical for callers — just faster on
-        # the cloud path. The header still names whoever ACTUALLY spoke.
-        iterator, backend_name, media_type = synthesize_tts_stream(
-            text, sample_rate=_SPEAK_SAMPLE_RATE
+        #
+        # EPISTEMIC PROSODY (Session 4). The `prosody` token is the gate's verdict
+        # TIER; the plan is re-derived SERVER-SIDE from it (pure function
+        # ProsodyPlan.from_tier) so a caller can never hand-set assured-sounding
+        # knobs on an uncertain answer. Routing:
+        #   * prosody ABSENT (None) → today's low-latency MP3 stream, UNCHANGED
+        #     (purely additive; no presence verdict ⇒ no epistemic prosody).
+        #   * prosody PRESENT → the full WAV post-process path so EVERY tier's
+        #     cues are really delivered (lead pause + terminal-pitch glide cannot
+        #     be spliced into a live MP3 stream — see synthesize_tts_stream). A
+        #     PRESENT-but-unparseable token FAILS CLOSED to the most cautious plan
+        #     (ABSTAIN), never to a confident default. Trades a little streaming
+        #     latency for an honest, fully-delivered epistemic cue.
+        #
+        # HONEST TRUST BOUNDARY (no overclaim): like the `text` it voices, the
+        # `prosody` tier here is exactly as trustworthy as the caller. In the
+        # integrated path the client echoes /v1/ask's `prosody`
+        # (= prosody_param_for_envelope, the MONOTONE overall_tier), so the voice
+        # cannot sound more confident than the verdict FOR A FAITHFUL CLIENT. A
+        # hostile/buggy client passing a higher token can over-state confidence —
+        # the same trust surface as the text. Closing that fully needs a signed
+        # (text,tier) binding minted at /v1/ask (gateway secret + a 1-line mint in
+        # the orchestrator), which is a future hardening out of this track.
+        if prosody is None:
+            iterator, backend_name, media_type = synthesize_tts_stream(
+                text, sample_rate=_SPEAK_SAMPLE_RATE
+            )
+            return StreamingResponse(
+                iterator,
+                media_type=media_type,
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Tex-Voice-Backend": backend_name,
+                    "X-Tex-Voice-Prosody": "neutral",
+                },
+            )
+
+        plan = plan_from_token(prosody) or DEFAULT_PROSODY  # garbage ⇒ ABSTAIN floor
+        audio, backend_name = synthesize_tts(
+            text, sample_rate=_SPEAK_SAMPLE_RATE, prosody=plan
         )
-        return StreamingResponse(
-            iterator,
-            media_type=media_type,
-            headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": backend_name},
+        return Response(
+            content=audio,
+            media_type="audio/wav",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Tex-Voice-Backend": backend_name,
+                "X-Tex-Voice-Prosody": plan.style_label,
+                "X-Tex-Voice-Prosody-Tier": plan.tier.value,
+            },
         )
 
     @router.get(
@@ -296,6 +352,14 @@ def build_voice_router() -> APIRouter:
     def speak_timed(
         request: Request,
         text: str = Query(default="", max_length=4000),
+        prosody: str | None = Query(
+            default=None,
+            max_length=32,
+            description="Verdict TIER token, as for /v1/speak. On the word-timed "
+            "path the rate + lead pause are applied (word times shifted to stay in "
+            "sync); the terminal-pitch glide degrades (it would desync per-word "
+            "timing).",
+        ),
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> Response:
         # Word-timed audio is an ElevenLabs-only capability (it returns the
@@ -304,16 +368,24 @@ def build_voice_router() -> APIRouter:
         # light up in step with Tex's voice. When ElevenLabs isn't configured we
         # 503 and the client falls back to plain /v1/speak — a real voice, just
         # without the highlight — so this is purely additive, never a regression.
+        #
+        # Prosody (same token semantics as /v1/speak; PRESENT-but-garbage fails
+        # closed to the ABSTAIN plan) applies the rate + a real lead pause with
+        # the word times shifted to match. The terminal glide is intentionally not
+        # applied here — it would desync the highlight — so this path is monotone
+        # via the pause+rate cues; for the full contour the client uses /v1/speak.
         el = ElevenLabsTTS()
         if not el.available():
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="word-timed voice not configured (no ElevenLabs key)",
             )
-        payload = el.synthesize_timed(text, sample_rate=_SPEAK_SAMPLE_RATE)
-        return JSONResponse(
-            content=payload,
-            headers={"Cache-Control": "no-store", "X-Tex-Voice-Backend": el.name},
-        )
+        plan = None if prosody is None else (plan_from_token(prosody) or DEFAULT_PROSODY)
+        payload = el.synthesize_timed(text, sample_rate=_SPEAK_SAMPLE_RATE, prosody=plan)
+        headers = {"Cache-Control": "no-store", "X-Tex-Voice-Backend": el.name}
+        if plan is not None:
+            headers["X-Tex-Voice-Prosody"] = plan.style_label
+            headers["X-Tex-Voice-Prosody-Tier"] = plan.tier.value
+        return JSONResponse(content=payload, headers=headers)
 
     return router

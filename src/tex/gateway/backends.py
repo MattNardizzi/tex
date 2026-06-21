@@ -38,7 +38,10 @@ import wave
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:  # type-only; prosody helpers are imported lazily where used
+    from tex.presence.contract import ProsodyPlan
 
 __all__ = [
     "Transcript",
@@ -54,6 +57,7 @@ __all__ = [
     "select_stt",
     "select_tts",
     "synthesize_tts",
+    "synthesize_tts_stream",
 ]
 
 _logger = logging.getLogger(__name__)
@@ -94,7 +98,12 @@ class TTSBackend(Protocol):
     requires: tuple[str, ...]
 
     def available(self) -> bool: ...
-    def synthesize(self, text: str, *, sample_rate: int) -> bytes: ...
+    def synthesize(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> bytes: ...
+    # ``prosody`` carries ONLY the GENERATION-TIME knob each backend has (speech
+    # rate). The tier-derived cues that are not generation knobs — a lead pause
+    # and the terminal-pitch glide — are applied once, post-synthesis, in
+    # :func:`synthesize_tts` (so they are never double-applied). Backends that
+    # lack a rate knob ignore ``prosody`` and degrade cleanly.
 
 
 # --------------------------------------------------------------------------- offline (default)
@@ -147,10 +156,14 @@ class OfflineTTS:
     def available(self) -> bool:
         return True
 
-    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+    def synthesize(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> bytes:
         # ~45 ms per character, clamped, at a low amplitude so it is audibly a
-        # placeholder, not a claim to speech.
-        seconds = max(0.25, min(6.0, 0.045 * max(1, len(text or ""))))
+        # placeholder, not a claim to speech. ``prosody`` (when supplied) scales
+        # the tone's DURATION by the inverse of the speech rate — faster rate ⇒
+        # shorter tone — so even the no-voice floor carries the rate cue. The
+        # lead pause + terminal glide are added post-synthesis by synthesize_tts.
+        rate = prosody.rate if prosody is not None else 1.0
+        seconds = max(0.25, min(6.0, 0.045 * max(1, len(text or "")) / max(0.1, rate)))
         n = int(seconds * sample_rate)
         amp = 1500  # quiet, well below int16 max
         freq = 220.0
@@ -362,11 +375,17 @@ class KokoroTTS:
         model_path, voices_path = self._model_paths()
         return model_path.is_file() and voices_path.is_file()
 
-    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+    def synthesize(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> bytes:
         """Real Kokoro-82M TTS → audio/wav bytes. Lazy-loads (and caches) the
         ONNX session on first call. Callers must gate on ``available()`` —
         ``select_tts`` does — so reaching here unavailable is a programming
-        error, answered with a truthful refusal, never fabricated audio."""
+        error, answered with a truthful refusal, never fabricated audio.
+
+        ``prosody`` (when supplied) sets the GENERATION-TIME speech rate via
+        Kokoro's ``create(speed=...)`` knob (clamped to Kokoro's accepted
+        [0.5, 2.0] — it hard-asserts the range, so the clamp is load-bearing).
+        The lead pause + terminal-pitch glide are applied post-synthesis by
+        ``synthesize_tts``; this call only sets the rate."""
         if not self.available():
             raise RuntimeError(
                 "KokoroTTS.synthesize called while unavailable (missing "
@@ -390,8 +409,10 @@ class KokoroTTS:
                     kokoro = Kokoro(str(model_path), str(voices_path))
                     self._kokoro = kokoro
 
+        from tex.presence.prosody import kokoro_speed  # lazy: keep gateway lean
+
         samples, native_sr = kokoro.create(
-            text, voice=self.VOICE, speed=1.0, lang="en-us"
+            text, voice=self.VOICE, speed=kokoro_speed(prosody), lang="en-us"
         )
         samples = np.asarray(samples, dtype=np.float32).reshape(-1)  # mono, 1-D
 
@@ -543,11 +564,17 @@ class ElevenLabsTTS:
     def available(self) -> bool:
         return self._api_key() is not None
 
-    def synthesize(self, text: str, *, sample_rate: int) -> bytes:
+    def synthesize(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> bytes:
         """Real ElevenLabs speech for the EXACT sealed ``text`` → audio/wav bytes.
         Callers must gate on ``available()`` — the selectors do — so reaching here
         without a key is a programming error answered with a truthful refusal,
-        never fabricated audio."""
+        never fabricated audio.
+
+        ``prosody`` (when supplied) sets the GENERATION-TIME ``voice_settings``
+        (only ``speed`` varies by tier; the rest are pinned constants). The lead
+        pause + terminal-pitch glide are applied post-synthesis by
+        ``synthesize_tts`` — ElevenLabs exposes no terminal-F0 knob, so that cue
+        degrades to the WAV post-process here."""
         key = self._api_key()
         if key is None:
             raise RuntimeError(
@@ -559,6 +586,8 @@ class ElevenLabsTTS:
             # Nothing sealed to say → a valid, silent WAV (no vendor call, no cost).
             return _pcm_to_wav(b"", sample_rate)
 
+        from tex.presence.prosody import elevenlabs_voice_settings  # lazy
+
         if sample_rate in self._SUPPORTED_PCM_RATES:
             req_rate, out_format = sample_rate, f"pcm_{sample_rate}"
         else:
@@ -568,12 +597,13 @@ class ElevenLabsTTS:
             path=f"/v1/text-to-speech/{self._voice()}?output_format={out_format}",
             key=key,
             text=text,
+            voice_settings=elevenlabs_voice_settings(prosody),
         )
         if req_rate != sample_rate:
             pcm = _resample_pcm16(pcm, src_rate=req_rate, dst_rate=sample_rate)
         return _pcm_to_wav(pcm, sample_rate)
 
-    def synthesize_timed(self, text: str, *, sample_rate: int) -> dict:
+    def synthesize_timed(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> dict:
         """Real ElevenLabs speech for the EXACT sealed ``text`` WITH per-word
         timing, for on-screen highlighting that tracks the voice. Returns
         ``{"backend","sample_rate","audio_b64","words"}`` where ``audio_b64`` is
@@ -584,7 +614,14 @@ class ElevenLabsTTS:
         Uses the documented ``/with-timestamps`` endpoint (single JSON response,
         not SSE — robust through the same-origin serverless proxy). The exact
         char→word rollup + the live request shape are verified by tests; the live
-        ElevenLabs response is confirmed against a real key before production."""
+        ElevenLabs response is confirmed against a real key before production.
+
+        ``prosody`` applies the rate (``voice_settings.speed``) AND the lead pause
+        (real leading silence + every word time shifted by the same offset, so
+        the highlight stays in sync). HONEST DEGRADATION: the terminal-pitch glide
+        is NOT applied on this path — it would desync per-word timing — so the
+        word-timed surface carries the pace + pause cues but not the contour."""
+        import base64
         import json
 
         key = self._api_key()
@@ -596,11 +633,14 @@ class ElevenLabsTTS:
         if not (text or "").strip():
             return {"backend": "elevenlabs", "sample_rate": sample_rate, "audio_b64": "", "words": []}
 
+        from tex.presence.prosody import elevenlabs_voice_settings, lead_silence_pcm16  # lazy
+
         rate = sample_rate if sample_rate in self._SUPPORTED_PCM_RATES else 24000
         raw = self._post(
             path=f"/v1/text-to-speech/{self._voice()}/with-timestamps?output_format=pcm_{rate}",
             key=key,
             text=text,
+            voice_settings=elevenlabs_voice_settings(prosody),
         )
         data = json.loads(raw.decode("utf-8"))
         align = data.get("alignment") or {}
@@ -609,14 +649,32 @@ class ElevenLabsTTS:
             align.get("character_start_times_seconds") or [],
             align.get("character_end_times_seconds") or [],
         )
+        audio_b64 = data.get("audio_base64", "")
+
+        if prosody is not None and prosody.lead_pause_ms > 0:
+            # Prepend real leading silence to the raw PCM and shift every word
+            # time by the same offset so the on-screen highlight stays aligned.
+            lead = lead_silence_pcm16(prosody, rate)
+            if lead and audio_b64:
+                audio_b64 = base64.b64encode(lead + base64.b64decode(audio_b64)).decode()
+            shift = prosody.lead_pause_ms / 1000.0
+            words = [
+                {
+                    "text": w["text"],
+                    "start": None if w["start"] is None else w["start"] + shift,
+                    "end": None if w["end"] is None else w["end"] + shift,
+                }
+                for w in words
+            ]
+
         return {
             "backend": "elevenlabs",
             "sample_rate": rate,
-            "audio_b64": data.get("audio_base64", ""),
+            "audio_b64": audio_b64,
             "words": words,
         }
 
-    def stream(self, text: str, *, chunk_size: int = 4096):
+    def stream(self, text: str, *, chunk_size: int = 4096, voice_settings: dict | None = None):
         """Stream the EXACT sealed ``text`` as MP3 chunks from ElevenLabs'
         ``/stream`` endpoint — the first audio bytes arrive in ~hundreds of ms
         instead of after the whole clip is generated (the ``synthesize`` convert
@@ -624,7 +682,14 @@ class ElevenLabsTTS:
         gate + verbatim semantics as ``synthesize`` (flash_v2_5 pinned,
         normalization OFF, Tex's already-sealed string only — never generates).
         Raises BEFORE the first yield on a connect/auth/HTTP error, so a caller
-        can fall back to the no-vendor path; a failure mid-stream simply truncates."""
+        can fall back to the no-vendor path; a failure mid-stream simply truncates.
+
+        ``voice_settings`` carries the GENERATION-TIME rate (``speed``) so even
+        the low-latency MP3 path honors the tier's pace. HONEST DEGRADATION: the
+        lead pause and terminal-pitch glide CANNOT be spliced into a live MP3
+        frame stream, so they are NOT applied here — which is exactly why
+        ``/v1/speak`` routes any prosody-bearing request to the full WAV
+        post-process path instead of this stream."""
         import json
         import urllib.error
         import urllib.request
@@ -636,13 +701,14 @@ class ElevenLabsTTS:
             )
         if not (text or "").strip():
             return  # nothing sealed → empty stream, no vendor call, no cost
-        payload = json.dumps(
-            {
-                "text": text,
-                "model_id": self._model(),          # SOTA real-time; pinned
-                "apply_text_normalization": "off",  # voice the SEALED string verbatim
-            }
-        ).encode("utf-8")
+        body: dict = {
+            "text": text,
+            "model_id": self._model(),          # SOTA real-time; pinned
+            "apply_text_normalization": "off",  # voice the SEALED string verbatim
+        }
+        if voice_settings is not None:
+            body["voice_settings"] = voice_settings
+        payload = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             f"{self.API_BASE}/v1/text-to-speech/{self._voice()}/stream?output_format=mp3_44100_128",
             data=payload,
@@ -673,21 +739,27 @@ class ElevenLabsTTS:
                     break
                 yield chunk
 
-    def _post(self, *, path: str, key: str, text: str) -> bytes:
+    def _post(self, *, path: str, key: str, text: str, voice_settings: dict | None = None) -> bytes:
         """POST the SEALED ``text`` to an ElevenLabs TTS endpoint (flash_v2_5
         pinned, normalization OFF) and return the raw response body. Shared by
-        ``synthesize`` (audio bytes) and ``synthesize_timed`` (JSON)."""
+        ``synthesize`` (audio bytes) and ``synthesize_timed`` (JSON).
+
+        ``voice_settings`` (the tier-derived prosody knob, ``speed`` + pinned
+        constants) is included ONLY when supplied — when ``None`` the payload is
+        byte-identical to the pre-prosody request, so the no-prosody path never
+        changes the vendor's stored voice defaults."""
         import json
         import urllib.error
         import urllib.request
 
-        payload = json.dumps(
-            {
-                "text": text,
-                "model_id": self._model(),          # SOTA real-time; pinned, never the default
-                "apply_text_normalization": "off",  # voice the SEALED string verbatim
-            }
-        ).encode("utf-8")
+        body: dict = {
+            "text": text,
+            "model_id": self._model(),          # SOTA real-time; pinned, never the default
+            "apply_text_normalization": "off",  # voice the SEALED string verbatim
+        }
+        if voice_settings is not None:
+            body["voice_settings"] = voice_settings
+        payload = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             f"{self.API_BASE}{path}",
             data=payload,
@@ -748,20 +820,31 @@ def select_tts() -> TTSBackend:
     return OfflineTTS()
 
 
-def synthesize_tts(text: str, *, sample_rate: int) -> tuple[bytes, str]:
+def synthesize_tts(text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None) -> tuple[bytes, str]:
     """Synthesize ``text`` with the best available TTS, and — so Tex is NEVER
     muted by a vendor hiccup — fall THROUGH to the next backend on a RUNTIME
     failure (e.g. an ElevenLabs outage/timeout), ending at the always-available
     :class:`OfflineTTS`. Returns ``(wav_bytes, name)`` where ``name`` is the
     backend that ACTUALLY produced the audio, so ``X-Tex-Voice-Backend`` can never
     mislabel who spoke (a cloud vendor is named only when it truly voiced the
-    line). Every skipped/failed backend is logged — no silent cap."""
+    line). Every skipped/failed backend is logged — no silent cap.
+
+    ``prosody`` (a tier-derived :class:`~tex.presence.contract.ProsodyPlan`)
+    threads the GENERATION-TIME rate into each backend's synth call, then applies
+    the post-synthesis cues — leading pause + terminal-pitch glide — ONCE here via
+    :func:`apply_prosody_to_wav`, so they are never double-applied and every
+    backend's WAV gets the same honest treatment. ``prosody=None`` is byte-for-byte
+    today's behavior (the call signature is identical, so existing test doubles
+    that don't accept ``prosody`` keep working)."""
     failures: list[str] = []
     for backend in (*_TTS_PREFERENCE, OfflineTTS()):
         if not backend.available():
             continue
         try:
-            audio = backend.synthesize(text, sample_rate=sample_rate)
+            if prosody is None:
+                audio = backend.synthesize(text, sample_rate=sample_rate)
+            else:
+                audio = backend.synthesize(text, sample_rate=sample_rate, prosody=prosody)
         except Exception as exc:  # vendor / network / runtime failure → fall through
             _logger.warning(
                 "voice gateway: TTS backend %s failed at synth (%r); falling through",
@@ -769,6 +852,13 @@ def synthesize_tts(text: str, *, sample_rate: int) -> tuple[bytes, str]:
             )
             failures.append(f"{backend.name}: {exc!r}")
             continue
+        if prosody is not None:
+            # Post-synthesis, content-independent cues (lead pause + terminal
+            # glide). Fail-CLOSED for the cautious tiers: the lead pause is pure
+            # stdlib and is always applied; the glide degrades to a no-op only
+            # when the window is too short — never toward a more-confident render.
+            from tex.presence.prosody import apply_prosody_to_wav  # lazy
+            audio = apply_prosody_to_wav(audio, prosody)
         if failures:
             _logger.warning(
                 "voice gateway: spoke via fallback %s after %d failure(s): %s",
@@ -779,7 +869,7 @@ def synthesize_tts(text: str, *, sample_rate: int) -> tuple[bytes, str]:
     raise RuntimeError(f"no TTS backend could synthesize; failures={failures}")
 
 
-def synthesize_tts_stream(text: str, *, sample_rate: int):
+def synthesize_tts_stream(text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None):
     """Streaming sibling of :func:`synthesize_tts`. Returns
     ``(iterator_of_bytes, backend_name, media_type)``.
 
@@ -792,10 +882,20 @@ def synthesize_tts_stream(text: str, *, sample_rate: int):
     so ``X-Tex-Voice-Backend`` is honest. Grounding is unchanged: this only voices
     a string the caller already sealed in ``/v1/ask`` — it never authors text.
     ``sample_rate`` applies ONLY to the no-vendor WAV fallback; the cloud path
-    streams self-describing MP3 (``mp3_44100_128``) and ignores it."""
+    streams self-describing MP3 (``mp3_44100_128``) and ignores it.
+
+    PROSODY ON THE STREAM IS PARTIAL BY NATURE: the rate (``voice_settings.speed``)
+    is carried into the MP3 request, but the lead pause + terminal-pitch glide
+    CANNOT be spliced into a live MP3 frame stream — so they DEGRADE on the cloud
+    branch (the no-vendor fallback runs through :func:`synthesize_tts`, which DOES
+    apply the full plan). Because that degradation could let a cautious tier sound
+    at the confident default, ``/v1/speak`` does NOT send prosody here — it routes
+    any prosody-bearing request to the full WAV path. ``prosody`` exists here for
+    defense-in-depth so a direct streaming caller still gets an honest rate."""
     el = ElevenLabsTTS()
     if el.available():
-        gen = el.stream(text)
+        from tex.presence.prosody import elevenlabs_voice_settings  # lazy
+        gen = el.stream(text, voice_settings=elevenlabs_voice_settings(prosody))
         try:
             first = next(gen)  # forces connect + first chunk; raises on vendor failure
         except StopIteration:
@@ -821,5 +921,6 @@ def synthesize_tts_stream(text: str, *, sample_rate: int):
                     gen.close()
             return _eleven_stream(), el.name, "audio/mpeg"
     # No vendor (or vendor failed pre-roll): the local no-vendor path, one chunk.
-    audio, name = synthesize_tts(text, sample_rate=sample_rate)
+    # This path DOES apply the full plan (lead pause + glide) via synthesize_tts.
+    audio, name = synthesize_tts(text, sample_rate=sample_rate, prosody=prosody)
     return iter([audio]), name, "audio/wav"

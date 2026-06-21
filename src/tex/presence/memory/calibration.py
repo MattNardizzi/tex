@@ -1,0 +1,335 @@
+"""The learning flywheel: sealed human resolutions → per-tenant conformal
+calibration → a tighter DERIVED floor, with the honesty the statistics demand.
+
+WHAT THIS WIRES
+---------------
+Session 2's DERIVED gate localizes the decisive step of an agent's action trace
+with a conformal correctness floor (``tex.causal.conformal_attribution``). In
+``calibrated`` mode it reads a held-out set of *true decisive-step* non-conformity
+scores from the file named by ``TEX_CONFORMAL_CALIBRATION_PATH`` (one float per
+line). This module produces that file from sealed human resolutions of held
+decisions — so every confirmed resolution tightens the gate — WITHOUT touching
+``conformal_attribution.py`` (which reads the env var at call time, in lane).
+
+WHICH RESOLUTIONS FEED, AND WHY ONLY THOSE
+------------------------------------------
+The gate scores each trace step by ``ActionLedgerEntry.final_score`` ∈ [0,1], and
+a ``Decision`` carries the same fused-risk ``final_score``. A calibration point
+must be the score of a *confirmed-true* decisive error. Only a ``refused`` human
+resolution supplies that: ``refused → was_safe=False`` (the mapping in
+``tex.api.outcome_autoseal.map_resolution_to_outcome``), i.e. the operator
+CONFIRMED the flagged action was the real failure. Its real ``final_score`` is the
+calibration point.
+
+  * ``approved`` (``was_safe=True``) is a FALSE alarm — feeding it would poison the
+    "true decisive-step score" semantics the loader assumes.
+  * ``held`` (``was_safe=None``) is unknown ground truth.
+
+So they are EXCLUDED. The feed never INVENTS a score: it forwards the resolution's
+own ``final_score`` unmodified, range-checked to [0,1], and writes nothing when one
+is absent. It does NOT cryptographically prove the score came from a genuine sealed
+``Decision`` — it trusts its caller. In the wired path the ``/decisions/{id}/seal``
+handler passes the SERVER-LOOKED-UP ``Decision`` (from ``decision_store.get``), never
+a request-body value, so a client cannot inject a chosen calibration point.
+
+STRICT PER-TENANT — NO CROSS-CUSTOMER LEARNING
+----------------------------------------------
+There is no global calibration file. Each tenant gets its own ``{tenant}.scores``
+file; the orchestrator points ``TEX_CONFORMAL_CALIBRATION_PATH`` at the requesting
+tenant's file for the duration of that tenant's gate call. Tenant A's confirmed
+errors never calibrate tenant B's floor.
+
+HONEST COVERAGE LABEL — SELECTION-CONDITIONAL, NOT MARGINAL
+----------------------------------------------------------
+Split-conformal's finite-sample 1−α coverage assumes calibration and test scores
+are exchangeable (i.i.d.). Human-resolved HELD decisions are NOT an i.i.d. draw —
+they are the ambiguous tail the gate selected (``detail["dimension"]=="presence"``
+holds). Under a data-dependent selection rule, marginal split-CP coverage
+*provably* can fail (Jin & Ren, "Confidence on the Focal: Conformal Prediction
+with Selection-Conditional Coverage", arXiv:2403.03868; cf. Barber et al.,
+"Conformal prediction beyond exchangeability", Ann. Statist. 2023 — both retrieved
+via this session's design survey). So the floor this feed earns is
+**selection-conditional, per-tenant** — valid over the escalated/held population
+the DERIVED gate actually fires on — NOT i.i.d. marginal coverage. That label is
+written into the provenance sidecar next to every scores file. A minimum-n floor
+keeps a handful of labels from masquerading as a formal guarantee — but note this
+floor is a WRITER-SIDE convention: this feed withholds the scores file below
+``MIN_CALIBRATION_N`` so the conformal loader finds nothing and stays transductive.
+The conformal CONSUMER (``conformal_attribution``) performs NO n-check of its own —
+it announces ``calibrated`` off ANY non-empty file at ``TEX_CONFORMAL_CALIBRATION_PATH``.
+So the floor holds only as long as this feed is the sole producer of a tenant's
+calibration path (which it is in the wired seam). A consumer-enforced floor would
+need an n-gate inside ``conformal_attribution`` — out of this session's lane.
+
+THE PROCESS-GLOBAL ENV TRAP (disclosed; primitive provided)
+-----------------------------------------------------------
+``TEX_CONFORMAL_CALIBRATION_PATH`` is a process-global env var. If one worker
+serves two tenants concurrently, tenant A's ``os.environ`` set can race tenant B's
+gate read → a cross-tenant calibration leak. :func:`tenant_calibration_env` is a
+lock-guarded set/restore context manager the orchestrator MUST wrap the gate call
+in; concurrent multi-tenant gate calls then serialize (single-flight per process).
+A lock-free fix would require threading a per-call path into
+``conformal_attribution`` — out of this session's lane.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import logging
+import os
+import re
+import threading
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Iterator
+
+_logger = logging.getLogger(__name__)
+
+__all__ = [
+    "MIN_CALIBRATION_N",
+    "PresenceCalibrationFeed",
+    "tenant_calibration_env",
+]
+
+# Below this many confirmed labels, calibrated mode does NOT engage: the scores
+# file is withheld so the loader returns None and the gate stays transductive.
+# A small, selection-biased sample is the worst case for a false guarantee.
+MIN_CALIBRATION_N: int = 30
+
+_DEFAULT_DIR = "./data/presence_calibration"
+
+# Serializes the process-global TEX_CONFORMAL_CALIBRATION_PATH env var across
+# concurrent tenants in one process (see module docstring).
+_ENV_LOCK = threading.Lock()
+
+# Per-path write locks so concurrent record/forget on one tenant serialize.
+_PATH_LOCKS: dict[str, threading.Lock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+_COVERAGE_SEMANTICS = (
+    "selection-conditional, per-tenant — coverage over the escalated/held "
+    "population the gate surfaces; NOT i.i.d. split-conformal marginal coverage "
+    "(arXiv:2403.03868)"
+)
+
+
+def _safe_tenant(tenant: str) -> str:
+    """Deterministic, collision-resistant, path-safe filename stem for a tenant.
+    Keeps a readable slug + a short content hash so two tenants whose slugs collide
+    after sanitization still get distinct files."""
+    if not isinstance(tenant, str) or not tenant.strip():
+        raise ValueError("calibration feed requires a non-empty tenant")
+    slug = re.sub(r"[^A-Za-z0-9_.-]", "_", tenant)[:48]
+    digest = hashlib.sha256(tenant.encode("utf-8")).hexdigest()[:12]
+    return f"{slug}.{digest}"
+
+
+def _path_lock(path: Path) -> threading.Lock:
+    key = str(path)
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _PATH_LOCKS[key] = lock
+        return lock
+
+
+def _extract(decision: Any, attr: str, default: Any = None) -> Any:
+    if isinstance(decision, dict):
+        return decision.get(attr, default)
+    return getattr(decision, attr, default)
+
+
+class PresenceCalibrationFeed:
+    """Per-tenant calibration writer. Construct once and wire it into the
+    orchestrator's ``/decisions/{id}/seal`` handler; it never edits main.py."""
+
+    def __init__(self, *, base_dir: str | Path | None = None) -> None:
+        self._dir = Path(base_dir) if base_dir is not None else Path(
+            os.environ.get("TEX_PRESENCE_CALIBRATION_DIR", _DEFAULT_DIR)
+        )
+
+    # ---- paths --------------------------------------------------------
+
+    def scores_path(self, tenant: str) -> Path:
+        """The file ``TEX_CONFORMAL_CALIBRATION_PATH`` should point at for this
+        tenant. May not exist yet (no calibrated mode below the n-floor)."""
+        return self._dir / f"{_safe_tenant(tenant)}.scores"
+
+    def _ledger_path(self, tenant: str) -> Path:
+        return self._dir / f"{_safe_tenant(tenant)}.calib.jsonl"
+
+    def _provenance_path(self, tenant: str) -> Path:
+        return self._dir / f"{_safe_tenant(tenant)}.scores.provenance.json"
+
+    # ---- write path ---------------------------------------------------
+
+    def record_resolution(
+        self, *, tenant: str, decision: Any, human_verdict: str
+    ) -> bool:
+        """Feed one sealed human resolution into this tenant's calibration set.
+
+        Returns True iff a real calibration point was recorded. Feeds ONLY a
+        ``refused`` resolution (confirmed-true decisive error → ``was_safe=False``);
+        ``approved``/``held`` return False without writing. Never fabricates a
+        score: if the decision carries no usable ``final_score``, returns False.
+        Idempotent per ``decision_id`` (re-resolving updates, never double-counts).
+        """
+        hv = (human_verdict or "").strip().lower()
+        # Only the confirmed-true-error label feeds (outcome_autoseal: refused →
+        # was_safe=False). approved (false alarm) and held (unknown) do NOT.
+        if hv != "refused":
+            return False
+
+        raw_score = _extract(decision, "final_score")
+        decision_id = _extract(decision, "decision_id")
+        if raw_score is None or decision_id is None:
+            return False
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError):
+            return False
+        if not (0.0 <= score <= 1.0):
+            # final_score is a fused risk in [0,1]; anything else is not the score
+            # the gate's loader expects — refuse rather than feed a bad point.
+            _logger.warning(
+                "calibration feed: final_score %r out of [0,1] for decision %s; "
+                "not feeding",
+                raw_score,
+                decision_id,
+            )
+            return False
+
+        entry = {
+            "decision_id": str(decision_id),
+            "final_score": score,
+            "human_verdict": hv,
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+        ledger = self._ledger_path(tenant)
+        with _path_lock(ledger):
+            entries = self._read_ledger(ledger)
+            entries = [e for e in entries if e.get("decision_id") != str(decision_id)]
+            entries.append(entry)
+            self._write_ledger(ledger, entries)
+            self._regenerate(tenant, entries)
+        return True
+
+    def forget_resolution(self, *, tenant: str, decision_id: str) -> bool:
+        """Right-to-be-forgotten for the flywheel: drop a tenant's calibration
+        contribution(s) for ``decision_id`` and regenerate the scores file. Returns
+        True iff something was removed. A forgotten DERIVED contribution leaves no
+        calibration residue."""
+        ledger = self._ledger_path(tenant)
+        with _path_lock(ledger):
+            entries = self._read_ledger(ledger)
+            kept = [e for e in entries if e.get("decision_id") != str(decision_id)]
+            if len(kept) == len(entries):
+                return False
+            self._write_ledger(ledger, kept)
+            self._regenerate(tenant, kept)
+            return True
+
+    # ---- status (telemetry / tests) ----------------------------------
+
+    def status(self, tenant: str) -> dict[str, Any]:
+        """Honest snapshot: how many points, whether calibrated mode is active,
+        and the selection-conditional coverage label."""
+        entries = self._read_ledger(self._ledger_path(tenant))
+        n = len(entries)
+        return {
+            "tenant": tenant,
+            "n": n,
+            "min_n": MIN_CALIBRATION_N,
+            "calibrated_active": n >= MIN_CALIBRATION_N,
+            "scores_path": str(self.scores_path(tenant)),
+            "coverage_semantics": _COVERAGE_SEMANTICS,
+        }
+
+    # ---- internals ----------------------------------------------------
+
+    @staticmethod
+    def _read_ledger(path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        out: list[dict[str, Any]] = []
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        except OSError:
+            _logger.exception("calibration feed: failed reading ledger %s", path)
+        return out
+
+    @staticmethod
+    def _write_ledger(path: Path, entries: list[dict[str, Any]]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = "\n".join(json.dumps(e, sort_keys=True) for e in entries)
+        path.write_text(body + ("\n" if body else ""), encoding="utf-8")
+
+    def _regenerate(self, tenant: str, entries: list[dict[str, Any]]) -> None:
+        """(Re)build the scores file the conformal loader reads. Below the n-floor
+        the scores file is REMOVED so the loader returns None and the gate stays
+        honestly transductive — a tiny selection-biased sample never poses as a
+        formal calibration."""
+        scores_path = self.scores_path(tenant)
+        prov_path = self._provenance_path(tenant)
+        scores = [float(e["final_score"]) for e in entries if "final_score" in e]
+
+        if len(scores) < MIN_CALIBRATION_N:
+            for p in (scores_path, prov_path):
+                with contextlib.suppress(FileNotFoundError):
+                    p.unlink()
+            return
+
+        scores_path.parent.mkdir(parents=True, exist_ok=True)
+        scores_path.write_text(
+            "\n".join(repr(s) for s in scores) + "\n", encoding="utf-8"
+        )
+        prov_path.write_text(
+            json.dumps(
+                {
+                    "tenant": tenant,
+                    "n": len(scores),
+                    "source": "human-resolved (refused) presence holds — real "
+                    "Decision.final_score of confirmed-true decisive errors",
+                    "coverage_semantics": _COVERAGE_SEMANTICS,
+                    "min_n": MIN_CALIBRATION_N,
+                    "generated_at": datetime.now(UTC).isoformat(),
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
+
+@contextlib.contextmanager
+def tenant_calibration_env(feed: PresenceCalibrationFeed, tenant: str) -> Iterator[str]:
+    """Point ``TEX_CONFORMAL_CALIBRATION_PATH`` at this tenant's scores file for the
+    duration of the gate call, under a process-global lock so concurrent
+    multi-tenant gate calls in one worker serialize (single-flight) and cannot leak
+    one tenant's calibration path into another's read. Restores the prior value on
+    exit. Yields the path it set.
+
+    Usage (orchestrator, NOT this session): ``with tenant_calibration_env(feed,
+    tenant): envelope = gate.evaluate(...)``.
+    """
+    path = str(feed.scores_path(tenant))
+    with _ENV_LOCK:
+        prior = os.environ.get("TEX_CONFORMAL_CALIBRATION_PATH")
+        os.environ["TEX_CONFORMAL_CALIBRATION_PATH"] = path
+        try:
+            yield path
+        finally:
+            if prior is None:
+                os.environ.pop("TEX_CONFORMAL_CALIBRATION_PATH", None)
+            else:
+                os.environ["TEX_CONFORMAL_CALIBRATION_PATH"] = prior

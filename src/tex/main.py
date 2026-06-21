@@ -1919,6 +1919,28 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # re-verifies and re-authors every claim regardless, so the model is never
     # load-bearing. Fail-safe: any setup error leaves it None.
     app.state.presence_brain = _build_presence_brain()
+    # PRESENCE ATTEST (Session 3): signs the (claim → evidence → tier) binding so
+    # the proof glass can show a verifiable attestation. OFF unless
+    # TEX_SEAL_DECISIONS=1 — when off, build_presence_attestor() returns a disabled
+    # attestor whose attest() yields None (contract-allowed). Fail-safe: any
+    # import/build error leaves it None and the voice path is unaffected.
+    app.state.presence_attestor = _build_presence_attestor()
+
+
+def _build_presence_attestor() -> Any:
+    """Build the Presence attestor (Session 3), or None.
+
+    The factory is itself fail-safe (a DISABLED attestor unless
+    ``TEX_SEAL_DECISIONS`` is truthy, and it never raises); this wrapper
+    additionally guards the import so a missing optional leg can never break boot.
+    """
+    try:
+        from tex.presence.attest import build_presence_attestor
+
+        return build_presence_attestor()
+    except Exception as exc:  # defensive — never break boot over an optional leg
+        _logger.warning("presence: failed to build attestor (%s) — staying OFF.", exc)
+        return None
 
 
 def _build_presence_brain() -> Any:

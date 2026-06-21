@@ -138,3 +138,144 @@ def test_ask_allows_key_with_both_scopes(monkeypatch) -> None:
     )
     assert r.status_code == 200
     get_settings.cache_clear()
+
+
+# ----------------------------------------- presence envelope on the wire (S1 brain + S2 gate)
+
+
+class _FakeBrain:
+    """A GroundedBrain stub: proposes a fixed (draft, claims) so the truth-gate
+    runs without a live model. Mirrors tests/presence/test_seam.py._FakeBrain."""
+
+    def __init__(self, draft, claims):
+        self._draft, self._claims = draft, claims
+
+    def propose(self, *, question, tenant, facts, tools):
+        return self._draft, self._claims
+
+
+def test_ask_serializes_presence_envelope_when_brain_engaged(client: TestClient) -> None:
+    # With a GroundedBrain on app.state, /v1/ask now CARRIES the presence envelope
+    # the glass renders: a real credibility tier + per-claim, reachable evidence.
+    from tex.presence.contract import ClaimKind, PresenceClaim
+
+    store = client.app.state.decision_store
+    for _ in range(3):
+        store.save(_decision(Verdict.FORBID))
+
+    client.app.state.presence_brain = _FakeBrain(
+        "how many forbids",
+        (PresenceClaim("forbid_count", "how many forbids", ClaimKind.AGGREGATE),),
+    )
+
+    resp = client.post(
+        "/v1/ask", json={"transcript": "how many forbidden actions were there"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # Legacy fields untouched — presence WRAPS, never replaces.
+    assert body["answer"]
+    assert body["attestation"]["verdict"]
+
+    pres = body["presence"]
+    assert pres is not None, "presence envelope must be on the wire when a brain is engaged"
+    assert pres["overall_tier"] == "sealed"
+    assert pres["spoken_text"]
+    # Prosody is serialized whole (carried, not yet heard) so the S4 merge needs no
+    # shape change here.
+    assert pres["prosody_plan"]["tier"] == "sealed"
+
+    # Per-claim render data the UI (presence.js normClaims/normEvidence) reads.
+    assert pres["claims"], "claims drive the evidence chips"
+    claim0 = pres["claims"][0]
+    assert claim0["text"]                       # presence.js reads claim.text
+    assert claim0["evidence"] and claim0["evidence"]["value"]  # a reachable handle
+
+    verdict0 = pres["verdicts"][0]
+    assert verdict0["tier"] == "sealed"
+    assert verdict0["evidence"], "a SEALED verdict must carry the rows it was checked against"
+    assert verdict0["evidence"][0]["sha256"]    # normEvidence reads .sha256
+    assert isinstance(verdict0["recomputed_value"], int)  # the GATE's count, not the model's
+    # Sealing is OFF by default → no attestation yet (S3 wires it under TEX_SEAL_DECISIONS=1).
+    assert verdict0["attestation"] is None
+
+
+def test_ask_presence_is_null_without_a_brain(client: TestClient) -> None:
+    # The default app configures no GroundedBrain → presence stays null and the
+    # legacy response is unchanged. The dormant-by-default guarantee.
+    for _ in range(2):
+        client.app.state.decision_store.save(_decision(Verdict.FORBID))
+    resp = client.post(
+        "/v1/ask", json={"transcript": "how many forbidden actions were there"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["presence"] is None
+    assert body["answer"]  # the deterministic answer still stands on its own
+
+
+def test_ask_presence_abstains_honestly(client: TestClient) -> None:
+    # A brain that proposes a claim the gate cannot ground must surface an HONEST
+    # ABSTAIN: tier "abstain", and NO claim/verdict presented as grounded.
+    from tex.presence.contract import ClaimKind, PresenceClaim
+
+    client.app.state.presence_brain = _FakeBrain(
+        "zzqq",
+        (PresenceClaim("definitely_not_a_query", "zzqq", ClaimKind.AGGREGATE),),
+    )
+    resp = client.post(
+        "/v1/ask", json={"transcript": "how many forbidden actions were there"}
+    )
+    assert resp.status_code == 200
+    pres = resp.json()["presence"]
+    assert pres is not None
+    assert pres["overall_tier"] == "abstain"
+    assert pres["claims"] == []
+    assert pres["verdicts"] == []
+
+
+def test_ask_attaches_attestation_when_attestor_enabled(client: TestClient) -> None:
+    # Wiring proof: an enabled attestor on app.state flows brain → gate →
+    # build_envelope → apply_attestation, and the signed binding is serialized onto
+    # the verdict for the proof glass. (The real crypto/forgery resistance is
+    # covered by tests/presence/attest; this asserts the INTEGRATION carries it.)
+    # A stub keeps the test hermetic — no signing key is minted.
+    from tex.presence.contract import Attestation, ClaimKind, PresenceClaim, PresenceTier
+
+    store = client.app.state.decision_store
+    for _ in range(3):
+        store.save(_decision(Verdict.FORBID))
+
+    client.app.state.presence_brain = _FakeBrain(
+        "how many forbids",
+        (PresenceClaim("forbid_count", "how many forbids", ClaimKind.AGGREGATE),),
+    )
+
+    class _StubAttestor:
+        enabled = True
+
+        def attest(self, *, claim, verdict):
+            if verdict.tier is PresenceTier.ABSTAIN:
+                return None
+            return Attestation(
+                algorithm="ecdsa-p256",
+                signed_digest_sha256="a" * 64,
+                signature_b64="c2lnbmF0dXJl",
+                is_post_quantum=False,
+                key_id="presence-attest-key-v1",
+            )
+
+    client.app.state.presence_attestor = _StubAttestor()
+
+    resp = client.post(
+        "/v1/ask", json={"transcript": "how many forbidden actions were there"}
+    )
+    assert resp.status_code == 200
+    v0 = resp.json()["presence"]["verdicts"][0]
+    att = v0["attestation"]
+    assert att is not None, "an enabled attestor must attach a signed binding to the verdict"
+    assert att["algorithm"] == "ecdsa-p256"
+    assert att["is_post_quantum"] is False
+    assert att["signed_digest_sha256"] and att["signature_b64"]
+    assert att["key_id"] == "presence-attest-key-v1"

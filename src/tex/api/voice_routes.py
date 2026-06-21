@@ -29,6 +29,7 @@ correctly 401/403'd.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -92,6 +93,109 @@ class AskResponse(BaseModel):
     object: ObjectDTO | None = None
     proof_ref: ProofRefDTO | None = None
     attestation: AttestationDTO | None = None
+    # The presence channel (Session 1 grounded brain + Session 2 truth-gate): the
+    # full AnswerEnvelope — spoken_text + per-claim verdicts + evidence anchors +
+    # prosody_plan + overall_tier — that the tex-systems glass renders as a real
+    # credibility tier and reachable evidence. None whenever no GroundedBrain is
+    # engaged, so the legacy response is unchanged (mirrors object/proof_ref, which
+    # are likewise null when absent). Serialized WHOLE, including prosody_plan, so
+    # the Session-4 voice merge needs no shape change here.
+    presence: dict | None = None
+
+
+# --------------------------------------------------------------- presence serialization
+#
+# Map the frozen ``tex.presence.contract.AnswerEnvelope`` onto the exact wire shape
+# tex-systems' ``presence.js`` (derivePresence / normClaims / normEvidence) reads.
+# The contract is the source of truth; we add two UI-compat aliases the renderer
+# needs and the contract does not name:
+#   * each claim carries ``text``   — presence.js reads ``claim.text`` (not text_span)
+#   * each evidence ref carries ``sha256`` — normEvidence reads ``sha256`` (not record_hash)
+# Both aliases mirror a real contract field (text_span / record_hash) byte-for-byte —
+# no fabricated data — and the faithful contract fields are emitted alongside them.
+
+
+def _evidence_ref_dict(ref: Any) -> dict:
+    return {
+        "record_id": ref.record_id,
+        "record_hash": ref.record_hash,
+        "sha256": ref.record_hash,  # UI-compat: presence.js normEvidence reads .sha256
+        "store": ref.store,
+        "field": ref.field,
+        "prior_link_witness": ref.prior_link_witness,
+    }
+
+
+def _attestation_dict(att: Any) -> dict | None:
+    if att is None:
+        return None
+    return {
+        "algorithm": att.algorithm,
+        "signed_digest_sha256": att.signed_digest_sha256,
+        "signature_b64": att.signature_b64,
+        "is_post_quantum": att.is_post_quantum,
+        "key_id": att.key_id,
+        "public_key_b64": att.public_key_b64,
+        "signed_at": att.signed_at,
+    }
+
+
+def _serialize_presence(env: Any) -> dict | None:
+    """Serialize ``AskOutcome.presence`` (an ``AnswerEnvelope``) for the wire, or
+    ``None`` when presence did not engage — so the legacy response is preserved."""
+    if env is None:
+        return None
+    verdict_by_claim = {v.claim_id: v for v in env.verdicts}
+    claims = []
+    for c in env.claims:
+        v = verdict_by_claim.get(c.claim_id)
+        first_ref = v.evidence[0] if (v is not None and v.evidence) else None
+        claims.append({
+            "claim_id": c.claim_id,
+            "text": c.text_span,        # UI-compat alias: presence.js reads claim.text
+            "text_span": c.text_span,   # faithful contract field
+            "kind": c.kind.value,
+            "tier": v.tier.value if v is not None else None,
+            "evidence": (
+                {
+                    "value": first_ref.record_hash, "kind": "hash",
+                    "record_id": first_ref.record_id, "store": first_ref.store,
+                    "field": first_ref.field,
+                }
+                if first_ref is not None else None
+            ),
+        })
+    verdicts = [
+        {
+            "claim_id": v.claim_id,
+            "tier": v.tier.value,
+            "evidence": [_evidence_ref_dict(r) for r in v.evidence],
+            "recomputed_value": v.recomputed_value,
+            "correctness_floor": v.correctness_floor,
+            "coverage_mode": v.coverage_mode,
+            "governance_verdict": (
+                v.governance_verdict.value if v.governance_verdict is not None else None
+            ),
+            "reason": v.reason,
+            "attestation": _attestation_dict(v.attestation),
+        }
+        for v in env.verdicts
+    ]
+    return {
+        "spoken_text": env.spoken_text,
+        "overall_tier": env.overall_tier.value,
+        "reason": None,  # optional ABSTAIN gloss override; the spoken line already says why
+        "prosody_plan": {
+            "tier": env.prosody_plan.tier.value,
+            "style_label": env.prosody_plan.style_label,
+            "rate": env.prosody_plan.rate,
+            "terminal_pitch": env.prosody_plan.terminal_pitch,
+            "lead_pause_ms": env.prosody_plan.lead_pause_ms,
+        },
+        "surface_object": env.surface_object,
+        "claims": claims,
+        "verdicts": verdicts,
+    }
 
 
 # --------------------------------------------------------------------------- router
@@ -153,6 +257,7 @@ def build_voice_router() -> APIRouter:
                 verdict=outcome.verdict.value,
                 routed_dimension=outcome.routed_dimension,
             ),
+            presence=_serialize_presence(outcome.presence),
         )
 
     @router.get(

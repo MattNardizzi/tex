@@ -57,7 +57,7 @@ services:
     plan: starter
     region: oregon
     branch: main
-    autoDeploy: false
+    autoDeploy: true
     numInstances: 1
     healthCheckPath: /health
     # Durable home for the evidence-chain JSONL (var/tex/evidence) AND the

@@ -15,6 +15,7 @@ import pytest
 
 from tex.gateway.backends import OfflineTTS
 from tex.presence.contract import PresenceTier, ProsodyPlan
+from tex.presence.prosody import tier_gain
 
 SR = 24000
 
@@ -95,11 +96,14 @@ def test_synthesize_timed_applies_rate_and_lead_pause_with_synced_shift(monkeypa
     assert out["words"][0]["end"] == pytest.approx(0.6 + shift)
     assert out["words"][1]["start"] == pytest.approx(0.7 + shift)
 
-    # the returned PCM has the leading silence prepended
+    # the returned PCM has the leading silence prepended, then the real PCM —
+    # now also LOUDNESS-GAINED by the tier (ABSTAIN softens it, timing-safe).
     audio = base64.b64decode(out["audio_b64"])
     lead_samples = round(280 / 1000 * rate)
     assert audio[: lead_samples * 2] == b"\x00\x00" * lead_samples
-    assert audio[lead_samples * 2 : lead_samples * 2 + 2] == b"\x11\x11"  # then the real PCM
+    first = struct.unpack("<h", audio[lead_samples * 2 : lead_samples * 2 + 2])[0]
+    assert first == int(round(0x1111 * tier_gain(plan)))  # gained, not raw 0x1111
+    assert abs(first) < 0x1111                            # ABSTAIN is quieter
 
 
 def test_synthesize_timed_no_prosody_is_byte_identical(monkeypatch):

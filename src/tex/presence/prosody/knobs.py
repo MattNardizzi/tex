@@ -22,11 +22,29 @@ Knob coverage, stated honestly (degrade cleanly where a backend lacks a knob):
     this is a genuine (not faked) post-process: a smooth pitch GLIDE applied to
     the final window of the rendered PCM (:func:`apply_prosody_to_wav`). It is
     real signal processing — the tail's dominant frequency actually moves — and
-    is verified by a zero-crossing test. ``"level"`` is an exact no-op. DEGRADES
-    on the MP3 stream, same reason as the lead pause.
+    is verified by a zero-crossing test. ``"level"`` is an exact no-op. It is the
+    weakest of the cues: per SOTA (and this session's frontier survey) terminal
+    F0 is UNRELIABLE across engines, so it is honest best-effort reinforcement,
+    never claimed as deterministic pitch control. DEGRADES on the MP3 stream,
+    same reason as the lead pause.
+  * tier INTENSITY (loudness) → no ``ProsodyPlan`` field; a fixed per-TIER PCM
+    post-gain applied in :func:`apply_prosody_to_wav` (and, timing-safely, on the
+    raw-PCM word-timed path via :func:`apply_intensity_pcm16`). SEALED slightly
+    louder, ABSTAIN slightly softer, DERIVED an exact 1.0 no-op. Like the glide
+    it is a PURE function of the tier, so it costs no backend support and applies
+    uniformly to ElevenLabs / Kokoro / offline. It is the WEAKEST, deliberately
+    TERTIARY cue (behind rate + lead-pause): "louder == more confident" is a
+    PRODUCTION finding that does NOT cleanly transfer to perception (Goupil 2021
+    found GLOBAL loudness null for perceived certainty — onset accentuation is the
+    real cue; Jiang & Pell 2018 even found softer == more confident for accented
+    speech), so the magnitudes are UNCALIBRATED placeholders needing in-house A/B
+    and the cue is purely additive, never a verdict input. See :data:`_TIER_GAIN`.
+    DEGRADES on the MP3 stream, same reason as the pause/glide.
 
 Evidence base for the DIRECTIONS (faster + falling == assured; slower + rising +
-pause == uncertain), re-verified this session:
+pause == uncertain). The directions are doctrine-aligned; the precise statistics
+(partial-eta^2, p-values, page/issue/DOI) are UNVERIFIED-FROM-MEMORY — recalled,
+not retrieved-and-checked this session, and no survey artifact is committed:
   * Goupil & Aucouturier, Nature Communications 12:861 (2021) — faster rate and a
     FALLING word-final contour read as confident/honest. NUANCE the design honors:
     it is the pitch CONTOUR direction (intonation), NOT the mean pitch LEVEL, that
@@ -49,12 +67,14 @@ import struct
 import wave
 from io import BytesIO
 
-from tex.presence.contract import ProsodyPlan
+from tex.presence.contract import PresenceTier, ProsodyPlan
 
 __all__ = [
     "kokoro_speed",
     "elevenlabs_voice_settings",
     "lead_silence_pcm16",
+    "tier_gain",
+    "apply_intensity_pcm16",
     "apply_prosody_to_wav",
     "describe",
 ]
@@ -87,6 +107,52 @@ _EL_PINNED_SETTINGS = {
 _GLIDE_WINDOW_S = 0.25
 _FALL_END_RATE = 0.85  # ~2.8 semitones down by the end of the window
 _RISE_END_RATE = 1.15  # ~2.4 semitones up
+
+# Per-tier INTENSITY (loudness) cue: a fixed PCM post-gain keyed off the TIER,
+# mirroring the glide's "fixed constant per tier-derived attribute" pattern.
+# SEALED slightly louder, DERIVED neutral (1.0), ABSTAIN slightly softer — a
+# deterministic, content-independent timbre cue that needs NO backend support and
+# applies uniformly to every backend's PCM. It is a PURE function of plan.tier and
+# nothing else, so it can never bluff perceived confidence past the gate's monotone
+# verdict, and it is purely ADDITIVE/aesthetic (never a verdict input).
+#
+# HONEST MATURITY — research-early, UNCALIBRATED. The DIRECTION (softer/onset
+# cues, perception != production, Goupil global-loudness null) is the load-bearing
+# claim and is doctrine-aligned. The precise borrowed statistics below (exact
+# p-values, partial-eta^2, page/issue numbers) are UNVERIFIED-FROM-MEMORY: no
+# survey artifact is committed to the repo, so treat them as recalled-not-checked
+# until an in-house survey output is committed alongside this file.
+#   * "louder == more confident" is a PRODUCTION finding — how confident speakers
+#     TALK (Jiang & Pell 2017, Speech Communication 88:106; Guyer et al. 2021,
+#     J. Nonverbal Behavior 45(4):479). It does NOT cleanly transfer to PERCEPTION.
+#   * On the perception side it is UNDERDETERMINED: Goupil et al. 2021 (Nature
+#     Comms 12:861 — the same study the rate/pitch cues cite) found GLOBAL/mean
+#     loudness did NOT predict perceived certainty (slope ~0, p>0.3); the reliable
+#     loudness cue was ONSET ACCENTUATION (louder at word onset), "rather than
+#     global increases in volume." Jiang & Pell 2018 even found softer == more
+#     confident for accented speech, so the SIGN is not externally guaranteed.
+#   * Loudness is therefore the WEAKEST cue (pitch-contour + rate dominate) and is
+#     deliberately TERTIARY here, behind rate + lead-pause. The principled upgrade
+#     (onset/word-level accentuation, which needs word boundaries — available on
+#     the timed path) is future work; this flat gain is the audible simple start.
+#   * No dB anchor exists in the literature → these magnitudes are PLACEHOLDERS
+#     (20*log10(1.08)=+0.67 dB / 20*log10(0.84)=-1.51 dB, inside the suggested
+#     +/-0.5..1.55 dB band) that MUST be earned by an in-house listener A/B
+#     before any production loudness claim.
+#
+# Monotone by construction: SEALED >= DERIVED == 1.0 >= ABSTAIN (the gain, like
+# every cue, can only move perceived confidence DOWN as the tier gets more
+# cautious, never up).
+# The asymmetry is deliberate: ABSTAIN is softened MORE (~-1.5 dB) than SEALED is
+# raised (~+0.7 dB). A louder-==-more-confident overclaim is the riskier direction
+# (Goupil null / Jiang&Pell 2018 inversion above), and a smaller SEALED boost also
+# keeps real (hot) TTS output off the clip ceiling — verified against live Kokoro,
+# whose peaks sit near -1.3 dBFS, so +1 dB+ clamped on the assured tier.
+_TIER_GAIN = {
+    PresenceTier.SEALED: 1.08,   # ~+0.7 dB louder (uncalibrated placeholder)
+    PresenceTier.DERIVED: 1.0,   # neutral — exact no-op, byte-identical body
+    PresenceTier.ABSTAIN: 0.84,  # ~-1.5 dB softer (uncalibrated placeholder)
+}
 
 
 def _clampf(x: float, lo: float, hi: float) -> float:
@@ -126,6 +192,44 @@ def lead_silence_pcm16(plan: ProsodyPlan | None, sample_rate: int) -> bytes:
         return b""
     n = round(plan.lead_pause_ms / 1000.0 * sample_rate)
     return b"\x00\x00" * max(0, n)
+
+
+def tier_gain(plan: ProsodyPlan | None) -> float:
+    """Per-tier loudness multiplier for this plan. ``None`` → 1.0 (neutral, so
+    the gain is an exact no-op and the audio is byte-identical to today). An
+    UNRECOGNIZED tier fails CLOSED to the softest (ABSTAIN) gain — a rogue tier
+    can never come out louder / more confident than the cautious floor."""
+    if plan is None:
+        return _NEUTRAL_RATE
+    return _TIER_GAIN.get(plan.tier, _TIER_GAIN[PresenceTier.ABSTAIN])
+
+
+def _apply_gain(samples: list[int], gain: float) -> list[int]:
+    """Scale s16 ``samples`` by ``gain``, clamping with :func:`_clamp16` so a
+    louder tier can never clip past the PCM range. A gain of exactly 1.0 is an
+    exact no-op (returns the same list) so the neutral tier stays byte-identical."""
+    if gain == 1.0:
+        return samples
+    return [_clamp16(int(round(s * gain))) for s in samples]
+
+
+def apply_intensity_pcm16(pcm: bytes, plan: ProsodyPlan | None) -> bytes:
+    """Apply the per-tier loudness gain to RAW mono s16le PCM (no WAV header).
+
+    For the word-timed path, where the terminal glide is dropped to keep per-word
+    timing but the gain is TIMING-SAFE (it never moves a sample's position, only
+    its amplitude). ``None`` plan, empty input, or a neutral (1.0) gain returns
+    the PCM UNCHANGED (byte-identical). A trailing odd byte (not a whole sample)
+    is preserved verbatim — degrade, never corrupt."""
+    gain = tier_gain(plan)
+    if not pcm or gain == 1.0:
+        return pcm
+    n = len(pcm) // 2
+    if n == 0:
+        return pcm
+    samples = list(struct.unpack("<%dh" % n, pcm[: n * 2]))
+    body = struct.pack("<%dh" % n, *_apply_gain(samples, gain))
+    return body + pcm[n * 2 :]  # preserve any trailing odd byte verbatim
 
 
 def _glide_tail(samples: list[int], framerate: int, direction: str) -> list[int]:
@@ -183,6 +287,7 @@ def apply_prosody_to_wav(wav_bytes: bytes, plan: ProsodyPlan | None) -> bytes:
 
     samples = list(struct.unpack("<%dh" % (len(frames) // 2), frames)) if frames else []
     samples = _glide_tail(samples, framerate, plan.terminal_pitch)
+    samples = _apply_gain(samples, tier_gain(plan))  # per-tier loudness cue (clamped)
     body = struct.pack("<%dh" % len(samples), *samples) if samples else b""
 
     out = lead_silence_pcm16(plan, framerate) + body
@@ -200,11 +305,12 @@ def describe(plan: ProsodyPlan | None) -> dict:
     (no audio). Useful for the ``X-Tex-Voice-*`` headers and for tests."""
     if plan is None:
         return {"tier": None, "style": "neutral", "rate": _NEUTRAL_RATE,
-                "terminal_pitch": "level", "lead_pause_ms": 0}
+                "terminal_pitch": "level", "lead_pause_ms": 0, "gain": _NEUTRAL_RATE}
     return {
         "tier": plan.tier.value,
         "style": plan.style_label,
         "rate": plan.rate,
         "terminal_pitch": plan.terminal_pitch,
         "lead_pause_ms": plan.lead_pause_ms,
+        "gain": tier_gain(plan),
     }

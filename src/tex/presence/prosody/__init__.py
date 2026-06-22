@@ -27,11 +27,13 @@ re-derive prosody from anything other than the tier.
 from __future__ import annotations
 
 from tex.presence.prosody.knobs import (
+    apply_intensity_pcm16,
     apply_prosody_to_wav,
     describe,
     elevenlabs_voice_settings,
     kokoro_speed,
     lead_silence_pcm16,
+    tier_gain,
 )
 from tex.presence.prosody.mapper import (
     DEFAULT_MAPPER,
@@ -54,6 +56,8 @@ __all__ = [
     "kokoro_speed",
     "elevenlabs_voice_settings",
     "lead_silence_pcm16",
+    "tier_gain",
+    "apply_intensity_pcm16",
     "apply_prosody_to_wav",
     "describe",
 ]

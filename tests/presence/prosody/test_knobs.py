@@ -18,11 +18,13 @@ import pytest
 
 from tex.presence.contract import PresenceTier, ProsodyPlan
 from tex.presence.prosody import (
+    apply_intensity_pcm16,
     apply_prosody_to_wav,
     describe,
     elevenlabs_voice_settings,
     kokoro_speed,
     lead_silence_pcm16,
+    tier_gain,
 )
 
 SR = 24000
@@ -149,13 +151,119 @@ def test_terminal_pitch_glide_moves_tail_frequency_in_the_claimed_direction():
 
 def test_glide_starts_continuous_no_boundary_click():
     # The glide ramps from rate 1.0, so the body up to the final window is
-    # untouched — no discontinuity is introduced before the window.
+    # untouched BY THE GLIDE — only the uniform per-tier loudness gain scales it,
+    # which introduces no discontinuity before the window.
     plan = ProsodyPlan.from_tier(PresenceTier.SEALED)
     out, sr = _decode(apply_prosody_to_wav(_tone_wav(seconds=1.0), plan))
-    # first ~700ms (before the 250ms glide window) equals the source tone exactly.
     src, _ = _decode(_tone_wav(seconds=1.0))
-    keep = int(0.70 * sr)
-    assert out[:keep] == src[:keep]
+    keep = int(0.70 * sr)  # before the 250 ms glide window
+    g = tier_gain(plan)
+    # first ~700ms equals the source tone scaled ONLY by the uniform gain (a
+    # glide leaking into the body would break this equality).
+    expected = [max(-32768, min(32767, int(round(s * g)))) for s in src[:keep]]
+    assert out[:keep] == expected
+
+
+# --------------------------------------------------------------------------- intensity (loudness)
+
+
+def _peak(samples):
+    return max((abs(s) for s in samples), default=0)
+
+
+def _rms(samples):
+    return (sum(s * s for s in samples) / len(samples)) ** 0.5 if samples else 0.0
+
+
+@pytest.mark.parametrize(
+    "tier,expected_gain",
+    [(PresenceTier.SEALED, 1.08), (PresenceTier.DERIVED, 1.0), (PresenceTier.ABSTAIN, 0.84)],
+)
+def test_tier_gain_value_per_tier(tier, expected_gain):
+    assert tier_gain(ProsodyPlan.from_tier(tier)) == pytest.approx(expected_gain)
+
+
+def test_tier_gain_none_is_neutral():
+    assert tier_gain(None) == 1.0  # no plan ⇒ exact no-op gain
+
+
+def test_tier_gain_is_a_pure_function_of_tier():
+    # Identical plan ⇒ identical gain, regardless of repetition/order; no text,
+    # draft, or audio content is ever an input.
+    for tier in PresenceTier:
+        plan = ProsodyPlan.from_tier(tier)
+        assert {tier_gain(plan) for _ in range(20)} == {tier_gain(plan)}
+
+
+def test_tier_gain_is_monotone_with_tier():
+    # The loudness cue can only move perceived confidence DOWN as the tier gets
+    # more cautious: SEALED >= DERIVED == 1.0 >= ABSTAIN. DERIVED is an exact 1.0.
+    g = {t: tier_gain(ProsodyPlan.from_tier(t)) for t in PresenceTier}
+    assert g[PresenceTier.SEALED] >= g[PresenceTier.DERIVED] >= g[PresenceTier.ABSTAIN]
+    assert g[PresenceTier.DERIVED] == 1.0
+    assert g[PresenceTier.SEALED] > g[PresenceTier.ABSTAIN]  # a real, non-tie cue
+
+
+def test_tier_gain_fails_closed_on_unknown_tier():
+    # The docstring promises an UNRECOGNIZED tier resolves to the softest (ABSTAIN)
+    # gain — a rogue plan can never come out louder than the cautious floor. Build
+    # an out-of-enum tier by replacing the field on a real (frozen, slotted) plan
+    # with a bogus string the _TIER_GAIN dict has no key for; the .get default
+    # branch (knobs.py:196) is the only thing standing between this and a louder
+    # render. This test MUST fail if that default is ever changed away from ABSTAIN.
+    import dataclasses
+
+    abstain_gain = tier_gain(ProsodyPlan.from_tier(PresenceTier.ABSTAIN))
+    rogue = dataclasses.replace(ProsodyPlan.from_tier(PresenceTier.SEALED), tier="not-a-real-tier")
+    assert tier_gain(rogue) == abstain_gain  # fails CLOSED to the softest gain
+    assert tier_gain(rogue) < 1.0            # never louder/more-confident than neutral
+
+
+def test_loudness_is_monotone_with_tier_through_the_full_postprocess():
+    # Drive the WHOLE post-process and measure the SPOKEN body (after the lead
+    # pause). A more cautious tier is never louder than a more confident one.
+    def body_level(tier):
+        plan = ProsodyPlan.from_tier(tier)
+        out, sr = _decode(apply_prosody_to_wav(_tone_wav(), plan))
+        skip = len(lead_silence_pcm16(plan, sr)) // 2  # drop the (zero) lead pause
+        body = out[skip:]
+        return _peak(body), _rms(body)
+
+    sealed_p, sealed_r = body_level(PresenceTier.SEALED)
+    derived_p, derived_r = body_level(PresenceTier.DERIVED)
+    abstain_p, abstain_r = body_level(PresenceTier.ABSTAIN)
+    assert sealed_p >= derived_p >= abstain_p
+    assert sealed_r >= derived_r >= abstain_r
+    assert sealed_r > abstain_r  # SEALED is audibly louder than ABSTAIN, not a tie
+
+
+def test_intensity_pcm16_applies_gain_clamps_and_stays_pure():
+    # Raw-PCM path (word-timed surface): exact gain, clamped, neutral byte-identical.
+    src = [10000, -10000, 32000, -32000, 0, 5]
+    pcm = struct.pack("<%dh" % len(src), *src)
+
+    sealed_plan = ProsodyPlan.from_tier(PresenceTier.SEALED)
+    g = tier_gain(sealed_plan)
+    got = list(struct.unpack("<%dh" % len(src), apply_intensity_pcm16(pcm, sealed_plan)))
+    assert got == [max(-32768, min(32767, int(round(s * g)))) for s in src]
+    # near-full-scale samples clamp into the valid int16 range instead of wrapping
+    # (32000*1.12=35840 → clipped; -32000*1.12=-35840 → clipped to the s16 floor).
+    assert all(-32768 <= x <= 32767 for x in got)
+    assert got[2] == 32767 and got[3] == -32768
+    # neutral / None paths are byte-identical (exact no-op).
+    assert apply_intensity_pcm16(pcm, ProsodyPlan.from_tier(PresenceTier.DERIVED)) == pcm
+    assert apply_intensity_pcm16(pcm, None) == pcm
+    assert apply_intensity_pcm16(b"", sealed_plan) == b""
+
+
+def test_intensity_pcm16_preserves_trailing_odd_byte():
+    # A stray trailing byte (not a whole sample) is preserved verbatim — degrade,
+    # never corrupt.
+    pcm = struct.pack("<h", 10000) + b"\x05"
+    out = apply_intensity_pcm16(pcm, ProsodyPlan.from_tier(PresenceTier.ABSTAIN))
+    assert len(out) == len(pcm)
+    assert out[-1:] == b"\x05"
+    assert struct.unpack("<h", out[:2])[0] == int(round(10000 * 0.84))
 
 
 # --------------------------------------------------------------------------- fail-closed
@@ -192,6 +300,7 @@ def test_postprocess_output_is_valid_mono_s16_wav():
 
 def test_describe_is_a_pure_summary():
     assert describe(None)["style"] == "neutral"
+    assert describe(None)["gain"] == 1.0  # neutral telemetry for the no-plan path
     d = describe(ProsodyPlan.from_tier(PresenceTier.ABSTAIN))
     assert d == {"tier": "abstain", "style": "uncertain", "rate": 0.9,
-                 "terminal_pitch": "rising", "lead_pause_ms": 280}
+                 "terminal_pitch": "rising", "lead_pause_ms": 280, "gain": 0.84}

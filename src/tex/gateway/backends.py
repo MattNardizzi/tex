@@ -616,11 +616,13 @@ class ElevenLabsTTS:
         char→word rollup + the live request shape are verified by tests; the live
         ElevenLabs response is confirmed against a real key before production.
 
-        ``prosody`` applies the rate (``voice_settings.speed``) AND the lead pause
-        (real leading silence + every word time shifted by the same offset, so
-        the highlight stays in sync). HONEST DEGRADATION: the terminal-pitch glide
-        is NOT applied on this path — it would desync per-word timing — so the
-        word-timed surface carries the pace + pause cues but not the contour."""
+        ``prosody`` applies the rate (``voice_settings.speed``), the per-tier
+        loudness gain (TIMING-SAFE — amplitude only, so it never desyncs the
+        per-word timing), AND the lead pause (real leading silence + every word
+        time shifted by the same offset, so the highlight stays in sync). HONEST
+        DEGRADATION: the terminal-pitch glide is NOT applied on this path — it
+        would desync per-word timing — so the word-timed surface carries the pace
+        + loudness + pause cues but not the contour."""
         import base64
         import json
 
@@ -633,7 +635,11 @@ class ElevenLabsTTS:
         if not (text or "").strip():
             return {"backend": "elevenlabs", "sample_rate": sample_rate, "audio_b64": "", "words": []}
 
-        from tex.presence.prosody import elevenlabs_voice_settings, lead_silence_pcm16  # lazy
+        from tex.presence.prosody import (  # lazy
+            apply_intensity_pcm16,
+            elevenlabs_voice_settings,
+            lead_silence_pcm16,
+        )
 
         rate = sample_rate if sample_rate in self._SUPPORTED_PCM_RATES else 24000
         raw = self._post(
@@ -650,6 +656,13 @@ class ElevenLabsTTS:
             align.get("character_end_times_seconds") or [],
         )
         audio_b64 = data.get("audio_base64", "")
+
+        # Per-tier loudness cue — timing-safe (amplitude only), applied to the
+        # speech PCM BEFORE any lead silence so the silence stays exactly zero.
+        if prosody is not None and audio_b64:
+            audio_b64 = base64.b64encode(
+                apply_intensity_pcm16(base64.b64decode(audio_b64), prosody)
+            ).decode()
 
         if prosody is not None and prosody.lead_pause_ms > 0:
             # Prepend real leading silence to the raw PCM and shift every word

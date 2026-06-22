@@ -1,0 +1,13 @@
+# requirements-dev.txt — the test / CI toolchain ONLY (never shipped in the
+# prod image). Runtime deps live in requirements.txt; install both to run the
+# suite locally exactly as CI does:
+#
+#     pip install -r requirements.txt -r requirements-dev.txt
+#     PYTHONPATH=src python -m pytest
+#
+pytest
+hypothesis
+# tests/zkprov/test_schnorr_group.py re-derives the 2048-bit safe prime live
+# (sympy.isprime on p and q) so a transcription error in the discrete-log group
+# fails closed instead of silently weakening it. Test-only; src never imports it.
+sympy

@@ -307,8 +307,11 @@ def test_standing_watch_dormancy_and_held_surfacing_wired(monkeypatch):
     from tex.main import create_app
 
     # Standing watch needs a non-empty estate to surface holds, so opt into the
-    # first-run demo seed the session conftest suppresses by default.
+    # first-run demo seed the session conftest suppresses by default, and opt
+    # the demo tenant into the standing watch (real-only by default, so the
+    # walkthrough tenant must be requested explicitly).
     monkeypatch.setenv("TEX_DISCOVERY_DEMO_SEED", "1")
+    monkeypatch.setenv("TEX_DISCOVERY_DEMO_TENANT", "demo")
     app = create_app()
     with TestClient(app) as client:  # 'with' triggers lifespan -> scheduler starts
         sched = app.state.scan_scheduler

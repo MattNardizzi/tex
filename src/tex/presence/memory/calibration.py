@@ -176,14 +176,20 @@ def is_presence_origin_decision(decision: Any) -> bool:
     SELECTION-CONDITIONAL presence conformal floor (valid only over the
     escalated/presence-held population; see this module's banner).
 
-    HONEST EDGE (verified against live code 2026-06-22): NO production producer
-    stamps ``metadata["dimension"]="presence"`` onto a ``decision_store`` Decision
-    today — a presence ABSTAIN becomes only a ``HeldDecision`` in the
-    ``HeldDecisionSink`` (surfaced at ``/held``), never a stored Decision with a
-    ``decision_id`` the seal route can resolve. So the seal-route calibration channel
-    that gates on this predicate is fail-closed INERT until a presence-hold→Decision
-    persister is built. The live presence calibration fuel today is the L2
-    ``/v1/presence/profile/correct`` route (``_maybe_feed_calibration``).
+    HONEST EDGE (updated 2026-06-22): a producer now DOES stamp this marker — the
+    presence gate (``presence/gate/compose.py`` ``raise_presence_hold``) persists an
+    ABSTAIN ``Decision`` and stamps its ``decision_id`` onto the ``HeldDecision`` so the
+    ``/held`` card is SEALABLE end-to-end. BUT that answer-level-abstain Decision carries
+    NO decisive-step score (a presence ABSTAIN is a grounding-credibility event, not a
+    scored action), so the producer marks it ``presence_calibration_eligible=False`` and
+    :meth:`PresenceCalibrationFeed.record_resolution` refuses to feed it. So the
+    seal-route CONFORMAL channel still records ZERO rows for presence holds — inert BY
+    DESIGN now (no fabricated score), not merely for lack of a producer. The live
+    conformal calibration fuel remains the L2 ``/v1/presence/profile/correct`` route
+    (``_maybe_feed_calibration``), which feeds a decision-backed GOVERNANCE Decision's
+    real ``final_score``. A future presence flow that pins a confirmed decisive step
+    would mint a presence Decision with ``presence_calibration_eligible=True`` and a real
+    ``final_score`` — and would then feed correctly through the same wire.
     """
     meta = _extract(decision, "metadata")
     if not isinstance(meta, dict):
@@ -249,6 +255,9 @@ class PresenceCalibrationFeed:
         ``refused`` resolution (confirmed-true decisive error → ``was_safe=False``);
         ``approved``/``held`` return False without writing. Never fabricates a
         score: if the decision carries no usable ``final_score``, returns False.
+        A PRESENCE-ORIGIN decision additionally feeds only when it affirms
+        ``metadata["presence_calibration_eligible"] is True`` (fail-closed: an
+        answer-level presence ABSTAIN has no decisive-step score and is refused here).
         Idempotent per ``decision_id`` (re-resolving updates, never double-counts).
 
         ``channel`` tags WHICH labeling path produced this point — ``"seal"`` (a
@@ -265,6 +274,22 @@ class PresenceCalibrationFeed:
         # was_safe=False). approved (false alarm) and held (unknown) do NOT.
         if hv != "refused":
             return False
+
+        # FAIL-CLOSED presence guard — require-marker-to-feed, for the SCORE itself.
+        # A presence-ORIGIN Decision feeds the conformal floor ONLY when it AFFIRMS
+        # that its final_score is a real, human-confirmed decisive-step non-conformity
+        # score: metadata["presence_calibration_eligible"] is True. An answer-level
+        # presence ABSTAIN has NO fused-risk decisive-step score — its final_score is a
+        # structural placeholder (the producer in presence/gate/compose.py stamps the
+        # marker False) — so it never feeds, and a future producer that FORGETS the
+        # marker fails SAFE (no fabricated calibration point — the nanozk failure mode)
+        # rather than poisoning the per-tenant floor. Governance decisions (the L2
+        # /correct channel) are NOT presence-origin, so this guard is a no-op for them
+        # and they continue to feed via final_score.
+        if is_presence_origin_decision(decision):
+            meta = _extract(decision, "metadata")
+            if not (isinstance(meta, dict) and meta.get("presence_calibration_eligible") is True):
+                return False
 
         raw_score = _extract(decision, "final_score")
         decision_id = _extract(decision, "decision_id")

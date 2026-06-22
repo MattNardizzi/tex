@@ -24,23 +24,46 @@ and any reader to one tmp dir via ``TEX_PRESENCE_CALIBRATION_DIR`` (path agreeme
 from __future__ import annotations
 
 import json
-from uuid import uuid4
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
 from tex.domain.decision import Decision
 from tex.domain.verdict import Verdict
 from tex.main import create_app
+from tex.presence.contract import ClaimKind, PresenceClaim
+from tex.presence.gate import PresenceTelemetry, PresenceTruthGate, run_presence
 from tex.presence.memory import (
     PresenceCalibrationFeed,
     is_presence_origin_decision,
 )
+from tex.provenance.feed import HeldDecisionSink
+
+
+class _AbstainBrain:
+    """A brain that proposes a claim the gate cannot ground → an answer-level
+    presence ABSTAIN, which is what triggers the producer."""
+
+    def propose(self, *, question, tenant, facts, tools):
+        return "nonsense", (PresenceClaim("meaning_of_life", "42", ClaimKind.AGGREGATE),)
 
 
 def _decision(verdict: Verdict, *, presence: bool, score: float = 0.5) -> Decision:
     """A persistable Decision; ``presence`` stamps the presence-origin marker into the
-    one extensible field (metadata) the gate keys on, else plain governance metadata."""
-    meta = {"dimension": "presence"} if presence else {"pdp": {"pdp_version": "v3"}}
+    one extensible field (metadata) the gate keys on, else plain governance metadata.
+
+    A presence-origin Decision must ALSO affirm ``presence_calibration_eligible=True``
+    to feed the conformal floor — the fail-closed marker that says "my final_score IS a
+    real confirmed decisive-step score" (the producer in presence/gate/compose.py mints
+    answer-level abstains with it set False, which never feed; see the dedicated test
+    below). These wire+gate tests model the legitimate decisive-step case, so they set
+    it True."""
+    meta = (
+        {"dimension": "presence", "presence_calibration_eligible": True}
+        if presence
+        else {"pdp": {"pdp_version": "v3"}}
+    )
     return Decision(
         decision_id=uuid4(),
         request_id=uuid4(),
@@ -181,3 +204,96 @@ def test_is_presence_origin_decision_contract():
     assert is_presence_origin_decision({"metadata": None}) is False
     assert is_presence_origin_decision({}) is False
     assert is_presence_origin_decision(None) is False
+
+
+# --------------------------------------------------------------------------- #
+# 6. FAIL-CLOSED: a presence-origin Decision that does NOT affirm a real
+#    decisive-step score (the producer's answer-abstain shape) feeds NOTHING
+# --------------------------------------------------------------------------- #
+
+
+def test_presence_origin_without_eligibility_marker_does_not_feed(calib_dir):
+    """A presence-origin Decision with ``presence_calibration_eligible`` absent/False —
+    the shape the producer mints for an answer-level ABSTAIN (no decisive-step score) —
+    SEALS fine but feeds NO calibration label. This is option (C) made structural: the
+    seal-route conformal channel never fabricates a score from a credibility abstain."""
+    client = TestClient(create_app())
+    d = Decision(
+        decision_id=uuid4(),
+        request_id=uuid4(),
+        verdict=Verdict.ABSTAIN,
+        confidence=0.0,
+        final_score=0.0,
+        action_type="presence_answer",
+        channel="voice",
+        environment="presence",
+        content_excerpt="x",
+        content_sha256="a" * 64,
+        policy_version="presence-gate",
+        reasons=["presence could not ground the spoken answer"],
+        uncertainty_flags=["presence_ungrounded_no_fused_risk"],
+        metadata={"dimension": "presence", "presence_calibration_eligible": False},
+    )
+    resp = _seal(client, d, verdict="refused")
+    assert resp.status_code == 201  # the human act IS sealed
+    assert resp.json()["calibration_fed"] is False  # but NO fabricated label
+
+    feed = PresenceCalibrationFeed(base_dir=str(calib_dir))
+    assert feed.label_count("default") == 0
+    assert list(calib_dir.glob("*.calib.jsonl")) == []
+
+
+# --------------------------------------------------------------------------- #
+# 7. END-TO-END: the producer makes a /held presence card sealable, and sealing
+#    it succeeds WITHOUT fabricating a calibration label
+# --------------------------------------------------------------------------- #
+
+
+def test_producer_makes_held_card_sealable_end_to_end(calib_dir):
+    """run_presence → answer-level ABSTAIN → producer persists a presence-origin
+    Decision + stamps decision_id onto the /held card → POST /decisions/{id}/seal
+    resolves it (201, human act sealed), and calibration is honestly NOT fed."""
+    client = TestClient(create_app())
+    sink = HeldDecisionSink()
+    # request double whose app.state IS the running app's — so the producer saves into
+    # the very decision_store the seal route resolves.
+    req = SimpleNamespace(app=client.app)
+
+    env = run_presence(
+        gate=PresenceTruthGate(),
+        request=req,
+        tenant=None,
+        brain=_AbstainBrain(),
+        transcript="what is the meaning of life?",
+        facts=None,
+        templated_abstain="I can't ground that, so I won't say it.",
+        telemetry=PresenceTelemetry(),
+        held_sink=sink,
+    )
+    assert env is not None and env.verdicts == ()  # answer-level abstain
+
+    held = sink.peek()
+    assert len(held) == 1
+    decision_id = held[0].decision_id
+    assert decision_id is not None  # the card is now SEALABLE (stamped)
+
+    # The producer persisted an HONEST presence-origin ABSTAIN Decision — no fake score.
+    stored = client.app.state.decision_store.get(UUID(decision_id))
+    assert stored is not None
+    assert stored.verdict is Verdict.ABSTAIN
+    assert stored.metadata["dimension"] == "presence"
+    assert stored.metadata["presence_calibration_eligible"] is False
+    assert stored.final_score == 0.0  # NO fabricated risk score
+
+    # Seal the /held card end-to-end: the human act is sealed; no label is fabricated.
+    resp = client.post(
+        f"/decisions/{decision_id}/seal",
+        json={"verdict": "refused", "resolved_by": "operator@example.com", "note": "r"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert len(body["anchor_sha256"]) == 64  # the seal itself is intact
+    assert body["calibration_fed"] is False  # honest: no decisive-step score to feed
+
+    feed = PresenceCalibrationFeed(base_dir=str(calib_dir))
+    assert feed.label_count("default") == 0

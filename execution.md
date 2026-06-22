@@ -195,6 +195,19 @@ floor's job, not the in-pod init.)
 | Var | Default | Gates |
 |---|---|---|
 | `TEX_SEAL_DECISIONS` | off | proof-carrying SealedFact receipts on every decision (verdict-neutral; in-memory ledger) |
+| `TEX_FORBID_AUTOFEED` | off | live FORBID → kernel hot-set feed: a *destination-attributable* FORBID (scope `surface`/`deep`) on a network-egress action warms the shared `ForbidSource` the kernel polls. Per-tenant + TTL'd. Off → the set is still served (env-seeded) but no live decision feeds it (byte-for-byte today's behaviour). |
+| `TEX_FORBID_TTL` | `3600` | TTL (s) for an auto-fed forbid-set entry (self-prunes; env-seed entries are permanent) |
+| `TEX_FORBID_MAX_ENTRIES` | `8192` | stored-entry cap; oldest TTL'd auto-entries evicted first, never env-seed |
+| `TEX_FORBID_AUTOFEED_ACTIONS` | unset | extra action types (beyond `http_*`) eligible for the live feed |
+
+> The forbid-set auto-wire (`governance/forbid_source.py` + `StandingGovernance.decide`'s
+> FORBID sink) closes the prior "seam has zero callers" gap: the kernel hot-set
+> can now be a live, monotone (revoke-/TTL-only), per-tenant projection of real
+> denials instead of only a static `TEX_FORBID_SET`. The `/forbid-set` response
+> carries a monotonic `epoch` for loader-side anti-rollback. DEFERRED (pilot
+> hardening, documented in `forbid_source.py`): the Go agent's epoch check, the
+> proxy G7 forbidden-hostname backstop for CDN/fast-flux IPs, an SSE delta
+> channel for sub-30s propagation, and JWS/SPIFFE feed signing.
 
 > ⚠️ The `TEX_PEP_*` flags belong to the **PEP proxy process**, NOT the Render
 > `tex-web` (PDP) service. Setting them on `tex-web` is meaningless-to-harmful

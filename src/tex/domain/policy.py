@@ -124,6 +124,55 @@ class PolicySnapshot(BaseModel):
         description="Maximum number of historical precedents to consider.",
     )
 
+    # ── Precedent auto-resolution (moat / Thread-C) — DEFAULT OFF ──────────
+    # When enabled, a tenant's OWN prior human resolutions of an edge-class may
+    # auto-resolve a current *discretionary* ABSTAIN toward PERMIT — reducing
+    # needless re-escalation of a call the tenant has already made the same way
+    # N times. This is the ONE audited exception to "evidence records do not
+    # parameterize verdicts" (selfgov/governor.py census): it touches the
+    # discretionary band ONLY (ABSTAIN→PERMIT), NEVER the structural floor /
+    # FORBID. Enforced in engine/precedent_influence.py; default OFF so every
+    # existing policy reproduces today's behaviour bit-for-bit.
+    precedent_autoresolve: bool = Field(
+        default=False,
+        description=(
+            "Master switch for precedent auto-resolution. OFF by default. When "
+            "True, a discretionary ABSTAIN may be auto-resolved to PERMIT from "
+            "this tenant's own consistent prior human resolutions; the floor is "
+            "never touched and every influenced verdict is sealed citing the "
+            "driving precedents' record_hash."
+        ),
+    )
+    precedent_autoresolve_min_count: int = Field(
+        default=3,
+        ge=3,
+        le=1000,
+        description=(
+            "N — the number of consistent, identical prior HUMAN resolutions of "
+            "the same edge-class required before precedent may auto-resolve. "
+            "Hard floor of 3 (a pattern, never a single coincidence)."
+        ),
+    )
+    precedent_autoresolve_freshness_days: int = Field(
+        default=90,
+        ge=1,
+        le=3650,
+        description=(
+            "Freshness window: a precedent only counts if it was resolved within "
+            "this many days of the current request (measured against "
+            "request.requested_at, so the gate is deterministic and replayable)."
+        ),
+    )
+    precedent_autoresolve_min_confidence: float = Field(
+        default=0.9,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum recorded confidence of each prior human resolution for it "
+            "to count toward the N consistent precedents."
+        ),
+    )
+
     specialist_thresholds: dict[str, float] = Field(
         default_factory=dict,
         description="Per-specialist escalation thresholds keyed by specialist name.",

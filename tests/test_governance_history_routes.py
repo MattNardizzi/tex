@@ -121,9 +121,12 @@ class TestSchedulerRoutes:
         r = client.get("/v1/discovery/scheduler/status")
         assert r.status_code == 200
         body = r.json()
-        # No tenants configured → not running.
-        assert body["running"] is False
+        # Real-only: no tenant is enrolled until a real client ignites one
+        # (no default "demo" watch). The standing loop itself still runs —
+        # the scheduler carries the dormant-agent doctrine sweep, so it is
+        # up even with zero scan tenants.
         assert body["tenants"] == []
+        assert body["running"] is True
         assert body["alert_sinks"]  # at minimum the log sink
 
     def test_run_returns_summary(self, client):

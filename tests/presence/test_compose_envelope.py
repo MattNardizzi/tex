@@ -115,3 +115,38 @@ def test_run_presence_inert_without_brain(populated_state):
         transcript="how many forbids?", facts=None, templated_abstain=ABSTAIN_LINE,
     )
     assert env is None
+
+
+def test_profile_correction_tightens_through_run_presence(populated_state):
+    """L2 wire: a tenant's active correction caps the verdict to ABSTAIN THROUGH
+    run_presence — proving the post-gate monotone fold is actually engaged on the
+    spoken path (it was unit-tested in isolation but had no caller until wired)."""
+    from tex.presence.profile import SealedProfileMemory
+
+    gate = PresenceTruthGate()
+    claims = (PresenceClaim("forbid_count", "how many forbids", ClaimKind.AGGREGATE),)
+
+    def _ask(profile):
+        return run_presence(
+            gate=gate, request=populated_state, tenant="acme",
+            brain=_FakeBrain("how many forbids", claims),
+            transcript="how many forbids?", facts=None,
+            templated_abstain=ABSTAIN_LINE, telemetry=PresenceTelemetry(),
+            held_sink=HeldDecisionSink(), profile=profile,
+        )
+
+    # Control: no profile correction → the SEALED count is spoken as usual.
+    env_uncorrected = _ask(None)
+    assert "forbidden decisions" in env_uncorrected.spoken_text
+
+    # Treatment: the tenant corrected this subject down to ABSTAIN. The fold caps
+    # the verdict (monotone, never raises), so the only claim is suppressed and the
+    # answer falls back to the templated abstain — a correction changed the speech.
+    profile = SealedProfileMemory(mirror=None)
+    profile.apply_correction(
+        tenant="acme", claim_id="forbid_count",
+        corrected_tier=PresenceTier.ABSTAIN, operator="ceo@acme.com",
+    )
+    env_corrected = _ask(profile)
+    assert env_corrected.spoken_text == ABSTAIN_LINE
+    assert env_corrected.verdicts == ()

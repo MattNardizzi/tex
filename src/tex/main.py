@@ -825,12 +825,15 @@ def build_runtime(
         dormancy_controller=dormancy_controller,
     )
 
-    # Until a real client connects, run the standing system against a demo
-    # tenant so the full loop — periodic re-scan (the standing watch),
-    # dormancy sweep, and held-decision surfacing — is live and visible
-    # against the demo seed. A real tenant is enrolled on its ignition.
+    # Real-only by default: no tenant is enrolled until a real client ignites
+    # one (a real tenant is enrolled on its ignition). For a local walkthrough
+    # the full standing loop — periodic re-scan (the standing watch), dormancy
+    # sweep, and held-decision surfacing — can be driven against a demo tenant
+    # by OPTING IN with TEX_DISCOVERY_DEMO_TENANT=demo. Left unset, nothing is
+    # enrolled, so the scheduler stays idle and no demo-residue snapshots are
+    # captured in production.
     _demo_watch_tenant = os.environ.get(
-        "TEX_DISCOVERY_DEMO_TENANT", "demo"
+        "TEX_DISCOVERY_DEMO_TENANT", ""
     ).strip().casefold()
     if _demo_watch_tenant:
         scan_scheduler.enroll_tenant(_demo_watch_tenant)
@@ -1551,6 +1554,15 @@ def create_app(
         app.include_router(build_presence_profile_router())
     except Exception as exc:  # never break boot over an optional leg
         _logger.warning("presence: profile router not mounted (%s).", exc)
+    # PRESENCE: the L3 habit surface (/v1/presence/habits/*). Read-only "I've
+    # noticed…" hypotheses, mined from sealed history; a confirm writes ONE
+    # tightening L2 correction. Honest-by-construction (empty until the
+    # statistical floor is cleared). Additive + auth-gated; fail-safe mount.
+    try:
+        from tex.api.presence_habits_routes import build_presence_habits_router
+        app.include_router(build_presence_habits_router())
+    except Exception as exc:  # never break boot over an optional leg
+        _logger.warning("presence: habits router not mounted (%s).", exc)
     app.include_router(guardrail_router)  # GUARDRAIL: canonical webhook
     app.include_router(guardrail_adapters_router)  # GUARDRAIL: gateway-native adapters
     app.include_router(guardrail_streaming_router)  # GUARDRAIL: SSE + async + chunk streaming

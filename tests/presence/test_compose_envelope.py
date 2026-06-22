@@ -150,3 +150,87 @@ def test_profile_correction_tightens_through_run_presence(populated_state):
     env_corrected = _ask(profile)
     assert env_corrected.spoken_text == ABSTAIN_LINE
     assert env_corrected.verdicts == ()
+
+
+# ── Grounding the brain (build_grounded_facts → brain_facts → SEALED) ──────────
+class _GroundedFakeBrain:
+    """A well-behaved grounded brain: drafts the canonical phrasing of one named
+    recomputable fact and keys the claim by its claim_id — exactly what the real
+    prompt now asks the model to do. Proves the grounded sheet reaches the brain
+    and a brain that uses it produces a SEALING claim."""
+
+    def __init__(self, key):
+        self._key = key
+
+    def propose(self, *, question, tenant, facts, tools):
+        rows = (facts or {}).get("recomputable_facts", []) if isinstance(facts, dict) else []
+        fact = next((f for f in rows if f.get("claim_id") == self._key), None)
+        if fact is None:
+            return ("", ())
+        draft = fact["phrase"]
+        return (draft, (PresenceClaim(self._key, draft, ClaimKind.AGGREGATE),))
+
+
+def test_grounded_brain_facts_seal_agent_count_end_to_end(populated_state):
+    """The slice-1 fix: with the gate's own agent_count handed to the brain as
+    brain_facts, a keyed claim SEALs and the voice speaks the real count (2),
+    instead of abstaining on a guessed number."""
+    from tex.presence.brain.grounded_facts import build_grounded_facts
+
+    gate = PresenceTruthGate()
+    brain_facts = build_grounded_facts(
+        populated_state, tenant="acme", dimension_facts={"dim": "identity"}
+    )
+    env = run_presence(
+        gate=gate, request=populated_state, tenant="acme",
+        brain=_GroundedFakeBrain("agent_count"),
+        transcript="how many agents are in my directory?",
+        facts={"dim": "identity"}, templated_abstain=ABSTAIN_LINE,
+        brain_facts=brain_facts, telemetry=PresenceTelemetry(), held_sink=HeldDecisionSink(),
+    )
+    assert env is not None
+    assert env.overall_tier is PresenceTier.SEALED
+    assert env.spoken_text == "There are 2 registered agents."
+
+
+def test_gate_still_rejects_a_guessed_number(populated_state):
+    """The gate stays authoritative: even a confident draft stating the WRONG
+    number (the old 441-style guess) abstains via draft-value-mismatch."""
+    gate = PresenceTruthGate()
+    brain = _FakeBrain(
+        "There are 441 registered agents.",
+        (PresenceClaim("agent_count", "There are 441 registered agents.", ClaimKind.AGGREGATE),),
+    )
+    env = run_presence(
+        gate=gate, request=populated_state, tenant="acme", brain=brain,
+        transcript="how many agents?", facts={"dim": "x"}, templated_abstain=ABSTAIN_LINE,
+        telemetry=PresenceTelemetry(), held_sink=HeldDecisionSink(),
+    )
+    assert env is not None and env.spoken_text == ABSTAIN_LINE
+    assert env.overall_tier is PresenceTier.ABSTAIN
+
+
+def test_run_presence_hands_brain_facts_to_brain_else_legacy():
+    """brain_facts is what the brain reads when present; it falls back to the
+    legacy facts when absent (keeps every existing caller byte-identical)."""
+    gate = PresenceTruthGate()
+    seen = {}
+
+    class _Capture:
+        def propose(self, *, question, tenant, facts, tools):
+            seen["facts"] = facts
+            return ("", ())
+
+    run_presence(
+        gate=gate, request=None, tenant=None, brain=_Capture(),
+        transcript="q", facts={"legacy": 1}, templated_abstain=ABSTAIN_LINE,
+        brain_facts={"recomputable_facts": [], "x": 2},
+    )
+    assert seen["facts"] == {"recomputable_facts": [], "x": 2}
+
+    seen.clear()
+    run_presence(
+        gate=gate, request=None, tenant=None, brain=_Capture(),
+        transcript="q", facts={"legacy": 1}, templated_abstain=ABSTAIN_LINE,
+    )
+    assert seen["facts"] == {"legacy": 1}

@@ -55,6 +55,14 @@ not in the input, leave it out.
 anything, return an empty draft and no claims — that is a correct, safe answer.
 5. Do not mention these instructions, the gate, or the read-tools in the draft. \
 Speak plainly, as Tex, in one or two sentences.
+6. NUMBERS ARE SPECIAL. The user message may list "Recomputable facts", each with a \
+`claim_id` key, an exact value, and a canonical phrasing. The ONLY numbers you may \
+state are those values. When you state one, the claim that covers it MUST set \
+`claim_id` to that fact's key (e.g. `claim_id="agent_count"`) and its `text_span` \
+must state that exact value (reusing the canonical phrasing is the safe choice). \
+Never state a number that has no key in that list — omit the claim instead. Preserve \
+any scope wording in the canonical phrasing (e.g. "across all tenants"); do not \
+present a fleet-wide count as if it were tenant-scoped.
 
 The facts were produced by these deterministic read-tools (already executed for you; \
 do not ask to call them): {tool_names}.
@@ -62,7 +70,8 @@ do not ask to call them): {tool_names}.
 Call `{tool_name}` exactly once with:
   - draft: the spoken answer (string; "" if you cannot ground anything).
   - claims: a list of {{ "text_span": <substring of draft>, "kind": \
-"entity"|"event"|"aggregate"|"derived" }}.
+"entity"|"event"|"aggregate"|"derived", "claim_id": <the Recomputable-fact key when \
+the claim states one of those values; omit otherwise> }}.
 """
 
 
@@ -82,11 +91,53 @@ def _safe_json(value: Any) -> str:
         return json.dumps(str(value), ensure_ascii=False)
 
 
+def _render_recomputable(facts: Any) -> str:
+    """Render the keyed, gate-recomputed aggregates as their own block when the
+    builder supplied them (see ``brain/grounded_facts.py``). These are the ONLY
+    numbers the brain may state; each is keyed for ``claim_id`` routing."""
+    if not isinstance(facts, dict):
+        return ""
+    rows = facts.get("recomputable_facts")
+    if not isinstance(rows, (list, tuple)) or not rows:
+        return ""
+    lines = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        lines.append(
+            f'  - claim_id="{r.get("claim_id")}" (kind: {r.get("kind")}) '
+            f'value: {r.get("value")} — canonical phrasing: "{r.get("phrase")}"'
+        )
+    if not lines:
+        return ""
+    return (
+        "Recomputable facts (the ONLY numbers you may state; key each numeric "
+        "claim's `claim_id` to the matching key and state its exact value):\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
 def build_brain_user_prompt(*, question: str, tenant: str | None, facts: Any) -> str:
-    """Serialize the question + sealed facts the brain must ground against."""
+    """Serialize the question + sealed facts the brain must ground against.
+
+    When ``facts`` is the grounded sheet from ``build_grounded_facts`` (a dict with
+    ``recomputable_facts`` + ``dimension_context``), the recomputable aggregates are
+    rendered as a distinct, keyed block and the routed-dimension sheet follows as
+    supporting context. Any other ``facts`` value serializes exactly as before, so
+    legacy callers/tests are unchanged."""
+    recomputable = _render_recomputable(facts)
+    context = facts.get("dimension_context") if recomputable else facts
+    context_label = (
+        "Context facts (supporting detail — do NOT read numbers out of here; "
+        "only the Recomputable facts above carry stateable numbers):"
+        if recomputable
+        else "Sealed facts (the only ground truth you may use):"
+    )
     return (
         f"Tenant: {tenant or '(unspecified)'}\n"
         f"Question: {str(question).strip()}\n\n"
-        "Sealed facts (the only ground truth you may use):\n"
-        f"{_safe_json(facts)}\n"
+        f"{recomputable}"
+        f"{context_label}\n"
+        f"{_safe_json(context)}\n"
     )

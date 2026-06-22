@@ -56,6 +56,21 @@ def test_agent_and_action_aggregates(populated_state):
     assert actions.tier is PresenceTier.SEALED and actions.recomputed_value == 6
 
 
+def test_directory_phrased_span_routes_to_agent_count(populated_state):
+    """A free-form span (no claim_id) phrased as a directory total routes to
+    agent_count via the broadened aliases, instead of falling to no-matching-query."""
+    gate = PresenceTruthGate()
+    for span in (
+        "there are 2 agents in my directory",
+        "you have 2 total agents",
+        "2 agents in total",
+    ):
+        v = _one(gate, populated_state, _claim("claim-0", span, ClaimKind.AGGREGATE))
+        assert v.tier is PresenceTier.SEALED, span
+        assert v.recomputed_value == 2, span
+        assert v.reason != "no-matching-query"
+
+
 def test_offline_connector_count_is_tenant_scoped(populated_state):
     gate = PresenceTruthGate()
     v = _one(gate, populated_state,

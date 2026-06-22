@@ -201,6 +201,47 @@ def test_ask_serializes_presence_envelope_when_brain_engaged(client: TestClient)
     assert verdict0["attestation"] is None
 
 
+class _GroundedBrain:
+    """Reads the grounded fact sheet (brain_facts) and drafts the canonical phrase
+    for a named key, keying the claim by its claim_id — exactly what the real
+    prompt now instructs the model to do. Proves the grounded sheet reaches the
+    brain THROUGH the live /v1/ask route."""
+
+    def __init__(self, key):
+        self._key = key
+
+    def propose(self, *, question, tenant, facts, tools):
+        from tex.presence.contract import ClaimKind, PresenceClaim
+
+        rows = facts.get("recomputable_facts", []) if isinstance(facts, dict) else []
+        fact = next((r for r in rows if r.get("claim_id") == self._key), None)
+        if fact is None:
+            return ("", ())
+        draft = fact["phrase"]
+        return (draft, (PresenceClaim(self._key, draft, ClaimKind.AGGREGATE),))
+
+
+def test_ask_grounds_the_brain_and_seals_agent_count(client: TestClient) -> None:
+    # Slice-1 fix through the real route: a grounded brain handed the gate's OWN
+    # agent_count seals it and speaks the real number — instead of guessing a
+    # number the gate disproves and abstaining on everything (the over-abstain bug).
+    from tex.domain.agent import AgentIdentity
+
+    reg = client.app.state.agent_registry
+    reg.save(AgentIdentity(name="alpha", owner="acme", tenant_id="acme"))
+    reg.save(AgentIdentity(name="beta", owner="acme", tenant_id="acme"))
+
+    client.app.state.presence_brain = _GroundedBrain("agent_count")
+
+    resp = client.post("/v1/ask", json={"transcript": "how many agents are in my directory?"})
+    assert resp.status_code == 200
+    pres = resp.json()["presence"]
+    assert pres is not None, "a grounded brain should engage presence"
+    assert pres["overall_tier"] == "sealed"
+    assert "2" in pres["spoken_text"]
+    assert pres["verdicts"][0]["recomputed_value"] == 2
+
+
 def test_ask_presence_is_null_without_a_brain(client: TestClient) -> None:
     # The default app configures no GroundedBrain → presence stays null and the
     # legacy response is unchanged. The dormant-by-default guarantee.

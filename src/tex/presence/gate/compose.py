@@ -284,6 +284,7 @@ def run_presence(
     transcript: str,
     facts: Any,
     templated_abstain: str,
+    brain_facts: Any = None,
     telemetry: PresenceTelemetry | None = None,
     held_sink: Any = None,
     attestor: Any = None,
@@ -296,6 +297,14 @@ def run_presence(
     the caller keeps its legacy deterministic answer untouched. Never raises into
     the voice path: any internal failure yields ``None`` (fail-closed to legacy).
 
+    ``brain_facts`` (optional): the recomputable fact sheet the BRAIN reads when
+    drafting (see :func:`tex.presence.brain.grounded_facts.build_grounded_facts`).
+    It carries the gate's own recomputed aggregates so the draft's numbers match by
+    construction. The GATE never reads it — ``gate.evaluate_detailed`` below still
+    recomputes every claim from sealed rows via ``request``, so the external-check
+    invariant is untouched. ``None`` ⇒ the brain reads the legacy ``facts`` exactly
+    as before (keeps the no-provider / test paths byte-identical).
+
     ``profile`` (optional :class:`~tex.presence.profile.types.ProfileMemory`): the
     per-tenant correction store. When present, an operator's prior corrections cap
     the matching claims AFTER the gate and BEFORE composition — monotone, so a
@@ -305,7 +314,8 @@ def run_presence(
     """
     try:
         draft, claims = brain.propose(
-            question=transcript, tenant=tenant, facts=facts, tools=(),
+            question=transcript, tenant=tenant,
+            facts=(brain_facts if brain_facts is not None else facts), tools=(),
         )
     except Exception:  # noqa: BLE001
         _logger.debug("presence brain.propose swallowed an error", exc_info=True)

@@ -46,7 +46,8 @@ class ProfileFacts:
     facts: tuple[ProfileFact, ...]
     def refs(self) -> tuple[EvidenceRef, ...]        # citable, per fact
     def corrections(self) -> tuple[ProfileFact, ...] # CORRECTION-kind only
-    def tier_ceiling(self, claim_id: str) -> PresenceTier | None  # monotone fold of corrections
+    def tier_ceiling(self, claim_id: str) -> PresenceTier | None          # legacy: folds over _norm_subject(claim_id)
+    def tier_ceiling_for_subject(self, subject_key: str) -> PresenceTier | None  # folds over an already-resolved STABLE subject
 ```
 
 ### `ProfileFact`
@@ -85,6 +86,49 @@ active correction ceiling (fail-open to uncorrected verdicts on any error). A
 correction-suppressed claim becomes `ABSTAIN` and is stripped by `build_envelope`
 exactly as any ABSTAIN — so corrections influence the spoken answer without L2
 editing `run_presence`.
+
+### The STABLE subject key (so a correction caps the SAME thing asked again)
+
+A correction is scoped to a **subject**, and the subject must be stable across
+re-asks or the cap is cosmetic. The brain's `claim_id` is NOT stable (LLM string /
+`claim-{index}` fallback), and the verdict's evidence `record_id` set is NOT stable
+either (an AGGREGATE binds a witness set capped at 64 that grows as rows arrive; a
+discovery/event claim binds the moving latest sequence). So
+`influence.stable_subject_key(evaluation)` keys on the gate's **routing identity**
+(`routed.query.key` + `routed.target`) — a fixed registry entry stable across
+re-asks AND as rows change. EXACT match only; no embeddings/similarity.
+
+- **Surface it.** `compose._surface_object` puts `subject_key` on every claim row;
+  the confirm/correct UI echoes it to `POST /v1/presence/profile/correct`
+  (`CorrectRequest.subject_key`).
+- **Store it.** `apply_correction(..., subject_key=...)` scopes the cap to the
+  stable subject. **Always pass it** for a correction that must survive a re-ask;
+  omitting it falls back to the legacy `claim_id` key (see the trap below).
+- **Look it up.** The read side does a monotone **dual-lookup**: the stable subject
+  ceiling `tighten`-folded with the ceiling for the **current** verdict's `claim_id`
+  subject. Corrections stored with an explicit `subject_key` are robust across
+  re-asks; corrections stored under a bare `claim_id` **silently stop applying** the
+  moment the brain re-asks with a different generated `claim_id` (the legacy arm
+  keys on the *current* claim_id, and nothing persists the original — see
+  `test_legacy_claim_id_correction_silently_fails_across_reask_but_stable_key_holds`).
+  The legacy arm exists only for **non-regression**, not stability. Matches are only
+  ever ADDED and a `tighten`-fold can still only lower a tier, so dual-lookup is
+  monotone-safe regardless.
+
+> **The legacy `claim_id` trap (L3 + UI).** A correction without an explicit
+> `subject_key` keys on the brain's volatile `claim_id` string. If your writer does
+> not surface `subject_key`, the operator's correction will silently stop applying
+> across re-asks. Always read `subject_key` from `compose._surface_object` (or call
+> `stable_subject_key(evaluation)`) and pass it to `apply_correction(subject_key=...)`.
+> **Known gap:** the habit-confirm writer (`habits/confirm.py`) currently writes via
+> the legacy `claim_id` arm (it mines pre-gate and has no routing identity), so
+> habit-confirmed corrections are NOT yet stable across re-asks — tracked in
+> `COORDINATION.md` for the L3 track.
+
+Watch metric: `PresenceTelemetry.over_suppression_rate` — the share of answers a
+correction lowered. Over-suppression is the correction loop's only real failure
+mode; inflation is structurally impossible (no path raises a tier), so there is no
+inflation counter.
 
 ## L3 integration notes
 

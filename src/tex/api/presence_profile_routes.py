@@ -82,6 +82,7 @@ class CorrectRequest(BaseModel):
     original_tier: str | None = Field(default=None, description="Optional: the tier Tex actually spoke ('sealed'/'derived'/'abstain').")
     decision_id: str | None = Field(default=None, max_length=128, description="Optional governance Decision this correction is about (feeds calibration server-side).")
     believed_value: str | None = Field(default=None, max_length=512, description="Operator-belief metadata ONLY — never spoken.")
+    subject_key: str | None = Field(default=None, max_length=512, description="The STABLE subject the answer surfaced (surface_object[].subject_key). Echo it so the correction caps the SAME claim when re-asked; omit to fall back to the volatile claim_id.")
 
 
 class ConfirmRequest(BaseModel):
@@ -225,6 +226,7 @@ def correct(body: CorrectRequest, request: Request) -> dict[str, Any]:
             original_tier=original_tier,
             decision_id=body.decision_id,
             believed_value=body.believed_value,
+            subject_key=body.subject_key,
         )
     except ValueError as exc:
         # The write-gate refused (upward correction / no provenance / not a

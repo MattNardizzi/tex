@@ -8,18 +8,32 @@ evidence on an ABSTAIN verdict.
 from __future__ import annotations
 
 import itertools
+from types import SimpleNamespace
 
-from tex.presence.contract import PresenceTier, tighten
+from tex.presence.contract import ClaimKind, PresenceClaim, PresenceTier, tighten
+from tex.presence.gate.gate import ClaimEvaluation, RoutedClaim
 from tex.presence.profile import (
     SealedProfileMemory,
     apply_corrections_to_verdicts,
+    apply_profile_corrections,
     cap_verdict,
+    stable_subject_key,
 )
 
 from .conftest import make_verdict
 
 _TIERS = (PresenceTier.SEALED, PresenceTier.DERIVED, PresenceTier.ABSTAIN)
 _RANK = {PresenceTier.SEALED: 2, PresenceTier.DERIVED: 1, PresenceTier.ABSTAIN: 0}
+
+
+def _eval_for(verdict, *, query_key: str, kind: ClaimKind) -> ClaimEvaluation:
+    """A real (frozen-dataclass) ClaimEvaluation with controllable verdict + a
+    routed query — so the apply path keys on the STABLE routing subject exactly as
+    it does in production. ``replace(e, verdict=...)`` needs a real dataclass."""
+    query = SimpleNamespace(key=query_key, kind=kind)
+    routed = RoutedClaim(query=query, target=None, reason="routed")
+    claim = PresenceClaim(claim_id="brain-emitted-volatile-id", text_span="how many forbids", kind=kind)
+    return ClaimEvaluation(claim=claim, verdict=verdict, recompute=None, routed=routed)
 
 
 def test_cap_never_raises_a_tier_for_any_combination():
@@ -104,6 +118,30 @@ def test_two_corrections_fold_to_the_most_cautious(profile: SealedProfileMemory)
     )
     facts = profile.recall_profile(tenant="acme")
     assert facts.tier_ceiling("forbid_count") is PresenceTier.ABSTAIN  # most cautious wins
+
+
+def test_apply_path_correction_never_raises_a_tier_property():
+    # CI GATE — the apply-side monotonicity property: for EVERY (gate verdict tier,
+    # stored correction ceiling), the post-correction tier is NEVER more confident
+    # than the gate's. A correction can ONLY tighten. This runs the REAL hot path
+    # (apply_profile_corrections over a real ClaimEvaluation keyed on the stable
+    # routing subject), so it would fail if the fold ever used max() or the
+    # stable-key lookup mismatched and silently dropped a cap into a no-op-that-raises.
+    subject = "q:aggregate:forbid_count"  # == stable_subject_key for the eval below
+    for ceiling in (PresenceTier.DERIVED, PresenceTier.ABSTAIN):  # SEALED is write-refused
+        profile = SealedProfileMemory(mirror=None)
+        profile.apply_correction(
+            tenant="acme", claim_id="forbid_count", subject_key=subject,
+            corrected_tier=ceiling, operator="op@acme.com",
+        )
+        for vt in _TIERS:
+            floor = 0.9 if vt is PresenceTier.DERIVED else None
+            cov = "calibrated" if vt is PresenceTier.DERIVED else None
+            v = make_verdict("forbid_count", tier=vt, correctness_floor=floor, coverage_mode=cov)
+            e = _eval_for(v, query_key="forbid_count", kind=ClaimKind.AGGREGATE)
+            assert stable_subject_key(e) == subject  # the stored subject really matches
+            out = apply_profile_corrections(tenant="acme", evaluations=(e,), profile=profile)
+            assert _RANK[out[0].verdict.tier] <= _RANK[vt], (vt, ceiling, out[0].verdict.tier)
 
 
 def test_fold_fails_open_to_uncorrected_on_profile_error():

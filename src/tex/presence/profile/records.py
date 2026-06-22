@@ -128,10 +128,16 @@ class SealedProfileFact:
         decision_id: str | None = None,
         believed_value: str | None = None,
         pq_signature: dict[str, Any] | None = None,
+        subject_key: str | None = None,
     ) -> "SealedProfileFact":
         """Construct a sealed fact + its anchor. The caller (the store) owns the
-        write-gate; this only builds the immutable object."""
-        subject_key = _norm_subject(claim_id)
+        write-gate; this only builds the immutable object.
+
+        ``subject_key`` is the STABLE subject the correction is scoped to (the
+        gate's routing identity, surfaced at speak-time). When omitted, it falls
+        back to ``_norm_subject(claim_id)`` (the legacy volatile key). Either way
+        it is normalised so the read-side lookup matches byte-for-byte."""
+        subject_key = _norm_subject(subject_key) if (subject_key or "").strip() else _norm_subject(claim_id)
         payload = build_profile_payload(
             tenant=tenant,
             kind=kind,

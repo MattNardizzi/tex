@@ -75,6 +75,25 @@ def test_correct_seals_and_feeds_calibration(client_and_feed):
     assert feed.fed == [("acme", "dec-1")]
 
 
+def test_correct_stores_the_supplied_stable_subject_key(client_and_feed):
+    # The answer surfaces a STABLE subject_key (surface_object[].subject_key); the
+    # correct UI echoes it so the cap is scoped to the routing identity, not the
+    # volatile claim_id. The sealed receipt records that exact subject.
+    client, _ = client_and_feed
+    r = client.post(
+        "/v1/presence/profile/correct?tenant_id=acme",
+        json={
+            "claim_id": "claim-3", "corrected_tier": "abstain", "operator": "ceo@acme.com",
+            "subject_key": "q:aggregate:forbid_count",
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    # The stored subject is the STABLE key, not the volatile claim_id.
+    assert body["subject_key"] == "q:aggregate:forbid_count"
+    assert body["subject_key"] != "claim-3"
+
+
 def test_upward_correction_is_422(client_and_feed):
     client, _ = client_and_feed
     r = client.post(

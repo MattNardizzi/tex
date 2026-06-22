@@ -78,6 +78,7 @@ def _run_presence(
     brain = getattr(state, "presence_brain", None) or NULL_BRAIN
     held_sink = getattr(state, "held_decision_sink", None)
     attestor = getattr(state, "presence_attestor", None)
+    profile = getattr(state, "presence_profile", None)
     def _go() -> AnswerEnvelope | None:
         return run_presence(
             gate=_PRESENCE_GATE,
@@ -90,6 +91,7 @@ def _run_presence(
             telemetry=_PRESENCE_TELEMETRY,
             held_sink=held_sink,
             attestor=attestor,
+            profile=profile,
         )
 
     # L1 flywheel: when a per-tenant calibration feed exists, let the conformal

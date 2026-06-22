@@ -176,13 +176,22 @@ class ProfileFacts:
         return tuple(f for f in self.facts if f.kind is ProfileFactKind.CORRECTION)
 
     def tier_ceiling(self, claim_id: str) -> PresenceTier | None:
-        """The MOST CAUTIOUS ceiling across all active corrections for this
-        subject (a monotone fold with :func:`tighten`), or ``None`` if the subject
-        is uncorrected. Corrections only ever accumulate toward caution."""
-        subject = _norm_subject(claim_id)
+        """The MOST CAUTIOUS ceiling across all active corrections for the subject
+        a ``claim_id`` normalises to (a monotone fold with :func:`tighten`), or
+        ``None`` if uncorrected. Kept for legacy/claim_id-keyed lookups; the hot
+        path keys on the STABLE routing subject — see
+        :func:`tex.presence.profile.influence.stable_subject_key` and
+        :meth:`tier_ceiling_for_subject`."""
+        return self.tier_ceiling_for_subject(_norm_subject(claim_id))
+
+    def tier_ceiling_for_subject(self, subject_key: str) -> PresenceTier | None:
+        """The MOST CAUTIOUS ceiling across all active corrections stored under an
+        ALREADY-RESOLVED ``subject_key`` (a monotone fold with :func:`tighten`), or
+        ``None`` if uncorrected. EXACT match only — a correction never widens to a
+        prefix/fuzzy match. Corrections only ever accumulate toward caution."""
         ceiling: PresenceTier | None = None
         for f in self.facts:
-            if f.kind is ProfileFactKind.CORRECTION and f.subject_key == subject and f.corrected_tier is not None:
+            if f.kind is ProfileFactKind.CORRECTION and f.subject_key == subject_key and f.corrected_tier is not None:
                 ceiling = f.corrected_tier if ceiling is None else tighten(ceiling, f.corrected_tier)
         return ceiling
 
@@ -214,12 +223,19 @@ class ProfileMemory(Protocol):
         original_tier: PresenceTier | None = None,
         decision_id: str | None = None,
         believed_value: str | None = None,
+        subject_key: str | None = None,
     ) -> EvidenceRef:
         """Write-gate a CORRECTION and return its citable EvidenceRef. Fail-closed:
         REFUSES (raises ``ValueError``, writes nothing) when ``corrected_tier`` is
         ``SEALED`` (an inflating correction), when ``operator`` is empty (no
         provenance), or when ``original_tier`` is given and ``corrected_tier`` is
-        not strictly more cautious (nothing to tighten)."""
+        not strictly more cautious (nothing to tighten).
+
+        ``subject_key`` (optional) is the STABLE subject the cap is scoped to,
+        surfaced at speak-time by :func:`tex.presence.profile.influence.stable_subject_key`
+        (the gate's routing identity — stable across re-asks and as rows change).
+        When omitted, the subject falls back to ``_norm_subject(claim_id)`` (the
+        legacy, volatile key) — kept only for backward compatibility."""
         ...
 
     def confirm(

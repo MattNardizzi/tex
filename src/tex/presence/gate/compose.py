@@ -47,12 +47,21 @@ PRESENCE_HOLD_AGENT_ID = UUID(int=0)
 
 def _surface_object(detailed: tuple[ClaimEvaluation, ...]) -> dict[str, Any]:
     """The hold-to-see structured object: every claim, supported or not, with its
-    tier, recomputed value, evidence anchors and reason. Honest and complete."""
+    tier, recomputed value, evidence anchors and reason. Honest and complete.
+
+    Each row also carries ``subject_key`` — the STABLE subject an operator
+    correction is scoped to (the gate's routing identity, not the volatile
+    claim_id). The confirm/correct UI echoes this back to ``/v1/presence/profile/
+    correct`` so a correction caps the SAME thing when the question is asked again.
+    """
+    from tex.presence.profile.influence import stable_subject_key  # local: keep gate decoupled
+
     rows = []
     for e in detailed:
         v = e.verdict
         rows.append({
             "claim_id": v.claim_id,
+            "subject_key": stable_subject_key(e),
             "tier": v.tier.value,
             "kind": e.claim.kind.value,
             "recomputed_value": v.recomputed_value,
@@ -185,6 +194,7 @@ def run_presence(
     telemetry: PresenceTelemetry | None = None,
     held_sink: Any = None,
     attestor: Any = None,
+    profile: Any = None,
 ) -> AnswerEnvelope | None:
     """Run the presence channel in PARALLEL to the deterministic voice path.
 
@@ -192,6 +202,13 @@ def run_presence(
     not engaged (no brain configured / brain proposed no claims) — in which case
     the caller keeps its legacy deterministic answer untouched. Never raises into
     the voice path: any internal failure yields ``None`` (fail-closed to legacy).
+
+    ``profile`` (optional :class:`~tex.presence.profile.types.ProfileMemory`): the
+    per-tenant correction store. When present, an operator's prior corrections cap
+    the matching claims AFTER the gate and BEFORE composition — monotone, so a
+    correction can only tighten (lower) a tier, never raise one. Fail-open: with
+    ``profile``/``tenant`` absent or on any profile fault the gate's verdicts stand
+    unchanged, so this can never break the voice.
     """
     try:
         draft, claims = brain.propose(
@@ -212,8 +229,18 @@ def run_presence(
         _logger.warning("presence gate raised; abstaining", exc_info=True)
         return AnswerEnvelope(spoken_text=templated_abstain, surface_object=None)
 
+    # Apply the operator's per-tenant CORRECTIONS between the gate and composition.
+    # Monotone (tighten-only) and fail-open — see apply_profile_corrections. Snapshot
+    # the gate's tiers first so we can measure over-suppression (corrections can only
+    # lower, so any tier change here is a suppression — the metric to watch).
+    from tex.presence.profile.influence import apply_profile_corrections  # local: keep gate decoupled
+
+    pre_tiers = [e.verdict.tier for e in detailed]
+    detailed = apply_profile_corrections(tenant=tenant, evaluations=detailed, profile=profile)
+
     if telemetry is not None:
-        telemetry.observe_answer([e.verdict for e in detailed])
+        lowered = sum(1 for pre, e in zip(pre_tiers, detailed) if e.verdict.tier is not pre)
+        telemetry.observe_answer([e.verdict for e in detailed], claims_lowered=lowered)
 
     envelope = build_envelope(detailed, templated_abstain=templated_abstain, attestor=attestor)
 

@@ -95,6 +95,7 @@ class SealedProfileMemory:
         original_tier: PresenceTier | None = None,
         decision_id: str | None = None,
         believed_value: str | None = None,
+        subject_key: str | None = None,
     ) -> EvidenceRef:
         """Write-gate a CORRECTION into per-tenant profile memory and return its
         citable EvidenceRef. Fail-closed — the write-gate (provenance validated
@@ -103,18 +104,28 @@ class SealedProfileMemory:
           1. ``tenant`` non-empty (the only bucket key written).
           2. ``operator`` non-empty — a correction is a NAMED human act; an
              anonymous correction has no provenance and is refused.
-          3. ``claim_id`` non-empty — it is the subject the ceiling is scoped to.
+          3. ``claim_id`` non-empty — it carries the subject when no stable
+             ``subject_key`` is supplied.
           4. ``corrected_tier`` is NOT ``SEALED`` — an *upward*/inflating
              correction is the fabrication vector Tex exists to prevent; to make
              Tex speak something as fact, seal a real fact with evidence.
           5. If ``original_tier`` is given, ``corrected_tier`` must be STRICTLY more
              cautious (a real tightening); else there is nothing to correct
              downward.
+
+        ``subject_key`` (optional) is the STABLE subject the cap is scoped to —
+        the gate's routing identity surfaced at speak-time
+        (:func:`tex.presence.profile.influence.stable_subject_key`), stable across
+        re-asks and as rows change. When omitted, the subject falls back to
+        ``_norm_subject(claim_id)`` (the legacy volatile key).
         """
         tenant = self._require_tenant(tenant)
         operator = self._require_operator(operator)
-        if not (claim_id or "").strip():
-            raise ValueError("apply_correction: claim_id (the corrected subject) is required")
+        if not (claim_id or "").strip() and not (subject_key or "").strip():
+            raise ValueError(
+                "apply_correction: subject_key (stable routing identity) or claim_id "
+                "(legacy fallback) must identify the corrected subject — subject_key is preferred"
+            )
         if corrected_tier is PresenceTier.SEALED:
             raise ValueError(
                 "apply_correction: refuse an upward correction to SEALED — a human "
@@ -139,6 +150,7 @@ class SealedProfileMemory:
             original_tier=original_tier,
             decision_id=decision_id,
             believed_value=believed_value,
+            subject_key=subject_key,
         )
 
     def confirm(
@@ -290,8 +302,15 @@ class SealedProfileMemory:
         original_tier: PresenceTier | None,
         decision_id: str | None,
         believed_value: str | None,
+        subject_key: str | None = None,
     ) -> EvidenceRef:
         self._hydrate_tenant(tenant)
+        # Resolve the subject ONCE so the anchor and the signature commit to the
+        # identical canonical payload (stable subject_key when supplied, else the
+        # legacy claim_id key). ``build`` re-normalises idempotently.
+        resolved_subject = (
+            _norm_subject(subject_key) if (subject_key or "").strip() else _norm_subject(claim_id)
+        )
         fact = SealedProfileFact.build(
             tenant=tenant,
             kind=kind,
@@ -302,10 +321,11 @@ class SealedProfileMemory:
             original_tier=original_tier,
             decision_id=decision_id,
             believed_value=believed_value,
+            subject_key=resolved_subject,
             pq_signature=self._maybe_sign(
                 tenant=tenant,
                 kind=kind,
-                claim_id=claim_id,
+                subject_key=resolved_subject,
                 corrected_tier=corrected_tier,
                 statement=statement,
                 operator=operator,
@@ -332,7 +352,7 @@ class SealedProfileMemory:
         *,
         tenant: str,
         kind: ProfileFactKind,
-        claim_id: str,
+        subject_key: str,
         corrected_tier: PresenceTier | None,
         statement: str,
         operator: str,
@@ -343,14 +363,15 @@ class SealedProfileMemory:
         """Attach a self-verifying signature block ONLY when sealing is enabled
         (``TEX_SEAL_DECISIONS=1``) and a signer was injected. Rides the SAME
         canonical content payload the anchor commits to (the ``tex.evidence.seal``
-        signer — no new crypto)."""
+        signer — no new crypto). ``subject_key`` is the already-resolved subject so
+        the signature commits to exactly what the anchor does."""
         if self._signer is None or os.environ.get("TEX_SEAL_DECISIONS") != "1":
             return None
         try:
             payload = build_profile_payload(
                 tenant=tenant,
                 kind=kind,
-                subject_key=_norm_subject(claim_id),
+                subject_key=subject_key,
                 corrected_tier=corrected_tier,
                 statement=statement or "",
                 operator=operator,

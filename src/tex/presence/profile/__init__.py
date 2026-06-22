@@ -37,6 +37,7 @@ from tex.presence.profile.influence import (
     apply_corrections_to_verdicts,
     apply_profile_corrections,
     cap_verdict,
+    stable_subject_key,
 )
 from tex.presence.profile.records import SealedProfileFact
 from tex.presence.profile.store import SealedProfileMemory
@@ -54,6 +55,7 @@ __all__ = [
     "apply_profile_corrections",
     "apply_corrections_to_verdicts",
     "cap_verdict",
+    "stable_subject_key",
     "SealedProfileMemory",
     "SealedProfileFact",
     "ProfileMemory",

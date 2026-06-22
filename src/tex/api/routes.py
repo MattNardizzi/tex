@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from tex.api.auth import RequireScope, authenticate_request
+from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.outcome_autoseal import capture_resolution_outcome
 
 from tex.api.schemas import (
@@ -247,12 +247,15 @@ class HumanResolutionRequest(BaseModel):
     "/decisions/{decision_id}/seal",
     status_code=status.HTTP_201_CREATED,
     summary="Seal a held decision with a named human act",
-    dependencies=[Depends(RequireScope("decision:write"))],
 )
 def seal_human_resolution(
     decision_id: UUID,
     body: HumanResolutionRequest,
     request: Request,
+    # The scope guard now rides on a PARAM (not the decorator) so the handler holds
+    # the authenticated principal — the only place the requesting tenant lives, since
+    # a Decision carries no tenant field. Enforcement is identical (decision:write).
+    principal: TexPrincipal = Depends(RequireScope("decision:write")),
 ) -> dict[str, Any]:
     """
     Resolve a held (ABSTAIN) decision by a NAMED human act and seal it.
@@ -331,6 +334,51 @@ def seal_human_resolution(
         "previous_hash": record.previous_hash,
         "pq_signature": signature_block,
     }
+
+    # PRESENCE L1 FLYWHEEL — the seal-channel fuel (a SECOND, fail-closed calibration
+    # source beside the live L2 /v1/presence/profile/correct route). A human "refused"
+    # of a PRESENCE-ORIGIN hold is a confirmed-true decisive error → one per-tenant
+    # conformal calibration label, so the DERIVED gate tightens as a tenant resolves
+    # its presence holds. Best-effort: this NEVER raises into the seal (mirrors
+    # outcome_autoseal); a calibration hiccup cannot sink a human's act.
+    #
+    # GATING (verified against live code 2026-06-22): we feed ONLY when the looked-up
+    # governance Decision is presence-origin — is_presence_origin_decision checks
+    # decision.metadata["dimension"]=="presence", the one extensible field a frozen,
+    # extra="forbid" Decision permits, mirroring the HeldDecision's detail["dimension"]
+    # tag. Require-marker-to-feed is fail-closed: a pure governance email/PDP hold
+    # (no such marker) NEVER feeds, so it cannot poison the selection-conditional
+    # presence floor. The feed itself records only a "refused" verdict (calibration.py).
+    #
+    # HONEST EDGE (named, not buried): NO production producer stamps that marker onto
+    # a stored Decision yet — a presence ABSTAIN is raised only as a HeldDecision in
+    # the HeldDecisionSink (surfaced at /held, no decision_id), never as a Decision the
+    # seal route can resolve. So THIS channel is fail-closed INERT until a
+    # presence-hold→Decision persister is built (the named follow-up). The floor it
+    # earns is static split-conformal (research-solid under exchangeability), NOT
+    # drift-robust — the online-adaptive (DtACI) + per-tier drift-widening work is
+    # phase-2, deferred. The tenant is the AUTHENTICATED principal's (a Decision has no
+    # tenant); cross-tenant labels are impossible by construction.
+    calibration_fed = False
+    try:
+        from tex.presence.memory import (
+            CalibrationResolution,
+            is_presence_origin_decision,
+            record_resolution_for_calibration,
+        )
+
+        if is_presence_origin_decision(decision):
+            calibration_fed = record_resolution_for_calibration(
+                principal.tenant,
+                CalibrationResolution(
+                    decision=decision,            # the SERVER-looked-up Decision
+                    human_verdict=body.verdict,   # "approved" | "held" | "refused"
+                    channel="seal",
+                ),
+            )
+    except Exception:  # noqa: BLE001 — calibration must never sink a seal
+        calibration_fed = False
+    response["calibration_fed"] = calibration_fed
 
     # Auto-seal the human resolution into a labeled, ingested OutcomeRecord
     # parent-linked to this resolution's record_hash. This is the flywheel's

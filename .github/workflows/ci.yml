@@ -46,7 +46,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest hypothesis
+          pip install -r requirements-dev.txt
 
       - name: Run the 5 guard suites
         run: |
@@ -74,7 +74,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest hypothesis
+          pip install -r requirements-dev.txt
 
       - name: Run the full suite (failures surfaced, not hidden)
         run: |

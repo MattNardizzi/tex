@@ -79,6 +79,22 @@ def _run_presence(
     held_sink = getattr(state, "held_decision_sink", None)
     attestor = getattr(state, "presence_attestor", None)
     profile = getattr(state, "presence_profile", None)
+
+    # Ground the brain: hand it the gate's OWN recomputed aggregates (agent_count,
+    # etc.) so its draft states numbers that match by construction, instead of
+    # guessing off the routed-dimension sheet and earning a draft-value-mismatch
+    # abstain. Only paid when a real brain will actually read it — the NULL_BRAIN
+    # path stays byte-identical and cost-free. The gate is unaffected: it still
+    # recomputes from sealed rows (run_presence never reads brain_facts in the gate).
+    brain_facts: Any = None
+    if brain is not NULL_BRAIN:
+        try:
+            from tex.presence.brain.grounded_facts import build_grounded_facts
+
+            brain_facts = build_grounded_facts(request, tenant=tenant, dimension_facts=facts)
+        except Exception:  # noqa: BLE001 — grounding is best-effort; fall back to legacy facts
+            brain_facts = None
+
     def _go() -> AnswerEnvelope | None:
         return run_presence(
             gate=_PRESENCE_GATE,
@@ -88,6 +104,7 @@ def _run_presence(
             transcript=transcript,
             facts=facts,
             templated_abstain=templated_abstain,
+            brain_facts=brain_facts,
             telemetry=_PRESENCE_TELEMETRY,
             held_sink=held_sink,
             attestor=attestor,

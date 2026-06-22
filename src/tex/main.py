@@ -1828,11 +1828,29 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # Fail-closed: an agent with no sealed identity is forbidden by default.
     from tex.governance.standing import StandingGovernance
 
+    # LIVE FORBID -> KERNEL HOT-SET FEED. One shared ForbidSource is the source
+    # the kernel floor polls at /v1/govern/forbid-set (warming its in-kernel
+    # verdict_cache) AND, when TEX_FORBID_AUTOFEED is on, the sink a live
+    # destination-attributable FORBID warms. Attaching it to app.state makes
+    # resolve_forbid_source return THIS instance (not a fresh env-only one), so
+    # the route and the decision path share one set. Default OFF: with the flag
+    # unset the sink is None and behaviour is byte-for-byte unchanged — the set
+    # is still served (env-seeded) but no live decision feeds it.
+    from tex.governance.forbid_source import autofeed_enabled, resolve_forbid_source
+
+    _forbid_source = resolve_forbid_source(app.state)
+    _forbid_sink = (
+        _forbid_source.feed_from_decision
+        if (_forbid_source is not None and autofeed_enabled())
+        else None
+    )
+
     app.state.standing_governance = StandingGovernance(
         agent_registry=runtime.agent_registry,
         evaluate_command=runtime.evaluate_action_command,
         held_sink=runtime.held_decision_sink,
         provenance_engine=runtime.provenance_engine,
+        forbid_sink=_forbid_sink,
     )
 
     # PROOF-CARRYING ENFORCEMENT: expose the decision ledger (built dormant

@@ -79,7 +79,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from tex.domain.verdict import Verdict
@@ -137,6 +137,16 @@ class DecisionOutcome:
     # for floor verdicts (there is no deep response to carry). Never
     # serialized — it is in-process plumbing for the gate path only.
     response: Any | None = None
+    # Why this outcome FORBID, coarsely, so the live forbid-set feed can tell a
+    # destination-attributable deny (worth warming the kernel hot set) from an
+    # agent-scoped one (the destination is incidental). One of:
+    #   "identity"  — no sealed identity for the agent (agent-scoped; do NOT feed)
+    #   "lifecycle" — agent not in a governable state (agent-scoped; do NOT feed)
+    #   "surface"   — action/recipient outside the agent's sealed surface (feed)
+    #   "deep"      — denied by full adjudication (feed)
+    #   "deep_error"— deep PDP unavailable/raised, failed closed (do NOT feed)
+    # None for non-FORBID outcomes. Never serialized — in-process plumbing only.
+    forbid_scope: str | None = None
     # The agent's permitted tool subset, resolved server-side from the SAME
     # sealed capability surface this ruling confined against. Carried so a remote
     # PEP (HttpDecisionClient) can drive its emission gate off the decision it
@@ -238,6 +248,7 @@ class StandingGovernance:
         evaluate_command: Any | None = None,
         held_sink: Any | None = None,
         provenance_engine: Any | None = None,
+        forbid_sink: Callable[..., Any] | None = None,
         default_channel: str = "api",
         default_environment: str = "production",
     ) -> None:
@@ -245,6 +256,11 @@ class StandingGovernance:
         self._evaluate = evaluate_command
         self._held = held_sink
         self._provenance = provenance_engine
+        # Optional live-decision sink (forbid_source.feed_from_decision). When
+        # set (TEX_FORBID_AUTOFEED on), a destination-attributable FORBID warms
+        # the kernel hot set. None => the feed is inert (default; behaviour is
+        # byte-for-byte unchanged). Feeding NEVER affects the ruling returned.
+        self._forbid_sink = forbid_sink
         self._default_channel = default_channel
         self._default_environment = default_environment
         self._lock = threading.RLock()
@@ -295,7 +311,83 @@ class StandingGovernance:
 
     # ------------------------------------------------------------------ decision
 
+    # FORBID scopes whose denial is attributable to the destination/recipient
+    # (not the agent), so warming the kernel hot set with that destination is
+    # sound. Agent-scoped denials ("identity"/"lifecycle") and fail-closed
+    # errors ("deep_error") are excluded: the destination is incidental there.
+    _DESTINATION_FORBID_SCOPES: frozenset[str] = frozenset({"surface", "deep"})
+
     def decide(
+        self,
+        *,
+        tenant: str,
+        action_type: str,
+        content: str,
+        channel: str | None = None,
+        environment: str | None = None,
+        recipient: str | None = None,
+        agent_id: UUID | str | None = None,
+        agent_external_id: str | None = None,
+        session_id: str | None = None,
+    ) -> DecisionOutcome:
+        """Rule on one action. The single call every PEP makes.
+
+        Thin wrapper over :meth:`_decide_core` that, after the ruling, feeds a
+        *destination-attributable* FORBID to the live forbid-set sink when one
+        is wired (``TEX_FORBID_AUTOFEED``). The feed is best-effort and can
+        never change or break the outcome the PEP obeys — the action proceeds on
+        ``released`` regardless. ``decide_for_request`` routes through here too,
+        so the in-process gate feeds the same set (exactly once per ruling).
+        """
+        outcome = self._decide_core(
+            tenant=tenant,
+            action_type=action_type,
+            content=content,
+            channel=channel,
+            environment=environment,
+            recipient=recipient,
+            agent_id=agent_id,
+            agent_external_id=agent_external_id,
+            session_id=session_id,
+        )
+        self._maybe_feed_forbid_set(
+            outcome, action_type=action_type, recipient=recipient, tenant=tenant
+        )
+        return outcome
+
+    def _maybe_feed_forbid_set(
+        self,
+        outcome: DecisionOutcome,
+        *,
+        action_type: str,
+        recipient: str | None,
+        tenant: str,
+    ) -> None:
+        """Warm the kernel hot set from a live, destination-attributable FORBID.
+
+        No-op unless a sink is wired AND the outcome is a FORBID whose scope is
+        destination-attributable (not agent-scoped/error). The sink itself
+        further requires a network-egress action and a host recipient, and
+        scopes + TTLs the entry per tenant. Wrapped so a sink failure never
+        touches the ruling."""
+        if self._forbid_sink is None or outcome.verdict is not Verdict.FORBID:
+            return
+        if outcome.forbid_scope not in self._DESTINATION_FORBID_SCOPES:
+            return
+        try:
+            self._forbid_sink(
+                action_type=action_type,
+                recipient=recipient,
+                tenant=tenant,
+                decision_id=(
+                    str(outcome.decision_id) if outcome.decision_id else None
+                ),
+                reason=outcome.reason,
+            )
+        except Exception:  # noqa: BLE001 — feeding must never break the decision
+            pass
+
+    def _decide_core(
         self,
         *,
         tenant: str,
@@ -327,12 +419,14 @@ class StandingGovernance:
                 None,
                 "No sealed identity for this agent. Forbidding until discovery "
                 "seals it.",
+                scope="identity",
             )
 
         if not self._is_governable(agent):
             return self._forbid_floor(
                 self._agent_uuid(agent),
                 "Agent is not in a running, governable state.",
+                scope="lifecycle",
             )
 
         surface = getattr(agent, "capability_surface", None)
@@ -342,6 +436,7 @@ class StandingGovernance:
             return self._forbid_floor(
                 self._agent_uuid(agent),
                 "Action falls outside the agent's sealed capability surface.",
+                scope="surface",
             )
 
         # ---- G9: un-inspectable content -> ABSTAIN (ASK), never a silent PERMIT.
@@ -378,6 +473,7 @@ class StandingGovernance:
                 self._agent_uuid(agent),
                 "Deep adjudication unavailable; refusing to release on the "
                 "structural floor alone.",
+                scope="deep_error",
             )
 
         outcome = self._adjudicate_deep(
@@ -495,6 +591,7 @@ class StandingGovernance:
                 agent_uuid,
                 "Deep adjudication raised; failing closed.",
                 tier="deep",
+                scope="deep_error",
             )
 
         response = getattr(result, "response", None) or result
@@ -573,10 +670,16 @@ class StandingGovernance:
             decision_id=decision_id,
             evidence_hash=evidence_hash,
             response=response,
+            forbid_scope="deep",
         )
 
     def _forbid_floor(
-        self, agent_id: UUID | None, reason: str, *, tier: str = "floor"
+        self,
+        agent_id: UUID | None,
+        reason: str,
+        *,
+        tier: str = "floor",
+        scope: str = "floor",
     ) -> DecisionOutcome:
         return DecisionOutcome(
             verdict=Verdict.FORBID,
@@ -584,6 +687,7 @@ class StandingGovernance:
             reason=reason,
             tier=tier,
             agent_id=agent_id,
+            forbid_scope=scope,
         )
 
     def _abstain_uninspectable(

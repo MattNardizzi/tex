@@ -160,13 +160,22 @@ def build_governance_standing_router() -> APIRouter:
         # via the TEX_FORBID_SET env, resolved to IPv4 at read time (each poll).
         # Fail-closed throughout: no source / unresolvable / malformed -> [].
         _governance(request)  # same precondition as the rest of /v1/govern
+        # ``epoch`` is a monotonic version of the set (bumped on every mutation)
+        # so the kernel loader can reject a stale/replayed response (epoch < the
+        # last it applied) — cheap anti-rollback, no signing infra. Unknown JSON
+        # fields are ignored by the Go decoder, so this is backward-compatible.
+        epoch = 0
         try:
             from tex.governance.forbid_source import resolve_forbid_source
 
             source = resolve_forbid_source(request.app.state)
-            entries = source.for_tenant(principal.tenant) if source is not None else []
+            if source is not None:
+                entries = source.for_tenant(principal.tenant)
+                epoch = source.epoch
+            else:
+                entries = []
         except Exception:  # noqa: BLE001 — a degraded source never fails open
             entries = []
-        return {"forbid": entries, "count": len(entries)}
+        return {"forbid": entries, "count": len(entries), "epoch": epoch}
 
     return router

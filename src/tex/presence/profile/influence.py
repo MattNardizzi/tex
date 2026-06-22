@@ -213,9 +213,11 @@ def apply_profile_corrections(
     if profile is None or tenant is None or not evaluations:
         return evaluations
     facts = _safe_recall(profile, tenant)
-    if facts is None or not facts.facts:
+    if facts is None:
         return evaluations
     try:
+        if not facts.facts:  # attribute access guarded — a malformed ProfileFacts.facts must not escape
+            return evaluations
         out = []
         for e in evaluations:
             v = e.verdict

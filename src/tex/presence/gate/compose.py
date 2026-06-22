@@ -332,10 +332,17 @@ def run_presence(
     detailed = apply_profile_corrections(tenant=tenant, evaluations=detailed, profile=profile)
 
     if telemetry is not None:
-        lowered = sum(1 for pre, e in zip(pre_tiers, detailed) if e.verdict.tier is not pre)
-        telemetry.observe_answer([e.verdict for e in detailed], claims_lowered=lowered)
+        try:
+            lowered = sum(1 for pre, e in zip(pre_tiers, detailed) if e.verdict.tier is not pre)
+            telemetry.observe_answer([e.verdict for e in detailed], claims_lowered=lowered)
+        except Exception:  # noqa: BLE001 — telemetry must never break the voice
+            _logger.debug("presence telemetry observe swallowed an error", exc_info=True)
 
-    envelope = build_envelope(detailed, templated_abstain=templated_abstain, attestor=attestor)
+    try:
+        envelope = build_envelope(detailed, templated_abstain=templated_abstain, attestor=attestor)
+    except Exception:  # noqa: BLE001 — composition/attestation must never break the voice
+        _logger.warning("presence build_envelope raised; abstaining", exc_info=True)
+        return AnswerEnvelope(spoken_text=templated_abstain, surface_object=None)
 
     if not envelope.verdicts:  # answer-level ABSTAIN → surface one hold
         raise_presence_hold(

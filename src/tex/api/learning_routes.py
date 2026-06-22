@@ -45,6 +45,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tex.domain.calibration_proposal import ProposalStatus
@@ -729,11 +730,9 @@ def build_learning_router() -> APIRouter:
             )
         return metrics.snapshot()
 
-    @router.get("/metrics/prometheus", response_class=None)
+    @router.get("/metrics/prometheus", response_class=PlainTextResponse)
     def learning_metrics_prometheus(request: Request):
         """Prometheus text-exposition endpoint for the learning layer."""
-        from fastapi.responses import PlainTextResponse
-
         metrics = getattr(request.app.state, "learning_metrics", None)
         if metrics is None:
             raise HTTPException(

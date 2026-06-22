@@ -147,15 +147,94 @@ def build_envelope(
     return envelope
 
 
+def _resolve_decision_store(request: Any) -> Any | None:
+    """The app's decision store from ``request.app.state`` on the live path, else
+    ``None`` (a bare test double, or an unwired app). When ``None`` the producer
+    degrades to appending a hold with ``decision_id=None`` — exactly the pre-producer
+    behaviour — so the gate never depends on the store being wired."""
+    state = getattr(getattr(request, "app", None), "state", None)
+    return getattr(state, "decision_store", None) if state is not None else None
+
+
+def _build_presence_abstain_decision(
+    transcript: str | None, reasons: list[dict[str, Any]]
+) -> Any | None:
+    """Build the durable ``Decision`` that makes an answer-level presence ABSTAIN a
+    SEALABLE /held card — WITHOUT fabricating a risk score.
+
+    A presence ABSTAIN is a claim-GROUNDING credibility event, not a governed action
+    with a fused risk: there is no decisive-step ``final_score`` to record (the
+    conformal floor's calibration point is the score of a human-confirmed true
+    decisive-error step in an action trace — ``tex.causal.conformal_attribution`` —
+    which an answer-level abstain has none of). So we persist an HONEST ABSTAIN record:
+
+      * ``final_score=0.0`` / ``confidence=0.0`` mean *no fused risk was computed*, not
+        "zero risk" — stated out loud in ``reasons`` and ``uncertainty_flags`` because
+        the field is non-nullable, never as a real score.
+      * ``metadata["dimension"]="presence"`` is the honest provenance marker (mirrors
+        the HeldDecision's ``detail["dimension"]``).
+      * ``metadata["presence_calibration_eligible"]=False`` EXPLICITLY tells the
+        conformal feed this Decision carries no decisive-step score, so its placeholder
+        ``final_score`` is never read as a calibration point
+        (``tex.presence.memory.calibration.record_resolution`` is fail-closed: a
+        presence-origin Decision feeds only when this is ``True``).
+
+    Returns the Decision, or ``None`` if construction fails (the caller then appends a
+    hold with ``decision_id=None`` — the card is simply not sealable, voice unaffected).
+    """
+    try:
+        import hashlib
+        from uuid import uuid4
+
+        from tex.domain.decision import Decision
+        from tex.domain.verdict import Verdict
+
+        text = (transcript or "").strip()
+        excerpt = text[:2000] if text else "(presence answer: no transcript)"
+        content_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        claim_ids = [r["claim_id"] for r in reasons if r.get("claim_id")]
+        return Decision(
+            request_id=uuid4(),
+            verdict=Verdict.ABSTAIN,
+            confidence=0.0,
+            final_score=0.0,  # NO fused risk — a grounding ABSTAIN is not a scored action
+            action_type="presence_answer",
+            channel="voice",
+            environment="presence",
+            content_excerpt=excerpt,
+            content_sha256=content_sha,
+            policy_version="presence-gate",
+            reasons=["presence could not ground the spoken answer"],
+            uncertainty_flags=["presence_ungrounded_no_fused_risk"],
+            metadata={
+                "dimension": "presence",
+                "presence_kind": "answer_abstain",
+                # No decisive-step score exists → never feed the conformal floor.
+                "presence_calibration_eligible": False,
+                "abstained_claim_ids": claim_ids,
+            },
+        )
+    except Exception:  # noqa: BLE001 — a producer hiccup must never break the voice
+        _logger.debug("presence decision construction swallowed an error", exc_info=True)
+        return None
+
+
 def raise_presence_hold(
     held_sink: Any,
     detailed: tuple[ClaimEvaluation, ...],
     *,
     transcript: str | None = None,
+    decision_store: Any = None,
 ) -> Any | None:
     """Raise ONE ``dimension="presence"`` held decision for an answer that could
     not be grounded (the consequential, surfaceable event). Best-effort: never
-    raises into the voice path. Returns the HeldDecision appended, or None."""
+    raises into the voice path. Returns the HeldDecision appended, or None.
+
+    When ``decision_store`` is wired, ALSO persist an honest presence-origin ABSTAIN
+    ``Decision`` (no fabricated risk score; see :func:`_build_presence_abstain_decision`)
+    and stamp its ``decision_id`` onto the hold, so the /held card is SEALABLE
+    end-to-end (``POST /decisions/{id}/seal`` can resolve it). Without a store
+    (legacy/tests) the hold is appended with ``decision_id=None`` exactly as before."""
     if held_sink is None or not hasattr(held_sink, "append"):
         return None
     try:
@@ -164,6 +243,19 @@ def raise_presence_hold(
         abstained = [e for e in detailed if e.verdict.tier is PresenceTier.ABSTAIN]
         reasons = [{"claim_id": e.verdict.claim_id, "reason": e.verdict.reason,
                     "text_span": e.claim.text_span} for e in abstained]
+
+        # Producer: make the /held card a SEALABLE Decision when a store is wired.
+        decision_id: str | None = None
+        if decision_store is not None and hasattr(decision_store, "save"):
+            decision = _build_presence_abstain_decision(transcript, reasons)
+            if decision is not None:
+                try:
+                    decision_store.save(decision)
+                    decision_id = str(decision.decision_id)
+                except Exception:  # noqa: BLE001 — persistence is best-effort
+                    _logger.debug("presence decision save swallowed an error", exc_info=True)
+                    decision_id = None
+
         hold = HeldDecision(
             agent_id=PRESENCE_HOLD_AGENT_ID,
             kind="presence_abstain",
@@ -174,6 +266,7 @@ def raise_presence_hold(
                 "transcript": transcript,
                 "abstained_claims": reasons,
             },
+            decision_id=decision_id,  # stamped → /held card is sealable (None if no store)
         )
         held_sink.append(hold)
         return hold
@@ -245,6 +338,11 @@ def run_presence(
     envelope = build_envelope(detailed, templated_abstain=templated_abstain, attestor=attestor)
 
     if not envelope.verdicts:  # answer-level ABSTAIN → surface one hold
-        raise_presence_hold(held_sink, detailed, transcript=transcript)
+        raise_presence_hold(
+            held_sink,
+            detailed,
+            transcript=transcript,
+            decision_store=_resolve_decision_store(request),
+        )
 
     return envelope

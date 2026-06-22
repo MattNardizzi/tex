@@ -49,12 +49,14 @@ HONEST EDGES (baked in; cited from this session's design survey — never overcl
 
 from tex.presence.memory.calibration import (
     MIN_CALIBRATION_N,
+    PRESENCE_ORIGIN_DIMENSION,
     CalibrationResolution,
     PresenceCalibrationFeed,
     calibration_available,
     calibration_disabled_env,
     default_calibration_feed,
     forget_resolution_for_calibration,
+    is_presence_origin_decision,
     record_resolution_for_calibration,
     tenant_calibration_env,
 )
@@ -77,9 +79,11 @@ __all__ = [
     "calibration_disabled_env",
     "calibration_available",
     "default_calibration_feed",
+    "is_presence_origin_decision",
     "record_resolution_for_calibration",
     "forget_resolution_for_calibration",
     "build_presence_memory",
     "build_calibration_feed",
     "MIN_CALIBRATION_N",
+    "PRESENCE_ORIGIN_DIMENSION",
 ]

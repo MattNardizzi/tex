@@ -90,8 +90,10 @@ _logger = logging.getLogger(__name__)
 
 __all__ = [
     "MIN_CALIBRATION_N",
+    "PRESENCE_ORIGIN_DIMENSION",
     "PresenceCalibrationFeed",
     "CalibrationResolution",
+    "is_presence_origin_decision",
     "tenant_calibration_env",
     "calibration_disabled_env",
     "calibration_available",
@@ -153,6 +155,68 @@ def _extract(decision: Any, attr: str, default: Any = None) -> Any:
     return getattr(decision, attr, default)
 
 
+# The presence-origin marker the seal-route flywheel gates on. A presence ABSTAIN
+# is raised as a tex.provenance.feed.HeldDecision tagged detail["dimension"]=="presence"
+# (presence/gate/compose.py); the seal route, however, only ever resolves a
+# governance tex.domain.decision.Decision (decision_store.get), which is
+# frozen/extra="forbid" — so the ONLY place a presence-origin marker can ride is its
+# one extensible field, ``metadata``. This constant names that mirrored marker.
+PRESENCE_ORIGIN_DIMENSION = "presence"
+
+
+def is_presence_origin_decision(decision: Any) -> bool:
+    """True iff a governance ``Decision`` is PRESENCE-ORIGIN — i.e. it carries the
+    presence-channel marker ``metadata["dimension"] == "presence"`` that mirrors the
+    HeldDecision's ``detail["dimension"]`` tag onto the one field a frozen,
+    ``extra="forbid"`` Decision permits.
+
+    REQUIRE-MARKER-TO-FEED (fail-closed). A pure governance hold — an email/PDP
+    Decision whose ``metadata`` has no top-level ``"dimension"`` key — returns False,
+    so it can never feed the per-tenant calibration set and poison the
+    SELECTION-CONDITIONAL presence conformal floor (valid only over the
+    escalated/presence-held population; see this module's banner).
+
+    HONEST EDGE (updated 2026-06-22): a producer now DOES stamp this marker — the
+    presence gate (``presence/gate/compose.py`` ``raise_presence_hold``) persists an
+    ABSTAIN ``Decision`` and stamps its ``decision_id`` onto the ``HeldDecision`` so the
+    ``/held`` card is SEALABLE end-to-end. BUT that answer-level-abstain Decision carries
+    NO decisive-step score (a presence ABSTAIN is a grounding-credibility event, not a
+    scored action), so the producer marks it ``presence_calibration_eligible=False`` and
+    :meth:`PresenceCalibrationFeed.record_resolution` refuses to feed it. So the
+    seal-route CONFORMAL channel still records ZERO rows for presence holds — inert BY
+    DESIGN now (no fabricated score), not merely for lack of a producer. The live
+    conformal calibration fuel remains the L2 ``/v1/presence/profile/correct`` route
+    (``_maybe_feed_calibration``), which feeds a decision-backed GOVERNANCE Decision's
+    real ``final_score``. A future presence flow that pins a confirmed decisive step
+    would mint a presence Decision with ``presence_calibration_eligible=True`` and a real
+    ``final_score`` — and would then feed correctly through the same wire.
+    """
+    meta = _extract(decision, "metadata")
+    if not isinstance(meta, dict):
+        return False
+    return meta.get("dimension") == PRESENCE_ORIGIN_DIMENSION
+
+
+def _verdict_value(decision: Any) -> str | None:
+    """The decision's governance verdict as a plain string (for label context),
+    tolerant of an enum, a string, or absence."""
+    v = _extract(decision, "verdict")
+    if v is None:
+        return None
+    return getattr(v, "value", None) or str(v)
+
+
+def _confidence_value(decision: Any) -> float | None:
+    """The decision's overall confidence as a float (for label context), or None."""
+    c = _extract(decision, "confidence")
+    if c is None:
+        return None
+    try:
+        return float(c)
+    except (TypeError, ValueError):
+        return None
+
+
 class PresenceCalibrationFeed:
     """Per-tenant calibration writer. Construct once and wire it into the
     orchestrator's ``/decisions/{id}/seal`` handler; it never edits main.py."""
@@ -178,7 +242,12 @@ class PresenceCalibrationFeed:
     # ---- write path ---------------------------------------------------
 
     def record_resolution(
-        self, *, tenant: str, decision: Any, human_verdict: str
+        self,
+        *,
+        tenant: str,
+        decision: Any,
+        human_verdict: str,
+        channel: str = "unknown",
     ) -> bool:
         """Feed one sealed human resolution into this tenant's calibration set.
 
@@ -186,13 +255,41 @@ class PresenceCalibrationFeed:
         ``refused`` resolution (confirmed-true decisive error → ``was_safe=False``);
         ``approved``/``held`` return False without writing. Never fabricates a
         score: if the decision carries no usable ``final_score``, returns False.
+        A PRESENCE-ORIGIN decision additionally feeds only when it affirms
+        ``metadata["presence_calibration_eligible"] is True`` (fail-closed: an
+        answer-level presence ABSTAIN has no decisive-step score and is refused here).
         Idempotent per ``decision_id`` (re-resolving updates, never double-counts).
+
+        ``channel`` tags WHICH labeling path produced this point — ``"seal"`` (a
+        named human resolution at ``/decisions/{id}/seal``) vs ``"explicit-correction"``
+        (the L2 ``/correct`` route) vs ``"unknown"`` (an unattributed direct caller).
+        The seal/correction stream is SELECTIVELY labeled, so a future propensity /
+        IPW model (arXiv:2508.10149) needs to know the channel + decision context to
+        de-bias the floor; we record both alongside the score. The conformal scores
+        FILE is unchanged — only this audit LEDGER carries the extra fields, so the
+        loader's ``calibrated``-mode contract is untouched.
         """
         hv = (human_verdict or "").strip().lower()
         # Only the confirmed-true-error label feeds (outcome_autoseal: refused →
         # was_safe=False). approved (false alarm) and held (unknown) do NOT.
         if hv != "refused":
             return False
+
+        # FAIL-CLOSED presence guard — require-marker-to-feed, for the SCORE itself.
+        # A presence-ORIGIN Decision feeds the conformal floor ONLY when it AFFIRMS
+        # that its final_score is a real, human-confirmed decisive-step non-conformity
+        # score: metadata["presence_calibration_eligible"] is True. An answer-level
+        # presence ABSTAIN has NO fused-risk decisive-step score — its final_score is a
+        # structural placeholder (the producer in presence/gate/compose.py stamps the
+        # marker False) — so it never feeds, and a future producer that FORGETS the
+        # marker fails SAFE (no fabricated calibration point — the nanozk failure mode)
+        # rather than poisoning the per-tenant floor. Governance decisions (the L2
+        # /correct channel) are NOT presence-origin, so this guard is a no-op for them
+        # and they continue to feed via final_score.
+        if is_presence_origin_decision(decision):
+            meta = _extract(decision, "metadata")
+            if not (isinstance(meta, dict) and meta.get("presence_calibration_eligible") is True):
+                return False
 
         raw_score = _extract(decision, "final_score")
         decision_id = _extract(decision, "decision_id")
@@ -217,6 +314,14 @@ class PresenceCalibrationFeed:
             "decision_id": str(decision_id),
             "final_score": score,
             "human_verdict": hv,
+            # Provenance of the label (the labeling path) + decision context retained
+            # so a later propensity/IPW correction can de-bias the SELECTIVE labeling.
+            # NOTE: this is post-hoc context for MODELING propensity — NOT the
+            # decision-time selection probability IPW ideally logs (the seal route is
+            # post-hoc and cannot observe it); that remains a deferred refinement.
+            "channel": channel,
+            "decision_verdict": _verdict_value(decision),
+            "decision_confidence": _confidence_value(decision),
             "recorded_at": datetime.now(UTC).isoformat(),
         }
         ledger = self._ledger_path(tenant)
@@ -409,10 +514,15 @@ class CalibrationResolution:
       * ``human_verdict`` — ``"approved" | "held" | "refused"`` (only ``refused``
         produces a label; the others record nothing — see
         :meth:`PresenceCalibrationFeed.record_resolution`).
+      * ``channel`` — the labeling path; defaults to ``"seal"`` because this
+        dataclass IS the seal-route hook's resolution type. Other channels (e.g. the
+        L2 ``/correct`` route) pass their own when they call
+        :meth:`PresenceCalibrationFeed.record_resolution` directly.
     """
 
     decision: Any
     human_verdict: str
+    channel: str = "seal"
 
 
 def record_resolution_for_calibration(
@@ -443,11 +553,15 @@ def record_resolution_for_calibration(
     feed = feed or default_calibration_feed()
     decision = _extract(resolution, "decision")
     human_verdict = _extract(resolution, "human_verdict")
+    channel = _extract(resolution, "channel", "seal") or "seal"
     if decision is None or human_verdict is None:
         return False
     try:
         return feed.record_resolution(
-            tenant=tenant, decision=decision, human_verdict=str(human_verdict)
+            tenant=tenant,
+            decision=decision,
+            human_verdict=str(human_verdict),
+            channel=str(channel),
         )
     except Exception:  # noqa: BLE001 — best-effort capture; must not break the seal
         _logger.exception(

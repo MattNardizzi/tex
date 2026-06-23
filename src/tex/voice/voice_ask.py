@@ -258,17 +258,25 @@ def answer_question(
         try:
             _env = answer_with_plan(
                 request, transcript=transcript, tenant=tenant, compiler=_compiler,
-                templated_abstain=answer_forms.ABSTAIN_NO_FACT,
+                templated_abstain="I don't have an answer to that in the records.",
                 attestor=attestor, held_sink=getattr(_state, "held_decision_sink", None),
             )
         except Exception:  # noqa: BLE001 — the plan path must never break the voice
             _logger.warning("presence plan path raised; falling through", exc_info=True)
             _env = None
-        if _env is not None and _env.verdicts:
+        if _env is not None:
+            if _env.verdicts:  # grounded over real rows
+                return _seal(
+                    Verdict.PERMIT, _env.spoken_text, _env.surface_object, None,
+                    "presence", {"reason": "plan-grounded", "scorer": "planner"}, _env,
+                )
+            # Planner engaged but couldn't ground → an HONEST decline, NEVER the legacy
+            # canned dimension answer (that would be a confidently-wrong / demo response).
             return _seal(
-                Verdict.PERMIT, _env.spoken_text, _env.surface_object, None,
-                "presence", {"reason": "plan-grounded", "scorer": "planner"}, _env,
+                Verdict.ABSTAIN, _env.spoken_text, None, None, "presence",
+                {"reason": "plan-abstain", "scorer": "planner"}, _env,
             )
+        # _env is None only on an unexpected plan-path crash → fall through to the legacy floor.
 
     # ── No sealed source could be resolved ──────────────────────────────────
     if intent.kind is IntentKind.ABSTAIN:

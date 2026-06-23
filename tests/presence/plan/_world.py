@@ -119,12 +119,12 @@ def build_world() -> SimpleNamespace:
     """A populated app.state-like object over the real stores. tenant = 'acme'."""
     registry = InMemoryAgentRegistry()
     agents = [
-        _agent("billing-bot", "alice", registered=_ago(hours=3)),                       # today, ACTIVE
+        _agent("billing-bot", "alice", registered=_ago(minutes=20)),                    # today, ACTIVE
         _agent("okta-sync", "alice", provider="anthropic", registered=_ago(days=2)),    # ACTIVE
         _agent("slack-router", "alice", status=AgentLifecycleStatus.QUARANTINED, registered=_ago(days=14)),
         _agent("crm-writer", "bob", trust=AgentTrustTier.TRUSTED, registered=_ago(days=14)),
         _agent("data-export", "bob", status=AgentLifecycleStatus.REVOKED, registered=_ago(days=40)),
-        _agent("nightly-report", "carol", registered=_ago(hours=5)),                    # today, ACTIVE
+        _agent("nightly-report", "carol", registered=_ago(minutes=40)),                 # today, ACTIVE
     ]
     for a in agents:
         registry.save(a)
@@ -132,9 +132,9 @@ def build_world() -> SimpleNamespace:
 
     decisions = InMemoryDecisionStore()
     for verdict, decided in [
-        (Verdict.FORBID, _ago(hours=2)), (Verdict.FORBID, _ago(hours=4)), (Verdict.FORBID, _ago(days=15)),
-        (Verdict.PERMIT, _ago(hours=1)), (Verdict.PERMIT, _ago(days=3)),
-        (Verdict.ABSTAIN, _ago(hours=6)),
+        (Verdict.FORBID, _ago(minutes=25)), (Verdict.FORBID, _ago(minutes=55)), (Verdict.FORBID, _ago(days=15)),
+        (Verdict.PERMIT, _ago(minutes=30)), (Verdict.PERMIT, _ago(days=3)),
+        (Verdict.ABSTAIN, _ago(minutes=90)),
     ]:
         decisions.save(_decision(verdict, decided))
 
@@ -143,7 +143,7 @@ def build_world() -> SimpleNamespace:
         ledger.append(_action(billing.agent_id, when))
 
     recs, prev = [], None
-    for i, when in enumerate((_ago(days=14), _ago(days=1), _ago(hours=2))):
+    for i, when in enumerate((_ago(days=14), _ago(days=1), _ago(minutes=35))):
         r = _evidence(i, recorded=when, prev=prev)
         recs.append(r)
         prev = r.record_hash

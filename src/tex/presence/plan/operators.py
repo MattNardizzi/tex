@@ -74,6 +74,7 @@ _LEAF_ROWS: dict[str, str] = {
 }
 _LEAF_ENTITY: dict[str, tuple[str, str]] = {
     "identity.get_agent": ("agent", "found"),
+    "identity.resolve_agent": ("agent", "found"),
     "human_decision.get_decision": ("decision", "found"),
     "evidence.chain_head": ("head", "present"),
     "discovery.chain_head": ("head", "present"),
@@ -101,6 +102,7 @@ _FLEET_SOURCE_TOOLS: frozenset[str] = frozenset({
 _NOUN: dict[str, tuple[str, str]] = {
     "identity.list_agents": ("agent", "agents"),
     "identity.get_agent": ("agent", "agents"),
+    "identity.resolve_agent": ("agent", "agents"),
     "human_decision.recent_decisions": ("decision", "decisions"),
     "human_decision.verdict_count": ("decision", "decisions"),
     "discovery.recent_entries": ("discovery event", "discovery events"),
@@ -702,9 +704,13 @@ def op_duration(rs: RowSet, args: Mapping[str, Any], *, reference_now: datetime)
         human = f"{int(minutes)} minute{'s' if int(minutes) != 1 else ''}"
 
     noun = _NOUN.get(rs.source, ("record", "records"))[0]
-    ident = str(rs.rows[0].get("name") or rs.rows[0].get("id") or "")
-    verb = _FIELD_VERB.get(field_name, field_name.replace("_", " "))
-    phrase = f"{noun.capitalize()} {ident} has been {verb} for {human} (by recorded time)."
+    ident = str(rs.rows[0].get("name") or "").strip()
+    subject = f"{noun.capitalize()} {ident}" if ident else f"The {noun}"
+    if field_name == "registered_at":  # a state-start → "has been running/registered for X"
+        phrase = f"{subject} has been registered for {human} (by recorded time)."
+    else:  # a point event (decided/recorded/…) → "was X ago"
+        verb = _FIELD_VERB.get(field_name, field_name.replace("_", " "))
+        phrase = f"{subject} was {verb} {human} ago (by recorded time)."
     return Recompute(True, value=int(seconds), evidence=(rs.refs[0],), canonical_phrase=phrase,
                      correctness_floor=1.0, coverage_mode="recorded-timestamp",
                      reason=f"derived:duration_{field_name}={int(seconds)}s")

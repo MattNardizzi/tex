@@ -393,6 +393,48 @@ def _identity_list_agents(state, request, *, tenant, **kwargs):
     return value, refs
 
 
+def _identity_resolve_agent(state, request, *, tenant, **kwargs):
+    """Resolve an agent by NAME to its record (case-insensitive exact, then unique
+    substring). An ambiguous name (>1 match) returns found=False with match_count so the
+    caller abstains rather than guessing — never picks one arbitrarily."""
+    registry = _store(state, "agent_registry")
+    if registry is None:
+        return _unavailable("agent_registry")
+    name = _arg(request, kwargs, "name")
+    if not isinstance(name, str) or not name.strip():
+        return ({"found": False, "match_count": 0, "reason": "name missing or blank"}, ())
+    rows = list(registry.list_all())
+    if tenant is not None:
+        rows = [a for a in rows if a.tenant_id == tenant]
+    want = name.strip().casefold()
+    matches = [a for a in rows if a.name.casefold() == want]
+    if not matches:
+        matches = [a for a in rows if want in a.name.casefold()]
+    if len(matches) == 1:
+        agent = matches[0]
+        ref = digest_ref(record_id=agent.agent_id, store="agent_registry", payload=agent)
+        return (
+            {
+                "found": True,
+                "match_count": 1,
+                "agent": agent.model_dump(mode="json"),
+                "tenant_scope": tenant or "all",
+                "tenant_filter_applied": tenant is not None,
+            },
+            (ref,),
+        )
+    return (
+        {
+            "found": False,
+            "match_count": len(matches),
+            "reason": "ambiguous name (more than one match)" if matches else "no agent with that name",
+            "tenant_scope": tenant or "all",
+            "tenant_filter_applied": tenant is not None,
+        },
+        (),
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DISCOVERY — discovery_ledger (append-only chain; tenant on the candidate).
 # verify_chain() is O(n); default reads use latest() (O(1)).
@@ -680,6 +722,7 @@ _SPECS: tuple[tuple[str, str, Callable[..., Any]], ...] = (
     # identity
     ("identity.get_agent", "Fetch one agent identity by id (kwargs: agent_id).", _identity_get_agent),
     ("identity.list_agents", "List agents (kwargs: tenant, status, include_revoked). Includes REVOKED by default.", _identity_list_agents),
+    ("identity.resolve_agent", "Resolve an agent by NAME to its record (kwargs: name). Use this to look up an agent the user named (e.g. 'billing-bot'); ambiguous names abstain.", _identity_resolve_agent),
     # discovery
     ("discovery.chain_head", "Latest discovery-ledger entry via latest() (O(1)).", _discovery_chain_head),
     ("discovery.recent_entries", "Recent discovery-ledger entries (kwargs: tenant, limit).", _discovery_recent),

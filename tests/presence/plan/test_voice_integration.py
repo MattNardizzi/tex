@@ -53,13 +53,15 @@ def test_planner_answers_a_non_canned_question_end_to_end():
     assert out.attestation_anchor and len(out.attestation_anchor) == 64
 
 
-def test_ungrounded_plan_falls_through_to_legacy_unchanged():
-    # Compiler yields no plan → the plan path abstains → the deterministic pipeline
-    # runs unchanged and produces the legacy fixed-decline for an unroutable question.
+def test_ungrounded_plan_gives_honest_abstain_not_legacy_canned():
+    # When the planner is engaged but can't ground, it returns an HONEST decline — it must
+    # NOT fall through to a legacy canned dimension answer (the confidently-wrong demo
+    # behaviour). This is the fix for the live-run finding ('0 of 0 high-risk agents...').
     req = _req(presence_plan_compiler=_StubCompiler(None))
     out = voice_ask.answer_question(req, transcript="qwerty zxcvb foobar", tenant=None)
     assert out.verdict is Verdict.ABSTAIN
-    assert out.answer == answer_forms.ABSTAIN_NO_ROUTE
+    assert "don't have" in out.answer.lower()
+    assert out.answer != answer_forms.ABSTAIN_NO_ROUTE  # not the legacy canned path
 
 
 def test_no_compiler_is_byte_identical_to_legacy():

@@ -16,6 +16,7 @@ a guessed answer and never an exception into the voice path.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from tex.presence.brain.read_tools import build_read_tool_registry
@@ -94,8 +95,12 @@ def answer_with_plan(
     reg = registry if registry is not None else build_read_tool_registry(state)
     catalog = {name: getattr(tool, "description", "") for name, tool in reg.items()}
 
+    now = datetime.now(UTC)  # one ground-truth 'now' shared by the prompt and the executor
     try:
-        plan = compiler.compile(question=transcript, tenant=tenant, tool_catalog=catalog)
+        plan = compiler.compile(
+            question=transcript, tenant=tenant, tool_catalog=catalog,
+            reference_now=now.isoformat(),
+        )
     except Exception:  # noqa: BLE001 — a compiler hiccup must never break the voice
         _logger.debug("plan compile swallowed an error", exc_info=True)
         plan = None
@@ -108,7 +113,7 @@ def answer_with_plan(
         )
 
     try:
-        rc = execute_plan(plan, request=request, tenant=tenant, registry=reg)
+        rc = execute_plan(plan, request=request, tenant=tenant, registry=reg, reference_now=now)
     except Exception:  # noqa: BLE001 — executor is built not to raise, belt-and-braces
         _logger.warning("plan execute raised; abstaining", exc_info=True)
         rc = Recompute(False, reason="plan-execute-error")

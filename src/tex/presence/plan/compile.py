@@ -46,6 +46,13 @@ PROPOSE_PLAN_TOOL_DESCRIPTION = (
 # Short, model-facing guidance per operator (kept terse; the executor is the authority).
 OP_GUIDE: dict[OpKind, str] = {
     OpKind.FILTER: "keep rows where (field, op, value) holds — op ∈ eq|ne|contains|in|gt|gte|lt|lte",
+    OpKind.TIME_WINDOW: (
+        "narrow a row-list by a recorded timestamp BEFORE COUNT/LIST — args: field "
+        "(registered_at|recorded_at|decided_at|appended_at|discovered_at|updated_at), op ∈ "
+        "on|after|before|between, and on/after/before set to a relative token "
+        "(today|yesterday|'N_days_ago'|'past_N_days') or an ISO date. The gate resolves the "
+        "token against the current time and labels the answer DERIVED ('by recorded time')."
+    ),
     OpKind.COUNT: "the number of rows from its single input (a positive count answers; zero abstains)",
     OpKind.EXISTS: "whether ≥1 row matches its input (true answers; a 'no' abstains for now)",
     OpKind.LIST: "the first N rows projected to a field — args: field, limit (e.g. agent names)",
@@ -88,7 +95,14 @@ is a LOOKUP KEY the executor resolves against the rows — never a fact you asse
 4. Keep the plan minimal; `output` is the node whose result is spoken. If the question \
 cannot be expressed with these tools and operators, still emit your closest plan — the \
 gate will abstain safely. NEVER invent a tool, an operator, or a value.
-5. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
+5. TIME: the timestamp fields (registered_at, recorded_at, decided_at, appended_at, \
+discovered_at, updated_at) are real but recorded-at-write-time, NOT cryptographically \
+anchored — every time-window or duration answer is DERIVED (never SEALED), and the gate \
+labels it. For 'today / yesterday / N days ago / in the past N days / a date', compose \
+TIME_WINDOW over a row-list and pass the RELATIVE TOKEN (e.g. on="today", on="yesterday", \
+after="7_days_ago", after="past_7_days") or an ISO date — the gate resolves it against the \
+Current time given above. You NEVER compute or assert a date yourself.
+6. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
 
 Call `{tool_name}` exactly once with: {{ "nodes": [ ... ], "output": "<node_id>" }}.
 Each node is either a leaf {{ "node_type": "leaf", "node_id": <id>, "tool": <tool>, \
@@ -110,9 +124,13 @@ def build_plan_system_prompt(
     )
 
 
-def build_plan_user_prompt(*, question: str, tenant: str | None) -> str:
+def build_plan_user_prompt(
+    *, question: str, tenant: str | None, reference_now: str | None = None
+) -> str:
+    now_line = f"Current time (UTC): {reference_now}\n" if reference_now else ""
     return (
         f"Tenant: {tenant or '(unspecified)'}\n"
+        f"{now_line}"
         f"Question: {str(question).strip()}\n\n"
         f"Compile the query plan now."
     )
@@ -154,12 +172,15 @@ class PlanCompiler:
         tenant: str | None,
         tool_catalog: Mapping[str, str],
         ops: frozenset[OpKind] | set[OpKind] | None = None,
+        reference_now: str | None = None,
     ) -> Plan | None:
         if self.provider is None:
             return None
         allowed_ops = ops if ops is not None else IMPLEMENTED_OPS
         system_prompt = build_plan_system_prompt(tool_catalog, allowed_ops)
-        user_prompt = build_plan_user_prompt(question=question, tenant=tenant)
+        user_prompt = build_plan_user_prompt(
+            question=question, tenant=tenant, reference_now=reference_now
+        )
         try:
             payload = self.provider.analyze(system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception:  # noqa: BLE001 — refusal / transport / schema failure → abstain

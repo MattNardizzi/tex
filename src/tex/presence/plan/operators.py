@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from tex.presence.contract import EvidenceRef
@@ -34,7 +35,7 @@ from tex.presence.gate.queries import EVIDENCE_CAP, Recompute
 from tex.presence.plan.ir import CompareOp
 
 __all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list",
-           "op_get", "op_absence"]
+           "op_get", "op_absence", "op_time_window"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +55,8 @@ class RowSet:
     clamped: bool = False             # row list hit the read-tool's MAX_ROWS cap
     complete: bool = False            # rows are a COMPLETE current-state snapshot (provable absence)
     qualifiers: tuple[str, ...] = ()  # human qualifiers from applied filters (phrasing)
+    time_basis: bool = False          # rows selected by a recorded timestamp → DERIVED, not SEALED
+    window_label: str = ""            # gate-authored description of the resolved time window
     available: bool = True
     reason: str = ""
 
@@ -289,8 +292,15 @@ def op_count(rs: RowSet) -> Recompute:
         return _bad(rs.source, "count-clamped-incomplete")  # value is a lower bound — don't seal
     if not rs.refs:
         return _bad(rs.source, "count-no-evidence-witness")
+    noun = _noun(rs.source, n)
+    if rs.time_basis:  # a windowed count is real but DERIVED — disclose the recorded-time basis
+        was = "was" if n == 1 else "were"
+        phrase = _disclose_fleet(f"{n} {noun} {was} {rs.window_label} (by recorded time).", rs.fleet_only)
+        return Recompute(True, value=n, evidence=rs.refs, canonical_phrase=phrase,
+                         correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                         reason=f"derived:time_count={n};{rs.window_label}")
     qual = (" ".join(q for q in rs.qualifiers if q) + " ") if any(rs.qualifiers) else ""
-    phrase = f"There {'is' if n == 1 else 'are'} {n} {qual}{_noun(rs.source, n)}."
+    phrase = f"There {'is' if n == 1 else 'are'} {n} {qual}{noun}."
     phrase = _disclose_fleet(phrase, rs.fleet_only)
     return Recompute(True, value=n, evidence=rs.refs, canonical_phrase=phrase,
                      reason=f"sealed:plan_count={n}")
@@ -428,3 +438,146 @@ def op_absence(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
         phrase = phrase[:-1] + " (across all tenants)."
     return Recompute(True, value=False, evidence=rs.refs[:EVIDENCE_CAP],
                      canonical_phrase=phrase, reason=f"sealed:membership_absent;scanned={total}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIME_WINDOW — select rows whose recorded timestamp falls in a resolved window.
+# The EXECUTOR resolves relative tokens (today/yesterday/N_days_ago/past_N_days/ISO)
+# against a single injected reference_now; the brain supplies tokens/ISO only as lookup
+# keys, never an asserted absolute date. Time answers are DERIVED ('by recorded
+# timestamp') — the timestamps are real but OUTSIDE the tamper-evident hash, so they can
+# never be SEALED until the signed-time-anchor track lands.
+# ─────────────────────────────────────────────────────────────────────────────
+_TIMESTAMP_FIELDS = frozenset({
+    "registered_at", "recorded_at", "decided_at", "appended_at", "discovered_at", "updated_at",
+})
+_FIELD_VERB = {
+    "registered_at": "registered", "recorded_at": "recorded", "decided_at": "decided",
+    "appended_at": "appended", "discovered_at": "discovered", "updated_at": "updated",
+}
+_DAYS_AGO_RE = re.compile(r"\A(\d+)[ _]days?[ _]ago\Z", re.I)
+_PAST_DAYS_RE = re.compile(r"\A(?:past|last|in[ _]the[ _]past)[ _](\d+)[ _]days?\Z", re.I)
+
+
+def _parse_dt(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+    if not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _day_bounds(dt: datetime) -> tuple[datetime, datetime]:
+    start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
+
+
+def _resolve_token(token: Any, now: datetime) -> tuple[datetime, datetime] | None:
+    """Resolve a relative token / ISO value to the [lo, hi) interval it denotes."""
+    if token is None:
+        return None
+    t = str(token).strip().lower()
+    if t == "today":
+        return _day_bounds(now)
+    if t == "yesterday":
+        start, _ = _day_bounds(now)
+        return start - timedelta(days=1), start
+    m = _DAYS_AGO_RE.match(t)
+    if m:
+        return _day_bounds(now - timedelta(days=int(m.group(1))))
+    m = _PAST_DAYS_RE.match(t)
+    if m:
+        return now - timedelta(days=int(m.group(1))), now
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t):  # a bare calendar day
+        d = _parse_dt(t)
+        return _day_bounds(d) if d else None
+    dt = _parse_dt(t)
+    return (dt, dt) if dt is not None else None  # an instant → a point boundary
+
+
+def _resolve_window(args: Mapping[str, Any], now: datetime) -> tuple[datetime | None, datetime | None] | None:
+    """Resolve the operator args into [after, before) bounds (None = unbounded that side)."""
+    op = str(args.get("op", "")).strip().lower()
+    if op == "on":
+        return _resolve_token(args.get("on"), now)
+    if op == "after":
+        r = _resolve_token(args.get("after"), now)
+        return (r[0], None) if r else None
+    if op == "before":
+        r = _resolve_token(args.get("before"), now)
+        return (None, r[1]) if r else None
+    if op == "between":
+        a = _resolve_token(args.get("after"), now)
+        b = _resolve_token(args.get("before"), now)
+        return (a[0], b[1]) if a and b else None
+    return None
+
+
+def _fmt_day(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d")
+
+
+def _window_label(field: str, args: Mapping[str, Any], after: datetime | None, before: datetime | None) -> str:
+    verb = _FIELD_VERB.get(field, f"with {field.replace('_', ' ')}")
+    op = str(args.get("op", "")).strip().lower()
+    if op == "on":
+        on = str(args.get("on", "")).strip().lower()
+        w = on if on in ("today", "yesterday") else (f"on {_fmt_day(after)}" if after else "on that day")
+    elif op == "after":
+        w = f"since {_fmt_day(after)}" if after else "since then"
+    elif op == "before":
+        w = f"before {_fmt_day(before)}" if before else "before then"
+    elif op == "between" and after and before:
+        w = f"between {_fmt_day(after)} and {_fmt_day(before)}"
+    else:
+        w = "in that window"
+    return f"{verb} {w}"
+
+
+def op_time_window(rs: RowSet, args: Mapping[str, Any], *, reference_now: datetime) -> RowSet:
+    """Keep rows whose timestamp ``field`` falls in the resolved window. Pure row-level
+    filter (kept rows ⊆ input); stamps a DERIVED 'by recorded timestamp' basis. Rejects a
+    count-style leaf (no per-row timestamp) and abstains on an incomplete tail window."""
+    if not rs.available:
+        return rs
+    if not rs.rows and rs.total is not None:  # a count-style leaf has no rows to filter
+        return RowSet((), (), rs.source, available=False, reason="time-window-needs-rows")
+    field_name = args.get("field")
+    if not isinstance(field_name, str) or field_name not in _TIMESTAMP_FIELDS:
+        return RowSet((), (), rs.source, available=False, reason="time-window-bad-field")
+    win = _resolve_window(args, reference_now)
+    if win is None:
+        return RowSet((), (), rs.source, available=False, reason="time-window-bad-args")
+    after, before = win
+
+    aligned = len(rs.refs) == len(rs.rows)
+    kept_rows: list[Mapping[str, Any]] = []
+    kept_refs: list[EvidenceRef] = []
+    oldest_seen: datetime | None = None
+    for i, row in enumerate(rs.rows):
+        ts = _parse_dt(row.get(field_name))
+        if ts is None:
+            continue
+        if oldest_seen is None or ts < oldest_seen:
+            oldest_seen = ts
+        if (after is None or ts >= after) and (before is None or ts < before):
+            kept_rows.append(row)
+            if aligned:
+                kept_refs.append(rs.refs[i])
+
+    # Incomplete-window guard: over a windowed tail (not a complete snapshot) whose lower
+    # bound predates the oldest row we could even see, older matches may have been dropped
+    # → the count would be a lower bound, not the truth. Abstain rather than under-report.
+    if (not rs.complete) and after is not None and oldest_seen is not None and after < oldest_seen:
+        return RowSet((), (), rs.source, available=False, reason="time-window-incomplete-tail")
+
+    return RowSet(
+        tuple(kept_rows), tuple(kept_refs), rs.source, rs.tenant_scope,
+        rs.tenant_filter_applied, total=len(kept_rows), fleet_only=rs.fleet_only,
+        clamped=rs.clamped, complete=False, qualifiers=rs.qualifiers,
+        time_basis=True, window_label=_window_label(field_name, args, after, before),
+    )

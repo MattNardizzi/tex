@@ -19,7 +19,7 @@ class _StubCompiler:
     def __init__(self, plan: Plan | None) -> None:
         self._plan = plan
 
-    def compile(self, *, question, tenant, tool_catalog, ops=None):
+    def compile(self, *, question, tenant, tool_catalog, ops=None, reference_now=None):
         return self._plan
 
 

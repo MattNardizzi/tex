@@ -64,6 +64,7 @@ class OpKind(StrEnum):
 
     # ── shaping ──────────────────────────────────────────────────────────────
     FILTER = "filter"          # keep rows where (field, op, value) holds
+    TIME_WINDOW = "time_window"  # keep rows whose timestamp field falls in a resolved window
     # ── row-backed aggregates / selections (every value re-derivable from refs) ─
     COUNT = "count"            # number of rows (with a witness sample of refs)
     EXISTS = "exists"          # is there ≥1 row matching a predicate

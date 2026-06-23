@@ -19,6 +19,7 @@ never widen tenant scope to read another tenant's rows.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from tex.presence.brain.read_tools import build_read_tool_registry
@@ -32,7 +33,8 @@ __all__ = ["IMPLEMENTED_OPS", "execute_plan"]
 # ever offered these, and ``validate_plan`` rejects any plan naming an op outside it
 # (so an enum value added ahead of its implementation can never be executed).
 IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
-    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET, OpKind.ABSENCE_SCAN}
+    {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
+     OpKind.ABSENCE_SCAN}
 )
 
 # OPERATOR-PURITY INVARIANT (structural, not a vibe). Every operator the gate runs MUST
@@ -45,7 +47,8 @@ IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
 # forces a reviewer to assert its purity (and the purity tests in test_redteam.py to cover
 # it) — a silent "just add an operator" PR fails loudly at import instead.
 CERTIFIED_PURE_OPS: frozenset[OpKind] = frozenset(
-    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET, OpKind.ABSENCE_SCAN}
+    {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
+     OpKind.ABSENCE_SCAN}
 )
 _uncertified = IMPLEMENTED_OPS - CERTIFIED_PURE_OPS
 if _uncertified:  # fail loud at import — never ship an implemented-but-uncertified operator
@@ -69,10 +72,13 @@ def execute_plan(
     request: Any,
     tenant: str | None,
     registry: dict[str, Any] | None = None,
+    reference_now: datetime | None = None,
 ) -> Recompute:
-    """Execute ``plan`` and return the output node's :class:`Recompute` (un-grounded
-    on any failure → the gate abstains)."""
+    """Execute ``plan`` and return the output node's :class:`Recompute` (un-grounded on any
+    failure → the gate abstains). ``reference_now`` is the single ground-truth 'now' that
+    relative-time operators resolve against (default ``datetime.now(UTC)``)."""
     reg = registry if registry is not None else build_read_tool_registry(_state(request))
+    now = reference_now or datetime.now(UTC)
 
     errors = validate_plan(
         plan, allowed_tools=frozenset(reg.keys()), allowed_ops=IMPLEMENTED_OPS
@@ -83,7 +89,7 @@ def execute_plan(
     env: dict[str, Any] = {}
     for node in plan.nodes:
         try:
-            env[node.node_id] = _run_node(node, env, reg=reg, tenant=tenant)
+            env[node.node_id] = _run_node(node, env, reg=reg, tenant=tenant, reference_now=now)
         except Exception as exc:  # noqa: BLE001 — a plan must never raise into the voice
             return Recompute(False, reason=f"plan-node-error:{type(exc).__name__}")
 
@@ -93,7 +99,8 @@ def execute_plan(
     return Recompute(False, reason="plan-output-not-a-speakable-clause")
 
 
-def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: str | None) -> Any:
+def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: str | None,
+              reference_now: datetime) -> Any:
     if isinstance(node, Leaf):
         tool = reg.get(node.tool)
         if tool is None:  # validate_plan already guards this; belt-and-braces
@@ -113,6 +120,10 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="filter-input-not-rowset")
         return ops.op_filter(first, node.args)
+    if node.kind is OpKind.TIME_WINDOW:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="time-window-input-not-rowset")
+        return ops.op_time_window(first, node.args, reference_now=reference_now)
     if node.kind is OpKind.COUNT:
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="count-input-not-rowset")

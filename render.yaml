@@ -102,6 +102,16 @@ services:
       # stays safely OFF (fail-safe) and the voice path is byte-identical.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # ASK-ANYTHING PLANNER (ON). The brain compiles each question into a typed plan over the
+      # read-tools; the gate executes it and authors every spoken word from the recomputed
+      # truth, or honestly abstains — never confidently wrong, no canned answers. A model
+      # outage (no credits / rate-limit) degrades to the deterministic path, so /v1/ask never
+      # goes dark. Set TEX_PRESENCE_PLANNER=0 to disable. Runs on Opus (the verified
+      # plan-compile model); the legacy brain above stays on Sonnet.
+      - key: TEX_PRESENCE_PLANNER
+        value: "1"
+      - key: TEX_PRESENCE_PLANNER_MODEL
+        value: claude-opus-4-8
 
   # ⚠ DEACTIVATED — REAL-ONLY MODE (2026-06). This worker drives the SYNTHETIC
   # meridian-7 demo estate (~1 invented agent-action/sec). It must NOT run in

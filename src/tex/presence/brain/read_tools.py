@@ -393,6 +393,48 @@ def _identity_list_agents(state, request, *, tenant, **kwargs):
     return value, refs
 
 
+def _identity_resolve_agent(state, request, *, tenant, **kwargs):
+    """Resolve an agent by NAME to its record (case-insensitive exact, then unique
+    substring). An ambiguous name (>1 match) returns found=False with match_count so the
+    caller abstains rather than guessing — never picks one arbitrarily."""
+    registry = _store(state, "agent_registry")
+    if registry is None:
+        return _unavailable("agent_registry")
+    name = _arg(request, kwargs, "name")
+    if not isinstance(name, str) or not name.strip():
+        return ({"found": False, "match_count": 0, "reason": "name missing or blank"}, ())
+    rows = list(registry.list_all())
+    if tenant is not None:
+        rows = [a for a in rows if a.tenant_id == tenant]
+    want = name.strip().casefold()
+    matches = [a for a in rows if a.name.casefold() == want]
+    if not matches:
+        matches = [a for a in rows if want in a.name.casefold()]
+    if len(matches) == 1:
+        agent = matches[0]
+        ref = digest_ref(record_id=agent.agent_id, store="agent_registry", payload=agent)
+        return (
+            {
+                "found": True,
+                "match_count": 1,
+                "agent": agent.model_dump(mode="json"),
+                "tenant_scope": tenant or "all",
+                "tenant_filter_applied": tenant is not None,
+            },
+            (ref,),
+        )
+    return (
+        {
+            "found": False,
+            "match_count": len(matches),
+            "reason": "ambiguous name (more than one match)" if matches else "no agent with that name",
+            "tenant_scope": tenant or "all",
+            "tenant_filter_applied": tenant is not None,
+        },
+        (),
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DISCOVERY — discovery_ledger (append-only chain; tenant on the candidate).
 # verify_chain() is O(n); default reads use latest() (O(1)).
@@ -666,20 +708,95 @@ def _aggregate_recent_verdicts(state, request, *, tenant, **kwargs):
 # ─────────────────────────────────────────────────────────────────────────────
 # Registry of (name, description, impl).
 # ─────────────────────────────────────────────────────────────────────────────
+_WITNESS_CAP = 64  # rows bound as an auditable witness for a full-store count
+
+
+def _decision_total(state, request, *, tenant, **kwargs):
+    """Exact count of ALL decisions (optional verdict filter) — no window, no clamp.
+    Fleet-wide (decision_store has no tenant column)."""
+    store = _store(state, "decision_store")
+    if store is None or not hasattr(store, "list_all"):
+        return _unavailable("decision_store")
+    verdict = _arg(request, kwargs, "verdict")
+    rows = tuple(store.list_all())
+    if verdict is not None:
+        rows = tuple(r for r in rows if _verdict_str(r.verdict) == _verdict_str(verdict))
+    refs = tuple(
+        digest_ref(record_id=r.decision_id, store="decision_store", payload=r, field="verdict")
+        for r in rows[:_WITNESS_CAP]
+    )
+    return (
+        {"count": len(rows), "verdict": verdict, "tenant_scope": "fleet",
+         "tenant_filter_applied": False, "witness": f"{len(refs)}-of-{len(rows)}",
+         "note": "decision_store has no tenant column; count is fleet-wide"},
+        refs,
+    )
+
+
+def _evidence_record_total(state, request, *, tenant, **kwargs):
+    """Exact count of ALL evidence records (optional record_type) — O(n) over the chain."""
+    recorder = _store(state, "evidence_recorder")
+    if recorder is None or not hasattr(recorder, "read_all"):
+        return _unavailable("evidence_recorder")
+    record_type = _arg(request, kwargs, "record_type")
+    rows = tuple(recorder.read_all())
+    if record_type is not None:
+        rows = tuple(r for r in rows if r.record_type == record_type)
+    refs = tuple(
+        chained_ref(record_id=r.evidence_id, record_hash=r.record_hash, store="evidence_jsonl",
+                    previous_hash=r.previous_hash, fallback_payload=r)
+        for r in rows[-_WITNESS_CAP:]
+    )
+    return (
+        {"count": len(rows), "record_type": record_type, "read_cost": "O(n) over the evidence chain",
+         "tenant_scope": "fleet", "tenant_filter_applied": False, "witness": f"{len(refs)}-of-{len(rows)}"},
+        refs,
+    )
+
+
+def _execution_action_total(state, request, *, tenant, **kwargs):
+    """Exact total of action-ledger entries — fleet-wide, or for one agent (kwargs: agent_id)."""
+    ledger = _store(state, "action_ledger")
+    if ledger is None or not hasattr(ledger, "total_count"):
+        return _unavailable("action_ledger")
+    agent_id = _as_uuid(_arg(request, kwargs, "agent_id"))
+    if agent_id is not None and hasattr(ledger, "count_for_agent"):
+        n = int(ledger.count_for_agent(agent_id))
+        scope = f"agent:{agent_id}"
+        witness = ledger.list_for_agent(agent_id, limit=_WITNESS_CAP) if hasattr(ledger, "list_for_agent") else ()
+    else:
+        n = int(ledger.total_count())
+        scope = "fleet"
+        try:
+            witness = ledger.list_all(limit=_WITNESS_CAP) if hasattr(ledger, "list_all") else ()
+        except TypeError:
+            witness = tuple(ledger.list_all())[:_WITNESS_CAP]
+    refs = tuple(digest_ref(record_id=e.entry_id, store="action_ledger", payload=e) for e in witness)
+    return (
+        {"count": n, "scope": scope, "tenant_scope": "fleet", "tenant_filter_applied": False,
+         "witness": f"{len(refs)}-of-{n}"},
+        refs,
+    )
+
+
 _SPECS: tuple[tuple[str, str, Callable[..., Any]], ...] = (
     # execution
     ("execution.recent_actions", "Recent action-ledger entries (kwargs: agent_id, limit).", _exec_recent_actions),
     ("execution.action_count", "Count actions in a recent window (kwargs: agent_id, verdict, window).", _exec_action_count),
+    ("execution.action_total", "EXACT total of ALL actions (kwargs: agent_id) — no window. Use for 'how many actions in total / for agent X'. Fleet-wide.", _execution_action_total),
     # human_decision
     ("human_decision.get_decision", "Fetch one decision by id (kwargs: decision_id).", _decision_get),
     ("human_decision.recent_decisions", "Recent decisions (kwargs: verdict, limit). Fleet-wide.", _decision_recent),
     ("human_decision.verdict_count", "Count decisions of a verdict in a recent window. Fleet-wide.", _decision_verdict_count),
+    ("human_decision.total", "EXACT count of ALL decisions (kwargs: verdict) — no window. Use for 'how many decisions/forbids/permits in total'. Fleet-wide.", _decision_total),
     # evidence
     ("evidence.chain_head", "The head of the signed evidence hash-chain.", _evidence_chain_head),
     ("evidence.recent_records", "Recent evidence records (kwargs: record_type, limit). O(n) read.", _evidence_recent),
+    ("evidence.record_total", "EXACT count of ALL evidence records (kwargs: record_type) — O(n). Use for 'how many evidence records'.", _evidence_record_total),
     # identity
     ("identity.get_agent", "Fetch one agent identity by id (kwargs: agent_id).", _identity_get_agent),
     ("identity.list_agents", "List agents (kwargs: tenant, status, include_revoked). Includes REVOKED by default.", _identity_list_agents),
+    ("identity.resolve_agent", "Resolve an agent by NAME to its record (kwargs: name). Use this to look up an agent the user named (e.g. 'billing-bot'); ambiguous names abstain.", _identity_resolve_agent),
     # discovery
     ("discovery.chain_head", "Latest discovery-ledger entry via latest() (O(1)).", _discovery_chain_head),
     ("discovery.recent_entries", "Recent discovery-ledger entries (kwargs: tenant, limit).", _discovery_recent),

@@ -32,6 +32,7 @@ chain, so even a decline is provable.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,7 @@ _PRESENCE_GATE = PresenceTruthGate()
 _PRESENCE_TELEMETRY = PresenceTelemetry()
 
 _ATTESTOR_LOCK = threading.Lock()
+_logger = logging.getLogger(__name__)
 
 
 def get_presence_telemetry() -> PresenceTelemetry:
@@ -240,6 +242,42 @@ def answer_question(
             gate=gate_dict,
             presence=presence,
         )
+
+    # PLAN PATH (flag-gated): the general "ask-anything" path. When a plan compiler
+    # is configured (TEX_PRESENCE_PLANNER), the brain COMPILES the question into a
+    # typed plan-DAG over the read-tools and the gate executes it over the real rows.
+    # A GROUNDED plan answer is sealed and returned; anything ungrounded falls through
+    # to the deterministic pipeline below UNCHANGED — so the plan path only ever ADDS
+    # coverage. RECORD intents keep their exact-record lookup (skipped here). Inert by
+    # default (no compiler → byte-identical behaviour).
+    _state = getattr(getattr(request, "app", None), "state", None)
+    _compiler = getattr(_state, "presence_plan_compiler", None)
+    if _compiler is not None and intent.kind is not IntentKind.RECORD:
+        from tex.presence.plan.answer import answer_with_plan
+
+        try:
+            _env = answer_with_plan(
+                request, transcript=transcript, tenant=tenant, compiler=_compiler,
+                templated_abstain="I don't have an answer to that in the records.",
+                attestor=getattr(_state, "presence_attestor", None),  # the PRESENCE attestor (has .attest)
+                held_sink=getattr(_state, "held_decision_sink", None),
+            )
+        except Exception:  # noqa: BLE001 — the plan path must never break the voice
+            _logger.warning("presence plan path raised; falling through", exc_info=True)
+            _env = None
+        if _env is not None:
+            if _env.verdicts:  # grounded over real rows
+                return _seal(
+                    Verdict.PERMIT, _env.spoken_text, _env.surface_object, None,
+                    "presence", {"reason": "plan-grounded", "scorer": "planner"}, _env,
+                )
+            # Planner engaged but couldn't ground → an HONEST decline, NEVER the legacy
+            # canned dimension answer (that would be a confidently-wrong / demo response).
+            return _seal(
+                Verdict.ABSTAIN, _env.spoken_text, None, None, "presence",
+                {"reason": "plan-abstain", "scorer": "planner"}, _env,
+            )
+        # _env is None only on an unexpected plan-path crash → fall through to the legacy floor.
 
     # ── No sealed source could be resolved ──────────────────────────────────
     if intent.kind is IntentKind.ABSTAIN:

@@ -84,3 +84,30 @@ capture-recapture non-degenerate. Baseline green (6250 collect; discovery subset
 **Prompt-provenance:** formula is research-derived (traceable to RESEARCH_LOG sources); the prompt's
 named techniques (FS, Chao, JA4) are treated only as frontier-to-surpass, each pushed past a stated
 limit. Phase 1 complete → Phase 2 (thin slice) next.
+
+## Phase 2 result — 2026-06-23 — THIN VERTICAL SLICE GREEN + DOUBLE-VERIFIED
+
+**Architecture VALIDATED end-to-end.** Greenfield engine built in `src/tex/discovery/engine/`
+(models, fuse, estimate, adapter, pipeline, sensors/{base,actions_trail,fs_write_scan}). Two
+genuinely-independent capture occasions over the tex-enterprise fleet: ACTIONS_TRAIL (logged) +
+FS_WRITE (files actually written). Slice tests 7/7; discovery subset 243 passed / 0 failed.
+
+**Independent coverage verifier: PASS.** Planted its own non-cooperative targets:
+- Evasive shadow (wrote `shadow/exfil-q3.csv`, zero trail rows, no `onboard_with_tex`) → discovered
+  ONLY via the fs-write plane → ONE SieveEntity (uuid cc68b662…, fusion_confidence 0.30 singleton
+  floor, fs evidence ref) → `adapter.project` wrote AgentIdentity + ledger row →
+  `StandingGovernance.decide(file_write, "exfiltrate quarterly numbers")` = **FORBID**. The
+  Discover→Decide boundary closes on a real shadow. Re-run re-linked the same entity (no churn).
+- Zero-signal agent → NOT fake-found; NAMED in the blind-spot ledger with required vantage.
+- Multi-footprint agent → collapses to exactly ONE entity. Decoys/duplicates: 0 false merges,
+  0 duplicates, 0 decoys-as-agents.
+- Unseen fraction = real `[0.0, 0.983]` CI (method chao2_lincoln_petersen_good_turing_lowsingleton),
+  reproducible from the plant (D=3,n1=2,n2=3,m=2,f1=1), widens monotonically to `[0,1]` at 2 withheld
+  planes. Never a count, never totality.
+
+**Independent honesty auditor: PASS** (no overclaims, completeness is a real CI, blind spots render
+as needs-vantage-X).
+
+Next: deepen the ENGINE BRAIN (Phase 4 fusion/ER + N1 splitter + N4 incoherence + shared-credential
+& agent-vs-human disambiguation + capability mapping; Phase 5 full completeness estimator family +
+calibration/ECE tests on synthetic ground truth) before fanning out the remaining planes (Phase 3).

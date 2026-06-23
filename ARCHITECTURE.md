@@ -63,6 +63,11 @@ Headline deliverable per scan window:
 `{ entities[], unseen_fraction: [lo, hi] @ CI, named_blind_spots[], coverage_health }`
 — **never** a bare count, **never** an implied 100%.
 
+> The diagram above describes the **full P0..P14 engine**. The "self-measured catchability" each plane
+> emits is an ARCHITECTURE target, **not** what the shipped thin slice does: the slice asserts
+> catchability as a plane constant and its estimator is count-based (does not consume it). See **§6
+> SLICE STATUS** and **§10** for exactly which claims the slice backs vs defers.
+
 ---
 
 ## 1. Internal entity / data model
@@ -82,8 +87,11 @@ Incidence(
   raw_evidence_ref:  str,                # for receipts
 )
 ```
-The `catchability` field is what makes discovery a measurement problem: the estimator is fed
-*measured* per-plane recall, never assumed (RESEARCH_LOG N2).
+The `catchability` field is the seat of what is MEANT to make discovery a measurement problem: in the
+full engine the estimator is fed *measured* per-plane recall, never assumed (RESEARCH_LOG N2).
+**Slice status:** in the thin slice this field is an *asserted* plane recall (a constant `1.0`),
+the slice estimator is count-based and does not consume it, and measurement is deferred to Phase 5
+(see §6 SLICE STATUS and §10).
 
 ### 1.2 SieveEntity (the probabilistic projection)
 ```
@@ -287,6 +295,21 @@ graft) empirically validates the CI.
 The estimator **always** ships `unseen-but-detectable LOWER bound, [CI], plus N named irreducible
 blind spots` — never a total, never 99%, never an implied 100%.
 
+> **SLICE STATUS (count-based; calibration deferred).** The shipped slice estimator
+> (`engine/estimate.py`) is **COUNT-BASED**: it counts capture occasions per entity and applies
+> classical two-occasion Lincoln-Petersen / Chao2 / Good-Turing. It **does NOT consume the measured
+> catchability** described under **Calibration** above — the slice asserts catchability as a plane
+> constant (`1.0`) and the field is *carried-but-unused* by the estimator. The following are
+> ARCHITECTURE targets **NOT yet exercised** by the slice and must not be read as live capability:
+> measured catchability (signed-cohort recall / honeytoken bite-rate), the **SENECA**
+> self-consistent-missing-mass algorithm (the slice's `seneca_no_overlap` method tag merely *names*
+> the m==0 regime and returns a wide count fallback — it does not run SENECA), the **Valiant-Valiant
+> τ-floor**, the **Orlitsky** extrapolation horizon, and **plane-ablation cross-validation**.
+> Accordingly the slice never emits `coverage_health == "calibrated"` — that word is reserved for the
+> Phase-5 estimator that measures catchability and passes ablation. What the slice DOES prove: a
+> lower bound clamped `<= 0.99` (never totality), an interval `ci_low <= lower <= ci_high` with a
+> named count-method tag, a named blind-spot per withheld plane, and no silent zeros.
+
 ---
 
 ## 7. The OUTPUT ADAPTER (into agent_registry / ledger)
@@ -381,7 +404,8 @@ fs-write-scan of WORKSPACE diffed against logged writes (two genuinely-independe
 
 **Pipeline:**
 1. **SENSE** — a new `EngineConnector` emits `Incidence` records (not CandidateAgents) from the plane,
-   each carrying a measured catchability.
+   each carrying an *asserted* catchability (a plane constant in the slice; measured catchability is a
+   Phase-5 target — see §6 SLICE STATUS). The slice estimator is COUNT-BASED and does not consume it.
 2. **FUSE** — a minimal FS edge-scorer + plane-typed single-link clusterer resolves the agent's two
    footprints (exec/code-hash leaf + SSL/egress leaf, or trail + fs-write) into ONE SieveEntity via a
    cross-plane edge with calibrated confidence and a stable synthetic `entity_id`.

@@ -1,0 +1,113 @@
+"""The plan executor — walk the brain's plan-DAG over real rows, recompute, abstain.
+
+This is the generalization of ``gate.recompute_for``: instead of routing one claim
+to one of 11 fixed ``QUERIES``, it executes an arbitrary (validated, closed-world)
+plan-DAG of operators over the live read-tools and returns a
+:class:`~tex.presence.gate.queries.Recompute` for the output node — exactly the
+currency the existing gate/compose machinery already consumes.
+
+Fail-closed everywhere: an invalid plan, an unimplemented operator, a tool error, a
+type mismatch between nodes, or an output node that isn't a speakable clause all
+yield an un-grounded ``Recompute`` (the gate then abstains). The model's plan is a
+hint to execute; nothing it emits is ever spoken unless an operator re-derived it
+from sealed rows.
+
+SECURITY: ``tenant`` is supplied by the executor from the request/session, NEVER
+from the plan — a ``tenant`` key in a leaf's params is stripped, so the brain can
+never widen tenant scope to read another tenant's rows.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from tex.presence.brain.read_tools import build_read_tool_registry
+from tex.presence.gate.queries import Recompute
+from tex.presence.plan import operators as ops
+from tex.presence.plan.ir import Leaf, Op, OpKind, Plan, validate_plan
+
+__all__ = ["IMPLEMENTED_OPS", "execute_plan"]
+
+# The REAL closed world: operators the executor can actually run. The brain is only
+# ever offered these, and ``validate_plan`` rejects any plan naming an op outside it
+# (so an enum value added ahead of its implementation can never be executed).
+IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
+    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET}
+)
+
+
+def _state(request: Any) -> Any:
+    """The store host: ``request.app.state`` on the live server, else ``request``
+    itself (the test doubles expose the stores directly). Mirrors ``gate._state``."""
+    state = getattr(getattr(request, "app", None), "state", None)
+    return state if state is not None else request
+
+
+def execute_plan(
+    plan: Plan,
+    *,
+    request: Any,
+    tenant: str | None,
+    registry: dict[str, Any] | None = None,
+) -> Recompute:
+    """Execute ``plan`` and return the output node's :class:`Recompute` (un-grounded
+    on any failure → the gate abstains)."""
+    reg = registry if registry is not None else build_read_tool_registry(_state(request))
+
+    errors = validate_plan(
+        plan, allowed_tools=frozenset(reg.keys()), allowed_ops=IMPLEMENTED_OPS
+    )
+    if errors:
+        return Recompute(False, reason="plan-invalid:" + ";".join(errors[:3]))
+
+    env: dict[str, Any] = {}
+    for node in plan.nodes:
+        try:
+            env[node.node_id] = _run_node(node, env, reg=reg, tenant=tenant)
+        except Exception as exc:  # noqa: BLE001 — a plan must never raise into the voice
+            return Recompute(False, reason=f"plan-node-error:{type(exc).__name__}")
+
+    out = env.get(plan.output)
+    if isinstance(out, Recompute):
+        return out
+    return Recompute(False, reason="plan-output-not-a-speakable-clause")
+
+
+def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: str | None) -> Any:
+    if isinstance(node, Leaf):
+        tool = reg.get(node.tool)
+        if tool is None:  # validate_plan already guards this; belt-and-braces
+            return ops.RowSet((), (), node.tool, available=False, reason="unknown-tool")
+        # tenant comes from the session, never the plan (see module security note).
+        params = {k: v for k, v in node.params.items() if k != "tenant"}
+        value, refs = tool(params, tenant=tenant)
+        return ops.rowset_from_leaf(node.tool, value, refs)
+
+    assert isinstance(node, Op)
+    inputs = [env.get(i) for i in node.inputs]
+    if any(x is None for x in inputs):
+        return Recompute(False, reason="op-missing-input")
+    first = inputs[0]
+
+    if node.kind is OpKind.FILTER:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="filter-input-not-rowset")
+        return ops.op_filter(first, node.args)
+    if node.kind is OpKind.COUNT:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="count-input-not-rowset")
+        return ops.op_count(first)
+    if node.kind is OpKind.EXISTS:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="exists-input-not-rowset")
+        return ops.op_exists(first, node.args)
+    if node.kind is OpKind.LIST:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="list-input-not-rowset")
+        return ops.op_list(first, node.args)
+    if node.kind is OpKind.GET:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="get-input-not-rowset")
+        return ops.op_get(first, node.args)
+
+    return Recompute(False, reason=f"op-not-implemented:{node.kind.value}")

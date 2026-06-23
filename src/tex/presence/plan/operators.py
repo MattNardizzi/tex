@@ -58,6 +58,7 @@ class RowSet:
     qualifiers: tuple[str, ...] = ()  # human qualifiers from applied filters (phrasing)
     time_basis: bool = False          # rows selected by a recorded timestamp → DERIVED, not SEALED
     window_label: str = ""            # gate-authored description of the resolved time window
+    source_refs: tuple[EvidenceRef, ...] = ()  # complete scanned set — witness for a windowed zero
     available: bool = True
     reason: str = ""
 
@@ -170,7 +171,6 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
     # omit tenant_scope and would otherwise default to 'all' → a fleet fact sounding
     # tenant-scoped). This is the plan-layer defence for read_tools' entity-get omission.
     fleet_only = tenant_scope == "fleet" or tool_name in _FLEET_SOURCE_TOOLS
-    clamped = value.get("limit_clamped_to") is not None
 
     # Count-style leaf: authoritative scalar count + a witness sample of refs.
     if tool_name in _LEAF_COUNT and "count" in value:
@@ -193,10 +193,16 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
     rows_val = value.get(rows_key) if rows_key else None
     if isinstance(rows_val, Sequence) and not isinstance(rows_val, (str, bytes)):
         rows = tuple(r for r in rows_val if isinstance(r, Mapping))
-        complete = tool_name in _COMPLETE_SNAPSHOT_TOOLS and not clamped
+        cap = value.get("limit_clamped_to")
+        # A big requested limit over a SMALL store truncates NOTHING. Only treat the read as
+        # clamped/incomplete if it actually returned a full cap-sized page (so a count over it
+        # would be a lower bound). Previously a brain asking for limit:1000 over a 3-row store
+        # wrong-abstained 'how many decisions in total'.
+        truncated = cap is not None and len(rows) >= int(cap)
+        complete = tool_name in _COMPLETE_SNAPSHOT_TOOLS and not truncated
         return RowSet(rows, tuple(refs), tool_name, tenant_scope, applied,
-                      total=(None if clamped else len(rows)), fleet_only=fleet_only,
-                      clamped=clamped, complete=complete)
+                      total=(None if truncated else len(rows)), fleet_only=fleet_only,
+                      clamped=truncated, complete=complete)
 
     return RowSet((), tuple(refs), tool_name, tenant_scope, applied, available=False,
                   reason="unrecognized-tool-shape")
@@ -290,6 +296,13 @@ def op_count(rs: RowSet) -> Recompute:
         return _bad(rs.source, f"count-source-unavailable:{rs.reason}")
     n = rs.total if rs.total is not None else len(rs.rows)
     if n == 0:
+        # A windowed zero over a COMPLETE snapshot IS provable ('none registered yesterday'),
+        # witnessed by the full scanned set — say so instead of an unhelpful abstain.
+        if rs.time_basis and rs.source_refs:
+            phrase = _disclose_fleet(f"None {rs.window_label} (by recorded time).", rs.fleet_only)
+            return Recompute(True, value=0, evidence=rs.source_refs, canonical_phrase=phrase,
+                             correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                             reason="derived:time_count=0")
         return _bad(rs.source, "zero-count-needs-absence-proof")
     if rs.clamped:
         return _bad(rs.source, "count-clamped-incomplete")  # value is a lower bound — don't seal
@@ -372,9 +385,10 @@ def op_get(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     if not isinstance(field_name, str) or field_name not in row:
         return _bad(rs.source, "get-field-missing")
     val = row.get(field_name)
-    ident = str(row.get("name") or row.get("agent_id") or row.get("id") or "")
-    noun = _NOUN.get(rs.source, ("record", "records"))[0].capitalize()
-    phrase = f"{noun} {ident} {field_name.replace('_', ' ')} is {val}."
+    ident = str(row.get("name") or row.get("agent_id") or row.get("id") or "").strip()
+    noun = _NOUN.get(rs.source, ("record", "records"))[0]
+    subject = f"{noun.capitalize()} {ident}" if ident else f"The {noun}"
+    phrase = f"{subject} {field_name.replace('_', ' ')} is {val}."
     phrase = _disclose_fleet(phrase, rs.fleet_only)  # fleet sources must not sound tenant-scoped
     if rs.time_basis:  # e.g. the value of a LATEST-selected row's timestamp → DERIVED
         return Recompute(True, value=val, evidence=(ref,),
@@ -588,6 +602,8 @@ def op_time_window(rs: RowSet, args: Mapping[str, Any], *, reference_now: dateti
         rs.tenant_filter_applied, total=len(kept_rows), fleet_only=rs.fleet_only,
         clamped=rs.clamped, complete=False, qualifiers=rs.qualifiers,
         time_basis=True, window_label=_window_label(field_name, args, after, before),
+        # carry the complete scanned set so a windowed ZERO can still be witnessed
+        source_refs=(rs.refs[:EVIDENCE_CAP] if rs.complete else ()),
     )
 
 

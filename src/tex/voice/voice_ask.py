@@ -259,7 +259,8 @@ def answer_question(
             _env = answer_with_plan(
                 request, transcript=transcript, tenant=tenant, compiler=_compiler,
                 templated_abstain="I don't have an answer to that in the records.",
-                attestor=attestor, held_sink=getattr(_state, "held_decision_sink", None),
+                attestor=getattr(_state, "presence_attestor", None),  # the PRESENCE attestor (has .attest)
+                held_sink=getattr(_state, "held_decision_sink", None),
             )
         except Exception:  # noqa: BLE001 — the plan path must never break the voice
             _logger.warning("presence plan path raised; falling through", exc_info=True)

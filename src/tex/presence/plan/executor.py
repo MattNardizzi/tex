@@ -35,6 +35,26 @@ IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET, OpKind.ABSENCE_SCAN}
 )
 
+# OPERATOR-PURITY INVARIANT (structural, not a vibe). Every operator the gate runs MUST
+# be a PURE recompute whose spoken value is re-derivable from the rows it binds as
+# evidence — it may never compute a value that is not a function of those rows (the
+# canonical danger the adversarial review named: a future TREND/extrapolate/AVERAGE-with-
+# default operator that "computes" something the rows don't contain, silently re-importing
+# confident-wrongness). An operator is allowed to execute ONLY if it is certified here.
+# Adding a new operator is therefore a DELIBERATE act: you must add it to this set, which
+# forces a reviewer to assert its purity (and the purity tests in test_redteam.py to cover
+# it) — a silent "just add an operator" PR fails loudly at import instead.
+CERTIFIED_PURE_OPS: frozenset[OpKind] = frozenset(
+    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET, OpKind.ABSENCE_SCAN}
+)
+_uncertified = IMPLEMENTED_OPS - CERTIFIED_PURE_OPS
+if _uncertified:  # fail loud at import — never ship an implemented-but-uncertified operator
+    raise RuntimeError(
+        f"operator-purity invariant violated: implemented ops {sorted(o.value for o in _uncertified)} "
+        "are not certified pure-recompute (add them to CERTIFIED_PURE_OPS + a purity test, "
+        "or do not implement them)"
+    )
+
 
 def _state(request: Any) -> Any:
     """The store host: ``request.app.state`` on the live server, else ``request``

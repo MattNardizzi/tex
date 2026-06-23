@@ -32,7 +32,7 @@ __all__ = ["IMPLEMENTED_OPS", "execute_plan"]
 # ever offered these, and ``validate_plan`` rejects any plan naming an op outside it
 # (so an enum value added ahead of its implementation can never be executed).
 IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
-    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET}
+    {OpKind.FILTER, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET, OpKind.ABSENCE_SCAN}
 )
 
 
@@ -109,5 +109,9 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="get-input-not-rowset")
         return ops.op_get(first, node.args)
+    if node.kind is OpKind.ABSENCE_SCAN:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="absence-input-not-rowset")
+        return ops.op_absence(first, node.args)
 
     return Recompute(False, reason=f"op-not-implemented:{node.kind.value}")

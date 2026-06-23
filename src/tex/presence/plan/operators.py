@@ -29,10 +29,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tex.presence.contract import EvidenceRef
-from tex.presence.gate.queries import Recompute
+from tex.presence.gate.queries import EVIDENCE_CAP, Recompute
 from tex.presence.plan.ir import CompareOp
 
-__all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list", "op_get"]
+__all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list",
+           "op_get", "op_absence"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ class RowSet:
     total: int | None = None          # authoritative full count if the leaf gave one
     fleet_only: bool = False          # rows carry no tenant column → must disclose
     clamped: bool = False             # row list hit the read-tool's MAX_ROWS cap
+    complete: bool = False            # rows are a COMPLETE current-state snapshot (provable absence)
     qualifiers: tuple[str, ...] = ()  # human qualifiers from applied filters (phrasing)
     available: bool = True
     reason: str = ""
@@ -76,6 +78,10 @@ _LEAF_COUNT: frozenset[str] = frozenset(
     {"execution.action_count", "discovery.entry_count", "monitoring.drift_count",
      "human_decision.verdict_count"}
 )
+# Tools whose rows are a COMPLETE current-state snapshot (the registry's full list),
+# so 'no match' over an UNCLAMPED read is a PROVABLE absence — unlike the append-only
+# tails (recent_*) which are windowed and can never prove a 'no' on their own.
+_COMPLETE_SNAPSHOT_TOOLS: frozenset[str] = frozenset({"identity.list_agents"})
 _NOUN: dict[str, tuple[str, str]] = {
     "identity.list_agents": ("agent", "agents"),
     "identity.get_agent": ("agent", "agents"),
@@ -143,8 +149,10 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
     rows_val = value.get(rows_key) if rows_key else None
     if isinstance(rows_val, Sequence) and not isinstance(rows_val, (str, bytes)):
         rows = tuple(r for r in rows_val if isinstance(r, Mapping))
+        complete = tool_name in _COMPLETE_SNAPSHOT_TOOLS and not clamped
         return RowSet(rows, tuple(refs), tool_name, tenant_scope, applied,
-                      total=(None if clamped else len(rows)), fleet_only=fleet_only, clamped=clamped)
+                      total=(None if clamped else len(rows)), fleet_only=fleet_only,
+                      clamped=clamped, complete=complete)
 
     return RowSet((), tuple(refs), tool_name, tenant_scope, applied, available=False,
                   reason="unrecognized-tool-shape")
@@ -226,7 +234,7 @@ def op_filter(rs: RowSet, args: Mapping[str, Any]) -> RowSet:
     return RowSet(
         tuple(kept_rows), tuple(kept_refs), rs.source, rs.tenant_scope,
         rs.tenant_filter_applied, total=len(kept_rows), fleet_only=rs.fleet_only,
-        clamped=rs.clamped, qualifiers=qualifiers,
+        clamped=rs.clamped, complete=rs.complete, qualifiers=qualifiers,
     )
 
 
@@ -315,3 +323,61 @@ def op_get(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     phrase = f"{noun} {ident} {field_name.replace('_', ' ')} is {val}."
     return Recompute(True, value=val, evidence=(ref,), canonical_phrase=phrase,
                      reason=f"sealed:plan_get_{field_name}={val}")
+
+
+def op_absence(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
+    """Membership over a COMPLETE current-state list — the provable-absence operator.
+
+    Seals BOTH directions over a fully-scanned set: 'yes' binds the matching rows;
+    'no' binds the FULL scanned set as the completeness witness (the proof that none
+    of the N known rows matches). Abstains when the source is not provably complete —
+    a windowed/clamped read can never prove a 'no' (you can't see what you didn't read).
+    This is what lets Tex answer "do I have an Okta agent?" with a sealed "No", not a
+    guess. (Time-window absence over the append-only ledgers is a different, harder
+    case — see the signed-time-anchor track.)"""
+    if not rs.available:
+        return _bad(rs.source, f"absence-source-unavailable:{rs.reason}")
+    if not rs.complete:
+        return _bad(rs.source, "absence-source-not-complete")  # can't prove a 'no' → abstain
+
+    field_name = args.get("field")
+    op_raw = args.get("op")
+    target = args.get("value")
+    if not isinstance(field_name, str) or not isinstance(op_raw, str):
+        return _bad(rs.source, "absence-bad-args")
+    try:
+        cop = CompareOp(op_raw)
+    except ValueError:
+        return _bad(rs.source, f"absence-bad-op:{op_raw}")
+
+    aligned = len(rs.refs) == len(rs.rows)
+    match_rows: list[Mapping[str, Any]] = []
+    match_refs: list[EvidenceRef] = []
+    for i, row in enumerate(rs.rows):
+        if _predicate(row.get(field_name), cop, target):
+            match_rows.append(row)
+            if aligned:
+                match_refs.append(rs.refs[i])
+
+    sing, plur = _NOUN.get(rs.source, ("record", "records"))
+    key = str(target)
+    if match_rows:  # present → SEALED yes, binding the matching rows
+        if not match_refs:
+            return _bad(rs.source, "absence-match-no-witness")
+        n = len(match_rows)
+        names = ", ".join(str(r.get("name") or r.get("id") or "?") for r in match_rows[:5])
+        phrase = f"Yes — you have {n} {sing if n == 1 else plur} matching {key!r}: {names}."
+        if rs.fleet_only:
+            phrase = phrase[:-1] + " (across all tenants)."
+        return Recompute(True, value=True, evidence=tuple(match_refs[:EVIDENCE_CAP]),
+                         canonical_phrase=phrase, reason=f"sealed:membership_present={n}")
+
+    # absent → SEALED 'no', but ONLY over a complete, non-empty scanned set (the witness).
+    if not rs.rows or not rs.refs:
+        return _bad(rs.source, "absence-no-completeness-witness")  # empty set → no witness
+    total = len(rs.rows)
+    phrase = f"No — none of your {total} {plur} matches {key!r}."
+    if rs.fleet_only:
+        phrase = phrase[:-1] + " (across all tenants)."
+    return Recompute(True, value=False, evidence=rs.refs[:EVIDENCE_CAP],
+                     canonical_phrase=phrase, reason=f"sealed:membership_absent;scanned={total}")

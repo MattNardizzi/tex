@@ -50,6 +50,12 @@ OP_GUIDE: dict[OpKind, str] = {
     OpKind.EXISTS: "whether ≥1 row matches its input (true answers; a 'no' abstains for now)",
     OpKind.LIST: "the first N rows projected to a field — args: field, limit (e.g. agent names)",
     OpKind.GET: "one entity's field value — args: field (the input leaf must resolve exactly one row)",
+    OpKind.ABSENCE_SCAN: (
+        "membership over a COMPLETE current-state list (use identity.list_agents as the input "
+        "leaf) — args: field, op, value. Seals 'yes' (with the matching rows) OR a provable 'no' "
+        "(with the full scanned set as the witness). Use this for 'do I have an X agent?' — NOT "
+        "exists+filter, which can't prove a 'no'."
+    ),
 }
 
 

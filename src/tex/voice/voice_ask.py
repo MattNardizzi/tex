@@ -39,6 +39,7 @@ from typing import Any
 from uuid import UUID
 
 from tex.domain.verdict import Verdict
+from tex.presence.brain.evidence import is_sha256_hex
 from tex.presence.contract import NULL_BRAIN, AnswerEnvelope
 from tex.presence.gate import PresenceTelemetry, PresenceTruthGate, run_presence
 from tex.vigil import Explainer
@@ -179,6 +180,44 @@ def _gate_summary(gate_result: Any) -> dict[str, Any]:
     }
 
 
+def _plan_object_handle(env: AnswerEnvelope) -> dict[str, str] | None:
+    """Derive the legacy ``{value, kind}`` UI handle for a grounded plan answer.
+
+    The plan envelope's ``surface_object`` is the rich ``{"claims": [...]}`` hold-to-see
+    object — carried WHOLE on ``AskOutcome.presence`` (voice_routes ``_serialize_presence``).
+    It is NOT the ``{value, kind}`` handle the ``/v1/ask`` ``object`` field promises
+    (``api/voice_routes.ObjectDTO``; frontend ``texApi.js`` / ``presence.js`` ``normEvidence``).
+    Feeding the former into the latter is a 3-error ``ValidationError`` (2 missing + 1
+    extra-forbidden) → HTTP 500. So we derive the SAME handle the record path emits
+    (``answer_forms.build_record_answer``).
+
+    The rule is STRUCTURAL, not operator-keyed: surface a handle iff the answer binds
+    exactly one sealed witness — one supported verdict carrying exactly one evidence ref
+    whose ``record_hash`` is a real SHA-256. That single ref IS the one graspable record:
+    a ``GET``/``DURATION`` reads a field of it, a ``LATEST``-of-one selects it, an
+    ``EXISTS``/``ABSENCE``-yes or ``COUNT``-of-one was recomputed from it as its sole
+    witness. A multi-row aggregate (most ``COUNT``/``LIST``/``GROUP_BY``/``COMPARE``) binds
+    many refs (or none) → ``None``: there is no single thing to grab (a count is meaning,
+    not a handle — the same call ``answer_forms`` makes). For a boolean yes/no the handle is
+    the *witness* the verdict was checked against, never a claim that it is "the only"
+    record — honest, since the full evidence set still rides the ``presence`` envelope.
+    The hash is read off the bound, sealed evidence ref and gated by ``is_sha256_hex``, so
+    the ``"hash"`` label provably holds — never fabricated, never a non-hash mislabel."""
+    if len(env.verdicts) != 1:
+        return None
+    evidence = env.verdicts[0].evidence
+    if len(evidence) != 1:
+        return None
+    record_hash = evidence[0].record_hash
+    # Only label it ``"hash"`` when it provably IS a SHA-256 — a name must deliver its
+    # property (the nanozk lesson). Every presence EvidenceRef hash is a content-digest or
+    # validated chain anchor (see brain/evidence.digest_ref / chained_ref), so this holds in
+    # practice; the guard makes it structural, and a malformed/empty hash → no handle.
+    if not is_sha256_hex(record_hash):
+        return None
+    return {"value": record_hash, "kind": "hash"}
+
+
 def _lookup_decision(request: Any, intent: Intent) -> Any | None:
     """Resolve the sealed Decision the operator named. UUID → direct id lookup;
     a bare SHA-256 → scan recent decisions for a matching content/evidence hash
@@ -267,8 +306,11 @@ def answer_question(
             _env = None
         if _env is not None:
             if _env.verdicts:  # grounded over real rows
+                # The legacy ``object`` slot is the {value, kind} handle, NOT the rich
+                # surface_object (which would 500 ObjectDTO) — see _plan_object_handle. The
+                # full structured object still rides along on the presence envelope (_env).
                 return _seal(
-                    Verdict.PERMIT, _env.spoken_text, _env.surface_object, None,
+                    Verdict.PERMIT, _env.spoken_text, _plan_object_handle(_env), None,
                     "presence", {"reason": "plan-grounded", "scorer": "planner"}, _env,
                 )
             # Planner engaged but couldn't ground → an HONEST decline, NEVER the legacy

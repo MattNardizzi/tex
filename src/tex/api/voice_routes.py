@@ -28,12 +28,13 @@ correctly 401/403'd.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.vigil_routes import _resolve_effective_tenant
@@ -44,6 +45,8 @@ from tex.presence.prosody import plan_from_token, prosody_param_for_envelope
 from tex.voice import voice_ask
 
 __all__ = ["build_voice_router"]
+
+_logger = logging.getLogger(__name__)
 
 # Where the browser opens the recognizer WebSocket. Tex's OWN gateway, inside
 # the same trust domain — never a third party. Overridable per deploy.
@@ -108,6 +111,46 @@ class AskResponse(BaseModel):
     # The client echoes it verbatim to GET /v1/speak?prosody=<token> so the spoken
     # line's perceived confidence equals the gate's verdict.
     prosody: str | None = None
+
+
+# ----------------------------------------------------------- fail-closed DTO coercion
+#
+# /v1/ask is THE integrity boundary — a grounded, sealed answer must reach the operator.
+# The optional ``object``/``proof_ref`` handles are a UI convenience, not the answer. If an
+# upstream path ever hands us a dict that doesn't match the wire DTO (the planner once routed
+# the rich ``{"claims": [...]}`` surface_object into the ``{value, kind}`` object slot → a
+# 3-error ValidationError → HTTP 500), DROP the handle and still ship the grounded answer +
+# presence envelope, rather than 500 a provable answer into the dark. Honest degradation: the
+# spoken line is unchanged and unfabricated; only the optional grab-handle is omitted, logged
+# so the shape-drift is observable. (The source-side fix lives in voice_ask._plan_object_handle;
+# this is the belt-and-braces floor so NO object shape can ever take the voice down again.)
+
+
+def _shape(payload: Any) -> Any:
+    """The diagnostic for a DTO mismatch is the payload's SHAPE, not its values — log the
+    keys only, so a future caller routing tenant/user content through a handle slot can
+    never leak it into the logs (the values aren't needed to debug a shape drift anyway)."""
+    return sorted(payload) if isinstance(payload, dict) else type(payload).__name__
+
+
+def _safe_object(obj: dict | None) -> "ObjectDTO | None":
+    if not obj:
+        return None
+    try:
+        return ObjectDTO(**obj)
+    except (ValidationError, TypeError):
+        _logger.warning("ask: object payload did not match ObjectDTO; dropping handle (keys=%s)", _shape(obj))
+        return None
+
+
+def _safe_proof_ref(proof: dict | None) -> "ProofRefDTO | None":
+    if not proof:
+        return None
+    try:
+        return ProofRefDTO(**proof)
+    except (ValidationError, TypeError):
+        _logger.warning("ask: proof_ref payload did not match ProofRefDTO; dropping (keys=%s)", _shape(proof))
+        return None
 
 
 # --------------------------------------------------------------- presence serialization
@@ -256,8 +299,8 @@ def build_voice_router() -> APIRouter:
         )
         return AskResponse(
             answer=outcome.answer,
-            object=(ObjectDTO(**outcome.object) if outcome.object else None),
-            proof_ref=(ProofRefDTO(**outcome.proof_ref) if outcome.proof_ref else None),
+            object=_safe_object(outcome.object),
+            proof_ref=_safe_proof_ref(outcome.proof_ref),
             attestation=AttestationDTO(
                 anchor_sha256=outcome.attestation_anchor,
                 algorithm=outcome.attestation_algorithm,

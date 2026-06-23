@@ -77,6 +77,14 @@ OP_GUIDE: dict[OpKind, str] = {
         "resolve to a single row (identity.get_agent, or LATEST). e.g. 'how long has agent X been "
         "running' = get_agent(id) → DURATION(registered_at). DERIVED ('by recorded time')."
     ),
+    OpKind.COMPARE: (
+        "relate TWO earlier grounded scalar nodes (two COUNTs, etc.) — inputs: [node_a, node_b], "
+        "args: relation ∈ eq|ne|gt|lt|gte|lte. e.g. 'are there more forbids than permits'."
+    ),
+    OpKind.DIFF_OVER_WINDOW: (
+        "signed difference of TWO earlier COUNT nodes — inputs: [node_a, node_b], optional "
+        "left_label/right_label. e.g. 'how many more agents registered today than yesterday'."
+    ),
 }
 
 
@@ -116,7 +124,15 @@ labels it. For 'today / yesterday / N days ago / in the past N days / a date', c
 TIME_WINDOW over a row-list and pass the RELATIVE TOKEN (e.g. on="today", on="yesterday", \
 after="7_days_ago", after="past_7_days") or an ISO date — the gate resolves it against the \
 Current time given above. You NEVER compute or assert a date yourself.
-6. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
+6. EMIT NO PLAN (an empty/closest plan → an honest abstain) for shapes the data cannot \
+support: state AS-OF a PAST date ('how many agents were active on June 1' — the registry is \
+current-state with NO transition history), predictions/forecasts ('how many next month'), \
+causal/anomaly/significance ('what caused the drift', 'is this anomalous'), ranking/similarity, \
+or capability-set union/intersection. Do NOT force a plan that answers a DIFFERENT question.
+7. OUT OF DOMAIN: if the question is not about the governed system (agents, decisions, \
+actions, evidence, discovery, drift) — weather, code, general knowledge — emit no usable \
+plan. Tex answers ONLY from its own sealed records.
+8. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
 
 Call `{tool_name}` exactly once with: {{ "nodes": [ ... ], "output": "<node_id>" }}.
 Each node is either a leaf {{ "node_type": "leaf", "node_id": <id>, "tool": <tool>, \

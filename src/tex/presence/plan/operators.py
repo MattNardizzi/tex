@@ -35,7 +35,8 @@ from tex.presence.gate.queries import EVIDENCE_CAP, Recompute
 from tex.presence.plan.ir import CompareOp
 
 __all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list",
-           "op_get", "op_absence", "op_time_window", "op_group_by", "op_latest", "op_duration"]
+           "op_get", "op_absence", "op_time_window", "op_group_by", "op_latest", "op_duration",
+           "op_compare", "op_diff_over_window"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -707,3 +708,69 @@ def op_duration(rs: RowSet, args: Mapping[str, Any], *, reference_now: datetime)
     return Recompute(True, value=int(seconds), evidence=(rs.refs[0],), canonical_phrase=phrase,
                      correctness_floor=1.0, coverage_mode="recorded-timestamp",
                      reason=f"derived:duration_{field_name}={int(seconds)}s")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPARE / DIFF_OVER_WINDOW — relate two ALREADY-GROUNDED scalar nodes. These never
+# read rows; they only join two proven recomputes, so they cannot invent a value. The
+# tier is the MIN of the two operands (a DERIVED operand makes the comparison DERIVED).
+# ─────────────────────────────────────────────────────────────────────────────
+_REL_WORD = {"eq": "equal to", "ne": "different from", "gt": "greater than",
+             "lt": "less than", "gte": "at least", "lte": "at most"}
+
+
+def _both_numeric(a: Recompute, b: Recompute) -> bool:
+    return (
+        a.grounded and b.grounded
+        and isinstance(a.value, (int, float)) and not isinstance(a.value, bool)
+        and isinstance(b.value, (int, float)) and not isinstance(b.value, bool)
+    )
+
+
+def _min_tier_floor(a: Recompute, b: Recompute) -> tuple[float | None, str | None]:
+    if a.correctness_floor is not None or b.correctness_floor is not None:
+        return 1.0, "recorded-timestamp"  # min-tier: any DERIVED operand → DERIVED result
+    return None, None
+
+
+def op_compare(a: Recompute, b: Recompute, args: Mapping[str, Any]) -> Recompute:
+    if not _both_numeric(a, b):
+        return Recompute(False, reason="compare-needs-two-grounded-numeric-scalars")
+    rel = str(args.get("relation", "")).strip().lower()
+    table = {
+        "eq": a.value == b.value, "ne": a.value != b.value, "gt": a.value > b.value,
+        "lt": a.value < b.value, "gte": a.value >= b.value, "lte": a.value <= b.value,
+    }
+    if rel not in table:
+        return Recompute(False, reason=f"compare-bad-relation:{rel}")
+    evidence = (a.evidence + b.evidence)[:EVIDENCE_CAP]
+    if not evidence:
+        return Recompute(False, reason="compare-no-evidence")
+    result = bool(table[rel])
+    word = _REL_WORD[rel]
+    phrase = (f"Yes — {a.value} is {word} {b.value}." if result
+              else f"No — {a.value} is not {word} {b.value}.")
+    floor, mode = _min_tier_floor(a, b)
+    return Recompute(True, value=result, evidence=evidence, canonical_phrase=phrase,
+                     correctness_floor=floor, coverage_mode=mode, reason=f"compare:{rel}={result}")
+
+
+def op_diff_over_window(a: Recompute, b: Recompute, args: Mapping[str, Any]) -> Recompute:
+    if not (a.grounded and b.grounded and isinstance(a.value, int) and isinstance(b.value, int)
+            and not isinstance(a.value, bool) and not isinstance(b.value, bool)):
+        return Recompute(False, reason="diff-needs-two-grounded-integer-counts")
+    evidence = (a.evidence + b.evidence)[:EVIDENCE_CAP]
+    if not evidence:
+        return Recompute(False, reason="diff-no-evidence")
+    delta = a.value - b.value
+    left = _safe_qualifier(args.get("left_label")) or "the first"
+    right = _safe_qualifier(args.get("right_label")) or "the second"
+    if delta > 0:
+        phrase = f"{delta} more in {left} than {right} ({a.value} vs {b.value})."
+    elif delta < 0:
+        phrase = f"{-delta} fewer in {left} than {right} ({a.value} vs {b.value})."
+    else:
+        phrase = f"The same in {left} and {right} ({a.value} vs {b.value})."
+    floor, mode = _min_tier_floor(a, b)
+    return Recompute(True, value=delta, evidence=evidence, canonical_phrase=phrase,
+                     correctness_floor=floor, coverage_mode=mode, reason=f"diff={delta}")

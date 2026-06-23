@@ -77,15 +77,19 @@ def test_unknown_tool_fails_closed_validation():
     assert _compile(bad) is None
 
 
-def test_unimplemented_operator_fails_closed_validation():
+def test_operator_outside_the_offered_set_fails_closed():
+    # Every OpKind now has an implementation, so closed-world is enforced by the OFFERED
+    # set: an op not in the ops handed to compile is rejected (drops to abstain).
     bad = {
         "nodes": [
             {"node_type": "leaf", "node_id": "a", "tool": "identity.list_agents", "params": {}},
-            {"node_type": "op", "node_id": "g", "kind": "diff_over_window", "inputs": ["a"], "args": {}},
+            {"node_type": "op", "node_id": "g", "kind": "group_by", "inputs": ["a"], "args": {"field": "owner"}},
         ],
         "output": "g",
     }
-    assert _compile(bad) is None  # diff_over_window is in the enum but not yet in IMPLEMENTED_OPS
+    c = PlanCompiler(provider=_Stub(bad))
+    assert c.compile(question="x", tenant="acme", tool_catalog=_CATALOG,
+                     ops=frozenset({OpKind.COUNT})) is None
 
 
 def test_compiled_plan_executes_end_to_end(populated_state):
@@ -96,12 +100,12 @@ def test_compiled_plan_executes_end_to_end(populated_state):
     assert rc.grounded and rc.value == 2  # populated_state has 2 acme agents
 
 
-def test_system_prompt_lists_only_implemented_ops_and_real_tools():
-    prompt = build_plan_system_prompt(_CATALOG, IMPLEMENTED_OPS)
+def test_system_prompt_lists_only_the_offered_ops():
+    prompt = build_plan_system_prompt(_CATALOG, frozenset({OpKind.COUNT, OpKind.FILTER}))
     assert "identity.list_agents" in prompt
-    assert "diff_over_window" not in prompt  # not implemented → never offered to the model
-    for op in IMPLEMENTED_OPS:
-        assert op.value in prompt
+    # check the op-CATALOG lines ("  - <op>: ...") so incidental mentions don't match
+    assert "- count:" in prompt and "- filter:" in prompt
+    assert "- group_by:" not in prompt and "- latest:" not in prompt  # not offered → not catalogued
 
 
 def test_plan_tool_schema_is_a_usable_object_schema():

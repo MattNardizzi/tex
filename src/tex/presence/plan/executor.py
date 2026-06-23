@@ -34,7 +34,8 @@ __all__ = ["IMPLEMENTED_OPS", "execute_plan"]
 # (so an enum value added ahead of its implementation can never be executed).
 IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION,
+     OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW}
 )
 
 # OPERATOR-PURITY INVARIANT (structural, not a vibe). Every operator the gate runs MUST
@@ -48,7 +49,8 @@ IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
 # it) — a silent "just add an operator" PR fails loudly at import instead.
 CERTIFIED_PURE_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION,
+     OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW}
 )
 _uncertified = IMPLEMENTED_OPS - CERTIFIED_PURE_OPS
 if _uncertified:  # fail loud at import — never ship an implemented-but-uncertified operator
@@ -115,6 +117,13 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
     if any(x is None for x in inputs):
         return Recompute(False, reason="op-missing-input")
     first = inputs[0]
+
+    if node.kind in (OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW):
+        if len(inputs) != 2 or not all(isinstance(x, Recompute) for x in inputs):
+            return Recompute(False, reason=f"{node.kind.value}-needs-two-grounded-scalar-nodes")
+        if node.kind is OpKind.COMPARE:
+            return ops.op_compare(inputs[0], inputs[1], node.args)
+        return ops.op_diff_over_window(inputs[0], inputs[1], node.args)
 
     if node.kind is OpKind.FILTER:
         if not isinstance(first, ops.RowSet):

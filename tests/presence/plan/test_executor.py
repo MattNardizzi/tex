@@ -88,13 +88,12 @@ def test_unknown_tool_fails_closed(populated_state):
     assert not rc.grounded and "plan-invalid" in rc.reason
 
 
-def test_unimplemented_operator_fails_closed(populated_state):
-    """An operator in the IR enum but NOT in the executor's implemented set is
-    rejected — an unbuilt operator can never run."""
-    rc = _run(populated_state, Plan(nodes=(
-        _leaf(), Op(node_id="g", kind=OpKind.DIFF_OVER_WINDOW, inputs=("a",), args={})),
-        output="g"))
-    assert not rc.grounded and "plan-invalid" in rc.reason
+def test_every_opkind_is_implemented_and_certified_pure():
+    """The coverage build implements the full algebra: every OpKind is both runnable and
+    certified pure-recompute (no enum value is a silent no-op)."""
+    from tex.presence.plan.executor import CERTIFIED_PURE_OPS, IMPLEMENTED_OPS
+
+    assert IMPLEMENTED_OPS == CERTIFIED_PURE_OPS == set(OpKind)
 
 
 def test_output_that_is_not_a_clause_abstains(populated_state):

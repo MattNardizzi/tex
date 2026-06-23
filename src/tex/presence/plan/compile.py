@@ -115,9 +115,12 @@ in the plan (the plan is a DAG; order nodes so every input already exists):
 {op_catalog}
 3. Any literal in params/args (a name, a status like "REVOKED", a verdict like "FORBID") \
 is a LOOKUP KEY the executor resolves against the rows — never a fact you assert.
-4. Keep the plan minimal; `output` is the node whose result is spoken. If the question \
-cannot be expressed with these tools and operators, still emit your closest plan — the \
-gate will abstain safely. NEVER invent a tool, an operator, or a value.
+4. Keep the plan minimal. When you ANSWER, the `output` node must be a value-producing \
+OPERATOR (count/exists/list/get/group_by/absence_scan/duration/compare/diff_over_window), \
+never a bare read-tool leaf. When you CANNOT answer (see rules 6-7), emit a plan with an \
+EMPTY node list — {{"nodes": [], "output": ""}} — that IS the honest abstain. NEVER invent a \
+tool/operator/value, and NEVER force a read-tool (e.g. list_agents → count) to manufacture a \
+number for a question it does not answer.
 5. TIME: the timestamp fields (registered_at, recorded_at, decided_at, appended_at, \
 discovered_at, updated_at) are real but recorded-at-write-time, NOT cryptographically \
 anchored — every time-window or duration answer is DERIVED (never SEALED), and the gate \
@@ -125,14 +128,21 @@ labels it. For 'today / yesterday / N days ago / in the past N days / a date', c
 TIME_WINDOW over a row-list and pass the RELATIVE TOKEN (e.g. on="today", on="yesterday", \
 after="7_days_ago", after="past_7_days") or an ISO date — the gate resolves it against the \
 Current time given above. You NEVER compute or assert a date yourself.
-6. EMIT NO PLAN (an empty/closest plan → an honest abstain) for shapes the data cannot \
-support: state AS-OF a PAST date ('how many agents were active on June 1' — the registry is \
-current-state with NO transition history), predictions/forecasts ('how many next month'), \
-causal/anomaly/significance ('what caused the drift', 'is this anomalous'), ranking/similarity, \
-or capability-set union/intersection. Do NOT force a plan that answers a DIFFERENT question.
+6. EMIT NO PLAN (→ an honest abstain) for what the data cannot support, and do NOT \
+substitute the nearest factual query: WHY something happened or the REASON/CAUSE of a state \
+('why was agent X revoked', 'what caused this' — there is NO reason/cause/transition record); \
+state AS-OF a PAST date ('how many were active on June 1' — current-state only, no history); \
+predictions/forecasts ('how many next month'); anomaly/significance/ranking by an unrecorded \
+metric ('which agent is most trustworthy', 'is this anomalous'); a PERCENTAGE/ratio (there is \
+no division operator — a GROUP_BY breakdown is fine, an invented % is not); capability-set \
+union/intersection. Answering a DIFFERENT question than the one asked (e.g. giving a status \
+when asked 'why') is a FAILURE — abstain instead.
 7. OUT OF DOMAIN: if the question is not about the governed system (agents, decisions, \
-actions, evidence, discovery, drift) — weather, code, general knowledge — emit no usable \
-plan. Tex answers ONLY from its own sealed records.
+actions, evidence, discovery, drift) — weather, geography, code, general knowledge, chit-chat \
+— emit the EMPTY plan {{"nodes": [], "output": ""}}. Tex answers ONLY from its own sealed \
+records. Examples that MUST return the empty plan: 'what's the capital of France', 'write me \
+a poem', 'how many agents next month', 'how many were active on June 1', 'why was agent X \
+revoked'. Do NOT answer these with a current count.
 8. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
 
 Call `{tool_name}` exactly once with: {{ "nodes": [ ... ], "output": "<node_id>" }}.

@@ -2084,7 +2084,13 @@ def _build_presence_plan_compiler() -> Any:
         )
         from tex.semantic.anthropic import AnthropicStructuredSemanticProvider
 
-        model = os.environ.get("TEX_PRESENCE_MODEL", "").strip() or "claude-opus-4-8"
+        # The planner may use its OWN model (TEX_PRESENCE_PLANNER_MODEL) so it can run on a
+        # stronger model than the legacy brain (TEX_PRESENCE_MODEL); default Opus.
+        model = (
+            os.environ.get("TEX_PRESENCE_PLANNER_MODEL", "").strip()
+            or os.environ.get("TEX_PRESENCE_MODEL", "").strip()
+            or "claude-opus-4-8"
+        )
         provider = AnthropicStructuredSemanticProvider(
             model=model,
             tool_name=PROPOSE_PLAN_TOOL_NAME,

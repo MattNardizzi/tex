@@ -82,8 +82,9 @@ _LEAF_ENTITY: dict[str, tuple[str, str]] = {
     "monitoring.latest_snapshot": ("snapshot", "present"),
 }
 _LEAF_COUNT: frozenset[str] = frozenset(
-    {"execution.action_count", "discovery.entry_count", "monitoring.drift_count",
-     "human_decision.verdict_count"}
+    {"execution.action_count", "execution.action_total", "discovery.entry_count",
+     "monitoring.drift_count", "human_decision.verdict_count", "human_decision.total",
+     "evidence.record_total"}
 )
 # Tools whose rows are a COMPLETE current-state snapshot (the registry's full list),
 # so 'no match' over an UNCLAMPED read is a PROVABLE absence — unlike the append-only
@@ -96,9 +97,9 @@ _COMPLETE_SNAPSHOT_TOOLS: frozenset[str] = frozenset({"identity.list_agents"})
 # chain_head, latest_snapshot) don't — so we force fleet scope here for ALL of them.
 _FLEET_SOURCE_TOOLS: frozenset[str] = frozenset({
     "human_decision.get_decision", "human_decision.recent_decisions", "human_decision.verdict_count",
-    "execution.recent_actions", "execution.action_count",
-    "evidence.chain_head", "evidence.recent_records",
-    "discovery.chain_head", "monitoring.latest_snapshot",
+    "human_decision.total", "execution.recent_actions", "execution.action_count",
+    "execution.action_total", "evidence.chain_head", "evidence.recent_records",
+    "evidence.record_total", "discovery.chain_head", "monitoring.latest_snapshot",
 })
 _NOUN: dict[str, tuple[str, str]] = {
     "identity.list_agents": ("agent", "agents"),
@@ -106,6 +107,9 @@ _NOUN: dict[str, tuple[str, str]] = {
     "identity.resolve_agent": ("agent", "agents"),
     "human_decision.recent_decisions": ("decision", "decisions"),
     "human_decision.verdict_count": ("decision", "decisions"),
+    "human_decision.total": ("decision", "decisions"),
+    "evidence.record_total": ("evidence record", "evidence records"),
+    "execution.action_total": ("action", "actions"),
     "discovery.recent_entries": ("discovery event", "discovery events"),
     "discovery.entry_count": ("discovery event", "discovery events"),
     "execution.recent_actions": ("action", "actions"),

@@ -69,3 +69,17 @@ def test_no_compiler_is_byte_identical_to_legacy():
     out = voice_ask.answer_question(req, transcript="qwerty zxcvb foobar", tenant=None)
     assert out.verdict is Verdict.ABSTAIN
     assert out.answer == answer_forms.ABSTAIN_NO_ROUTE
+
+
+class _RaisingCompiler:
+    def compile(self, *, question, tenant, tool_catalog, ops=None, reference_now=None):
+        raise RuntimeError("model unavailable (e.g. no credits)")
+
+
+def test_model_unavailable_falls_through_to_legacy():
+    # Planner engaged but the model is unreachable → degrade to the legacy deterministic path,
+    # NOT a presence abstain. A model outage must never take /v1/ask down or make it go dark.
+    req = _req(presence_plan_compiler=_RaisingCompiler())
+    out = voice_ask.answer_question(req, transcript="qwerty zxcvb foobar", tenant=None)
+    assert out.verdict is Verdict.ABSTAIN
+    assert out.answer == answer_forms.ABSTAIN_NO_ROUTE  # legacy path, not "I don't have..."

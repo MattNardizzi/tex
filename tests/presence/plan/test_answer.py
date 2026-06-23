@@ -72,6 +72,23 @@ def test_no_plan_abstains_to_templated(populated_state):
     assert env.prosody_plan.tier is PresenceTier.ABSTAIN
 
 
+class _RaisingCompiler:
+    """Stands in for the model being UNAVAILABLE (no credits / outage) — compile raises."""
+
+    def compile(self, *, question, tenant, tool_catalog, ops=None, reference_now=None):
+        raise RuntimeError("model unavailable")
+
+
+def test_model_unavailable_returns_none_for_legacy_fallback(populated_state):
+    # When the MODEL can't be reached, answer_with_plan returns None so the caller degrades
+    # to the legacy path — it does NOT abstain (a model outage must not take the voice down).
+    env = answer_with_plan(
+        populated_state, transcript="how many agents do I have", tenant="acme",
+        compiler=_RaisingCompiler(), templated_abstain=_ABSTAIN,
+    )
+    assert env is None
+
+
 def test_zero_count_plan_abstains_not_lies(populated_state):
     env = answer_with_plan(
         populated_state, transcript="how many revoked agents", tenant="acme",

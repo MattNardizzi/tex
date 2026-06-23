@@ -88,9 +88,11 @@ def answer_with_plan(
     registry: dict[str, Any] | None = None,
     attestor: Any = None,
     held_sink: Any = None,
-) -> AnswerEnvelope:
-    """Compile → execute → speak. Returns an :class:`AnswerEnvelope` (an ABSTAIN
-    envelope on any failure). Never raises into the voice path."""
+) -> AnswerEnvelope | None:
+    """Compile → execute → speak. Returns an :class:`AnswerEnvelope` (an honest-abstain
+    envelope when the model produced no usable plan), or ``None`` when the MODEL ITSELF is
+    unavailable (no credits / outage / rate-limit) — the caller then degrades to the legacy
+    deterministic path so a model outage never takes the voice down. Never raises."""
     state = _state(request)
     reg = registry if registry is not None else build_read_tool_registry(state)
     catalog = {name: getattr(tool, "description", "") for name, tool in reg.items()}
@@ -101,11 +103,11 @@ def answer_with_plan(
             question=transcript, tenant=tenant, tool_catalog=catalog,
             reference_now=now.isoformat(),
         )
-    except Exception:  # noqa: BLE001 — a compiler hiccup must never break the voice
-        _logger.debug("plan compile swallowed an error", exc_info=True)
-        plan = None
+    except Exception:  # noqa: BLE001 — the MODEL is unavailable (no credits / outage / rate-limit)
+        _logger.warning("plan compile: model unavailable — degrading to the legacy path", exc_info=True)
+        return None  # signal the caller to fall back to the deterministic path, never go dark
 
-    if plan is None:
+    if plan is None:  # the model replied but produced no usable plan → a genuine honest abstain
         return AnswerEnvelope(
             spoken_text=templated_abstain,
             prosody_plan=ProsodyPlan.from_tier(PresenceTier.ABSTAIN),

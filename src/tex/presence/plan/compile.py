@@ -222,10 +222,11 @@ class PlanCompiler:
         user_prompt = build_plan_user_prompt(
             question=question, tenant=tenant, reference_now=reference_now
         )
-        try:
-            payload = self.provider.analyze(system_prompt=system_prompt, user_prompt=user_prompt)
-        except Exception:  # noqa: BLE001 — refusal / transport / schema failure → abstain
-            return None
+        # Provider/transport/credit errors PROPAGATE so the caller can degrade to the legacy
+        # deterministic path — a model outage (no credits, rate-limit, timeout) must NOT take
+        # /v1/ask down or make it abstain on everything. Only a malformed/invalid plan is a
+        # genuine 'no usable plan' (→ None → honest abstain).
+        payload = self.provider.analyze(system_prompt=system_prompt, user_prompt=user_prompt)
 
         plan = _parse_plan(payload)
         if plan is None:

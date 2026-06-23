@@ -92,7 +92,11 @@ def test_live_demo_composes_novel_questions(capsys):
     with capsys.disabled():
         print(f"\n========== LIVE: the LLM composing NOVEL questions (model={model}) ==========")
         for q in NOVEL:
-            plan = compiler.compile(question=q, tenant="acme", tool_catalog=catalog, reference_now=now_iso)
+            try:
+                plan = compiler.compile(question=q, tenant="acme", tool_catalog=catalog, reference_now=now_iso)
+            except Exception as exc:  # model unavailable (e.g. no credits) — degrades to legacy
+                plan = None
+                print(f"\n[model unavailable: {type(exc).__name__}]")
             out = voice_ask.answer_question(req, transcript=q, tenant="acme")
             print(f"\nQ: {q}")
             print(f"   PLAN:   {_ops(plan)}")

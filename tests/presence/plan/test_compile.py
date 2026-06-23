@@ -57,8 +57,14 @@ def test_no_provider_returns_none():
         question="x", tenant="acme", tool_catalog=_CATALOG) is None
 
 
-def test_provider_exception_returns_none():
-    assert _compile(None, raises=True) is None
+def test_provider_exception_propagates_for_legacy_fallback():
+    # A model/transport error PROPAGATES out of compile() so the caller can degrade to the
+    # legacy path; it is NOT swallowed to None (which would conflate 'model down' with 'no
+    # answer' and make a model outage abstain on everything).
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        _compile(None, raises=True)
 
 
 def test_non_mapping_payload_returns_none():

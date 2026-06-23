@@ -2056,14 +2056,15 @@ def _build_presence_brain() -> Any:
 
 
 def _build_presence_plan_compiler() -> Any:
-    """Build the Presence PLAN compiler when explicitly enabled, else None.
+    """Build the Presence PLAN compiler when enabled, else None.
 
-    The general "ask-anything" path: the brain COMPILES the question into a typed
-    plan-DAG over the read-tools and the gate executes it (generalizing the fixed
-    ``QUERIES`` registry). Enabled by ``TEX_PRESENCE_PLANNER`` in {1, true, on, yes}
-    together with an ``ANTHROPIC_API_KEY``. Model override via ``TEX_PRESENCE_MODEL``
-    (default ``claude-opus-4-8``). Returns None (inert → legacy path) on any missing
-    dependency or construction error so the deterministic voice path is never broken.
+    The general "ask-anything" path: the brain COMPILES the question into a typed plan-DAG
+    over the read-tools and the gate executes it (generalizing the fixed ``QUERIES``
+    registry). Enabled by ``TEX_PRESENCE_PLANNER`` in {1, true, on, yes} together with an
+    ``ANTHROPIC_API_KEY``. Model override via ``TEX_PRESENCE_MODEL`` (default
+    ``claude-opus-4-8``). When the model is unavailable at request time (no credits, outage,
+    rate-limit) the voice degrades to the legacy deterministic path — it never goes dark.
+    Returns None (inert → legacy) on any missing dependency or construction error.
     """
     flag = os.environ.get("TEX_PRESENCE_PLANNER", "").strip().lower()
     if flag not in {"1", "true", "on", "yes"}:

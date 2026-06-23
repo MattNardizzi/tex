@@ -63,6 +63,20 @@ OP_GUIDE: dict[OpKind, str] = {
         "(with the full scanned set as the witness). Use this for 'do I have an X agent?' — NOT "
         "exists+filter, which can't prove a 'no'."
     ),
+    OpKind.GROUP_BY: (
+        "distribution by a key over a row-list — args: field (owner|lifecycle_status|trust_tier|"
+        "framework|model_provider|environment), limit_groups (optional). e.g. 'break agents down "
+        "by owner', 'how many agents per status'."
+    ),
+    OpKind.LATEST: (
+        "select the single most-recent row by a timestamp — args: ordering_field. Follow it with "
+        "GET (read a field, e.g. the timestamp) or DURATION (time since). 'when was the last X'."
+    ),
+    OpKind.DURATION: (
+        "elapsed time from ONE row's timestamp to now — args: field (a timestamp). The input must "
+        "resolve to a single row (identity.get_agent, or LATEST). e.g. 'how long has agent X been "
+        "running' = get_agent(id) → DURATION(registered_at). DERIVED ('by recorded time')."
+    ),
 }
 
 

@@ -34,7 +34,7 @@ __all__ = ["IMPLEMENTED_OPS", "execute_plan"]
 # (so an enum value added ahead of its implementation can never be executed).
 IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION}
 )
 
 # OPERATOR-PURITY INVARIANT (structural, not a vibe). Every operator the gate runs MUST
@@ -48,7 +48,7 @@ IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
 # it) — a silent "just add an operator" PR fails loudly at import instead.
 CERTIFIED_PURE_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION}
 )
 _uncertified = IMPLEMENTED_OPS - CERTIFIED_PURE_OPS
 if _uncertified:  # fail loud at import — never ship an implemented-but-uncertified operator
@@ -144,5 +144,17 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="absence-input-not-rowset")
         return ops.op_absence(first, node.args)
+    if node.kind is OpKind.GROUP_BY:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="group-by-input-not-rowset")
+        return ops.op_group_by(first, node.args)
+    if node.kind is OpKind.LATEST:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="latest-input-not-rowset")
+        return ops.op_latest(first, node.args)
+    if node.kind is OpKind.DURATION:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="duration-input-not-rowset")
+        return ops.op_duration(first, node.args, reference_now=reference_now)
 
     return Recompute(False, reason=f"op-not-implemented:{node.kind.value}")

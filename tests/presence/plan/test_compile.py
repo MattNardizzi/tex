@@ -81,11 +81,11 @@ def test_unimplemented_operator_fails_closed_validation():
     bad = {
         "nodes": [
             {"node_type": "leaf", "node_id": "a", "tool": "identity.list_agents", "params": {}},
-            {"node_type": "op", "node_id": "g", "kind": "group_by", "inputs": ["a"], "args": {"key": "x"}},
+            {"node_type": "op", "node_id": "g", "kind": "diff_over_window", "inputs": ["a"], "args": {}},
         ],
         "output": "g",
     }
-    assert _compile(bad) is None  # group_by is in the enum but not in IMPLEMENTED_OPS
+    assert _compile(bad) is None  # diff_over_window is in the enum but not yet in IMPLEMENTED_OPS
 
 
 def test_compiled_plan_executes_end_to_end(populated_state):
@@ -99,7 +99,7 @@ def test_compiled_plan_executes_end_to_end(populated_state):
 def test_system_prompt_lists_only_implemented_ops_and_real_tools():
     prompt = build_plan_system_prompt(_CATALOG, IMPLEMENTED_OPS)
     assert "identity.list_agents" in prompt
-    assert "group_by" not in prompt  # not implemented → never offered to the model
+    assert "diff_over_window" not in prompt  # not implemented → never offered to the model
     for op in IMPLEMENTED_OPS:
         assert op.value in prompt
 

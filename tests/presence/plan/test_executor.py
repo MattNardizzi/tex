@@ -92,7 +92,7 @@ def test_unimplemented_operator_fails_closed(populated_state):
     """An operator in the IR enum but NOT in the executor's implemented set is
     rejected — an unbuilt operator can never run."""
     rc = _run(populated_state, Plan(nodes=(
-        _leaf(), Op(node_id="g", kind=OpKind.GROUP_BY, inputs=("a",), args={"key": "lifecycle_status"})),
+        _leaf(), Op(node_id="g", kind=OpKind.DIFF_OVER_WINDOW, inputs=("a",), args={})),
         output="g"))
     assert not rc.grounded and "plan-invalid" in rc.reason
 

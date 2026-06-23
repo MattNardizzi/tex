@@ -71,6 +71,7 @@ class OpKind(StrEnum):
     LIST = "list"             # the first N rows, projected to a named field
     GET = "get"               # one entity by id/key → a named field
     LATEST = "latest"          # the most-recent row by an ordering field
+    DURATION = "duration"      # elapsed time from a single row's timestamp to now
     COMPARE = "compare"        # relate two scalar node outputs (=, >, drift, …)
     DIFF_OVER_WINDOW = "diff_over_window"  # delta of a count across a window
     GROUP_BY = "group_by"      # distribution of rows by a key

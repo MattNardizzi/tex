@@ -35,7 +35,7 @@ from tex.presence.gate.queries import EVIDENCE_CAP, Recompute
 from tex.presence.plan.ir import CompareOp
 
 __all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list",
-           "op_get", "op_absence", "op_time_window"]
+           "op_get", "op_absence", "op_time_window", "op_group_by", "op_latest", "op_duration"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +373,11 @@ def op_get(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     noun = _NOUN.get(rs.source, ("record", "records"))[0].capitalize()
     phrase = f"{noun} {ident} {field_name.replace('_', ' ')} is {val}."
     phrase = _disclose_fleet(phrase, rs.fleet_only)  # fleet sources must not sound tenant-scoped
+    if rs.time_basis:  # e.g. the value of a LATEST-selected row's timestamp → DERIVED
+        return Recompute(True, value=val, evidence=(ref,),
+                         canonical_phrase=phrase[:-1] + " (by recorded time).",
+                         correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                         reason=f"derived:plan_get_{field_name}={val}")
     return Recompute(True, value=val, evidence=(ref,), canonical_phrase=phrase,
                      reason=f"sealed:plan_get_{field_name}={val}")
 
@@ -581,3 +586,124 @@ def op_time_window(rs: RowSet, args: Mapping[str, Any], *, reference_now: dateti
         clamped=rs.clamped, complete=False, qualifiers=rs.qualifiers,
         time_basis=True, window_label=_window_label(field_name, args, after, before),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GROUP_BY — distribution of rows by a key (owner / status / trust_tier / …).
+# SEALED over a complete unclamped snapshot; DERIVED if windowed; abstain if clamped.
+# Each bucket's value is re-derivable from the rows bound to it — pure recompute.
+# ─────────────────────────────────────────────────────────────────────────────
+def op_group_by(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
+    if not rs.available:
+        return _bad(rs.source, f"group-source-unavailable:{rs.reason}")
+    if not rs.rows and rs.total is not None:  # count-style leaf: nothing to group
+        return _bad(rs.source, "group-by-needs-rows")
+    if rs.clamped:
+        return _bad(rs.source, "group-by-clamped-incomplete")
+    field_name = args.get("field")
+    if not isinstance(field_name, str):
+        return _bad(rs.source, "group-by-bad-field")
+
+    aligned = len(rs.refs) == len(rs.rows)
+    buckets: dict[str, list] = {}
+    for i, row in enumerate(rs.rows):
+        if field_name not in row:
+            return _bad(rs.source, "group-by-missing-field")
+        bucket = buckets.setdefault(str(row.get(field_name)), [0, []])
+        bucket[0] += 1
+        if aligned:
+            bucket[1].append(rs.refs[i])
+    if not buckets:
+        return _bad(rs.source, "group-by-empty")
+
+    items = sorted(buckets.items(), key=lambda kv: kv[1][0], reverse=True)
+    try:
+        limit_groups = int(args["limit_groups"]) if args.get("limit_groups") is not None else None
+    except (TypeError, ValueError):
+        limit_groups = None
+    other = 0
+    if limit_groups is not None and limit_groups > 0 and len(items) > limit_groups:
+        other = sum(v[0] for _, v in items[limit_groups:])
+        items = items[:limit_groups]
+    dist = {k: v[0] for k, v in items}
+    if other:
+        dist["other"] = other  # so the buckets still reconcile to the total
+    refs = tuple(ref for _, v in items for ref in v[1])[:EVIDENCE_CAP]
+    if not refs:
+        return _bad(rs.source, "group-by-no-witness")
+
+    _, plur = _NOUN.get(rs.source, ("record", "records"))
+    parts = ", ".join(f"{k}: {c}" for k, c in dist.items())
+    phrase = _disclose_fleet(f"{plur.capitalize()} by {field_name.replace('_', ' ')}: {parts}.", rs.fleet_only)
+    if rs.time_basis:
+        return Recompute(True, value=dist, evidence=refs, canonical_phrase=phrase[:-1] + " (by recorded time).",
+                         correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                         reason=f"derived:group_by_{field_name}")
+    return Recompute(True, value=dist, evidence=refs, canonical_phrase=phrase,
+                     reason=f"sealed:group_by_{field_name}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LATEST — select the single most-recent row by a timestamp field (a 1-row RowSet,
+# for DURATION/GET to read). DERIVED + complete=False: a tail's max is the most-recent
+# SEEN row, never a provable 'last ever'.
+# ─────────────────────────────────────────────────────────────────────────────
+def op_latest(rs: RowSet, args: Mapping[str, Any]) -> RowSet:
+    if not rs.available:
+        return rs
+    if not rs.rows and rs.total is not None:
+        return RowSet((), (), rs.source, available=False, reason="latest-needs-rows")
+    field_name = args.get("ordering_field")
+    if not isinstance(field_name, str) or field_name not in _TIMESTAMP_FIELDS:
+        return RowSet((), (), rs.source, available=False, reason="latest-bad-ordering-field")
+    aligned = len(rs.refs) == len(rs.rows)
+    best_i: int | None = None
+    best_dt: datetime | None = None
+    for i, row in enumerate(rs.rows):
+        ts = _parse_dt(row.get(field_name))
+        if ts is None:
+            continue
+        if best_dt is None or ts > best_dt:
+            best_dt, best_i = ts, i
+    if best_i is None:
+        return RowSet((), (), rs.source, available=False, reason="latest-no-timestamp")
+    return RowSet(
+        (rs.rows[best_i],), (rs.refs[best_i],) if aligned else (), rs.source,
+        rs.tenant_scope, rs.tenant_filter_applied, total=1, fleet_only=rs.fleet_only,
+        complete=False, time_basis=True, window_label=f"most recent by {field_name.replace('_', ' ')}",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DURATION — elapsed time from a single row's timestamp to reference_now. Always
+# DERIVED (anchored to an unsealed timestamp). A scalar-from-one-row projection,
+# never an aggregate or a forecast.
+# ─────────────────────────────────────────────────────────────────────────────
+def op_duration(rs: RowSet, args: Mapping[str, Any], *, reference_now: datetime) -> Recompute:
+    if not rs.available:
+        return _bad(rs.source, f"duration-source-unavailable:{rs.reason}")
+    if len(rs.rows) != 1 or not rs.refs:
+        return _bad(rs.source, "duration-needs-single-timestamped-row")
+    field_name = args.get("field")
+    if not isinstance(field_name, str) or field_name not in _TIMESTAMP_FIELDS:
+        return _bad(rs.source, "duration-bad-field")
+    ts = _parse_dt(rs.rows[0].get(field_name))
+    if ts is None:
+        return _bad(rs.source, "duration-no-timestamp")
+    seconds = max(0.0, (reference_now - ts).total_seconds())  # clamp clock skew
+
+    days, hours, minutes = seconds / 86400, seconds / 3600, seconds / 60
+    if days >= 1:
+        human = f"{int(days)} day{'s' if int(days) != 1 else ''}"
+    elif hours >= 1:
+        human = f"{int(hours)} hour{'s' if int(hours) != 1 else ''}"
+    else:
+        human = f"{int(minutes)} minute{'s' if int(minutes) != 1 else ''}"
+
+    noun = _NOUN.get(rs.source, ("record", "records"))[0]
+    ident = str(rs.rows[0].get("name") or rs.rows[0].get("id") or "")
+    verb = _FIELD_VERB.get(field_name, field_name.replace("_", " "))
+    phrase = f"{noun.capitalize()} {ident} has been {verb} for {human} (by recorded time)."
+    return Recompute(True, value=int(seconds), evidence=(rs.refs[0],), canonical_phrase=phrase,
+                     correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                     reason=f"derived:duration_{field_name}={int(seconds)}s")

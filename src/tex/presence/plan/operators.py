@@ -24,6 +24,7 @@ The brain chose which operators to compose; the gate words the result.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -82,6 +83,17 @@ _LEAF_COUNT: frozenset[str] = frozenset(
 # so 'no match' over an UNCLAMPED read is a PROVABLE absence — unlike the append-only
 # tails (recent_*) which are windowed and can never prove a 'no' on their own.
 _COMPLETE_SNAPSHOT_TOOLS: frozenset[str] = frozenset({"identity.list_agents"})
+# Tools whose read is NOT per-tenant filtered (decision/action/evidence-chain carry no
+# tenant column; chain_head / latest_snapshot return the GLOBAL latest). A leaf over one
+# of these is fleet-wide and MUST disclose 'across all tenants'. The read-tool list/count
+# variants already report tenant_scope='fleet', but the entity variants (get_decision,
+# chain_head, latest_snapshot) don't — so we force fleet scope here for ALL of them.
+_FLEET_SOURCE_TOOLS: frozenset[str] = frozenset({
+    "human_decision.get_decision", "human_decision.recent_decisions", "human_decision.verdict_count",
+    "execution.recent_actions", "execution.action_count",
+    "evidence.chain_head", "evidence.recent_records",
+    "discovery.chain_head", "monitoring.latest_snapshot",
+})
 _NOUN: dict[str, tuple[str, str]] = {
     "identity.list_agents": ("agent", "agents"),
     "identity.get_agent": ("agent", "agents"),
@@ -110,6 +122,29 @@ def _disclose_fleet(phrase: str, fleet_only: bool) -> str:
     return (phrase[:-1] if phrase.endswith(".") else phrase) + " across all tenants."
 
 
+# A brain-supplied lookup literal may be ECHOED in the spoken criterion ("matching X"),
+# but it must never become a vector for arbitrary prose or a sentence that reads as Tex's
+# own assertion. So a literal is rendered ONLY as a short, single-line, bounded token;
+# anything else collapses to a generic phrase. The factual value (count / yes / no) is
+# always the gate's recompute regardless — this only bounds the spoken *criterion echo*.
+_SAFE_CRITERION_RE = re.compile(r"\A[\w][\w .,:@/+\-]{0,39}\Z")
+_SAFE_QUALIFIER_RE = re.compile(r"\A[\w][\w \-]{0,30}\Z")
+
+
+def _safe_criterion(value: Any) -> str:
+    """A bounded, quoted rendering of a brain literal, or a generic phrase when it is not
+    a short simple token — so the model can never speak prose through the criterion."""
+    token = str(value).strip()
+    return f"{token!r}" if _SAFE_CRITERION_RE.match(token) else "your criteria"
+
+
+def _safe_qualifier(value: Any) -> str | None:
+    """A sanitized inline qualifier (e.g. 'revoked') for phrasing, or None to drop it — an
+    unsafe/long value is simply not spoken rather than injected into the count phrase."""
+    token = str(value).strip().casefold()
+    return token if _SAFE_QUALIFIER_RE.match(token) else None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Leaf normalisation — read-tool output → RowSet.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,7 +160,10 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
 
     tenant_scope = str(value.get("tenant_scope", "all"))
     applied = bool(value.get("tenant_filter_applied", False))
-    fleet_only = tenant_scope == "fleet"
+    # Force fleet scope for sources the read-tool doesn't tenant-filter (some entity tools
+    # omit tenant_scope and would otherwise default to 'all' → a fleet fact sounding
+    # tenant-scoped). This is the plan-layer defence for read_tools' entity-get omission.
+    fleet_only = tenant_scope == "fleet" or tool_name in _FLEET_SOURCE_TOOLS
     clamped = value.get("limit_clamped_to") is not None
 
     # Count-style leaf: authoritative scalar count + a witness sample of refs.
@@ -229,7 +267,7 @@ def op_filter(rs: RowSet, args: Mapping[str, Any]) -> RowSet:
             if aligned:
                 kept_refs.append(rs.refs[i])
 
-    qualifier = str(target).casefold() if cop is CompareOp.EQ and target is not None else None
+    qualifier = _safe_qualifier(target) if cop is CompareOp.EQ and target is not None else None
     qualifiers = rs.qualifiers + ((qualifier,) if qualifier else ())
     return RowSet(
         tuple(kept_rows), tuple(kept_refs), rs.source, rs.tenant_scope,
@@ -297,7 +335,10 @@ def op_list(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
         if isinstance(field_name, str) and field_name in row:
             labels.append(str(row.get(field_name)))
         else:
-            labels.append(str(row.get("name") or row.get("agent_id") or row.get("id") or "?"))
+            ident = row.get("name") or row.get("agent_id") or row.get("id")
+            if ident is None:  # no row-derived label → abstain, never speak a placeholder
+                return _bad(rs.source, "list-row-without-identifier")
+            labels.append(str(ident))
     refs = rs.refs[:k]
     noun = _noun(rs.source, k)
     joined = ", ".join(labels)
@@ -321,6 +362,7 @@ def op_get(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     ident = str(row.get("name") or row.get("agent_id") or row.get("id") or "")
     noun = _NOUN.get(rs.source, ("record", "records"))[0].capitalize()
     phrase = f"{noun} {ident} {field_name.replace('_', ' ')} is {val}."
+    phrase = _disclose_fleet(phrase, rs.fleet_only)  # fleet sources must not sound tenant-scoped
     return Recompute(True, value=val, evidence=(ref,), canonical_phrase=phrase,
                      reason=f"sealed:plan_get_{field_name}={val}")
 
@@ -360,13 +402,18 @@ def op_absence(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
                 match_refs.append(rs.refs[i])
 
     sing, plur = _NOUN.get(rs.source, ("record", "records"))
-    key = str(target)
+    criterion = _safe_criterion(target)  # bounded echo — never the model's prose
     if match_rows:  # present → SEALED yes, binding the matching rows
         if not match_refs:
             return _bad(rs.source, "absence-match-no-witness")
         n = len(match_rows)
-        names = ", ".join(str(r.get("name") or r.get("id") or "?") for r in match_rows[:5])
-        phrase = f"Yes — you have {n} {sing if n == 1 else plur} matching {key!r}: {names}."
+        # names are read from the REAL matched rows; drop any row that has no identifier
+        # rather than speak a placeholder.
+        names = ", ".join(
+            s for s in (str(r.get("name") or r.get("id") or "").strip() for r in match_rows[:5]) if s
+        )
+        suffix = f": {names}" if names else ""
+        phrase = f"Yes — you have {n} {sing if n == 1 else plur} matching {criterion}{suffix}."
         if rs.fleet_only:
             phrase = phrase[:-1] + " (across all tenants)."
         return Recompute(True, value=True, evidence=tuple(match_refs[:EVIDENCE_CAP]),
@@ -376,7 +423,7 @@ def op_absence(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     if not rs.rows or not rs.refs:
         return _bad(rs.source, "absence-no-completeness-witness")  # empty set → no witness
     total = len(rs.rows)
-    phrase = f"No — none of your {total} {plur} matches {key!r}."
+    phrase = f"No — none of your {total} {plur} matches {criterion}."
     if rs.fleet_only:
         phrase = phrase[:-1] + " (across all tenants)."
     return Recompute(True, value=False, evidence=rs.refs[:EVIDENCE_CAP],

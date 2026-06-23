@@ -382,6 +382,13 @@ def op_get(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
     """One entity → a named field's value, read from the real row."""
     if not rs.available:
         return _bad(rs.source, f"get-source-unavailable:{rs.reason}")
+    # A count-style leaf has no rows but a scalar total; GET of its count/total → the count
+    # (tolerates the brain doing record_total → GET(total) instead of → COUNT).
+    if not rs.rows and rs.total is not None:
+        field_name = args.get("field")
+        if not isinstance(field_name, str) or field_name.strip().lower() in ("total", "count", "value", "number"):
+            return op_count(rs)
+        return _bad(rs.source, "get-on-count-leaf-without-rows")
     if not rs.rows or not rs.refs:
         return _bad(rs.source, "get-not-found")
     row, ref = rs.rows[0], rs.refs[0]

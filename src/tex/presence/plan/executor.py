@@ -68,6 +68,18 @@ def _state(request: Any) -> Any:
     return state if state is not None else request
 
 
+def _coerce_to_clause(result: Any) -> "Recompute | None":
+    """A count-style leaf RowSet (a scalar count with no rows) IS a value — coerce it to a
+    spoken count. This tolerates the brain emitting a bare count-leaf (e.g. ``*_total``) as the
+    output, or feeding one to COMPARE, instead of always wrapping it in COUNT. A regular
+    row-list RowSet is not a speakable clause → ``None``."""
+    if isinstance(result, Recompute):
+        return result
+    if isinstance(result, ops.RowSet) and not result.rows and result.total is not None:
+        return ops.op_count(result)
+    return None
+
+
 def execute_plan(
     plan: Plan,
     *,
@@ -95,9 +107,9 @@ def execute_plan(
         except Exception as exc:  # noqa: BLE001 — a plan must never raise into the voice
             return Recompute(False, reason=f"plan-node-error:{type(exc).__name__}")
 
-    out = env.get(plan.output)
-    if isinstance(out, Recompute):
-        return out
+    clause = _coerce_to_clause(env.get(plan.output))
+    if clause is not None:
+        return clause
     return Recompute(False, reason="plan-output-not-a-speakable-clause")
 
 
@@ -119,11 +131,12 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
     first = inputs[0]
 
     if node.kind in (OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW):
-        if len(inputs) != 2 or not all(isinstance(x, Recompute) for x in inputs):
+        operands = [_coerce_to_clause(x) for x in inputs]  # tolerate bare count-leaf operands
+        if len(operands) != 2 or not all(isinstance(x, Recompute) for x in operands):
             return Recompute(False, reason=f"{node.kind.value}-needs-two-grounded-scalar-nodes")
         if node.kind is OpKind.COMPARE:
-            return ops.op_compare(inputs[0], inputs[1], node.args)
-        return ops.op_diff_over_window(inputs[0], inputs[1], node.args)
+            return ops.op_compare(operands[0], operands[1], node.args)
+        return ops.op_diff_over_window(operands[0], operands[1], node.args)
 
     if node.kind is OpKind.FILTER:
         if not isinstance(first, ops.RowSet):

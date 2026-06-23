@@ -1957,6 +1957,12 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # re-verifies and re-authors every claim regardless, so the model is never
     # load-bearing. Fail-safe: any setup error leaves it None.
     app.state.presence_brain = _build_presence_brain()
+    # PRESENCE PLANNER (ask-anything): the brain COMPILES the question into a typed
+    # plan-DAG over the read-tools and the gate executes it — the general
+    # grounded-or-abstain path that lifts the fixed-QUERIES ceiling. OFF unless
+    # TEX_PRESENCE_PLANNER is enabled (+ ANTHROPIC_API_KEY); inert (None) by default,
+    # so the legacy single-claim voice path is untouched.
+    app.state.presence_plan_compiler = _build_presence_plan_compiler()
     # PRESENCE ATTEST (Session 3): signs the (claim → evidence → tier) binding so
     # the proof glass can show a verifiable attestation. OFF unless
     # TEX_SEAL_DECISIONS=1 — when off, build_presence_attestor() returns a disabled
@@ -2046,6 +2052,48 @@ def _build_presence_brain() -> Any:
         _logger.warning(
             "presence: failed to build grounded brain (%s) — staying OFF.", exc
         )
+        return None
+
+
+def _build_presence_plan_compiler() -> Any:
+    """Build the Presence PLAN compiler when explicitly enabled, else None.
+
+    The general "ask-anything" path: the brain COMPILES the question into a typed
+    plan-DAG over the read-tools and the gate executes it (generalizing the fixed
+    ``QUERIES`` registry). Enabled by ``TEX_PRESENCE_PLANNER`` in {1, true, on, yes}
+    together with an ``ANTHROPIC_API_KEY``. Model override via ``TEX_PRESENCE_MODEL``
+    (default ``claude-opus-4-8``). Returns None (inert → legacy path) on any missing
+    dependency or construction error so the deterministic voice path is never broken.
+    """
+    flag = os.environ.get("TEX_PRESENCE_PLANNER", "").strip().lower()
+    if flag not in {"1", "true", "on", "yes"}:
+        return None
+    if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        _logger.warning(
+            "presence: TEX_PRESENCE_PLANNER set but ANTHROPIC_API_KEY is unset — "
+            "plan compiler stays OFF (voice path unchanged)."
+        )
+        return None
+    try:
+        from tex.presence.plan.compile import (
+            PROPOSE_PLAN_TOOL_DESCRIPTION,
+            PROPOSE_PLAN_TOOL_NAME,
+            PlanCompiler,
+            plan_tool_schema,
+        )
+        from tex.semantic.anthropic import AnthropicStructuredSemanticProvider
+
+        model = os.environ.get("TEX_PRESENCE_MODEL", "").strip() or "claude-opus-4-8"
+        provider = AnthropicStructuredSemanticProvider(
+            model=model,
+            tool_name=PROPOSE_PLAN_TOOL_NAME,
+            tool_description=PROPOSE_PLAN_TOOL_DESCRIPTION,
+            tool_input_schema=plan_tool_schema(),
+        )
+        _logger.info("presence: PLAN compiler ON (provider=anthropic, model=%s).", model)
+        return PlanCompiler(provider=provider)
+    except Exception as exc:  # defensive — never break boot over an optional planner
+        _logger.warning("presence: failed to build plan compiler (%s) — staying OFF.", exc)
         return None
 
 

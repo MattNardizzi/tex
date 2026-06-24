@@ -6,7 +6,7 @@
 > `file:line`. Where a claim could only be sourced from a comment/markdown it is labelled
 > `(claim, unverified)`.
 >
-> **Branch:** `feat/proof-carrying-gate` · **Generated:** 2026-06-18 · **Boot entrypoint:** `uvicorn tex.main:app`
+> **Snapshot:** V1 final integration (2026-06-24) · **Boot entrypoint:** `uvicorn tex.main:app` · *point-in-time map, not a live-tracked file*
 >
 > **If you are a future thread: read this file first, then the dossier you need. Do not re-derive the
 > wiring from docstrings — that is exactly what produced the "20 vs 46 subsystems" confusion this

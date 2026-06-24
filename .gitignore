@@ -65,3 +65,6 @@ forge/**/*private*
 #   forge/PUBKEY_STATEMENT.json          (out-of-band pin, composite)
 #   forge/PUBKEY_STATEMENT.ecdsa.json    (out-of-band pin, classical)
 #   forge/README.md                      (operator doc)
+
+# private session handoff — never commit (public repo)
+EXECUTION_LAYER_HANDOFF.md

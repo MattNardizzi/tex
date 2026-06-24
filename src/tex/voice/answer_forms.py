@@ -44,7 +44,7 @@ __all__ = [
 # These are spoken when Tex cannot ground an answer (ABSTAIN) or when the
 # question asserted something the sealed fact contradicts (FORBID). They carry
 # no object and no proof_ref — there is nothing to hand over.
-ABSTAIN_NO_ROUTE = "I can't tell what you're asking about from what I can prove. Ask me again."
+ABSTAIN_NO_ROUTE = "I only speak for your AI agents — ask me about those."
 ABSTAIN_NO_FACT = "I don't have a sealed fact for that yet, so I won't answer it."
 ABSTAIN_NO_RECORD = "I have no sealed record under that handle."
 FORBID_CONTRADICTION = "That isn't what the record shows, so I won't say it."

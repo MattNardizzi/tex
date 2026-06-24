@@ -106,7 +106,7 @@ class AnthropicStructuredSemanticProvider:
         self,
         *,
         api_key: str | None = None,
-        model: str = _DEFAULT_MODEL,
+        model: str | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
@@ -117,7 +117,13 @@ class AnthropicStructuredSemanticProvider:
     ) -> None:
         self._api_key = self._normalize_optional(api_key) or os.getenv("ANTHROPIC_API_KEY")
         self._base_url = self._normalize_optional(base_url) or os.getenv("ANTHROPIC_BASE_URL")
-        self._model = self._normalize_required(model, field_name="model")
+        # ``model=None`` means "use this provider's default" — the
+        # provider-neutral config contract (settings.semantic_model defaults to
+        # None and each provider resolves its own June-2026 default). An
+        # explicitly empty / whitespace model is still rejected.
+        self._model = self._normalize_required(
+            _DEFAULT_MODEL if model is None else model, field_name="model"
+        )
         self._timeout_seconds = self._validate_timeout(timeout_seconds)
         self._max_retries = self._validate_max_retries(max_retries)
         self._max_tokens = self._validate_max_tokens(max_tokens)

@@ -26,7 +26,11 @@ else:
     _OPENAI_IMPORT_ERROR = None
 
 
-_DEFAULT_MODEL: Final[str] = "gpt-5.4-mini"
+# June-2026 SOTA default. GPT-5.5 (`gpt-5.5`, GA 2026-04-24) is OpenAI's current
+# frontier model — Responses API + strict structured outputs + reasoning effort.
+# GPT-5.6 was unreleased as of this writing (expected late June 2026); pin
+# TEX_SEMANTIC_MODEL=gpt-5.6 once it ships. Snapshot: gpt-5.5-2026-04-23.
+_DEFAULT_MODEL: Final[str] = "gpt-5.5"
 _DEFAULT_TIMEOUT_SECONDS: Final[float] = 30.0
 _DEFAULT_MAX_RETRIES: Final[int] = 2
 _ALLOWED_REASONING_EFFORTS: Final[frozenset[str]] = frozenset(
@@ -65,7 +69,7 @@ class OpenAIStructuredSemanticProvider:
         self,
         *,
         api_key: str | None = None,
-        model: str = _DEFAULT_MODEL,
+        model: str | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         reasoning_effort: str = "low",
@@ -85,7 +89,9 @@ class OpenAIStructuredSemanticProvider:
         self._project = self._normalize_optional_string(
             project
         ) or self._normalize_optional_string(os.getenv("OPENAI_PROJECT_ID"))
-        self._model = self._normalize_required_string(model, field_name="model")
+        self._model = self._normalize_required_string(
+            model or _DEFAULT_MODEL, field_name="model"
+        )
         self._timeout_seconds = self._validate_timeout_seconds(timeout_seconds)
         self._max_retries = self._validate_max_retries(max_retries)
         self._reasoning_effort = self._validate_reasoning_effort(reasoning_effort)

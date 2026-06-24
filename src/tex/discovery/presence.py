@@ -43,6 +43,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -97,6 +99,21 @@ CREATE INDEX IF NOT EXISTS tex_presence_tenant_idx
 CREATE INDEX IF NOT EXISTS tex_presence_state_idx
     ON tex_presence_states (state);
 """
+
+
+@dataclass(frozen=True)
+class WindowPresenceDelta:
+    """The per-window presence delta the streaming resolver consumes (§5).
+
+    ``confirmed_disappeared`` is the only false-positive-suppressed signal that
+    crossed the N-consecutive-miss threshold THIS window; the others are
+    intermediate transitions surfaced for receipts/telemetry, not alerts.
+    """
+
+    confirmed_disappeared: tuple[str, ...] = ()
+    reappeared: tuple[str, ...] = ()
+    recovered: tuple[str, ...] = ()
+    silently_missing: tuple[str, ...] = ()
 
 
 class PresenceRecord:
@@ -341,6 +358,73 @@ class PresenceTracker:
                 if t == normalized and r.state is state
             ]
 
+    def observe_window(
+        self,
+        *,
+        tenant_id: str,
+        seen_keys: Iterable[str],
+        known_keys: Iterable[str],
+        discovery_source: str | None = None,
+        scan_run_id: str | None = None,
+    ) -> "WindowPresenceDelta":
+        """Drive one streaming window's presence in a single call (SIEVE §5 wiring).
+
+        This is the delta seam the streaming resolver wires (ARCHITECTURE.md §5:
+        "the delta primitive = PresenceTracker, now WIRED"). For one window the
+        caller passes:
+
+        - ``seen_keys``  — every reconciliation_key live this window (fed to
+          ``observe_seen``);
+        - ``known_keys`` — every key the tracker (or the caller's prior estate)
+          previously knew about. Any known key NOT in ``seen_keys`` is fed to
+          ``observe_missing`` so its N-consecutive-miss counter advances.
+
+        Only the keys that cross the ``missing_threshold`` THIS window surface in
+        ``confirmed_disappeared`` — the false-positive-suppressed soft-disappear
+        signal. Keys that merely advanced a miss (still under threshold) are
+        ``silently_missing``; keys that came back from a miss/confirmed state are
+        ``recovered`` / ``reappeared``. The method is idempotent per window and
+        never raises; the underlying state machine is unchanged — this only
+        batches the per-key calls the scheduler would otherwise make by hand.
+        """
+        seen = {k for k in seen_keys if k}
+        known = {k for k in known_keys if k}
+        confirmed: list[str] = []
+        reappeared: list[str] = []
+        recovered: list[str] = []
+        silently_missing: list[str] = []
+
+        for key in sorted(seen):
+            _rec, event = self.observe_seen(
+                tenant_id=tenant_id,
+                reconciliation_key=key,
+                discovery_source=discovery_source,
+                scan_run_id=scan_run_id,
+            )
+            if event is TransitionEvent.REAPPEARED:
+                reappeared.append(key)
+            elif event is TransitionEvent.RECOVERED:
+                recovered.append(key)
+
+        for key in sorted(known - seen):
+            _rec, event = self.observe_missing(
+                tenant_id=tenant_id,
+                reconciliation_key=key,
+                discovery_source=discovery_source,
+                scan_run_id=scan_run_id,
+            )
+            if event is TransitionEvent.CONFIRMED_DISAPPEARED:
+                confirmed.append(key)
+            elif event is TransitionEvent.SILENT_MISS:
+                silently_missing.append(key)
+
+        return WindowPresenceDelta(
+            confirmed_disappeared=tuple(confirmed),
+            reappeared=tuple(reappeared),
+            recovered=tuple(recovered),
+            silently_missing=tuple(silently_missing),
+        )
+
     @property
     def is_durable(self) -> bool:
         return not self._disabled
@@ -434,6 +518,7 @@ __all__ = [
     "PresenceRecord",
     "PresenceState",
     "TransitionEvent",
+    "WindowPresenceDelta",
     "DEFAULT_MISSING_THRESHOLD",
     "DATABASE_URL_ENV",
 ]

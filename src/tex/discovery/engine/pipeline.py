@@ -497,6 +497,102 @@ def run_planes(
     )
 
 
+def run_stream(
+    event_source,  # noqa: ANN001 - Iterable[Incidence | Sequence[Incidence]]
+    registry=None,  # noqa: ANN001 - InMemoryAgentRegistry (optional sink)
+    ledger=None,  # noqa: ANN001 - InMemoryDiscoveryLedger (optional sink)
+    *,
+    tenant_id: str = "default",
+    index=None,  # noqa: ANN001 - ReconciliationIndex (optional)
+    occasions: Sequence[PlaneId] = _SLICE_OCCASIONS,
+    withheld_planes: Sequence[PlaneId] = (PlaneId.WITHHELD_THIRD,),
+    missing_threshold: int = 3,
+    resolver=None,  # noqa: ANN001 - StreamingResolver (optional; built if None)
+    window_every: int | None = None,
+    close_window: bool = True,
+):
+    """Drive the CONTINUOUS path: an event source → live deltas → adapter writes.
+
+    The streaming sibling of ``run_slice``. Where ``run_slice`` accumulates a
+    whole window then summarizes once (BATCH), ``run_stream`` consumes the sensor
+    planes as an EVENT SOURCE and emits one ``StreamDelta`` per event/batch,
+    re-resolving only the touched graph components and (when a registry+ledger
+    sink is supplied) projecting each new/tightened entity through
+    ``adapter.project`` (registry.save → ledger.append) per delta — registry-first
+    / ledger-last, exactly like the batch boundary (ARCHITECTURE.md §5, §7).
+
+    ``run_slice`` is untouched and keeps working unchanged; this is an additive
+    second entrypoint.
+
+    Args:
+        event_source: an iterable of streaming events. Each event is either ONE
+            ``Incidence`` (one-by-one ingest) or a ``Sequence[Incidence]`` (a
+            small co-arriving batch sharing one bounded re-resolution pass). A
+            connector's per-candidate iterator (service.py L358) becomes exactly
+            this: each connector is an event source feeding ``Incidence`` records.
+        registry / ledger: the optional output-adapter sink. When BOTH are given,
+            every delta's new/tightened entities land through the governance
+            boundary so ``StandingGovernance.decide`` can govern them. When
+            omitted, ``run_stream`` is a pure SENSE→FUSE delta pass (no writes).
+        tenant_id: the tenant the presence machine + adapter key on.
+        index: optional ``ReconciliationIndex`` (built from the registry if None).
+        occasions / withheld_planes: the estimator's capture-occasion order and
+            the deliberately-withheld blind-spot planes (online unseen estimate).
+        missing_threshold: N-consecutive-miss threshold for confirmed
+            disappearance (false-positive suppression).
+        resolver: an existing ``StreamingResolver`` to drive (advanced callers
+            that share one resolver across sources); built fresh if None.
+        window_every: if set, close a presence/unseen WINDOW after every this-many
+            events (so disappearance + online completeness deltas surface mid-
+            stream). If None, windows are only closed at the end (when
+            ``close_window`` is True).
+        close_window: when True (default), a final ``window()`` is closed after
+            the source is exhausted so the last window's disappearance + unseen
+            deltas are emitted.
+
+    Yields:
+        ``StreamDelta`` objects: one per event/batch (the ingest delta), plus one
+        per window close (the presence + online-completeness delta). A caller that
+        only wants the final state can drain the generator and read the resolver.
+
+    NEVER raises on an empty/None source — it simply yields nothing (or only the
+    final window delta when ``close_window`` is True).
+    """
+    from tex.discovery.engine.stream import StreamingResolver
+
+    if resolver is None:
+        resolver = StreamingResolver(
+            tenant_id=tenant_id,
+            occasions=tuple(occasions),
+            withheld_planes=tuple(withheld_planes),
+            missing_threshold=missing_threshold,
+            registry=registry,
+            ledger=ledger,
+            index=index,
+        )
+
+    if event_source is None:
+        if close_window:
+            yield resolver.window()
+        return
+
+    seen = 0
+    for event in event_source:
+        if event is None:
+            continue
+        # One Incidence → feed; a sequence of Incidence → feed_batch.
+        if isinstance(event, Incidence):
+            yield resolver.feed(event)
+        else:
+            yield resolver.feed_batch(event)
+        seen += 1
+        if window_every is not None and seen % window_every == 0:
+            yield resolver.window()
+
+    if close_window:
+        yield resolver.window()
+
+
 def _as_path(value: Path | str | None) -> Path | None:
     """Coerce a path-or-string-or-None to a ``Path`` without raising.
 
@@ -517,4 +613,5 @@ __all__ = [
     "resolve_full",
     "PlanesResult",
     "run_planes",
+    "run_stream",
 ]

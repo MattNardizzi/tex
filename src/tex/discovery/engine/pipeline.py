@@ -25,11 +25,17 @@ from pathlib import Path
 from typing import Sequence
 
 from tex.discovery.engine import adapter
+from tex.discovery.engine.capability import map_capability
+from tex.discovery.engine.disambiguate import (
+    classify_agent_vs_human,
+    resolve_shared_credential,
+)
 from tex.discovery.engine.estimate import estimate_unseen
-from tex.discovery.engine.fuse import resolve
+from tex.discovery.engine.fuse import cohorts_by_credential, resolve
 from tex.discovery.engine.models import (
     Incidence,
     PlaneId,
+    SharedCredentialVerdict,
     SieveEntity,
     UnseenEstimate,
 )
@@ -90,6 +96,172 @@ def _empty_result(
     )
 
 
+#: Footprint keys/attrs the agent-vs-human classifier reads, in the order the
+#: ``disambiguate.classify_agent_vs_human`` ``signals`` mapping expects them. The
+#: pipeline lifts these verbatim off an entity's member incidences so the
+#: classifier sees whatever discriminating signal a sensor surfaced (canary
+#: obedience, response latency, packetization, tool-grammar tightness, motor
+#: noise). Absent everywhere ⇒ the classifier ABSTAINS — the honest default.
+_AGENT_HUMAN_SIGNAL_KEYS: tuple[str, ...] = (
+    "canary_obeyed",
+    "response_ms",
+    "packetization",
+    "tool_grammar",
+    "motor_noise",
+)
+
+
+def _agent_human_signals(
+    entity: SieveEntity, by_id: dict,
+) -> dict[str, str]:
+    """Collect the agent-vs-human discriminating signals off an entity's members.
+
+    Reads ``_AGENT_HUMAN_SIGNAL_KEYS`` from each member incidence's footprint
+    (keys first, then attrs) and returns the first non-empty value seen per
+    signal. Empty when no member carries any discriminating signal, in which case
+    the classifier abstains rather than guessing (the honest default). Generic:
+    any plane that surfaces one of these signals contributes without a code
+    change.
+    """
+    signals: dict[str, str] = {}
+    for mid in entity.incidences:
+        inc = by_id.get(mid)
+        if inc is None:
+            continue
+        for name in _AGENT_HUMAN_SIGNAL_KEYS:
+            if name in signals:
+                continue
+            val = inc.footprint.key(name) or inc.footprint.attr(name)
+            if val:
+                signals[name] = val
+    return signals
+
+
+def resolve_full(
+    incidences: Sequence[Incidence],
+) -> tuple[SieveEntity, ...]:
+    """Run the FULL FUSE + DISAMBIGUATE + CAPABILITY brain over an incidence set.
+
+    This is the deepened resolution path the slice and the eval harness share. It
+    is the single place the engine's four resolution collaborators are composed:
+
+    1. FUSE — ``fuse.resolve`` resolves footprints into ``SieveEntity`` set
+       (plane-typed correlation clustering: identity edges close transitively,
+       bridging bridges across strong components emit the N1 split, contradicting
+       strong planes set the N4 incoherence flags). The clusterer already attaches
+       a structural ``SharedCredentialVerdict`` per credential.
+
+    2. DISAMBIGUATE (shared-credential, N1) — ``disambiguate.resolve_shared_
+       credential`` runs the richer BEHAVIORAL splitter (tool-grammar BIC +
+       anytime-valid e-value + attestation clone-split) over every credential
+       cohort. Its verdicts are MERGED onto the entities that carry the credential
+       so each entity's ``shared_credential_verdicts`` reflects the behavioral k
+       (the clusterer's structural verdict and the behavioral verdict agree on the
+       benchmark planted cases; the behavioral one supersedes when present so the
+       split count is the model-selected one).
+
+    3. DISAMBIGUATE (agent-vs-human, §3B) — ``disambiguate.classify_agent_vs_
+       human`` classifies each entity from whatever discriminating signals its
+       member footprints carry; the calibrated verdict lands on
+       ``entity.agent_human`` (ABSTAIN when no signal is present).
+
+    4. CAPABILITY (§4) — ``capability.map_capability`` reconstructs each entity's
+       graded blast-radius surface from its members' observed/proven/declared
+       footprints; the graph lands on ``entity.capability_graph`` and the coarse
+       exercised-token view is mirrored into ``entity.capability``.
+
+    Returns the same entity objects ``fuse.resolve`` produced, now enriched in
+    place. An empty input yields an empty tuple.
+    """
+    incs = list(incidences)
+    if not incs:
+        return ()
+
+    by_id = {inc.incidence_id: inc for inc in incs}
+
+    # 1. FUSE.
+    entities = list(resolve(incs))
+
+    # 2. DISAMBIGUATE — shared-credential behavioral split (N1).
+    cohorts = cohorts_by_credential(incs)
+    behavioral_verdicts = resolve_shared_credential(cohorts)
+    _merge_credential_verdicts(entities, by_id, behavioral_verdicts)
+
+    # 3. DISAMBIGUATE — agent-vs-human classification (§3B).
+    for entity in entities:
+        signals = _agent_human_signals(entity, by_id)
+        entity.agent_human = classify_agent_vs_human(entity, signals)
+
+    # 4. CAPABILITY — graded blast-radius surface (§4).
+    for entity in entities:
+        graph = map_capability(entity, incs)
+        entity.capability_graph = graph
+        # Mirror the coarse exercised-token list so existing readers keep working.
+        entity.capability = tuple(
+            sorted(
+                e.capability for e in graph.edges if e.exercised
+            )
+        )
+
+    return tuple(entities)
+
+
+def _credential_of_entity(
+    entity: SieveEntity, by_id: dict
+) -> set[str]:
+    """The set of bridging credential ids an entity's members were collapsed under.
+
+    Mirrors ``fuse.cohorts_by_credential``'s id form (``"<key>=<value>"``) so the
+    behavioral verdict and the entity can be matched on the SAME credential id.
+    """
+    creds: set[str] = set()
+    for mid in entity.incidences:
+        inc = by_id.get(mid)
+        if inc is None:
+            continue
+        for name in ("agent_external_id", "service_credential", "egress_ip"):
+            val = inc.footprint.key(name)
+            if val is not None:
+                creds.add(f"{name}={val}")
+                break
+    return creds
+
+
+def _merge_credential_verdicts(
+    entities: Sequence[SieveEntity],
+    by_id: dict,
+    behavioral_verdicts: Sequence[SharedCredentialVerdict],
+) -> None:
+    """Attach the behavioral shared-credential verdicts onto the matching entities.
+
+    Each behavioral verdict names a ``credential_id``; it is attached to every
+    entity whose members carry that credential. The structural verdict
+    ``fuse.resolve`` already attached is KEPT (it names the same credential with
+    the same k on the benchmark planted cases); the behavioral verdict is appended
+    so a downstream reader can see the model-selected (BIC + e-value) split count
+    and its calibrated confidence alongside the structural transitivity verdict.
+    Idempotent on credential id — a behavioral verdict is not appended twice.
+    """
+    by_cred: dict[str, SharedCredentialVerdict] = {
+        v.credential_id: v for v in behavioral_verdicts
+    }
+    for entity in entities:
+        existing_ids = {
+            v.credential_id
+            for v in entity.shared_credential_verdicts
+            if v.method
+            in ("evalue_sequential_bic", "single_process", "attestation_clone_split")
+            or "attestation" in v.method
+        }
+        for cred_id in _credential_of_entity(entity, by_id):
+            verdict = by_cred.get(cred_id)
+            if verdict is None or cred_id in existing_ids:
+                continue
+            entity.shared_credential_verdicts = (
+                entity.shared_credential_verdicts + (verdict,)
+            )
+
+
 def run_slice(
     actions_dir: Path,
     workspace_dir: Path,
@@ -147,9 +319,12 @@ def run_slice(
         return _empty_result(withheld)
 
     # ------------------------------------------------------------------
-    # 2. FUSE — resolve footprints into probabilistic entities.
+    # 2. FUSE + DISAMBIGUATE + CAPABILITY — the full deepened brain.
+    #    resolve_full applies the shared-credential behavioral split (N1), the
+    #    agent-vs-human classification (§3B), and the graded capability surface
+    #    (§4) on top of the plane-typed correlation clustering.
     # ------------------------------------------------------------------
-    entities = tuple(resolve(incidences))
+    entities = resolve_full(incidences)
 
     # ------------------------------------------------------------------
     # 3. ESTIMATE — two-occasion capture-recapture; widen for each withheld.
@@ -191,4 +366,4 @@ def _as_path(value: Path | str | None) -> Path | None:
         return None
 
 
-__all__ = ["SliceResult", "run_slice"]
+__all__ = ["SliceResult", "run_slice", "resolve_full"]

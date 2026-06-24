@@ -154,6 +154,21 @@ class EdgeGrade(StrEnum):
     BRIDGING = "bridging"
 
 
+class AgentHumanLabel(StrEnum):
+    """The agent-vs-human classification label (ARCHITECTURE.md §3B).
+
+    ``ABSTAIN`` is first-class (RESEARCH_LOG.md N4 / the abstain doctrine): when
+    the dual-confirmation gate is not jointly satisfied and the signals conflict,
+    the classifier abstains rather than guessing. The slice negative control is
+    that a human traversing the canary surface must resolve to ``HUMAN`` or
+    ``ABSTAIN`` — never ``AGENT``.
+    """
+
+    AGENT = "agent"
+    HUMAN = "human"
+    ABSTAIN = "abstain"
+
+
 class PresenceState(StrEnum):
     """
     Liveness of a resolved entity, reused from the PresenceTracker vocabulary.
@@ -384,6 +399,20 @@ class SieveEntity:
     merge_axis: str | None = None
     split_axis: str | None = None
     capability: tuple[str, ...] = ()
+    # The measured capability/blast-radius surface (ARCHITECTURE.md §4), filled by
+    # ``capability.map_capability``. ``None`` until the capability builder runs;
+    # the legacy ``capability`` tuple above stays the coarse token list so the
+    # slice + its tests keep passing. When present, the graph is the authoritative
+    # per-edge-graded surface that projects to ``CapabilitySurface`` at the
+    # boundary, and ``capability`` is a derived view of its exercised edges.
+    capability_graph: "CapabilityGraph | None" = None
+    # The agent-vs-human classification (ARCHITECTURE.md §3B), filled by
+    # ``disambiguate.classify_agent_vs_human``. ``None`` until the classifier runs.
+    agent_human: "AgentHumanVerdict | None" = None
+    # The shared-credential split verdicts this entity participated in (N1;
+    # ARCHITECTURE.md §3A), filled by ``disambiguate.resolve_shared_credential``.
+    # Empty when the entity was not collapsed under any shared credential.
+    shared_credential_verdicts: tuple["SharedCredentialVerdict", ...] = ()
     presence: PresenceState = PresenceState.SEEN
     attribution_conflict: bool = False
     contradicting_pair: tuple[PlaneId, PlaneId] | None = None
@@ -492,6 +521,207 @@ class SieveEntity:
 
 
 # ---------------------------------------------------------------------------
+# Disambiguation layer — shared-credential split (N1) + agent-vs-human (CORROBORANT)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SharedCredentialVerdict:
+    """The N1 shared-credential split result — k distinct agents behind one key.
+
+    The hardest constraint in the field (RESEARCH_LOG.md WS-3): every
+    credential-keyed inventory collapses one credential to one identity by
+    construction. SIEVE resolves the credential as a WEAK ``BRIDGING`` node and
+    clusters its per-session footprint vectors on behavioral split-axis features
+    (tool-call grammar n-grams, inter-call cadence entropy, packetization mode,
+    runtime/attestation context); a strong-edge transitive-closure FAILURE across
+    the credential bridge is the positive split signal (N1; ARCHITECTURE.md §3A).
+
+    This is the fixed RETURN shape of
+    ``disambiguate.resolve_shared_credential`` — the disambiguation builder fills
+    the algorithm behind it. The two negative-control invariants the benchmark
+    enforces (do not over-merge two distinct agents into k==1; do not over-split
+    one agent into k>=2) are properties of ``k_estimate`` and ``member_entity_ids``.
+
+    Fields:
+
+    - ``credential_id``      — the shared bridging key (e.g. a service-credential /
+                               self-asserted ``agent_external_id`` / egress IP) the
+                               footprints were collapsed under.
+    - ``k_estimate``         — the Bayesian-model-selected number of DISTINCT
+                               generative processes (agents) behind the credential.
+                               ``k_estimate == 1`` means "one agent, do NOT split".
+    - ``member_entity_ids``  — the resolved ``SieveEntity.entity_id`` of each
+                               distinct agent the credential was split into. Its
+                               length equals ``k_estimate`` once the split lands.
+    - ``confidence``         — calibrated [0,1] confidence in the split count
+                               (e-value / mixture model-selection posterior).
+                               Never a hard 1.0; residual sharers stay counted,
+                               bounded uncertainty rather than force-split.
+    - ``split_axis_signals`` — the behavioral features that drove the split, for
+                               receipts (e.g. ``("tool_grammar", "cadence")``).
+    - ``method``             — a method tag naming how ``k_estimate`` was produced
+                               (e.g. ``"transitivity_violation"``, ``"mixture_bic"``,
+                               ``"evalue_sequential"``), for auditability.
+
+    INVARIANT (enforced): ``k_estimate >= 1``, ``0 <= confidence <= 1``, and
+    ``member_entity_ids`` is empty (pre-resolution) or has exactly ``k_estimate``
+    distinct ids. ``k_estimate == 1`` with one-or-zero members is the negative
+    control (no false split).
+    """
+
+    credential_id: str
+    k_estimate: int
+    member_entity_ids: tuple[UUID, ...] = ()
+    confidence: float = 0.0
+    split_axis_signals: tuple[str, ...] = ()
+    method: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if self.k_estimate < 1:
+            raise ValueError(
+                f"k_estimate must be >= 1 (one agent never splits to 0), "
+                f"got {self.k_estimate!r}"
+            )
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(
+                f"confidence must be in [0,1], got {self.confidence!r}"
+            )
+        if self.member_entity_ids:
+            if len(set(self.member_entity_ids)) != len(self.member_entity_ids):
+                raise ValueError("member_entity_ids must be distinct")
+            if len(self.member_entity_ids) != self.k_estimate:
+                raise ValueError(
+                    "member_entity_ids, when populated, must have exactly "
+                    f"k_estimate entries ({len(self.member_entity_ids)} != "
+                    f"{self.k_estimate})"
+                )
+
+
+@dataclass(frozen=True)
+class AgentHumanVerdict:
+    """Agent-vs-human-using-an-LLM classification — a CALIBRATED probability.
+
+    The dual-confirmation gate grafted from CORROBORANT (ARCHITECTURE.md §3B):
+    an entity is classified ``agent`` only when BOTH a planted prompt-injection
+    canary is obeyed AND the response is sub-1.5s machine-speed-with-semantic-
+    content, augmented by packetization mode / tool-call grammar / absent motor
+    noise. Emitted as a conformal open-set probability, NEVER a hard 100% — and
+    the thin-slice negative control is that a human traversing the canary surface
+    must NOT trip the agent confirmation.
+
+    Fixed RETURN shape of ``disambiguate.classify_agent_vs_human``.
+
+    Fields:
+
+    - ``label``        — one of ``AgentHumanLabel`` (``AGENT`` / ``HUMAN`` /
+                         ``ABSTAIN``). ``ABSTAIN`` is first-class: when the dual
+                         gate is not jointly satisfied and signals conflict, the
+                         classifier abstains rather than guessing.
+    - ``probability``  — calibrated [0,1] probability the entity is an
+                         agent-in-the-loop. Conformal, never a hard 0/1.
+    - ``signals``      — the contributing signals as ``(name, value)`` pairs for
+                         receipts (e.g. ``(("canary_obeyed", "true"),
+                         ("response_ms", "640"), ("packetization", "bundled")))``).
+    - ``method``       — method tag (e.g. ``"dual_confirmation"``,
+                         ``"conformal_openset"``).
+
+    INVARIANT (enforced): ``0 <= probability <= 1``.
+    """
+
+    label: "AgentHumanLabel"
+    probability: float
+    signals: tuple[tuple[str, str], ...] = ()
+    method: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError(
+                f"probability must be in [0,1], got {self.probability!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Capability layer — observed tool-DAG ∩ IaC-IAM, per-edge graded (§4)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CapabilityEdge:
+    """One graded capability the entity can exercise (ARCHITECTURE.md §4).
+
+    Capability is reconstructed from OBSERVED behavior, not declared cards. Each
+    edge carries a per-claim ``admissibility`` grade so the PDP/UI knows how much
+    to trust it: ``PROVEN`` (eBPF ground truth) > ``OBSERVED`` (exercised tool/MCP
+    DAG) > ``PLATFORM_ATTESTED`` (IaC/IAM static reachability) > ``CLAIMED`` (A2A
+    skills[] / tools/list declaration — a claim only).
+
+    Fields:
+
+    - ``capability``   — the canonical capability token, aligned with the existing
+                         ``CapabilitySurface`` vocabulary (an allowed action type,
+                         channel, tool name, mcp_server, or data_scope).
+    - ``admissibility``— the provenance grade of THIS edge (drives trust weight).
+    - ``declared``     — the agent DECLARED this capability (A2A/tools-list claim).
+    - ``exercised``    — SIEVE OBSERVED this capability actually exercised.
+    - ``evidence_ref`` — opaque pointer to the observation (span id, eBPF ref).
+
+    The ``declared`` vs ``exercised`` flags drive the entity-level honesty delta:
+    ``exercised and not declared`` = hidden blast radius; ``declared and not
+    exercised`` = dormant latent risk (see ``CapabilityGraph``).
+    """
+
+    capability: str
+    admissibility: Admissibility
+    declared: bool = False
+    exercised: bool = False
+    evidence_ref: str | None = None
+
+
+@dataclass(frozen=True)
+class CapabilityGraph:
+    """The measured capability / blast-radius surface for one entity (§4).
+
+    Three fused layers (observed tool-DAG ∩ IaC-IAM ∩ declared cards), each edge
+    graded, plus the two first-class honesty outputs SIEVE exists to surface:
+    the **declared-vs-exercised delta** and **capability DRIFT**. This is the
+    return type of ``capability.map_capability`` and the internal shape
+    ``SieveEntity.capability_graph`` carries; it projects to the existing
+    ``CapabilitySurface`` at the output boundary so the PDP governs a *measured*
+    surface.
+
+    Fields:
+
+    - ``edges``                — the graded capability edges (see ``CapabilityEdge``).
+    - ``used_but_undeclared``  — capability tokens exercised but never declared =
+                                 HIDDEN blast radius (the dangerous delta).
+    - ``declared_but_unused``  — capability tokens declared but never exercised =
+                                 dormant latent risk.
+    - ``drift``                — capability tokens whose presence/grade MUTATED
+                                 mid-window (tools/list or AgentCard change,
+                                 code-hash change) — a fast attribution event.
+
+    The three delta tuples are derived views over ``edges`` but materialized so
+    the PDP/UI and receipts can read them without recomputing. ``declared_vs_
+    exercised_delta`` is the union of the first two (the honesty headline).
+    """
+
+    edges: tuple[CapabilityEdge, ...] = ()
+    used_but_undeclared: tuple[str, ...] = ()
+    declared_but_unused: tuple[str, ...] = ()
+    drift: tuple[str, ...] = ()
+
+    @property
+    def declared_vs_exercised_delta(self) -> tuple[str, ...]:
+        """The honesty headline: every capability where declared != exercised.
+
+        The union of ``used_but_undeclared`` (hidden blast radius) and
+        ``declared_but_unused`` (dormant risk), sorted+deduped for receipts.
+        """
+        return tuple(sorted(set(self.used_but_undeclared) | set(self.declared_but_unused)))
+
+
+# ---------------------------------------------------------------------------
 # Completeness layer — the calibrated unseen estimate (never a count)
 # ---------------------------------------------------------------------------
 
@@ -585,11 +815,16 @@ __all__ = [
     "PlaneId",
     "Admissibility",
     "EdgeGrade",
+    "AgentHumanLabel",
     "PresenceState",
     "FootprintVector",
     "Incidence",
     "TypedEdge",
     "SieveEntity",
+    "SharedCredentialVerdict",
+    "AgentHumanVerdict",
+    "CapabilityEdge",
+    "CapabilityGraph",
     "NamedBlindSpot",
     "UnseenEstimate",
 ]

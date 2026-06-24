@@ -77,8 +77,12 @@ def test_openai_default_model_is_gpt_5_5():
 # --------------------------------------------------------------------------- config wiring
 
 
-def test_config_accepts_anthropic_provider_and_fails_closed_without_key():
+def test_config_accepts_anthropic_provider_and_fails_closed_without_key(monkeypatch):
     from tex.config import Settings
+
+    # Hermetic: the "fails closed WITHOUT a key" assertion requires the key to be
+    # absent from the process env (pydantic BaseSettings reads it via the alias).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
     s = Settings(_env_file=None, TEX_SEMANTIC_PROVIDER="anthropic")
     assert s.semantic_provider == "anthropic"

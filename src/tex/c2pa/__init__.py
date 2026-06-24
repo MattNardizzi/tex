@@ -14,7 +14,11 @@ training-data class, and ingredient chain.
 
 References
 ----------
-- C2PA Specification 2.2 (2025-05-01) — current as of May 2026
+- C2PA Specification 2.3 (2026-01-05) — latest PUBLISHED spec as of June 2026
+  (supersedes 2.2 of 2025-05-01 and 2.1 of 2024-09-20). Tex already implements
+  2.4-working-draft features — OCSP stapling (§15.9, ``ocsp.py``) and TSA v2
+  timestamps (§10.3.2.5, ``timestamp.py``); those section numbers track the 2.4
+  draft and are UNVERIFIED against a final 2.4 publication.
 - C2PA Conformance Program (launched mid-2025; Trust List frozen ITL
   superseded by official C2PA Trust List on 2026-01-01)
 - CAWG 1.2 Extension (creator attribution)

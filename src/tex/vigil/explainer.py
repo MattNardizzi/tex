@@ -496,29 +496,50 @@ def _top_items(d: dict[str, Any], n: int) -> list[tuple[str, Any]]:
 def build_default_explainer() -> Explainer:
     """
     Build the explainer from settings, mirroring how the semantic analyzer
-    is gated: an OpenAI text provider when TEX_SEMANTIC_PROVIDER='openai'
-    and a key is present; otherwise the deterministic floor. Fallback is
-    allowed unless explicitly disabled, so the voice's explanation never
-    hard-fails on a provider outage.
+    is gated: an OpenAI text provider when TEX_SEMANTIC_PROVIDER='openai' or an
+    Anthropic text provider when TEX_SEMANTIC_PROVIDER='anthropic' (and the
+    matching key is present); otherwise the deterministic floor. The model is
+    provider-neutral — ``semantic_model`` is None by default, so each provider
+    resolves its own June-2026 SOTA default (OpenAI gpt-5.5, Anthropic
+    claude-opus-4-8). Fallback is allowed unless explicitly disabled, so the
+    voice's explanation never hard-fails on a provider outage.
     """
     try:
         from tex.config import get_settings
 
         settings = get_settings()
         provider_name = getattr(settings, "semantic_provider", None)
-        api_key = getattr(settings, "openai_api_key", None)
         allow_fallback = bool(getattr(settings, "allow_semantic_fallback", True))
-        model = getattr(settings, "semantic_model", None) or "gpt-4o-mini"
+        model = getattr(settings, "semantic_model", None)  # None → provider default
     except Exception:  # noqa: BLE001
         return Explainer(provider=None, allow_fallback=True)
 
-    if provider_name == "openai" and api_key:
+    if provider_name == "openai" and getattr(settings, "openai_api_key", None):
         try:
             from tex.vigil._openai_explainer import OpenAITextProvider
 
-            provider = OpenAITextProvider(api_key=api_key, model=model)
+            provider = OpenAITextProvider(
+                api_key=settings.openai_api_key, model=model or "gpt-5.5"
+            )
             return Explainer(
-                provider=provider, allow_fallback=allow_fallback, provider_name=f"openai:{model}"
+                provider=provider,
+                allow_fallback=allow_fallback,
+                provider_name=provider.provider_name,
+            )
+        except Exception:  # noqa: BLE001
+            return Explainer(provider=None, allow_fallback=True)
+
+    if provider_name == "anthropic" and getattr(settings, "anthropic_api_key", None):
+        try:
+            from tex.vigil._anthropic_explainer import AnthropicTextProvider
+
+            provider = AnthropicTextProvider(
+                api_key=settings.anthropic_api_key, model=model
+            )
+            return Explainer(
+                provider=provider,
+                allow_fallback=allow_fallback,
+                provider_name=provider.provider_name,
             )
         except Exception:  # noqa: BLE001
             return Explainer(provider=None, allow_fallback=True)

@@ -99,6 +99,9 @@ class BackgroundScanScheduler:
         "_last_seen_by_tenant",
         "_dormancy_controller",
         "_tenants_lock",
+        "_sieve_driver",
+        "_agent_registry",
+        "_discovery_ledger",
     )
 
     def __init__(
@@ -137,8 +140,34 @@ class BackgroundScanScheduler:
         self._last_run_summary: dict | None = None
         self._run_count = 0
         self._last_seen_by_tenant: dict[str, dict[str, dict]] = {}
+        # SIEVE standing re-run handles — wired post-construction via
+        # ``attach_sieve`` (see main._attach_runtime_to_app). All None until
+        # then, so a scheduler built without SIEVE behaves exactly as before.
+        self._sieve_driver = None
+        self._agent_registry = None
+        self._discovery_ledger = None
 
     # ------------------------------------------------------------------ lifecycle
+
+    def attach_sieve(
+        self,
+        *,
+        sieve_driver=None,
+        agent_registry=None,
+        discovery_ledger=None,
+    ) -> None:
+        """Wire the SIEVE driver + the SHARED registry/ledger so the standing
+        tick re-runs SIEVE each cycle — the same engine + governance boundary
+        ``/ignite`` uses (api/discovery_surface_routes.py).
+
+        ADDITIVE and default-safe: ``sieve_driver`` is ``None`` unless
+        ``TEX_SIEVE_ENABLED`` is set, so with no flags this is a no-op and the
+        standing loop is byte-for-byte unchanged. Idempotent; safe to call
+        before ``start()``.
+        """
+        self._sieve_driver = sieve_driver
+        self._agent_registry = agent_registry
+        self._discovery_ledger = discovery_ledger
 
     def start(self) -> None:
         """Launch the background thread. Idempotent."""
@@ -353,6 +382,33 @@ class BackgroundScanScheduler:
                 per_tenant_summaries.append(
                     {"tenant_id": tenant_id, "error": str(exc)}
                 )
+
+        # ── SIEVE standing re-run — ADDITIVE, default-safe ────────────────────
+        # The standing watch re-runs the SIEVE engine each cycle (not only the
+        # legacy connector scan above). With ``TEX_SIEVE_ENABLED`` unset the
+        # driver is None and this is a pure no-op, so the tick is byte-for-byte
+        # unchanged at default. When present, SIEVE re-projects every flag-enabled
+        # plane through the SAME registry + ledger governance boundary each tick,
+        # so a shadow agent that only a SIEVE plane can see — and that appeared
+        # AFTER ignition — is re-discovered on the watch, not only at /ignite.
+        # Global (once per cycle, like the dormancy sweep); never breaks the loop.
+        sieve_summary = None
+        if (
+            self._sieve_driver is not None
+            and self._agent_registry is not None
+            and self._discovery_ledger is not None
+        ):
+            try:
+                result = self._sieve_driver.run(
+                    self._agent_registry, self._discovery_ledger
+                )
+                sieve_summary = {"projected": getattr(result, "projected", None)}
+            except Exception as exc:  # noqa: BLE001 — SIEVE never breaks the watch
+                _logger.warning(
+                    "BackgroundScanScheduler: SIEVE re-run failed: %s", exc
+                )
+                sieve_summary = {"error": str(exc)}
+
         cycle_duration = time.time() - cycle_started
 
         # The dormant-agent doctrine on the standing tick: once per cycle,
@@ -375,6 +431,7 @@ class BackgroundScanScheduler:
             "duration_seconds": round(cycle_duration, 3),
             "tenants": per_tenant_summaries,
             "dormancy": dormancy_summary,
+            "sieve": sieve_summary,
         }
         self._run_count += 1
         _logger.info(

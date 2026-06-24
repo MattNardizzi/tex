@@ -320,3 +320,139 @@ def test_ask_attaches_attestation_when_attestor_enabled(client: TestClient) -> N
     assert att["is_post_quantum"] is False
     assert att["signed_digest_sha256"] and att["signature_b64"]
     assert att["key_id"] == "presence-attest-key-v1"
+
+
+# --------------------------------------------- the ASK-ANYTHING PLANNER path THROUGH the route
+#
+# The planner (presence_plan_compiler, TEX_PRESENCE_PLANNER — the PRODUCTION config in
+# render.yaml) compiles the question into a plan-DAG and the gate executes it over real rows.
+# The existing presence tests above exercise the legacy ``presence_brain`` path; NONE drove the
+# PLANNER path through the HTTP serialization — so a contract mismatch went unseen: a grounded
+# plan's envelope carries a rich ``surface_object`` ({"claims": [...]}), which the integration
+# once routed into the legacy ``object`` slot. ``ObjectDTO`` is ``{value, kind}`` with
+# ``extra="forbid"`` ⇒ a 3-error ValidationError ⇒ HTTP 500 on EVERY object-bearing planner
+# answer. These tests pin the integrity boundary: a grounded planner answer returns 200 with a
+# correct ``{value, kind}`` handle (or None), never a 500.
+
+
+class _PlanStubCompiler:
+    """A plan compiler that returns a fixed plan — the planner without a live model."""
+
+    def __init__(self, plan) -> None:
+        self._plan = plan
+
+    def compile(self, *, question, tenant, tool_catalog, ops=None, reference_now=None):
+        return self._plan
+
+
+def _seed_action_ledger(client: TestClient, n: int = 2) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from tex.domain.agent import ActionLedgerEntry
+
+    led = client.app.state.action_ledger
+    for h in range(1, n + 1):
+        led.append(
+            ActionLedgerEntry(
+                agent_id=uuid4(),
+                decision_id=uuid4(),
+                request_id=uuid4(),
+                verdict="PERMIT",
+                action_type="send_email",
+                channel="email",
+                environment="prod",
+                final_score=0.2,
+                confidence=0.9,
+                content_sha256=hashlib.sha256(uuid4().hex.encode()).hexdigest(),
+                recorded_at=datetime.now(UTC) - timedelta(hours=h),
+            )
+        )
+
+
+def test_ask_planner_object_returning_question_does_not_500(client: TestClient) -> None:
+    # THE REGRESSION. A LATEST→GET over the action ledger is the "answer carries an object"
+    # case (the report's "what was the last action that was sealed"). Before the fix this 500'd
+    # on ObjectDTO; now it returns 200 with a grounded answer and a real {value, kind:"hash"}
+    # handle derived from the bound sealed evidence — never the {"claims": ...} surface_object.
+    from tex.presence.plan.ir import Leaf, Op, OpKind, Plan
+
+    _seed_action_ledger(client)
+    plan = Plan(
+        nodes=(
+            Leaf(node_id="a", tool="execution.recent_actions"),
+            Op(node_id="l", kind=OpKind.LATEST, inputs=("a",), args={"ordering_field": "recorded_at"}),
+            Op(node_id="g", kind=OpKind.GET, inputs=("l",), args={"field": "action_type"}),
+        ),
+        output="g",
+    )
+    client.app.state.presence_plan_compiler = _PlanStubCompiler(plan)
+
+    resp = client.post(
+        "/v1/ask",
+        json={"transcript": "what was the last action that was sealed", "tenant_id": "demo"},
+    )
+    assert resp.status_code == 200, resp.text  # was 500 before the fix
+    body = resp.json()
+    assert body["attestation"]["verdict"] == "PERMIT"
+    assert "send_email" in body["answer"]
+
+    # The object is the {value, kind} handle the contract promises — a real sealed record
+    # hash — NOT the rich surface_object. ObjectDTO's extra="forbid" makes any leakage a 500,
+    # so a 200 here already proves the shape; assert the semantics too.
+    obj = body["object"]
+    assert obj is not None and obj["kind"] == "hash"
+    assert isinstance(obj["value"], str) and len(obj["value"]) == 64
+    assert "claims" not in obj  # the {"claims": ...} surface_object must never reach this slot
+
+    # The rich structured detail still reaches the glass — via the presence envelope.
+    assert body["presence"]["surface_object"]["claims"]
+
+
+def test_ask_planner_aggregate_returns_no_handle(client: TestClient) -> None:
+    # A COUNT is meaning, not a handle (answer_forms doctrine). A grounded aggregate planner
+    # answer returns 200 with object=None — and emphatically NOT a 500 / not a surface_object.
+    from tex.domain.agent import AgentIdentity
+    from tex.presence.plan.ir import Leaf, Op, OpKind, Plan
+
+    reg = client.app.state.agent_registry
+    reg.save(AgentIdentity(name="alpha", owner="acme", tenant_id="acme"))
+    reg.save(AgentIdentity(name="beta", owner="acme", tenant_id="acme"))
+    plan = Plan(
+        nodes=(
+            Leaf(node_id="a", tool="identity.list_agents"),
+            Op(node_id="n", kind=OpKind.COUNT, inputs=("a",)),
+        ),
+        output="n",
+    )
+    client.app.state.presence_plan_compiler = _PlanStubCompiler(plan)
+
+    resp = client.post("/v1/ask", json={"transcript": "how many agents do I have", "tenant_id": "acme"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["answer"] == "There are 2 agents."
+    assert body["object"] is None
+
+
+def test_ask_degrades_when_object_payload_is_unserializable(client: TestClient, monkeypatch) -> None:
+    # Belt-and-braces FLOOR: even if some future path hands the route an object dict that does
+    # NOT match ObjectDTO, /v1/ask must ship the grounded answer (200) and drop only the optional
+    # handle — never 500 a provable answer into the dark. We force the worst case (the very
+    # {"claims": ...} shape that caused the original 500) at the AskOutcome boundary.
+    from tex.voice import voice_ask
+    from tex.voice.voice_ask import AskOutcome
+
+    def _bad_outcome(request, *, transcript, tenant):
+        return AskOutcome(
+            verdict=Verdict.PERMIT,
+            answer="There are 2 agents.",
+            object={"claims": [{"claim_id": "plan", "tier": "sealed"}]},  # NOT a {value, kind}
+            routed_dimension="presence",
+        )
+
+    monkeypatch.setattr(voice_ask, "answer_question", _bad_outcome)
+
+    resp = client.post("/v1/ask", json={"transcript": "how many agents do I have"})
+    assert resp.status_code == 200, resp.text  # the floor: a bad object never 500s
+    body = resp.json()
+    assert body["answer"] == "There are 2 agents."  # the grounded answer still stands
+    assert body["object"] is None  # the unserializable handle is dropped, honestly

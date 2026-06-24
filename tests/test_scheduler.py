@@ -324,3 +324,86 @@ class TestSchedulerAlertingIntegration:
         payload = capture.captured[0]
         assert payload["rule"] == "ungoverned_high_risk_appeared"
         assert payload["severity"] == "CRITICAL"
+
+
+class _RecordingSieveDriver:
+    """Minimal SIEVE driver stand-in: records each standing-tick run and the
+    exact (registry, ledger) it was handed, and returns a result with a
+    ``projected`` count — the duck-typed surface the scheduler reads."""
+
+    def __init__(self, projected: int = 1) -> None:
+        self.runs: list[tuple[object, object]] = []
+        self._projected = projected
+
+    def run(self, registry, ledger):
+        self.runs.append((registry, ledger))
+
+        class _R:
+            projected = self._projected
+
+        return _R()
+
+
+class TestStandingLoopReRunsSieve:
+    """The standing watch must RE-RUN SIEVE each cycle (not only the legacy
+    connector scan), using the SAME shared registry + ledger /ignite uses."""
+
+    def test_attached_sieve_runs_each_cycle_with_shared_registry_and_ledger(self):
+        registry = object()
+        ledger = object()
+        driver = _RecordingSieveDriver(projected=2)
+
+        sched = BackgroundScanScheduler(
+            service=StubService([]),
+            tenants=["tenant-a"],
+            interval_seconds=60,
+        )
+        sched.attach_sieve(
+            sieve_driver=driver,
+            agent_registry=registry,
+            discovery_ledger=ledger,
+        )
+
+        summary = sched.trigger_now()
+
+        # SIEVE ran exactly once this cycle, handed the SAME registry + ledger.
+        assert len(driver.runs) == 1
+        assert driver.runs[0] == (registry, ledger)
+        # ...and the cycle records what SIEVE projected.
+        assert summary["sieve"] == {"projected": 2}
+
+        # A second tick re-runs it — the gap this closes is "only at /ignite".
+        sched.trigger_now()
+        assert len(driver.runs) == 2
+
+    def test_no_sieve_attached_is_byte_for_byte_unchanged(self):
+        """Default-safe: with no SIEVE driver attached the tick behaves exactly
+        as before — no crash, and the sieve summary is None."""
+        sched = BackgroundScanScheduler(
+            service=StubService([]),
+            tenants=["tenant-a"],
+            interval_seconds=60,
+        )
+        summary = sched.trigger_now()
+        assert summary["sieve"] is None
+
+    def test_sieve_failure_never_breaks_the_cycle(self):
+        """A raising SIEVE driver is swallowed — the standing watch survives and
+        records the error, it does not take down the dormancy/scan cycle."""
+
+        class _BoomDriver:
+            def run(self, registry, ledger):
+                raise RuntimeError("plane exploded")
+
+        sched = BackgroundScanScheduler(
+            service=StubService([]),
+            tenants=["tenant-a"],
+            interval_seconds=60,
+        )
+        sched.attach_sieve(
+            sieve_driver=_BoomDriver(),
+            agent_registry=object(),
+            discovery_ledger=object(),
+        )
+        summary = sched.trigger_now()  # must not raise
+        assert "error" in summary["sieve"]

@@ -266,7 +266,16 @@ CONTROLLER_MUTATION_CENSUS: tuple[MutationSite, ...] = (
     MutationSite("tenant_content_baseline", "baseline writes", "EXCLUDED", "observational baselines feed drift detection (signals may only LOWER a verdict — monotone rule caps their blast radius); enumerated-deferred for a future census revision"),
     MutationSite("src/tex/provenance/ledger.py", "keygen-on-construct (:71-73)", "EXCLUDED", "constructing a NEW ledger does not mutate the live one; the live reference swap is DEPLOY_FROZEN (composition root)"),
     # ── EXCLUDED (one-line reasons, per the census discipline) ──
-    MutationSite("decision/precedent/outcome/entity stores", "*", "EXCLUDED", "evidence records — they record what happened, they do not parameterize verdicts"),
+    MutationSite("decision/outcome/entity stores", "*", "EXCLUDED", "evidence records — they record what happened, they do not parameterize verdicts"),
+    # The ONE audited exception (moat / Thread-C). Precedent records used to be
+    # bundled into the blanket "do not parameterize verdicts" above; that is no
+    # longer the whole truth. A tenant's OWN sealed prior HUMAN resolutions may
+    # now parameterize a verdict — but the exception is fenced to the point of a
+    # near-no-op, so the precedent *store write* is still not a controller
+    # mutation (gating an append would recurse the seal, as with "ledger
+    # appends" below). The verdict-touching boundary is not documented-and-
+    # trusted; it is ENFORCED in code and PROVEN by tests, named in the note.
+    MutationSite("precedent store → discretionary-band auto-resolve", "engine/precedent_influence.py", "EXCLUDED", "BOUNDED EXCEPTION to 'evidence does not parameterize verdicts': a tenant's own consistent (≥N) sealed prior HUMAN resolutions may auto-resolve the DISCRETIONARY band ONLY (ABSTAIN→PERMIT), NEVER the structural floor / FORBID / any non-ABSTAIN verdict; default OFF (policy.precedent_autoresolve); requires a ledger so every influenced verdict is sealed as SealedFactKind.PRECEDENT citing each driving record_hash; fail-closed discretionary-flag allowlist. Floor-untouchability is a structural invariant (acts only when verdict is ABSTAIN) enforced in engine/precedent_influence.py and proven by tests/test_precedent_influence.py::test_precedent_cannot_override_forbid_floor"),
     MutationSite("src/tex/api/auth.py", ":279 activate example", "EXCLUDED", "docstring usage example inside RequireScope, not a route"),
     MutationSite("ledger appends", "SealedFactLedger.append / recorder", "EXCLUDED", "governance OUTPUT (append-only evidence), not a controller mutation; gating them would recurse the seal"),
     MutationSite("nanozk / compliance / _pending", "*", "EXCLUDED", "dead code per CLAUDE.md — tested but not wired"),

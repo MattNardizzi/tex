@@ -91,7 +91,9 @@ def _env_int(name: str, default: int) -> int:
 DEFAULT_DISPATCH_ENABLED: bool = _env_bool("TEX_SPECIALIST_LLM_DISPATCH", False)
 DEFAULT_BUDGET_MS: int = _env_int("TEX_SPECIALIST_LLM_BUDGET_MS", 50)
 DEFAULT_CONCURRENCY: int = _env_int("TEX_SPECIALIST_LLM_CONCURRENCY", 8)
-DEFAULT_MODEL: str = os.environ.get("TEX_SPECIALIST_LLM_MODEL", "gpt-4o-mini")
+# Latency-budgeted per-specialist signal (50ms default) → the affordable tier.
+# gpt-5.4-mini is OpenAI's current mini as of June 2026 (no gpt-5.5-mini exists).
+DEFAULT_MODEL: str = os.environ.get("TEX_SPECIALIST_LLM_MODEL", "gpt-5.4-mini")
 
 # Shared semaphore. Lazily constructed per event loop to avoid leaking
 # state across asyncio runtimes.

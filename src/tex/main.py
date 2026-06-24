@@ -34,7 +34,7 @@ from tex.commands.calibrate_policy import CalibratePolicyCommand
 from tex.commands.evaluate_action import EvaluateActionCommand
 from tex.commands.export_bundle import ExportBundleCommand
 from tex.commands.report_outcome import ReportOutcomeCommand
-from tex.config import get_settings
+from tex.config import get_settings, is_production_env
 from tex.contracts import BehavioralContract, ContractEnforcer
 from tex.engine.contract_bridge import SessionEnforcerRegistry
 from tex.provenance import build_default_provenance_engine  # PROVENANCE
@@ -835,7 +835,10 @@ def build_runtime(
     _demo_watch_tenant = os.environ.get(
         "TEX_DISCOVERY_DEMO_TENANT", ""
     ).strip().casefold()
-    if _demo_watch_tenant:
+    # Defense-in-depth: a baked-in TEX_DISCOVERY_DEMO_TENANT can NEVER plant a
+    # synthetic tenant on a real deploy. Demo-tenant enrollment is opt-in AND
+    # forced off in production, independent of the empty default above.
+    if _demo_watch_tenant and not is_production_env():
         scan_scheduler.enroll_tenant(_demo_watch_tenant)
 
     # ── Thread 1 / 1.5: behavioral contracts (LTLf) wiring ────────────────
@@ -1763,6 +1766,23 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.alert_engine = runtime.alert_engine
     app.state.scan_scheduler = runtime.scan_scheduler
 
+    # Close the standing-watch SIEVE seam: hand the scheduler the SAME sieve
+    # driver + shared registry + discovery ledger that ``/ignite`` uses, so the
+    # periodic tick re-runs SIEVE — not only the legacy connector scan. All
+    # three are on ``app.state`` by now (agent_registry, discovery_ledger,
+    # sieve_driver set above). Default-safe: ``sieve_driver`` is ``None`` unless
+    # ``TEX_SIEVE_ENABLED`` is set, so this is a no-op at default and the
+    # standing loop stays byte-for-byte unchanged.
+    try:
+        if runtime.scan_scheduler is not None:
+            runtime.scan_scheduler.attach_sieve(
+                sieve_driver=getattr(app.state, "sieve_driver", None),
+                agent_registry=app.state.agent_registry,
+                discovery_ledger=app.state.discovery_ledger,
+            )
+    except Exception:  # noqa: BLE001 — additive wiring; never block boot
+        pass
+
     # V16
     app.state.scan_run_store = runtime.scan_run_store
     app.state.connector_health_store = runtime.connector_health_store
@@ -2193,7 +2213,6 @@ def _build_discovery_connectors() -> list:
     satisfy the ``DiscoveryConnector`` Protocol.
     """
     import os
-    from tex.config import is_production_env
 
     # A production deployment must NEVER surface synthetic agents. Both the
     # simulator sandbox estate (TEX_SANDBOX) and the first-run demo seed are
@@ -2212,20 +2231,22 @@ def _build_discovery_connectors() -> list:
         from tex.sim.connectors import build_sandbox_connectors
         return build_sandbox_connectors()
 
-    # Demo seed (Entra consent-graph + OCSF audit fixtures) lets the first-run
+    # Demo seed (Entra consent-graph + OCSF audit fixtures) lets a dev/demo
     # "click Begin" map a believable estate when no live cloud credentials are
-    # configured. ON by default in dev; FORCED OFF in production (a real deploy
-    # must never surface fixture agents). Set TEX_DISCOVERY_DEMO_SEED=0 to also
-    # suppress it in dev/test (the test suite relies on the documented "empty
-    # connectors" surface). The connector logic, reconciliation and ledger are
-    # identical either way — only the transport's seed differs.
+    # configured. OPT-IN: it is OFF by default and surfaces fixture agents ONLY
+    # when a dev/test env EXPLICITLY sets TEX_DISCOVERY_DEMO_SEED=1. This is
+    # fail-CLOSED on purpose — an environment that merely forgets to set
+    # TEX_APP_ENV=production must NEVER silently surface synthetic agents through
+    # the real pipeline. Always forced off in production. The connector logic,
+    # reconciliation and ledger are identical either way — only the transport's
+    # seed differs.
     _demo_seed = (not _production) and os.environ.get(
-        "TEX_DISCOVERY_DEMO_SEED", "1"
-    ).strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
+        "TEX_DISCOVERY_DEMO_SEED", "0"
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
     connectors: list = [
@@ -2266,12 +2287,23 @@ def _build_discovery_connectors() -> list:
             )
             _logger.info("discovery: Entra consent-graph live connector wired")
         except Exception as exc:  # noqa: BLE001
-            _logger.warning(
-                "discovery: Entra live connector failed to construct (%s); seeding", exc
-            )
+            # Defense-in-depth: if the live connector fails to construct, fall
+            # back to an EMPTY transport — NEVER plant synthetic agents on a real
+            # deploy. The demo seed is honored here only under the SAME opt-in
+            # gate as the no-creds branch (_demo_seed, which is False in
+            # production and off-by-default everywhere).
             from tex.discovery.demo_seed import entra_pages
+            _fallback_pages = entra_pages() if _demo_seed else {}
+            _logger.warning(
+                "discovery: Entra live connector failed to construct (%s); "
+                "falling back to %s transport",
+                exc,
+                "demo-seed" if _fallback_pages else "empty",
+            )
             connectors.append(
-                EntraConsentGraphConnector(transport=FixtureGraphTransport(entra_pages()))
+                EntraConsentGraphConnector(
+                    transport=FixtureGraphTransport(_fallback_pages)
+                )
             )
     else:
         from tex.discovery.demo_seed import entra_pages

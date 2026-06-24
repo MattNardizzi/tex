@@ -271,3 +271,48 @@ def test_build_active_sensors_with_uncredentialed_planes_never_raises():
     ctx = SenseContext()
     for sensor in sensors:
         assert list(sensor.sense(ctx)) == []
+
+
+# ---------------------------------------------------------------------------
+# Defense-in-depth: a live-Entra construction failure must NEVER seed synthetic
+# agents on a real deploy (the except-branch mirrors the no-creds _demo_seed gate).
+# ---------------------------------------------------------------------------
+
+
+def test_entra_live_failure_fallback_is_empty_in_production(monkeypatch):
+    """If the live Entra connector raises during construction in production, the
+    fallback transport must be EMPTY — never plant the 33-agent demo seed — even
+    when TEX_DISCOVERY_DEMO_SEED=1 is forced on (production gates it off)."""
+    from tex.main import _build_discovery_connectors
+
+    monkeypatch.setenv("TEX_APP_ENV", "production")
+    monkeypatch.setenv("TEX_DISCOVERY_ENTRA_TENANT_ID", "t")
+    monkeypatch.setenv("TEX_DISCOVERY_ENTRA_CLIENT_ID", "c")
+    monkeypatch.setenv("TEX_DISCOVERY_ENTRA_CLIENT_SECRET", "s")
+    monkeypatch.setenv("TEX_DISCOVERY_DEMO_SEED", "1")  # forced on, yet prod gates it off
+
+    # Force live-transport construction to raise (the only trigger for the
+    # except-branch), and spy every FixtureGraphTransport the builder constructs.
+    import tex.discovery.graph_transport as gt
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("live transport unavailable")
+
+    captured: list[dict] = []
+    real_fixture = gt.FixtureGraphTransport
+
+    def _spy(pages):
+        captured.append(pages)
+        return real_fixture(pages)
+
+    monkeypatch.setattr("tex.discovery.graph_transport.LiveGraphTransport", _boom)
+    monkeypatch.setattr("tex.discovery.graph_transport.FixtureGraphTransport", _spy)
+
+    conns = _build_discovery_connectors()  # must NOT raise
+
+    # The Entra fallback ran (the except-branch built a FixtureGraphTransport),
+    # and in production every fixture transport is handed an EMPTY page set —
+    # no synthetic agents, even with the demo seed flag forced on.
+    assert captured, "expected the except-branch to build a FixtureGraphTransport"
+    assert all(pages == {} for pages in captured)
+    assert conns  # the connector list is still assembled, just synthetic-free

@@ -9,8 +9,9 @@ Each manifest contains:
   - signature: COSE_Sign1_Tagged over the canonicalized claim
   - ingredients: chain of upstream content used to produce this output
 
-Per C2PA spec 2.2 (§10, §13). C2PA 2.2 (2025-05-01) is the current
-spec; the deprecated ``c2pa.claim`` label is replaced by
+Per C2PA spec (§10, §13). C2PA 2.3 (2026-01-05) is the latest published
+spec as of June 2026 (these §10/§13 structures are unchanged since 2.2,
+2025-05-01); the deprecated ``c2pa.claim`` label is replaced by
 ``c2pa.claim.v2`` at the wrapper level. Tex emits assertion-level
 labels (already on ``.v2`` form) directly — the wrapper-level claim
 label is handled by the canonicalizer in ``_canonical_claim``.

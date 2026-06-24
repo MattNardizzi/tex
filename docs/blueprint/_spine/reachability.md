@@ -1,5 +1,14 @@
 # Tex Mechanical Reachability / Import Graph
 
+> ⚠️ **RECONCILIATION NOTE (read first).** This table classifies at **PACKAGE grain**: a subsystem is
+> "LIVE" if *≥1 of its files* is in the import closure of `tex.main`/`tex.api`. That over-states active
+> behavior for packages whose only live edge runs through the test-only `capstone` harness, or whose live
+> file is flag-gated OFF by default. The **reconciled, file-grain truth is in [`../README.md` §4](../README.md)** —
+> when this table and the README disagree (e.g. `enforcement`'s seal half, and
+> `capstone`/`adversarial`/`zkpdp`/`bench`/`receipts`/`safeflow` being effectively DEMO/TEST-only; `systemic`/
+> `ontology` scorers inert by default), **the README wins.** This file remains the authoritative *static
+> import graph*; the README is the authoritative *what-actually-runs* map.
+
 > Ground-truth static reachability of every subsystem under `src/tex/`.
 > Built by AST-parsing all 636 `.py` files and BFS-ing the import edges from the
 > live entrypoints. NOT from docstrings/markdown. Branch: `feat/proof-carrying-gate`.

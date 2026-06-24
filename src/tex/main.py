@@ -2287,12 +2287,23 @@ def _build_discovery_connectors() -> list:
             )
             _logger.info("discovery: Entra consent-graph live connector wired")
         except Exception as exc:  # noqa: BLE001
-            _logger.warning(
-                "discovery: Entra live connector failed to construct (%s); seeding", exc
-            )
+            # Defense-in-depth: if the live connector fails to construct, fall
+            # back to an EMPTY transport — NEVER plant synthetic agents on a real
+            # deploy. The demo seed is honored here only under the SAME opt-in
+            # gate as the no-creds branch (_demo_seed, which is False in
+            # production and off-by-default everywhere).
             from tex.discovery.demo_seed import entra_pages
+            _fallback_pages = entra_pages() if _demo_seed else {}
+            _logger.warning(
+                "discovery: Entra live connector failed to construct (%s); "
+                "falling back to %s transport",
+                exc,
+                "demo-seed" if _fallback_pages else "empty",
+            )
             connectors.append(
-                EntraConsentGraphConnector(transport=FixtureGraphTransport(entra_pages()))
+                EntraConsentGraphConnector(
+                    transport=FixtureGraphTransport(_fallback_pages)
+                )
             )
     else:
         from tex.discovery.demo_seed import entra_pages

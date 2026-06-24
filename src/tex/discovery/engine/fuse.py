@@ -83,6 +83,17 @@ from tex.discovery.engine.models import (
 #: injected JOIN KEY that fuses footprints sharing NO natural key; ``behavior_sig``
 #: is the behavioral fingerprint (syscall/tool-grammar MinHash) that links two
 #: footprints of the same code with no shared literal identifier.
+#: The full PLANE roster (ARCHITECTURE.md §8) adds more identity-grade names so
+#: the same agent seen on N planes fuses to one entity: ``code_hash`` (P9 eBPF /
+#: IMA measured-boot anchor — survives rotation), ``spiffe_id`` / ``oidc_sub``
+#: (P13 signed-identity anchors), ``injected_marker`` / ``canary_cred_id`` /
+#: ``decoy_id`` (P14 honeytoken co-trip — a planted cross-plane JOIN KEY that
+#: fuses footprints sharing NO natural key), ``tool_set_minhash`` (P10 MCP/A2A
+#: tool-set behavioral anchor), ``syscall_graph_sig`` (P9 behavioral split/merge
+#: axis), and ``managed_agent_id`` (P6/P7 control-plane-minted stable id). These
+#: are identity-grade by SCHEMA: a match means "same agent" and MUST close
+#: transitively. ``tool_minhash`` is kept as a legacy alias of
+#: ``tool_set_minhash`` so older footprints stay strong.
 _IDENTITY_KEYS: frozenset[str] = frozenset(
     {
         "workspace_path",
@@ -94,6 +105,13 @@ _IDENTITY_KEYS: frozenset[str] = frozenset(
         "behavior_sig",
         "tool_minhash",
         "spiffe_id",
+        # --- full-roster identity-grade names (ARCHITECTURE.md §8) ----------
+        "oidc_sub",
+        "tool_set_minhash",
+        "syscall_graph_sig",
+        "managed_agent_id",
+        "canary_cred_id",
+        "decoy_id",
     }
 )
 
@@ -101,15 +119,53 @@ _IDENTITY_KEYS: frozenset[str] = frozenset(
 #: MAY violate transitivity and never merges two strong components alone
 #: (shared IP/ASN/service-credential/popular signal). Listed for documentation;
 #: any key not in ``_IDENTITY_KEYS`` is treated as bridging.
+#: The full roster adds more BRIDGING-grade names: the network-egress bridges
+#: (``ja4s``/``sni``/``h2_settings_hash``/``token_waveform_sig``/``cadence_sig``
+#: — a shared TLS/HTTP fingerprint links but a popular value is shared by
+#: millions, so the N5 ``1/anon_set_size`` discount drives it to ≈0 evidence),
+#: the SaaS/automation grant bridges (``oauth_grant_id``/``bot_user_id``/
+#: ``automation_recipe_id``/``saas_app`` — one shared app credential collapses k
+#: agents, the positive N1 split signal), the governance/control bridges
+#: (``billing_account``/``role_arn``/``iam_role``/``control_plane``/``region``/
+#: ``model`` — coarse cohorts, never identity), and the static/MCP CLAIM bridges
+#: (``repo_path``/``framework``/``manifest_path``/``mcp_server_url``/
+#: ``agent_card_id`` — declared, never load-bearing alone). ``oidc_sub`` is
+#: deliberately NOT here — a SIGNED OIDC subject is identity-grade (above).
 _BRIDGING_KEYS: frozenset[str] = frozenset(
     {
         "asn",
         "ja4",
         "service_credential",
         "egress_ip",
-        "oidc_sub",
         "claimed_by",
         "api_key",
+        # --- network-egress fingerprints (popular → ~0 via N5 discount) -----
+        "ja4s",
+        "sni",
+        "h2_settings_hash",
+        "token_waveform_sig",
+        "cadence_sig",
+        # --- SaaS/automation shared-credential bridges (N1 split source) ----
+        "oauth_grant_id",
+        "bot_user_id",
+        "automation_recipe_id",
+        "saas_app",
+        "sp_object_id",
+        # --- coarse managed/governance cohorts (never identity) ------------
+        "billing_account",
+        "role_arn",
+        "iam_role",
+        "control_plane",
+        "region",
+        "model",
+        "host_id",
+        # --- static / MCP declared-claim bridges ---------------------------
+        "repo_path",
+        "framework",
+        "manifest_path",
+        "mcp_server_url",
+        "agent_card_id",
+        "caller_fingerprint",
     }
 )
 

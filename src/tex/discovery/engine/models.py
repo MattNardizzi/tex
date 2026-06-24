@@ -99,12 +99,54 @@ class PlaneId(StrEnum):
       exact missing vantage of a zero-signal agent without fake-finding it.
 
     The full P0..P14 roster (ARCHITECTURE.md §8) extends this enum; the slice
-    ships only the three values below so the contract stays small and honest.
+    ships only the first three values below. The PLANE-ROSTER members beneath
+    them are the breadth planes (ARCHITECTURE.md §8 P0..P14) that the ten
+    flag-gated sensor builders emit on. Each one is FLAG-GATED OFF by default
+    (see ``sensors.registry``); adding the enum member here does NOT activate a
+    plane — only the env flag does. The slice's two real planes plus
+    ``WITHHELD_THIRD`` keep their original values so the slice tests are
+    unchanged; the roster members are new, additive, and inert until enabled.
     """
 
+    # --- the thin-slice planes (unchanged; slice tests depend on these) ------
     ACTIONS_TRAIL = "actions_trail"
     FS_WRITE = "fs_write"
     WITHHELD_THIRD = "withheld_third"
+
+    # --- the full PLANE roster (ARCHITECTURE.md §8 P0..P14) ------------------
+    #: P13 — identity / signed-cohort plane (OIDC sub, SPIFFE id, SP object id,
+    #: OAuth grant id). Calibration-grade identity anchor (PLATFORM_ATTESTED).
+    SIGNED_ID = "signed_id"
+    #: P1..P4 — passive network-egress plane (JA4/JA4S client+server hello, SNI,
+    #: ASN, egress IP, HTTP/2 settings hash, token-waveform / cadence sigs).
+    NETWORK_EGRESS = "network_egress"
+    #: P9 — kernel / eBPF host plane (code hash, exec id, process lineage,
+    #: syscall-graph signature, binary path). The PROVEN ground-truth vantage.
+    KERNEL_EBPF = "kernel_ebpf"
+    #: P6/P7 — managed cloud control plane (control-plane id, managed-agent id,
+    #: model, region, IAM role-arn). PLATFORM_ATTESTED audit/grant signal.
+    MANAGED_CONTROL = "managed_control"
+    #: P5/P8(part) — SaaS / automation plane (OAuth grant, bot user, automation
+    #: recipe id, granted scopes). OBSERVED/PLATFORM_ATTESTED app-side signal.
+    SAAS_AUTOMATION = "saas_automation"
+    #: P11 — governance-stream plane (PDP agent id, OTel trace id, tool name,
+    #: billing account). OBSERVED instrumentation already inside the boundary.
+    GOVERNANCE_STREAM = "governance_stream"
+    #: P8 — static supply-chain / provenance plane (repo path, agent-def symbol,
+    #: framework, manifest path, declared tools, IAM role). CLAIMED, parse-only.
+    STATIC_SUPPLYCHAIN = "static_supplychain"
+    #: P10 — MCP / A2A tool-graph plane (MCP server url, agent-card id, tool-set
+    #: MinHash, A2A skills). OBSERVED tool-DAG ∩ CLAIMED card.
+    MCP_TOOLGRAPH = "mcp_toolgraph"
+    #: P9(endpoint) — endpoint EDR plane (host id, process name, runtime,
+    #: persistence). OBSERVED host-agent telemetry.
+    ENDPOINT_EDR = "endpoint_edr"
+    #: P14 — active honeytoken / decoy lattice plane (decoy id, canary cred id,
+    #: caller fingerprint, injected marker). PROVEN bite = a strong join key.
+    HONEYTOKEN = "honeytoken"
+    #: P0 — coverage-health meta-plane (governance-stream). Reports per-plane
+    #: liveness so the honesty layer can NAME a dark vantage rather than guess.
+    COVERAGE_HEALTH = "coverage_health"
 
 
 class Admissibility(StrEnum):
@@ -247,6 +289,103 @@ class FootprintVector:
     def keys_dict(self) -> dict[str, str]:
         """Materialize ``keys`` back into a plain dict (for scoring/receipts)."""
         return {k: v for k, v in self.keys}
+
+
+class FootprintField(StrEnum):
+    """The canonical footprint key/attr NAME vocabulary the planes share.
+
+    ``FootprintVector`` itself is a deliberately-generic ``keys``/``attrs`` bag
+    (a sorted tuple-of-pairs so it stays frozen + hashable). The discriminating
+    power lives in the NAMES of those keys, not in struct fields — so the
+    "optional fields the planes need" are defined here as a single shared,
+    auditable vocabulary that all ten flag-gated sensor builders emit against.
+    Centralizing the names is what lets ``fuse.py`` LINK the same agent across N
+    planes (a strong-edge name shared by two planes fuses) and lets
+    ``disambiguate.py`` SPLIT (a bridging-grade name shared under one credential
+    bridges without merging). Builders MUST use these constants for any
+    cross-plane key so the field-grade map in ``fuse.py`` classifies them.
+
+    Grade follows ``fuse._IDENTITY_KEYS`` / ``_BRIDGING_KEYS``:
+    - IDENTITY-grade (strong, MUST close transitively): an identity-grade name
+      means "same agent" by schema — code hash, SPIFFE id, signed OIDC sub, an
+      injected honeytoken marker, a tool-set MinHash, a behavioral signature.
+    - BRIDGING-grade (weak, MAY violate transitivity): a shared name that links
+      but never merges alone — ASN, egress IP, a popular JA4, an OAuth grant.
+
+    Membership in identity vs bridging is decided in ``fuse.py`` (the single
+    shared edit), NOT here; this enum only fixes the NAMES so builders cohere.
+    """
+
+    # --- network-egress (P1..P4) -------------------------------------------
+    JA4 = "ja4"
+    JA4S = "ja4s"
+    SNI = "sni"
+    ASN = "asn"
+    EGRESS_IP = "egress_ip"
+    H2_SETTINGS_HASH = "h2_settings_hash"
+    TOKEN_WAVEFORM_SIG = "token_waveform_sig"
+    CADENCE_SIG = "cadence_sig"
+
+    # --- identity / signed-id (P13) ----------------------------------------
+    OIDC_SUB = "oidc_sub"
+    SP_OBJECT_ID = "sp_object_id"
+    OAUTH_GRANT_ID = "oauth_grant_id"
+    SPIFFE_ID = "spiffe_id"
+
+    # --- kernel / eBPF (P9) ------------------------------------------------
+    CODE_HASH = "code_hash"
+    EXEC_ID = "exec_id"
+    PROC_LINEAGE = "proc_lineage"
+    SYSCALL_GRAPH_SIG = "syscall_graph_sig"
+    BINARY_PATH = "binary_path"
+
+    # --- managed control plane (P6/P7) -------------------------------------
+    CONTROL_PLANE = "control_plane"
+    MANAGED_AGENT_ID = "managed_agent_id"
+    MODEL = "model"
+    REGION = "region"
+    ROLE_ARN = "role_arn"
+
+    # --- SaaS / automation (P5) --------------------------------------------
+    SAAS_APP = "saas_app"
+    BOT_USER_ID = "bot_user_id"
+    AUTOMATION_RECIPE_ID = "automation_recipe_id"
+    SCOPES = "scopes"
+
+    # --- governance-stream (P11) -------------------------------------------
+    PDP_AGENT_ID = "pdp_agent_id"
+    OTEL_TRACE_ID = "otel_trace_id"
+    TOOL_NAME = "tool_name"
+    BILLING_ACCOUNT = "billing_account"
+
+    # --- static supply-chain (P8) ------------------------------------------
+    REPO_PATH = "repo_path"
+    AGENT_DEF_SYMBOL = "agent_def_symbol"
+    FRAMEWORK = "framework"
+    MANIFEST_PATH = "manifest_path"
+    DECLARED_TOOLS = "declared_tools"
+    IAM_ROLE = "iam_role"
+
+    # --- MCP / A2A tool-graph (P10) ----------------------------------------
+    MCP_SERVER_URL = "mcp_server_url"
+    AGENT_CARD_ID = "agent_card_id"
+    TOOL_SET_MINHASH = "tool_set_minhash"
+    A2A_SKILLS = "a2a_skills"
+
+    # --- endpoint EDR (P9 endpoint) ----------------------------------------
+    HOST_ID = "host_id"
+    PROCESS_NAME = "process_name"
+    RUNTIME = "runtime"
+    PERSISTENCE = "persistence"
+
+    # --- honeytoken / decoy lattice (P14) ----------------------------------
+    DECOY_ID = "decoy_id"
+    CANARY_CRED_ID = "canary_cred_id"
+    CALLER_FINGERPRINT = "caller_fingerprint"
+    INJECTED_MARKER = "injected_marker"
+
+    # --- behavioral fingerprint (cross-plane merge/split axis) -------------
+    BEHAVIOR_SIG = "behavior_sig"
 
 
 @dataclass(frozen=True)
@@ -818,6 +957,7 @@ __all__ = [
     "AgentHumanLabel",
     "PresenceState",
     "FootprintVector",
+    "FootprintField",
     "Incidence",
     "TypedEdge",
     "SieveEntity",

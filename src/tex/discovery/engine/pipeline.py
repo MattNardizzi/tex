@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+import os
+from typing import Mapping, Sequence
 
 from tex.discovery.engine import adapter
 from tex.discovery.engine.capability import map_capability
@@ -43,6 +44,7 @@ from tex.discovery.engine.sensors import (
     ActionsTrailSensor,
     FsWriteScanSensor,
     SenseContext,
+    build_active_sensors,
 )
 
 #: The two real capture occasions the slice runs (ARCHITECTURE.md §10). Order
@@ -352,6 +354,149 @@ def run_slice(
     )
 
 
+@dataclass(frozen=True)
+class PlanesResult:
+    """The headline object handle for one multi-plane registry-driven run.
+
+    Mirrors ``SliceResult`` but reports the planes the FLAG-ENABLED roster
+    actually captured on (not the fixed two slice occasions). The estimator's
+    capture occasions are the union of planes that emitted at least one
+    incidence, so the unseen-fraction is computed over the genuinely-independent
+    vantages that were live this window (ARCHITECTURE.md §6, §8, §11).
+
+    - ``entities``       — the resolved ``SieveEntity`` set across all live planes.
+    - ``unseen``         — the calibrated ``UnseenEstimate`` over the live planes.
+    - ``projected``      — count of entities written through the governance
+                           boundary (registry + ledger).
+    - ``occasions``      — the planes that genuinely captured this window (each
+                           emitted >=1 incidence), the estimator's occasion set.
+    - ``active_planes``  — every plane whose flag was enabled (built a sensor),
+                           whether or not it captured — for receipts/coverage.
+    - ``withheld_planes``— planes deliberately named as blind spots this run.
+    """
+
+    entities: tuple[SieveEntity, ...] = ()
+    unseen: UnseenEstimate | None = None
+    projected: int = 0
+    occasions: tuple[PlaneId, ...] = ()
+    active_planes: tuple[PlaneId, ...] = ()
+    withheld_planes: tuple[PlaneId, ...] = field(default_factory=tuple)
+
+
+def run_planes(
+    env: Mapping[str, str] | None = None,
+    *,
+    context: SenseContext | None = None,
+    registry=None,  # noqa: ANN001 - InMemoryAgentRegistry (optional)
+    ledger=None,  # noqa: ANN001 - InMemoryDiscoveryLedger (optional)
+    index=None,  # noqa: ANN001 - ReconciliationIndex (optional)
+    withheld_planes: Sequence[PlaneId] = (PlaneId.WITHHELD_THIRD,),
+) -> PlanesResult:
+    """SENSE across ALL flag-enabled planes → FUSE → ESTIMATE → ADAPT.
+
+    The full-roster sibling of ``run_slice``. Instead of the two fixed slice
+    sensors, it builds the active sensor set from the registry
+    (``build_active_sensors(env)``) so the plane set is CONFIGURABLE and every
+    plane is FLAG-GATED OFF by default (ARCHITECTURE.md §8). With no
+    ``TEX_SIEVE_P*`` flags set, ``build_active_sensors`` returns ``[]`` and this
+    function returns an empty, honest ``PlanesResult`` — the default-safe posture
+    a merge-to-main / prod deploy must keep.
+
+    Stages:
+
+    1. SENSE — read ``env`` (defaults to ``os.environ``), build the flag-enabled
+       sensor set, and ``sense`` each over ``context`` (the configurable input
+       roots so a verifier can point the planes at its own planted estate). Each
+       sensor degrades to empty on missing creds/sources and NEVER raises, so a
+       partially-credentialed env yields fewer planes, never a crash. The set of
+       planes that emitted >=1 incidence is the genuine capture-occasion set.
+
+    2. FUSE — ``resolve_full`` runs the cross-plane plane-typed correlation
+       clustering + N1 shared-credential split + agent-vs-human + capability over
+       the WHOLE incidence stream, so the same agent seen on N planes fuses to one
+       entity (cross-plane fusion is exactly what the multi-plane path unlocks).
+
+    3. ESTIMATE — ``estimate_unseen`` treats the live planes as capture occasions
+       and widens the band for each withheld plane (and for too-few occasions),
+       emitting a named blind spot per withheld plane.
+
+    4. ADAPT — when a ``registry``/``ledger`` boundary is supplied, project every
+       entity through it (registry.save → ledger.append). When omitted, the run
+       is a pure SENSE→FUSE→ESTIMATE pass (``projected == 0``) — useful for a
+       coverage probe that must not mutate the registry.
+
+    NEVER raises on missing inputs: an empty roster, an empty context, or an
+    absent boundary all degrade to an honest result.
+    """
+    env = dict(env) if env is not None else dict(os.environ)
+    context = context or SenseContext()
+    withheld = tuple(dict.fromkeys(withheld_planes))  # de-dup, preserve order
+
+    # ------------------------------------------------------------------
+    # 1. SENSE — every flag-enabled plane; each degrades to empty, never raises.
+    # ------------------------------------------------------------------
+    sensors = build_active_sensors(env)
+    active_planes = tuple(dict.fromkeys(s.plane_id for s in sensors))
+
+    incidences: list[Incidence] = []
+    captured: dict[PlaneId, None] = {}
+    for sensor in sensors:
+        for inc in sensor.sense(context):
+            incidences.append(inc)
+            captured.setdefault(inc.plane_id, None)
+    occasions = tuple(captured.keys())
+
+    if not incidences:
+        # No live plane captured anything (no flags, or all planes degraded to
+        # empty). Honest empty result: estimate over zero occasions is the wide
+        # degenerate band with a named blind spot per withheld plane.
+        unseen = estimate_unseen((), occasions=occasions, withheld_planes=withheld)
+        return PlanesResult(
+            entities=(),
+            unseen=unseen,
+            projected=0,
+            occasions=occasions,
+            active_planes=active_planes,
+            withheld_planes=withheld,
+        )
+
+    # ------------------------------------------------------------------
+    # 2. FUSE + DISAMBIGUATE + CAPABILITY — cross-plane over the whole stream.
+    # ------------------------------------------------------------------
+    entities = resolve_full(incidences)
+
+    # ------------------------------------------------------------------
+    # 3. ESTIMATE — live planes are the capture occasions; widen per withheld.
+    # ------------------------------------------------------------------
+    unseen = estimate_unseen(
+        entities,
+        occasions=occasions,
+        withheld_planes=withheld,
+    )
+
+    # ------------------------------------------------------------------
+    # 4. ADAPT — project through the governance boundary when one is supplied.
+    # ------------------------------------------------------------------
+    projected = 0
+    if registry is not None and ledger is not None:
+        if index is None:
+            from tex.discovery.service import ReconciliationIndex
+
+            index = ReconciliationIndex(registry=registry)
+        for entity in entities:
+            adapter.project(entity, registry, ledger, index)
+            projected += 1
+
+    return PlanesResult(
+        entities=entities,
+        unseen=unseen,
+        projected=projected,
+        occasions=occasions,
+        active_planes=active_planes,
+        withheld_planes=withheld,
+    )
+
+
 def _as_path(value: Path | str | None) -> Path | None:
     """Coerce a path-or-string-or-None to a ``Path`` without raising.
 
@@ -366,4 +511,10 @@ def _as_path(value: Path | str | None) -> Path | None:
         return None
 
 
-__all__ = ["SliceResult", "run_slice", "resolve_full"]
+__all__ = [
+    "SliceResult",
+    "run_slice",
+    "resolve_full",
+    "PlanesResult",
+    "run_planes",
+]

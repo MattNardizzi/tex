@@ -1,0 +1,54 @@
+name: keep-tex-warm
+
+# Keep the Tex voice backend awake so the opener's voice is INSTANT.
+#
+# Why this exists: a spun-down Render free-tier service takes ~25–60s to wake.
+# The frontend opener fetches /v1/speak/timed per line with a short timeout; a
+# cold backend blows that budget and the manifesto plays SILENTLY (and on its
+# slow beat floor). Pinging /health on a schedule keeps the service warm so the
+# first spoken line lands in <1s.
+#
+# IMPORTANT — this is belt-and-suspenders, not the real fix. GitHub's scheduled
+# runs are best-effort and can fire 10–20 min late, which may not beat Render's
+# ~15 min idle spin-down. The reliable fixes (do at least one):
+#   1. Run the web service on Render's always-on "starter" plan — render.yaml
+#      already declares `plan: starter`; make sure the LIVE service matches it
+#      (a service left on "free" is what causes the cold starts).
+#   2. Or point an external uptime monitor (UptimeRobot / cron-job.org, 5-min
+#      interval) at the same /health URL — more punctual than GitHub cron.
+# The frontend also degrades gracefully: it waits for /health before speaking,
+# so a cold start delays the opener but never makes it silent.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every ~10 minutes (GitHub best-effort timing)
+  workflow_dispatch: {} # allow a manual warm-up from the Actions tab
+
+# Don't pile up overlapping pings if a cold wake takes a while.
+concurrency:
+  group: keep-tex-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Tex /health until warm
+        env:
+          # Override in repo Settings → Variables if the backend URL changes.
+          HEALTH_URL: ${{ vars.TEX_HEALTH_URL || 'https://tex-uh4j.onrender.com/health' }}
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 "$HEALTH_URL") || code=000
+            echo "attempt $i: $HEALTH_URL -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "backend warm."
+              exit 0
+            fi
+            sleep 20
+          done
+          # Never fail the run on a cold/unreachable backend — this is a warm-up,
+          # not a health gate, and a red X here would just be noise.
+          echo "backend not confirmed warm after retries (non-fatal)."
+          exit 0

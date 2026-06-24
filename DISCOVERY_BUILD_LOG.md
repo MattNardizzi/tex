@@ -111,3 +111,96 @@ as needs-vantage-X).
 Next: deepen the ENGINE BRAIN (Phase 4 fusion/ER + N1 splitter + N4 incoherence + shared-credential
 & agent-vs-human disambiguation + capability mapping; Phase 5 full completeness estimator family +
 calibration/ECE tests on synthetic ground truth) before fanning out the remaining planes (Phase 3).
+
+## Phase 7 result — 2026-06-24 — LAYER-A COVERAGE VERIFIER + HONESTY AUDITOR: PASS
+
+**Coverage proof GREEN.** `tests/test_discovery_coverage_proof.py` — 20 passed (19.8s) over the full
+archetype catalogue (`tests/discovery_coverage_harness.py`, 12 archetypes (a)..(k)+m). Every
+CATCHABLE archetype maps to a REAL surfaced entity through the production registry+ledger path — no
+archetype "claimed found" without a resolved entity. The one deliberately-irreducible archetype
+(air-gapped/no-egress) is correctly NOT found and is entered as named blind spot **BS-12** in
+`BLIND_SPOT_REGISTER.md` with its exact missing vantage (on-host eBPF). Rename/credential-rotation
+mutation is survived (same archetypes → same entity counts). Real sensors surface the laptop-local,
+egress-only, and static archetypes through the production sensor path.
+
+**Honesty discipline enforced by emitting tests.** Every measured number the register/BF cite is
+emitted by a committed fixed-seed test — three independent ECE corroborations
+(`test_discovery_engine_eval.py`): primary **0.2896**, fresh out-of-sample plant **0.1863**,
+coverage-harness estate **0.4546** — all in the SAFE (under-confident) direction (mean confidence
+below accuracy, floored singletons), never over-confident; asserted, not asserted-by-hand.
+
+## Phase 8 result — 2026-06-24 — INTEGRATE + PROVE RIGOR & SPEED + WIRING (default-safe) GREEN
+
+**WIRING SEAM landed ADDITIVE + dormant-by-default.** SIEVE wires into the live discovery surface via
+`build_sieve_driver()` (main.py ~L1724, `app.state.sieve_driver`) and the slice planes, gated behind
+the master `TEX_SIEVE_ENABLED` + per-plane `TEX_SIEVE_P*`/source-dir flags. `tests/
+test_discovery_sieve_wiring.py` — 9 passed — proves the three load-bearing obligations:
+- **(a) DORMANT BY DEFAULT** — with NO flags, `build_sieve_driver()` returns `None`,
+  `build_active_sensors` is empty, `_build_discovery_connectors()` is unchanged, a dormant driver run
+  is inert; ignite/boot is byte-for-byte today's legacy path
+  (`test_no_flags_yields_no_driver`, `test_dormant_driver_run_is_inert_when_master_off`).
+- **(b) ACTIVE WHEN FLAGGED** — master flag + one plane flag + a fixture source → the driver runs the
+  SIEVE engine and surfaces a resolved entity THROUGH the existing registry+ledger governance
+  boundary (`test_flagged_driver_surfaces_entity_through_registry_and_ledger`).
+- **(c) NEVER RAISES ON MISSING CREDS** — building/running with the master flag on but no sources /
+  no plane flags degrades to an empty honest result, never an exception; uncredentialed planes never
+  raise (`test_construction_never_raises_with_missing_creds`,
+  `test_build_active_sensors_with_uncredentialed_planes_never_raises`).
+- **PROD-SAFE** — `is_production_env()` forces synthetic/demo estate OFF
+  (`test_production_forces_synthetic_estate_off`). A merge to main (auto-deploys tex-web on Render)
+  activates NOTHING.
+
+**RIGOR proven on planted ground truth** (`test_discovery_engine_eval.py`,
+`test_discovery_sieve_fuse_benchmark.py` — 12 passed):
+- **No-common-key entity resolution: precision 1.0000 / recall 1.0000** (target P>=0.95/R>=0.90) —
+  footprints with NO shared natural key fused ONLY via behavioral-sig + honeytoken bridge.
+- **N1 splitter:** 2 agents / 1 credential → 2 entities `k_estimate=2`, zero false-merge; 1 agent →
+  1 entity `k=1`, zero false-split; k=3 → 3 entities.
+- **Completeness CI coverage:** reported unseen CI `[0.0000, 0.3755]` CONTAINS the true held-out
+  fraction `0.1961` (method `chao2_lincoln_petersen_good_turing`, health `wide`); widens monotonically
+  with more withheld planes; named blind spot `withheld_third` emitted. Never a count, never totality.
+- **N4 incoherence:** contradicting strong planes set `attribution_conflict` + the plane-pair; a
+  coherent agent does NOT false-trip.
+
+**SPEED proven scale-invariant** (`bench_sieve_speed.py`, seed 1729): time-to-first-detection median
+**0.043ms**; per-feed incremental latency FLAT across estate size — median 0.0397ms@bg=0 /
+0.0402ms@100 / 0.0405ms@1000 / **0.0416ms@10k** (p95 0.063ms@10k) — latency does NOT scale with
+estate; 1000 synthetic agents (2000 incidences) resolved cold in 0.18s; real 20-agent fleet through
+`run_slice` end-to-end (SENSE→FUSE→ESTIMATE→adapter project + unseen CI).
+
+**BEYOND_FRONTIER.md written** — per-competitor one-liner (Astrix/Oasis/Token/Aembit/Entro·Clutch;
+Cloudflare AI Gateway/LiteLLM/Portkey/Kong; Entra Agent ID/Defender; Bedrock AgentCore;
+Cilium·Tetragon/Falco) on the exact axis SIEVE leads (no-common-key fusion P/R=1.0, anonymity-set
+correlation, scale-invariant speed, or the FORMAL completeness guarantee none offer), each tied to a
+planted proof, each carrying its HONEST EDGE (named irreducible blind spots, under-confident ECE,
+enforcement needs a deployed Body, live prod ships SIEVE OFF, eval is on planted ground truth).
+
+**Posture:** engine DONE + committed; wiring ADDITIVE + default-safe + green; ready to merge to
+`feat/discovery-engine` HEAD with prod activating nothing until `TEX_SIEVE_*` flags are set.
+
+## DONE — 2026-06-24 — ALL EIGHT DoD GATES GREEN, MERGED TO main
+
+Orchestrator re-verified independently before the (outward-facing) merge: **full suite 6369 passed
+/ 75 skipped / 0 failed** (7m48s); boot with no SIEVE flags = `boot-ok dormant`; `origin/main` still
+at `e7c9a11` (the branch base) → clean fast-forward, no divergence.
+
+1. **Researched + formula invented** — `RESEARCH_LOG.md` derived SIEVE; SOTA verifier PASS (novelty
+   quota 5/≥3, zero research-debt, not prompt-anchored, not floor-isomorphic).
+2. **Designed + built** — greenfield engine `src/tex/discovery/engine/` (own data model); fuse/N1/N4/
+   N5, disambiguate, capability, estimate, stream; 10 real flag-gated planes; legacy
+   network_egress.py + kernel_ebpf.py made real. No stubs in the product path.
+3. **Integrated + wired** — `sieve_driver` behind `TEX_SIEVE_ENABLED` (+ per-plane flags), reachable
+   via ignite, default-safe; merged to main (backend). UI surface = follow-up (separate Vercel repo).
+4. **Suite green** — 6369 passed / 0 failed; new code exercised by real planted agents.
+5. **Coverage proven (Layer A)** — 12/12 catchable archetypes (a)-(k)+m discovered + correctly
+   correlated; 0 false-merge / 0 dup / 0 decoy-as-agent; mutations survived; real-fleet hard case shown.
+6. **Only irreducible gaps remain** — air-gapped (k)/BS-12 named with exact vantage, not fake-found;
+   `BLIND_SPOT_REGISTER.md` complete.
+7. **Rigor + speed** — ER P/R 1.0; completeness CI contains truth (99%/500 pops); ECE under-confident;
+   per-feed latency FLAT 0.04ms@10k; time-to-first 0.043ms; 1000 agents cold 0.18s. All targets beaten.
+8. **Beyond-frontier + no overclaim** — `BEYOND_FRONTIER.md` per-competitor edge, honest edges intact;
+   honesty auditor PASS.
+
+**Honest edges (carried, never hidden):** prod ships SIEVE OFF until the operator sets `TEX_SIEVE_*`;
+ECE is conservatively under-confident; enforcement still needs a deployed in-path Body; eval is on
+planted/synthetic ground truth + the local tex-enterprise fleet (not a customer estate yet).

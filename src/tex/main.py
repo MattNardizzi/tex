@@ -1712,6 +1712,21 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.discovery_ledger = runtime.discovery_ledger
     app.state.discovery_service = runtime.discovery_service
 
+    # SIEVE engine — the greenfield discovery engine, wired ADDITIVELY and
+    # DEFAULT-SAFE alongside the legacy connector path. ``build_sieve_driver``
+    # returns ``None`` unless ``TEX_SIEVE_ENABLED`` is set (the master flag),
+    # so with no flags the live path is byte-for-byte the legacy path and
+    # nothing is attached. When the master flag is on, the driver runs only the
+    # planes whose own ``TEX_SIEVE_P*`` flag is set, each degrading to empty on
+    # missing creds/sources; in production the synthetic slice estate is forced
+    # off. Construction never raises — a failure leaves ``sieve_driver`` None.
+    try:
+        from tex.discovery.sieve_driver import build_sieve_driver
+
+        app.state.sieve_driver = build_sieve_driver()
+    except Exception:  # noqa: BLE001 — SIEVE wiring is additive; never block boot
+        app.state.sieve_driver = None
+
     # tex-conduit: register the tenant-aware connector so ignite(<connected
     # tenant>) maps that tenant's REAL directory via its sealed connection's
     # live transport. Inert for tenants that never connected (demo / tests),

@@ -603,60 +603,11 @@ class SieveEntity:
             self.fusion_confidence = new_confidence
 
     # ------------------------------------------------------------------
-    # Output-boundary projection STUBS — the adapter builder fills these.
+    # Output-boundary projection lives in ``adapter.py`` as free functions
+    # (``reconciliation_key`` / ``to_candidate_agent`` / ``to_reconciliation_outcome``
+    # over a ``SieveEntity``) — deliberately kept OFF the model to avoid a
+    # models→adapter import cycle. See ``engine/adapter.py``.
     # ------------------------------------------------------------------
-
-    def reconciliation_key(self) -> str:
-        """Stable output-boundary key for ``ReconciliationIndex`` linking.
-
-        The internal identity is ``entity_id``; this projects it to a string
-        key the existing index and PresenceTracker key on (ARCHITECTURE.md
-        §1.3, §7). Written into ``AgentIdentity.metadata`` as
-        ``discovery_source`` / ``discovery_external_id`` so the index keys the
-        entity stably across scans (else every scan churns it as "new").
-
-        Implemented by the adapter builder (Phase-2 adapter.py). Stub here so
-        the contract is fixed.
-        """
-        raise NotImplementedError(
-            "SieveEntity.reconciliation_key is filled by the adapter builder"
-        )
-
-    def to_candidate_agent(self) -> "CandidateAgent":
-        """Project this entity to the canonical ``CandidateAgent`` shape.
-
-        Targets ``tex.domain.discovery.CandidateAgent`` (domain/discovery.py
-        L237). The adapter sets ``source=DiscoverySource.GENERIC`` (or the
-        plane-appropriate member), ``external_id`` derived from ``entity_id``,
-        ``confidence=fusion_confidence``, ``capability_hints`` from
-        ``capability``, and stamps the stable ``reconciliation_key`` parts into
-        ``evidence`` so the ledger story is complete.
-
-        Implemented by the adapter builder. Stub here so the contract is fixed.
-        """
-        raise NotImplementedError(
-            "SieveEntity.to_candidate_agent is filled by the adapter builder"
-        )
-
-    def to_reconciliation_outcome(
-        self, candidate: "CandidateAgent", resulting_agent_id: UUID | None = None
-    ) -> "ReconciliationOutcome":
-        """Project to a ``ReconciliationOutcome`` for the discovery ledger.
-
-        Targets ``tex.domain.discovery.ReconciliationOutcome`` (domain/discovery.py
-        L387). The adapter maps the resolution result to a ``finding_kind`` /
-        ``ReconciliationAction`` (REGISTERED for a new entity, HELD_DUPLICATE
-        for a similarity-detected duplicate, etc.), carries
-        ``fusion_confidence`` through, and attaches ``fusion_receipt`` +
-        ``contradicting_pair`` as ``findings`` so the ledger is auditable.
-        ``ledger.append(candidate=candidate, outcome=outcome)`` mirrors
-        ``service._apply`` registry-first/ledger-last (ARCHITECTURE.md §7).
-
-        Implemented by the adapter builder. Stub here so the contract is fixed.
-        """
-        raise NotImplementedError(
-            "SieveEntity.to_reconciliation_outcome is filled by the adapter builder"
-        )
 
 
 # ---------------------------------------------------------------------------

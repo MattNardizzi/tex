@@ -811,6 +811,18 @@ def build_runtime(
             )
             return None
 
+    # SIEVE on the standing tick: build the (default-ON, opt-out) driver and hand
+    # it to the scheduler so the standing watch re-runs the flag-enabled SIEVE
+    # planes each cycle — not only at ignite — against the same registry/ledger.
+    # build_sieve_driver returns None only when explicitly disabled
+    # (TEX_SIEVE_ENABLED=0) and never raises, so this is additive and safe.
+    try:
+        from tex.discovery.sieve_driver import build_sieve_driver as _build_sieve
+
+        _scheduler_sieve_driver = _build_sieve()
+    except Exception:  # noqa: BLE001 — SIEVE wiring is additive; never block boot
+        _scheduler_sieve_driver = None
+
     scan_scheduler = BackgroundScanScheduler(
         service=discovery_service,
         drift_store=drift_event_store,
@@ -823,6 +835,11 @@ def build_runtime(
         metrics=discovery_metrics,
         # The standing tick also runs the dormant-agent doctrine sweep.
         dormancy_controller=dormancy_controller,
+        # SIEVE re-discovery on the standing tick (default-safe; None only when
+        # the master flag is explicitly disabled).
+        sieve_driver=_scheduler_sieve_driver,
+        registry=agent_registry,
+        discovery_ledger=discovery_ledger,
     )
 
     # Real-only by default: no tenant is enrolled until a real client ignites
@@ -1712,14 +1729,14 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.discovery_ledger = runtime.discovery_ledger
     app.state.discovery_service = runtime.discovery_service
 
-    # SIEVE engine — the greenfield discovery engine, wired ADDITIVELY and
-    # DEFAULT-SAFE alongside the legacy connector path. ``build_sieve_driver``
-    # returns ``None`` unless ``TEX_SIEVE_ENABLED`` is set (the master flag),
-    # so with no flags the live path is byte-for-byte the legacy path and
-    # nothing is attached. When the master flag is on, the driver runs only the
-    # planes whose own ``TEX_SIEVE_P*`` flag is set, each degrading to empty on
-    # missing creds/sources; in production the synthetic slice estate is forced
-    # off. Construction never raises — a failure leaves ``sieve_driver`` None.
+    # SIEVE engine — the greenfield discovery engine, wired ADDITIVELY alongside
+    # the legacy connector path. ``build_sieve_driver`` is DEFAULT-ON (opt-out):
+    # it returns a driver unless ``TEX_SIEVE_ENABLED`` is explicitly disabled
+    # (``=0``). The driver runs only the planes whose own ``TEX_SIEVE_P*`` flag
+    # is set, each degrading to empty on missing creds/sources, and in production
+    # the synthetic slice estate is forced off — so an enabled master with no
+    # plane flags is a live-but-empty no-op. Construction never raises — a failure
+    # leaves ``sieve_driver`` None.
     try:
         from tex.discovery.sieve_driver import build_sieve_driver
 

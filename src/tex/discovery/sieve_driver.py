@@ -8,12 +8,13 @@ eagerly or growing more wiring inline.
 
 The two HARD SAFETY RULES (ARCHITECTURE.md §8) are enforced here:
 
-1. **Flag-gated OFF by default.** ``build_sieve_driver(env)`` returns ``None``
-   unless ``TEX_SIEVE_ENABLED`` is truthy. With the master flag unset the live
-   path is byte-for-byte the legacy path — no driver is attached, ignite never
-   touches SIEVE, and boot is identical to today. Even with the master flag on,
-   each plane stays inert until its own ``TEX_SIEVE_P*`` flag is set (the
-   registry's ``build_active_sensors`` is itself flag-gated per plane).
+1. **Default ON (opt-out).** ``build_sieve_driver(env)`` returns a driver unless
+   ``TEX_SIEVE_ENABLED`` is explicitly set falsey (``0/false/no/off``). With the
+   flag unset SIEVE is the standing discovery engine — but each plane still stays
+   inert until its own ``TEX_SIEVE_P*`` flag is set (the registry's
+   ``build_active_sensors`` is itself flag-gated per plane), so an enabled master
+   with no plane flags is a live-but-empty driver. An operator who wants the
+   legacy-only path sets ``TEX_SIEVE_ENABLED=0`` and no driver is attached.
 
 2. **Never raise on construction or run.** Building the driver and running a
    scan are both wrapped so a missing source / credential / sensor degrades to
@@ -36,16 +37,6 @@ from pathlib import Path
 from typing import Mapping
 
 _logger = logging.getLogger(__name__)
-
-
-def _truthy(value: str | None) -> bool:
-    return isinstance(value, str) and value.strip().casefold() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-        "enabled",
-    }
 
 
 @dataclass(frozen=True)
@@ -103,24 +94,27 @@ class SieveDriver:
 
 
 def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | None:
-    """Build the optional SIEVE driver — or ``None`` when the master flag is off.
+    """Build the SIEVE driver — or ``None`` only when explicitly disabled.
 
-    Default-safe contract:
+    Default-ON (opt-out) contract:
 
-    - ``TEX_SIEVE_ENABLED`` unset/false  → returns ``None``. The caller attaches
-      nothing; the live discovery path is identical to today. This is the
-      common case a merge-to-main / prod deploy stays on.
-    - ``TEX_SIEVE_ENABLED`` truthy        → returns a ``SieveDriver`` whose
+    - ``TEX_SIEVE_ENABLED`` unset/truthy  → returns a ``SieveDriver`` whose
       sense-context roots are read from the env (slice planes) and forced OFF in
       production (no synthetic estate). The per-plane ``TEX_SIEVE_P*`` flags
-      still gate which planes actually build a sensor, so an enabled master flag
-      with no plane flags is a live-but-empty driver (still no-op in effect).
+      still gate which planes actually build a sensor, so an enabled master with
+      no plane flags is a live-but-empty driver (still no-op in effect).
+    - ``TEX_SIEVE_ENABLED`` falsey (``0/false/no/off``) → returns ``None``. The
+      caller attaches nothing; the live discovery path is the legacy-only path.
 
     NEVER raises: any error constructing the driver degrades to ``None`` (legacy
     path only).
     """
     source = env if env is not None else os.environ
-    if not _truthy(source.get("TEX_SIEVE_ENABLED")):
+    from tex.discovery.engine import is_sieve_enabled
+
+    # Default ON (opt-out): build a driver unless explicitly disabled. The master
+    # gate has a single source of truth in ``engine.is_sieve_enabled``.
+    if not is_sieve_enabled(dict(source)):
         return None
 
     try:

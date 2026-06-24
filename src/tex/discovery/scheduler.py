@@ -99,6 +99,9 @@ class BackgroundScanScheduler:
         "_last_seen_by_tenant",
         "_dormancy_controller",
         "_tenants_lock",
+        "_sieve_driver",
+        "_registry",
+        "_discovery_ledger",
     )
 
     def __init__(
@@ -115,6 +118,9 @@ class BackgroundScanScheduler:
         policy_version: str | None = None,
         metrics: DiscoveryMetrics | None = None,
         dormancy_controller=None,
+        sieve_driver=None,
+        registry=None,
+        discovery_ledger=None,
     ) -> None:
         self._service = service
         self._drift_store = drift_store
@@ -127,6 +133,14 @@ class BackgroundScanScheduler:
         # sleeps what is provably safe, holds the uncertain, and flags the
         # day-90 deletion — all on Tex's own authority, in silence.
         self._dormancy_controller = dormancy_controller
+        # SIEVE on the standing tick (additive, default-safe). When a driver is
+        # attached (master flag on) the standing loop re-runs the flag-enabled
+        # SIEVE planes each cycle against the same registry/ledger the legacy
+        # scan uses — so re-discovery is continuous, not only at ignite. All
+        # three default to None, so an unconfigured scheduler is unchanged.
+        self._sieve_driver = sieve_driver
+        self._registry = registry
+        self._discovery_ledger = discovery_ledger
         self._interval_seconds = self._resolve_interval(interval_seconds)
         self._tenants = set(self._resolve_tenants(tenants))
         self._tenants_lock = threading.Lock()
@@ -370,12 +384,45 @@ class BackgroundScanScheduler:
                     "BackgroundScanScheduler: dormancy sweep failed: %s", exc
                 )
 
+        # SIEVE re-discovery on the standing tick — runs once per cycle (estate-
+        # wide, like the dormancy sweep), ALONGSIDE the legacy scan, projecting
+        # every resolved entity through the SAME registry/ledger governance
+        # boundary so a SIEVE-surfaced shadow lands governable. Only active when
+        # a driver was attached (master flag on). Never breaks the cycle: the
+        # driver itself never raises, and this guard is belt-and-braces.
+        sieve_summary = None
+        if (
+            self._sieve_driver is not None
+            and self._registry is not None
+            and self._discovery_ledger is not None
+        ):
+            try:
+                result = self._sieve_driver.run(
+                    self._registry, self._discovery_ledger
+                )
+                sieve_summary = {
+                    "ran": True,
+                    "degraded": result is None,
+                    "active_planes": list(
+                        self._sieve_driver.active_plane_flags()
+                    ),
+                }
+            except Exception as exc:  # noqa: BLE001 — SIEVE never breaks the tick
+                _logger.warning(
+                    "BackgroundScanScheduler: SIEVE pass failed: %s", exc
+                )
+                sieve_summary = {"ran": False, "error": str(exc)}
+
         self._last_run_completed_at = time.time()
         self._last_run_summary = {
             "duration_seconds": round(cycle_duration, 3),
             "tenants": per_tenant_summaries,
             "dormancy": dormancy_summary,
         }
+        # Additive: only surface the SIEVE key when a driver actually ran, so a
+        # scheduler with no driver attached keeps its exact prior summary shape.
+        if sieve_summary is not None:
+            self._last_run_summary["sieve"] = sieve_summary
         self._run_count += 1
         _logger.info(
             "BackgroundScanScheduler: cycle %d complete in %.2fs",

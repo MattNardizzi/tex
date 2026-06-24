@@ -75,11 +75,12 @@ def _discovery_service(request: Request):
 
 
 def _sieve_driver(request: Request):
-    """The optional SIEVE driver (``None`` unless ``TEX_SIEVE_ENABLED`` is set).
+    """The SIEVE driver (present by default; ``None`` only when opted out).
 
-    Attached at boot by ``build_sieve_driver``; ``None`` is the default-safe
-    posture (no master flag → legacy path only). Ignite runs it ADDITIVELY,
-    after the legacy scan, inside its own guard so SIEVE never breaks ignition.
+    Attached at boot by ``build_sieve_driver``, which is default-ON (opt-out):
+    ``None`` appears only when ``TEX_SIEVE_ENABLED=0`` (legacy path only). Ignite
+    runs it ADDITIVELY, after the legacy scan, inside its own guard so SIEVE
+    never breaks ignition.
     """
     return getattr(request.app.state, "sieve_driver", None)
 
@@ -208,9 +209,8 @@ def build_discovery_surface_router() -> APIRouter:
                 # rather than failing the operator's deliberate act.
                 pass
 
-        # SIEVE engine — ADDITIVE, default-safe. ``_sieve_driver`` is ``None``
-        # unless ``TEX_SIEVE_ENABLED`` is set, so with no flags this is a pure
-        # no-op and ignite behaves exactly as today. When the driver is present,
+        # SIEVE engine — ADDITIVE. ``_sieve_driver`` is present by default
+        # (opt-out: ``None`` only when ``TEX_SIEVE_ENABLED=0``). When present,
         # it runs the flag-enabled SIEVE planes ALONGSIDE the legacy scan and
         # projects every resolved entity through the SAME registry/ledger
         # governance boundary, so a SIEVE-surfaced shadow lands governable and is

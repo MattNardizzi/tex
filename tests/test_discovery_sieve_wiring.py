@@ -6,10 +6,11 @@ discovery surface — NOT the engine internals (those are covered by
 ``test_discovery_sieve_slice.py`` and the per-plane tests). The three load-
 bearing obligations from the wiring brief:
 
-(a) DORMANT BY DEFAULT — with NO ``TEX_SIEVE_*`` flags set, ``build_sieve_driver``
-    returns ``None`` (legacy path only), ``_build_discovery_connectors`` is
-    unchanged, and an ignite call neither activates SIEVE nor crashes. The
-    boot/ignite behavior is byte-for-byte today's.
+(a) DEFAULT ON (opt-out) — with no flags ``build_sieve_driver`` returns a driver
+    (the standing discovery engine), ``_build_discovery_connectors`` is still
+    unchanged (SIEVE is a SIBLING, never a replacement), and an ignite call
+    neither breaks nor mutates the legacy connector list. Setting
+    ``TEX_SIEVE_ENABLED=0`` restores the legacy-only path (no driver attached).
 
 (b) ACTIVE WHEN FLAGGED — with ``TEX_SIEVE_ENABLED`` + ONE plane flag + a fixture
     source, the driver runs the SIEVE engine and surfaces a resolved entity
@@ -79,13 +80,16 @@ def _plant_two_occasion_estate(root: Path) -> tuple[Path, Path]:
 # ---------------------------------------------------------------------------
 
 
-def test_no_flags_yields_no_driver():
-    """With no env flags, ``build_sieve_driver`` is a pure no-op (returns None)."""
-    assert build_sieve_driver({}) is None
-    # Also robust to unrelated env present but the master flag absent / falsey.
-    assert build_sieve_driver({"TEX_APP_ENV": "development"}) is None
+def test_default_on_builds_driver_explicit_off_disables():
+    """SIEVE is default-ON (opt-out): with no flags a driver IS built; only an
+    explicit falsey master flag yields the legacy-only (None) path."""
+    assert build_sieve_driver({}) is not None
+    # Robust to unrelated env present — an absent master flag still means ON.
+    assert build_sieve_driver({"TEX_APP_ENV": "development"}) is not None
+    # Explicit opt-out → None (legacy-only path).
     assert build_sieve_driver({_MASTER: "0"}) is None
     assert build_sieve_driver({_MASTER: "false"}) is None
+    assert build_sieve_driver({_MASTER: "off"}) is None
 
 
 def test_no_flags_build_active_sensors_is_empty():
@@ -114,13 +118,14 @@ def test_build_discovery_connectors_unchanged_without_flags(monkeypatch):
     monkeypatch.setenv(_MASTER, "1")
     after = [type(c).__name__ for c in _build_discovery_connectors()]
     assert before == after
-    # And the driver the flag would build is a no-op against the registry/ledger.
-    assert build_sieve_driver({}) is None
+    # And the driver built by default is a no-op SIBLING — present (default-on)
+    # but it never touches the legacy connector list.
+    assert build_sieve_driver({}) is not None
 
 
-def test_dormant_driver_run_is_inert_when_master_off():
-    """No driver → no projection. Simulate the ignite guard's None-check."""
-    driver = build_sieve_driver({_ACTIONS_FLAG: "1"})  # plane flag but NO master
+def test_driver_inert_when_master_explicitly_disabled():
+    """Explicit opt-out → no driver, even if a plane flag is set."""
+    driver = build_sieve_driver({_ACTIONS_FLAG: "1", _MASTER: "0"})
     assert driver is None  # ignite would skip SIEVE entirely
 
 

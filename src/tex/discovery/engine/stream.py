@@ -48,7 +48,7 @@ batch path is (ARCHITECTURE.md §8).
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 from uuid import UUID
@@ -183,6 +183,11 @@ class StreamingResolver:
 
         # Live state.
         self._tracked: dict[str, _Tracked] = {}
+        # Incremental capture-occasion accounting: how many live entities are
+        # currently captured on each plane. Maintained on every track/retire so
+        # ``_live_occasions`` is O(#planes) instead of an O(estate) re-walk of
+        # ``planes_seen`` — the per-feed latency must NOT scale with estate size.
+        self._plane_refcount: Counter[PlaneId] = Counter()
         self._inc_by_id: dict[UUID, Incidence] = {}
         # incidence_id -> stable key it currently belongs to.
         self._key_of_inc: dict[UUID, str] = {}
@@ -332,11 +337,19 @@ class StreamingResolver:
                 for tok in sorted(tokens - existing.capability_tokens):
                     drift.append((key, tok))
 
+            # Overwrite guard: a re-resolved key normally maps to an already-
+            # retired (planes-removed) component, but if it collides with a still-
+            # tracked entity, drop that entity's plane counts before re-adding so
+            # the refcount never double-counts.
+            displaced = self._tracked.get(key)
+            if displaced is not None:
+                self._planes_remove(displaced.entity)
             self._tracked[key] = _Tracked(
                 entity=entity,
                 confidence_floor=new_floor,
                 capability_tokens=tokens,
             )
+            self._planes_add(entity)
             self._seen_this_window.add(key)
             # Re-key this entity's member incidences to the stable key.
             for mid in entity.incidences:
@@ -438,13 +451,31 @@ class StreamingResolver:
         Unions the configured occasion order with whatever planes the live
         entities were genuinely captured on, so the estimator counts only real
         vantages (ARCHITECTURE.md §6) while preserving the configured order.
+
+        Reads the incrementally-maintained ``_plane_refcount`` (a plane is live
+        iff at least one tracked entity is captured on it) — O(#planes), NOT an
+        O(estate) walk of every entity's ``planes_seen``. This is what keeps
+        per-feed latency flat as the estate grows (the bounded-re-resolution
+        guarantee in ARCHITECTURE.md §5).
         """
-        live: set[PlaneId] = set()
-        for t in self._tracked.values():
-            live |= t.entity.planes_seen
+        live = {p for p, c in self._plane_refcount.items() if c > 0}
         ordered = [p for p in self._occasions if p in live]
         extra = [p for p in sorted(live, key=str) if p not in self._occasions]
         return tuple(ordered + extra) or self._occasions
+
+    def _planes_add(self, entity: SieveEntity) -> None:
+        """Increment the live-plane refcount for one newly-tracked entity."""
+        for plane in entity.planes_seen:
+            self._plane_refcount[plane] += 1
+
+    def _planes_remove(self, entity: SieveEntity) -> None:
+        """Decrement the live-plane refcount for one retired entity."""
+        for plane in entity.planes_seen:
+            remaining = self._plane_refcount.get(plane, 0) - 1
+            if remaining > 0:
+                self._plane_refcount[plane] = remaining
+            else:
+                self._plane_refcount.pop(plane, None)
 
     def _register_incidence(self, inc: Incidence) -> None:
         self._inc_by_id[inc.incidence_id] = inc
@@ -461,6 +492,7 @@ class StreamingResolver:
         tracked = self._tracked.pop(key, None)
         if tracked is None:
             return
+        self._planes_remove(tracked.entity)
         for mid in tracked.entity.incidences:
             self._key_of_inc.pop(mid, None)
 

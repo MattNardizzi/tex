@@ -316,6 +316,16 @@ class _MUFitter:
 
         ``agreement_vectors`` is one ``frozenset`` of agreeing key names per
         candidate pair. Keys never appearing in any vector keep their prior.
+
+        **Scaling (the leaf-pool fix).** On a real ~10⁵-leaf fleet the candidate
+        set is large but the number of DISTINCT agreement-vector shapes is tiny
+        (4 observed on the tex-enterprise fleet across 155k pairs). Identical
+        vectors contribute identically to every EM sum, so we collapse them to
+        ``{vector: weight}`` once and run the E/M sums over the DISTINCT vectors
+        weighted by their multiplicity — mathematically identical to iterating
+        every pair, but O(distinct-shapes · keys · iters) instead of
+        O(pairs · keys · iters). This is what keeps the EM fit sub-second on the
+        full estate.
         """
         keys = sorted(
             {k for vec in agreement_vectors for k in vec}
@@ -331,12 +341,20 @@ class _MUFitter:
         if not agreement_vectors:
             return MUParams(m=m, u=u, p_match=self._P_FLOOR, iterations=0, converged=True)
 
+        # Collapse identical agreement vectors to (vector, weight). Exact: every
+        # copy of a vector contributes the same g and the same per-key increments,
+        # so weighting the distinct shapes by their count reproduces the full-pair
+        # sums bit-for-bit (modulo float assoc).
+        vec_weights: Counter[frozenset[str]] = Counter(agreement_vectors)
+        distinct_vectors = list(vec_weights.items())
+        n_total = float(len(agreement_vectors))
+
         p = max(self._P_FLOOR, min(self._P_CEIL, 0.1))
         iters = 0
         converged = False
         for _ in range(self._MAX_ITERS):
             iters += 1
-            # E-step: posterior match-weight of each pair.
+            # E-step: posterior match-weight of each DISTINCT vector, ×weight.
             gsum = 0.0
             num_m: dict[str, float] = {k: 0.0 for k in keys}
             num_u: dict[str, float] = {k: 0.0 for k in keys}
@@ -344,7 +362,8 @@ class _MUFitter:
             denom_u = 0.0
             prev_m = dict(m)
             prev_u = dict(u)
-            for vec in agreement_vectors:
+            for vec, w in distinct_vectors:
+                wf = float(w)
                 # Likelihood of the agreement vector under each class (log-space).
                 lm = math.log(p)
                 lu = math.log(1.0 - p)
@@ -360,14 +379,15 @@ class _MUFitter:
                 bot = lu
                 hi = max(top, bot)
                 g = math.exp(top - hi) / (math.exp(top - hi) + math.exp(bot - hi))
-                gsum += g
-                denom_m += g
-                denom_u += 1.0 - g
+                gw = g * wf
+                gsum += gw
+                denom_m += gw
+                denom_u += (1.0 - g) * wf
                 for k in vec:
-                    num_m[k] += g
-                    num_u[k] += 1.0 - g
+                    num_m[k] += gw
+                    num_u[k] += (1.0 - g) * wf
             # M-step (with the FS identifiability anchor below).
-            p = max(self._P_FLOOR, min(self._P_CEIL, gsum / len(agreement_vectors)))
+            p = max(self._P_FLOOR, min(self._P_CEIL, gsum / n_total))
             for k in keys:
                 grade = _grade_for_key(k)
                 if denom_m > 0:
@@ -1016,6 +1036,15 @@ class PlaneTypedClusterer:
 # ---------------------------------------------------------------------------
 
 
+#: Bucket fan-out above which a blocking bucket is treated as a STAR (a spanning
+#: hub-and-spoke set of edges) instead of the full pairwise clique. Below this,
+#: small buckets keep the exact O(b²) clique (cheap, and it lets the FS EM see a
+#: few extra agreement vectors). Tunable; chosen so the per-window candidate set
+#: stays O(total incidences) rather than O(Σ bᵢ²) on a real ~10⁵-leaf fleet,
+#: while small genuine cohorts still get their full clique.
+_BUCKET_CLIQUE_CEIL: int = 16
+
+
 def _block(incidences: Sequence[Incidence]) -> set[tuple[UUID, UUID]]:
     """Union-of-blockers candidate generation (ARCHITECTURE.md §0 step 2).
 
@@ -1032,6 +1061,28 @@ def _block(incidences: Sequence[Incidence]) -> set[tuple[UUID, UUID]]:
     property). Footprints that share NO natural key still block (and fuse) if a
     behavioral fingerprint or an injected honeytoken marker agrees, which is how
     the no-common-key fusion target is met. Returns canonicalized id pairs.
+
+    **Scaling (the leaf-pool fix).** A naive pairwise clique per bucket is
+    O(Σ bᵢ²): on the real tex-enterprise fleet a single ``workspace_path`` /
+    ``agent_external_id`` value is carried by thousands of leaves (8508 / 3412
+    observed), so the clique blows up to ~3·10⁸ pairs and FUSE never finishes in
+    60 s. The fix preserves the SAME resolved entities while making candidate
+    generation O(Σ bᵢ) = O(n):
+
+    * a bucket of size ≤ ``_BUCKET_CLIQUE_CEIL`` keeps its exact pairwise clique
+      (cheap; gives the FS EM a few real agreement vectors);
+    * a LARGE bucket is reduced to a **spanning STAR** — a stable hub leaf linked
+      to every other leaf (b−1 edges instead of b·(b−1)/2). The star is exact for
+      the clusterer's purpose: IDENTITY-grade buckets close transitively, so the
+      star yields the IDENTICAL union-find component as the full clique; for
+      BRIDGING-grade buckets the N1 split + N4 incoherence are driven by the
+      shared VALUE grouping (``_apply_bridges`` / ``_fold_single_component_
+      credentials`` re-scan by value, not by exhaustive edges), so a spanning
+      star surfaces every cross-component bridge a clique would. Popular bridges
+      still contribute ≈0 via the N5 ``1/anon_set_size`` discount.
+
+    The hub is chosen deterministically (lexicographically smallest id) so the
+    candidate set is stable across runs and independent of input order.
     """
     # Invert: (key_name, value) -> [incidence_ids that carry it].
     buckets: dict[tuple[str, str], list[UUID]] = defaultdict(list)
@@ -1041,11 +1092,24 @@ def _block(incidences: Sequence[Incidence]) -> set[tuple[UUID, UUID]]:
 
     pairs: set[tuple[UUID, UUID]] = set()
     for ids in buckets.values():
-        if len(ids) < 2:
+        n = len(ids)
+        if n < 2:
             continue
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                a, b = ids[i], ids[j]
+        if n <= _BUCKET_CLIQUE_CEIL:
+            # Small cohort: exact pairwise clique.
+            for i in range(n):
+                for j in range(i + 1, n):
+                    a, b = ids[i], ids[j]
+                    pairs.add((a, b) if str(a) < str(b) else (b, a))
+        else:
+            # Large bucket: spanning star off a deterministic hub. b−1 edges,
+            # same connected component (and same cross-component bridge surface)
+            # as the full clique, at O(b) cost instead of O(b²).
+            hub = min(ids, key=str)
+            for other in ids:
+                if other == hub:
+                    continue
+                a, b = hub, other
                 pairs.add((a, b) if str(a) < str(b) else (b, a))
     return pairs
 

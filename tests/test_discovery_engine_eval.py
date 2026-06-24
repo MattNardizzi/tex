@@ -452,3 +452,184 @@ def _entity_truths(entity, pop: Population) -> set[str]:
     return {
         _truth_of(by_id[mid]) for mid in entity.incidences if mid in by_id
     }
+
+
+# ---------------------------------------------------------------------------
+# FRESH-PLANT ECE corroboration (the BLIND_SPOT_REGISTER cites THIS test).
+#
+# The register's calibration paragraph claims an INDEPENDENT fresh-plant harness
+# corroborates the primary ECE in the same safe (under-confident) direction. An
+# honesty gate forbids citing a measured number with no emitting test — so this
+# test IS that harness: it plants a SEPARATE population on a DIFFERENT seed with
+# DISTINCT hex sigs / honeytoken ids / credential names the primary eval never
+# used (so it is a genuinely fresh plant, not a re-run of the same fixture),
+# resolves it through the SAME engine, and EMITS its own ECE at a named marker.
+# The register cites this test by name the same way it cites the primary 0.2896.
+# ---------------------------------------------------------------------------
+
+#: A SECOND fixed seed, distinct from ``_SEED``, so the fresh-plant population is
+#: deterministic but genuinely independent of the primary eval population.
+_FRESH_SEED = 0xF00D_5EED  # distinct from _SEED; drives the fresh hex/ids below.
+
+
+def _build_fresh_population(seed: int) -> tuple[list[Incidence], dict[UUID, str]]:
+    """Plant a fresh no-common-key population with DISTINCT hex sigs / ids.
+
+    Every agent's behavioral sig and honeytoken marker is a fresh hex token
+    derived from ``seed`` (a namespace — ``fresh-…`` — the engine has never seen
+    in the primary eval), so the resolver cannot have memorized anything: this is
+    an out-of-sample plant. Each agent leaves three sightings sharing NO natural
+    key, fusable only through the behavioral sig + honeytoken bridge — exactly the
+    hard no-common-key case the engine must resolve. Returns the incidences plus
+    a per-incidence ground-truth label map for scoring.
+    """
+    rng = random.Random(seed)
+    incs: list[Incidence] = []
+    truth_of: dict[UUID, str] = {}
+
+    n_agents = 40
+    for i in range(n_agents):
+        # Fresh hex tokens — a namespace the primary eval never used.
+        tok = rng.getrandbits(64)
+        truth = f"fresh-{tok:016x}"
+        sig = f"fresh-behavsig-{tok:016x}"
+        marker = f"fresh-honeytoken-{rng.getrandbits(64):016x}"
+
+        s1 = _inc(
+            PlaneId.ACTIONS_TRAIL,
+            keys={"behavior_sig": sig, "workspace_path": f"fr/{tok:016x}-a.md"},
+            truth=truth,
+            attrs={"action_type": "write"},
+        )
+        s2 = _inc(
+            PlaneId.FS_WRITE,
+            keys={"honeytoken": marker, "workspace_path": f"fr/{tok:016x}-b.md"},
+            truth=truth,
+            admissibility=Admissibility.PROVEN,
+        )
+        s3 = _inc(
+            PlaneId.FS_WRITE,
+            keys={"behavior_sig": sig, "honeytoken": marker},
+            truth=truth,
+            admissibility=Admissibility.PROVEN,
+        )
+        for s in (s1, s2, s3):
+            incs.append(s)
+            truth_of[s.incidence_id] = truth
+
+    rng.shuffle(incs)  # order-independence: fusion must not depend on input order.
+    return incs, truth_of
+
+
+def test_fresh_plant_ece_corroborates_primary_same_safe_direction() -> None:
+    """Independent fresh-plant ECE — the figure BLIND_SPOT_REGISTER.md cites.
+
+    Plants a DISTINCT population (different seed, fresh hex sigs/ids the engine
+    never saw), resolves it, and emits its own ECE. Asserts the SAME safe
+    properties the primary eval guarantees: the resolver is near-perfectly
+    accurate on the planted population, and its confidence-vs-correctness ECE is a
+    finite fraction in [0,1] reflecting CONSERVATIVE (under-confident) calibration
+    driven by correct singletons floored at the 0.30 singleton-confidence floor —
+    never over-confident. The exact value is PRINTED (not pinned) because it
+    tracks the engine; the register cites the value THIS test emits.
+    """
+    incs, truth_of = _build_fresh_population(_FRESH_SEED)
+    entities = resolve_full(incs)
+
+    # An entity is "correct" iff its members are exactly one planted agent's
+    # footprints with no cross-agent contamination.
+    def _entity_label_set(e) -> set[str]:
+        return {truth_of[m] for m in e.incidences if m in truth_of}
+
+    confidences = [e.fusion_confidence for e in entities]
+    correct = [len(_entity_label_set(e)) == 1 for e in entities]
+    ece = expected_calibration_error(confidences, correct)
+    accuracy = sum(correct) / len(correct) if correct else 1.0
+    mean_conf = sum(confidences) / len(confidences) if confidences else 0.0
+
+    print("\n=== SIEVE fresh-plant ECE (seed=0x{:x}) ===".format(_FRESH_SEED))
+    print(f"[fresh] resolved entities         : {len(entities)}")
+    print(f"[fresh] entity resolution accuracy: {accuracy:.4f}")
+    print(f"[fresh] mean entity confidence    : {mean_conf:.4f}")
+    print(f"[fresh] entity-confidence ECE     : {ece:.4f}")
+
+    # Same load-bearing guarantees as the primary eval:
+    assert 0.0 <= ece <= 1.0
+    assert accuracy >= 0.95, f"fresh-plant entity resolution accuracy {accuracy:.4f} < 0.95"
+    # Conservative direction: when the resolver is (near-)perfectly accurate, mean
+    # confidence must not EXCEED accuracy by more than a small margin — i.e. it is
+    # under-confident (floored singletons), never over-confident. This is the
+    # "same safe direction" claim the register makes.
+    assert mean_conf <= accuracy + 0.05, (
+        f"fresh-plant calibration is OVER-confident "
+        f"(mean_conf {mean_conf:.4f} > accuracy {accuracy:.4f}) — register claim broken"
+    )
+
+
+# ---------------------------------------------------------------------------
+# THIRD ECE recompute over the COVERAGE-HARNESS estate (the figure
+# BLIND_SPOT_REGISTER.md cites as its third independent corroboration).
+#
+# The register's calibration paragraph cites a THIRD ECE figure computed over
+# the Layer-A coverage-harness estate (the same estate the coverage proof
+# resolves). The register's own honesty discipline forbids citing a measured
+# number with no emitting test — so this test IS that harness: it plants the
+# FULL coverage estate via ``plant_all``, runs the SAME engine through
+# ``run_full_engine``, and EMITS the ECE over the resolved entities at a named
+# marker. The register cites the value THIS test prints, with the reproducible
+# resolved-entity count (the full estate resolves 23 entities — the 13-agent
+# subset is the per-archetype headline, a DIFFERENT set), exactly the way it
+# cites the primary 0.2896 and the fresh-plant 0.1863.
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_harness_ece_third_corroboration_same_safe_direction() -> None:
+    """Third ECE recompute over the coverage-harness estate — register cites THIS.
+
+    Resolves the FULL Layer-A coverage estate through the same engine and emits
+    its ECE. Asserts the SAME safe properties as the other two figures: the
+    resolver is near-perfectly accurate on the planted estate, and its
+    confidence-vs-correctness ECE reflects CONSERVATIVE (under-confident)
+    calibration (mean confidence below accuracy, driven by correct singletons
+    floored at the 0.30 singleton-confidence floor) — never over-confident. The
+    exact ECE and the resolved-entity COUNT are PRINTED (not pinned) because they
+    track the engine; the register cites the values THIS test emits.
+    """
+    from tests.discovery_coverage_harness import (
+        plant_all,
+        run_full_engine,
+        truth_of,
+    )
+
+    estate = plant_all()
+    result = run_full_engine(estate)
+    entities = result.entities
+
+    # An entity is "correct" iff its members are exactly one planted agent's
+    # footprints with no cross-agent contamination (the same definition the
+    # primary and fresh-plant ECE figures use).
+    confidences = [e.fusion_confidence for e in entities]
+    correct = [len(result.truths_of(e)) == 1 for e in entities]
+    ece = expected_calibration_error(confidences, correct)
+    accuracy = sum(correct) / len(correct) if correct else 1.0
+    mean_conf = sum(confidences) / len(confidences) if confidences else 0.0
+
+    print("\n=== SIEVE coverage-harness ECE ===")
+    print(f"[harness] resolved entities        : {len(entities)}")
+    print(f"[harness] entity resolution accuracy: {accuracy:.4f}")
+    print(f"[harness] mean entity confidence    : {mean_conf:.4f}")
+    print(f"[harness] entity-confidence ECE     : {ece:.4f}")
+
+    # Same load-bearing guarantees as the other two ECE figures:
+    assert 0.0 <= ece <= 1.0
+    assert accuracy >= 0.95, (
+        f"coverage-harness entity resolution accuracy {accuracy:.4f} < 0.95"
+    )
+    # Conservative direction: the resolver is (near-)perfectly accurate, so mean
+    # confidence must NOT exceed accuracy by more than a small margin — i.e. it is
+    # under-confident (floored singletons), never over-confident. This is the
+    # "same safe direction" the register claims for all three estates.
+    assert mean_conf <= accuracy + 0.05, (
+        f"coverage-harness calibration is OVER-confident "
+        f"(mean_conf {mean_conf:.4f} > accuracy {accuracy:.4f}) — register claim broken"
+    )

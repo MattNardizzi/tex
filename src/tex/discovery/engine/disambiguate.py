@@ -99,6 +99,25 @@ __all__ = [
 #: sessions). Eight covers every realistic shared-service-principal fan-out.
 _K_MAX: int = 8
 
+#: Maximum cohort size the BEHAVIORAL splitter runs its full pairwise-distance +
+#: agglomerative BIC + e-value model on. The behavioral model builds an n×n
+#: grammar-distance matrix (O(n²)) and runs an agglomerative clusterer (O(n³))
+#: per candidate k — fine for the handful-of-agents shared-credential cohorts it
+#: is designed for, but on a real fleet a single bridging credential (a shared
+#: ``agent_external_id`` / ``egress_ip``) is carried by THOUSANDS of already-
+#: resolved leaves, and n³ over n≈3.4k stalls FUSE for minutes. A genuine
+#: shared-credential cohort hiding distinct agents is small (bounded by _K_MAX-ish
+#: real principals); a cohort of thousands is the SAME agent's many sessions, not
+#: thousands of hidden agents. Above this cap the behavioral model is structurally
+#: the wrong instrument, so the splitter emits an HONEST deferred verdict
+#: (``behavioral_split_deferred_cohort_too_large``) that explicitly names why and
+#: hands the split decision to the structural N1 clusterer (which already ran in
+#: O(n) and governs the entity count). This is a vantage/method limit named in the
+#: open, never a silent over- or under-split. Tunable; chosen well above any
+#: realistic genuine shared-credential fan-out while keeping the model quadratic-
+#: bounded on the full estate.
+_BEHAVIORAL_COHORT_CAP: int = 256
+
 #: Anytime-valid significance level for declaring a mixture (>1 process). The
 #: e-value threshold is 1/alpha; alpha = 0.05 ⇒ commit k>1 only when the
 #: mixture-vs-single e-value exceeds 20. Ville's inequality bounds the
@@ -568,6 +587,28 @@ def resolve_shared_credential(
                     confidence=0.5 if n == 1 else 0.0,
                     split_axis_signals=(),
                     method="singleton_no_split" if n == 1 else "empty",
+                )
+            )
+            continue
+
+        # Oversized cohort: the O(n²) distance matrix + O(n³) agglomerative BIC is
+        # the wrong instrument here (a credential carried by thousands of leaves is
+        # one agent's many sessions, not thousands of hidden agents). DEFER the
+        # behavioral split to the structural N1 clusterer (already resolved this
+        # cohort in O(n)) and say so honestly — never silently over/under-split,
+        # never stall the estate. k_estimate=1 here means "the behavioral model did
+        # not split"; the structural verdict the clusterer attached governs the
+        # real entity count (and is KEPT — pipeline._merge_credential_verdicts only
+        # appends this behavioral verdict, it never overwrites the structural one).
+        if n > _BEHAVIORAL_COHORT_CAP:
+            verdicts.append(
+                SharedCredentialVerdict(
+                    credential_id=credential_id,
+                    k_estimate=1,
+                    member_entity_ids=(uuid4(),),
+                    confidence=0.5,
+                    split_axis_signals=(),
+                    method="behavioral_split_deferred_cohort_too_large",
                 )
             )
             continue

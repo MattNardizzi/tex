@@ -74,6 +74,16 @@ def _discovery_service(request: Request):
     return getattr(request.app.state, "discovery_service", None)
 
 
+def _sieve_driver(request: Request):
+    """The optional SIEVE driver (``None`` unless ``TEX_SIEVE_ENABLED`` is set).
+
+    Attached at boot by ``build_sieve_driver``; ``None`` is the default-safe
+    posture (no master flag → legacy path only). Ignite runs it ADDITIVELY,
+    after the legacy scan, inside its own guard so SIEVE never breaks ignition.
+    """
+    return getattr(request.app.state, "sieve_driver", None)
+
+
 # Agents that are "running" in the estate for the spoken count: everything
 # discovered and present, excluding the ones Tex put to sleep (the dormant
 # doctrine forbids speaking about them) and the terminally revoked. A
@@ -196,6 +206,23 @@ def build_discovery_surface_router() -> APIRouter:
                 # Discovery is decoupled from the voice: if a scan errors,
                 # ignition still speaks the truth of what is already known
                 # rather than failing the operator's deliberate act.
+                pass
+
+        # SIEVE engine — ADDITIVE, default-safe. ``_sieve_driver`` is ``None``
+        # unless ``TEX_SIEVE_ENABLED`` is set, so with no flags this is a pure
+        # no-op and ignite behaves exactly as today. When the driver is present,
+        # it runs the flag-enabled SIEVE planes ALONGSIDE the legacy scan and
+        # projects every resolved entity through the SAME registry/ledger
+        # governance boundary, so a SIEVE-surfaced shadow lands governable and is
+        # counted in the spoken estate. The driver never raises; this guard is
+        # belt-and-braces so SIEVE can never break the operator's deliberate act.
+        sieve = _sieve_driver(request)
+        if sieve is not None:
+            try:
+                ledger = getattr(request.app.state, "discovery_ledger", None)
+                if ledger is not None:
+                    sieve.run(registry, ledger)
+            except Exception:  # noqa: BLE001 — SIEVE is decoupled from the voice
                 pass
 
         if is_real_tenant:

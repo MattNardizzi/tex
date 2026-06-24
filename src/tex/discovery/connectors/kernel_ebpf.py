@@ -27,6 +27,19 @@ Real connector replacement: implement ``_run_scan`` against the Tetragon
 gRPC event stream (or a JSON export), correlating ``process_exec`` events
 that load a known agent runtime/binary into one CandidateAgent per
 (measured_code_hash, pod). The fields below map directly.
+
+SIEVE engine delegation (P9)
+----------------------------
+The CANONICAL P9 kernel/eBPF implementation now lives in the SIEVE engine at
+``tex.discovery.engine.sensors.kernel_ebpf`` (``KernelEbpfSensor``). That sensor
+ingests the same Tetragon event shape but resolves the TWO-AXIS identity the
+single-key ``(measured_code_hash, pod)`` grouping here cannot: ``code_hash``
+MERGES many ``exec_id``s of one binary while ``syscall_graph_sig`` SPLITS two
+distinct agents that share a binary, and it emits ``Incidence`` records (the
+SIEVE leaf) rather than ``CandidateAgent``. This legacy connector is preserved
+unchanged for the ``CandidateAgent`` discovery-witness path (and its existing
+tests); ``as_engine_sensor`` is the delegation seam that hands a SIEVE caller the
+real engine sensor instead of duplicating the kernel logic here.
 """
 
 from __future__ import annotations
@@ -88,6 +101,28 @@ class KernelEbpfConnector(BaseConnector):
 
     def replace_events(self, events: list[dict[str, Any]]) -> None:
         self._events = list(events)
+
+    @staticmethod
+    def as_engine_sensor(events_path: str | None = None):
+        """Delegate to the canonical SIEVE P9 sensor (the engine implementation).
+
+        Returns the real ``KernelEbpfSensor`` from
+        ``tex.discovery.engine.sensors.kernel_ebpf`` — the two-axis (code_hash
+        MERGE / syscall_graph_sig SPLIT) implementation that emits ``Incidence``
+        leaves — built against a Tetragon JSONL ``events_path`` (a live
+        ``tetra getevents -o json`` export on Linux, or a recorded same-shape
+        fixture on macOS/tests). With ``events_path`` absent the sensor degrades
+        to empty (senses nothing), never raising. This is the SIEVE delegation
+        seam: the engine owns the kernel logic; this connector no longer
+        duplicates it.
+        """
+        from tex.discovery.engine.sensors.kernel_ebpf import (
+            KERNEL_EBPF_EVENTS_ENV,
+            build_kernel_ebpf_sensor,
+        )
+
+        env = {KERNEL_EBPF_EVENTS_ENV: events_path} if events_path else {}
+        return build_kernel_ebpf_sensor(env)
 
     def _run_scan(self, context: ConnectorContext) -> Iterable[CandidateAgent]:
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)

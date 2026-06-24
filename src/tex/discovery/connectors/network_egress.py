@@ -29,16 +29,30 @@ Real connector replacement: implement ``_run_scan`` against a Zeek/Suricata
 feed, a forward-proxy access log, or VPC flow logs joined to a JA4
 fingerprint store, grouping flows by (workload source, JA4, SNI). The
 fields below map directly.
+
+DELEGATION (the SIEVE network-egress collector is the single source of truth):
+this connector now delegates its flow parsing + grouping to the engine sensor's
+collector (``engine.sensors.network_egress``) so the flow-feature extractor —
+including the behavioral ``token_waveform_sig`` / ``cadence_sig`` axis the old
+inline grouper lacked — lives in exactly one place. This connector remains the
+``DiscoverySource``-shaped output adapter (it still emits ``CandidateAgent``);
+its class name, constructor signature, and the ``(workload, ja4, sni)`` grouping
+behavior the witness-layer tests assert are preserved (flows with no behavioral
+facets collapse to one group per workload/ja4/sni exactly as before).
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections import defaultdict
-from datetime import UTC, datetime
 from typing import Any, Iterable
 
 from tex.discovery.connectors.base import BaseConnector, ConnectorContext
+from tex.discovery.engine.sensors.network_egress import (
+    EgressGroup,
+    group_flows,
+    parse_ocsf_flow_records,
+    provider_for_host as _provider_for_host,
+)
 from tex.domain.agent import AgentEnvironment
 from tex.domain.discovery import (
     CandidateAgent,
@@ -46,30 +60,6 @@ from tex.domain.discovery import (
     DiscoveryRiskBand,
     DiscoverySource,
 )
-
-# Current LLM / agent API egress destinations (SNI / host header → provider).
-# Kept conservative and updatable; matched as a suffix so regional
-# subdomains (bedrock-runtime.us-east-1.amazonaws.com) resolve too.
-_MODEL_ENDPOINTS: dict[str, str] = {
-    "api.openai.com": "openai",
-    "api.anthropic.com": "anthropic",
-    "generativelanguage.googleapis.com": "google",
-    "aiplatform.googleapis.com": "google_vertex",
-    "bedrock-runtime.amazonaws.com": "aws_bedrock",
-    "bedrock-agentcore.amazonaws.com": "aws_bedrock_agentcore",
-    "api.cohere.ai": "cohere",
-    "api.mistral.ai": "mistral",
-    "api.groq.com": "groq",
-    "openai.azure.com": "azure_openai",
-}
-
-
-def _provider_for_host(host: str) -> str | None:
-    low = host.casefold()
-    for suffix, provider in _MODEL_ENDPOINTS.items():
-        if low == suffix or low.endswith("." + suffix) or suffix in low:
-            return provider
-    return None
 
 
 class NetworkEgressConnector(BaseConnector):
@@ -102,38 +92,29 @@ class NetworkEgressConnector(BaseConnector):
         self._flows = list(flows)
 
     def _run_scan(self, context: ConnectorContext) -> Iterable[CandidateAgent]:
-        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
-        for flow in self._flows:
-            sni = str(flow.get("sni", "")).strip()
-            if not sni or _provider_for_host(sni) is None:
-                continue  # only model-endpoint egress is agent evidence
-            workload = str(flow.get("source_workload", "")).strip()
-            ja4 = str(flow.get("ja4") or flow.get("ja3") or "").strip()
-            if not workload or not ja4:
+        # Delegate parsing + behavioral grouping to the SIEVE collector. It
+        # drops non-model egress, groups on the behavioral key (workload/ja4/sni
+        # + token_waveform_sig/cadence_sig), and returns aggregated EgressGroups.
+        groups = group_flows(parse_ocsf_flow_records(self._flows))
+        for group in groups:
+            # A connector candidate needs the legacy ``(workload, ja4, sni)``
+            # tuple to form a stable external id; a group missing any of them is
+            # not connector-emittable (the engine SENSOR still emits it as an
+            # Incidence on whatever facets it has).
+            if not (group.source_workload and group.ja4 and group.sni):
                 continue
-            grouped[(workload, ja4, sni)].append(flow)
-
-        for (workload, ja4, sni), flows in grouped.items():
-            yield self._build_candidate(workload, ja4, sni, flows, context)
+            yield self._build_candidate(group, context)
 
     def _build_candidate(
         self,
-        workload: str,
-        ja4: str,
-        sni: str,
-        flows: list[dict[str, Any]],
+        group: EgressGroup,
         context: ConnectorContext,
     ) -> CandidateAgent:
-        provider = _provider_for_host(sni) or "unknown"
-        first = min(
-            (_parse_iso(f.get("first_seen")) for f in flows if f.get("first_seen")),
-            default=None,
-        )
-        last = max(
-            (_parse_iso(f.get("last_seen")) for f in flows if f.get("last_seen")),
-            default=first,
-        )
-        connections = sum(int(f.get("connection_count", 1)) for f in flows)
+        workload = group.source_workload or ""
+        ja4 = group.ja4 or ""
+        sni = group.sni or ""
+        provider = group.provider or "unknown"
+        connections = group.connection_count
 
         # A stable, content-free external id: the workload + client
         # fingerprint + destination. Survives IP and cert rotation, which
@@ -151,7 +132,7 @@ class NetworkEgressConnector(BaseConnector):
             inferred_recipient_domains=(sni.casefold(),),
         )
 
-        evidence = {
+        evidence: dict[str, Any] = {
             "source_workload": workload,
             "ja4": ja4,
             "sni": sni,
@@ -161,34 +142,28 @@ class NetworkEgressConnector(BaseConnector):
             "metadata_only": True,
             "catches": "headless/CLI/server agents with no card or directory entry",
         }
+        # Surface the behavioral axis the collector now derives (the old grouper
+        # had none) so the connector evidence carries the agent-vs-human /
+        # two-agents-behind-one-egress tells too.
+        if group.token_waveform_sig:
+            evidence["token_waveform_sig"] = group.token_waveform_sig
+        if group.cadence_sig:
+            evidence["cadence_sig"] = group.cadence_sig
+        if group.packetization_mode:
+            evidence["packetization_mode"] = group.packetization_mode
 
         return CandidateAgent(
             source=DiscoverySource.NETWORK_EGRESS,
             tenant_id=context.tenant_id,
             external_id=external_id,
-            name=f"egress:{workload}\u2192{provider}",
+            name=f"egress:{workload}→{provider}",
             model_provider_hint=provider,
             framework_hint="unknown_egress",
             environment_hint=AgentEnvironment.PRODUCTION,
             risk_band=risk,
             confidence=0.82,
             capability_hints=capability_hints,
-            last_seen_active_at=last,
+            last_seen_active_at=group.last_seen or group.first_seen,
             evidence=evidence,
             tags=("network_egress", "shadow", "metadata_only"),
         )
-
-
-def _parse_iso(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-    if not isinstance(value, str):
-        return None
-    try:
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        return datetime.fromisoformat(value).astimezone(UTC)
-    except ValueError:
-        return None

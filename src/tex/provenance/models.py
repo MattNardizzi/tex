@@ -294,10 +294,14 @@ class CoverageBoundary(BaseModel):
 
 
 class SealedFactKind(StrEnum):
-    """What a sealed truth object asserts. The seven governance actions Tex
-    must be able to prove after the fact (ROADMAP §D; ATTEMPT is the Wave-2
-    attempt-hook addition — pre-verdict by definition, so L3's count
-    conservation derives from sealed facts instead of trust-me inputs)."""
+    """What a sealed truth object asserts. The governance actions Tex must be
+    able to prove after the fact (ROADMAP §D; ATTEMPT is the Wave-2 attempt-hook
+    addition — pre-verdict by definition, so L3's count conservation derives
+    from sealed facts instead of trust-me inputs; PRECEDENT is the moat/Thread-C
+    addition — a tenant's own prior human resolutions auto-resolving a current
+    *discretionary* ABSTAIN, sealed citing the driving record_hash(es) so the
+    influence is itself auditable and replayable, NEVER a DECISION fact so it
+    stays invisible to L1's seal-binding and L3's verdict-count filters)."""
 
     ATTEMPT = "attempt"          # an evaluation was begun (pre-verdict, evaluate() entry)
     DECISION = "decision"        # a verdict was produced (PERMIT/ABSTAIN/FORBID)
@@ -311,6 +315,7 @@ class SealedFactKind(StrEnum):
     # verdict (DECISION) nor a pre-verdict marker (ATTEMPT), so L1's seal-binding
     # and L3's count-conservation — both keyed on DECISION — never see it.
     VERDICT_TRANSCRIPT = "verdict_transcript"
+    PRECEDENT = "precedent"      # a discretionary ABSTAIN was auto-resolved from sealed prior human resolutions
 
 
 class SealedFact(BaseModel):

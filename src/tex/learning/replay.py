@@ -40,6 +40,7 @@ from tex.domain.outcome import OutcomeRecord
 from tex.domain.outcome_trust import OutcomeTrustLevel
 from tex.domain.policy import PolicySnapshot
 from tex.domain.verdict import Verdict
+from tex.engine.precedent_influence import was_precedent_autoresolved
 from tex.learning.calibrator import CalibrationRecommendation
 
 
@@ -290,6 +291,17 @@ def _rederive_verdict(
       score <= permit_threshold AND
         confidence >= minimum_confidence            -> PERMIT
       otherwise                                     -> ABSTAIN
+
+    Precedent auto-resolution (engine/precedent_influence.py) is honoured the
+    same way the live PDP applies it: it acts ONLY on a discretionary ABSTAIN,
+    never on a PERMIT or FORBID. So a precedent-influenced decision's verdict is
+    pinned to its sealed, recorded resolution ONLY when the raw threshold
+    re-derivation is itself ABSTAIN. If a proposed recalibration pushes the score
+    into the FORBID region, the FORBID wins here too — precedent can never
+    override the floor, including under replay. This keeps the calibration
+    diff faithful (a precedent PERMIT sits in the ABSTAIN band by construction,
+    so naive re-derivation would otherwise mis-count it as a threshold-driven
+    flip into ABSTAIN that never actually happened).
     """
     score = decision.final_score
     confidence = decision.confidence
@@ -297,6 +309,8 @@ def _rederive_verdict(
         return Verdict.FORBID
     if score <= permit_threshold and confidence >= minimum_confidence:
         return Verdict.PERMIT
+    if was_precedent_autoresolved(decision.uncertainty_flags):
+        return decision.verdict
     return Verdict.ABSTAIN
 
 

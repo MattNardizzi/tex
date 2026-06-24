@@ -49,6 +49,7 @@ from tex.engine.path_policy_bridge import (
     PathPolicyOutcome,
     evaluate_path_policies_for_request,
 )
+from tex.engine.precedent_influence import apply_precedent_autoresolve
 from tex.engine.risk_spine import RiskSpine, apply_risk_spine
 from tex.engine.router import RoutingResult, build_default_router
 from tex.engine.verdict_certificate import verdict_certificate_metadata
@@ -455,6 +456,23 @@ class PolicyDecisionPoint:
             )
         crc_certificate = crc_result.certificate
         crc_ms = _elapsed_ms(crc_start)
+
+        # ── Precedent auto-resolution (moat / Thread-C) — the ONE caution-────
+        # REDUCING move, default OFF. Acts ONLY on a discretionary ABSTAIN
+        # (allowlist-gated, fail-closed) and ONLY toward PERMIT, citing the
+        # tenant's own sealed prior human resolutions and sealing the influence
+        # (no ledger / flag off ⇒ zero-cost no-op identical to today). The floor
+        # is structurally unreachable (it acts only when verdict is ABSTAIN).
+        # Runs before build_hold so a resolved ABSTAIN raises no operator hold.
+        # See engine/precedent_influence.py and PRECEDENT_INFLUENCE.md.
+        routing_result = apply_precedent_autoresolve(
+            base=routing_result,
+            request=request,
+            policy=policy,
+            retrieval_context=retrieval_context,
+            decision_ledger=self._decision_ledger,
+        )
+
         total_ms = _elapsed_ms(pipeline_start)
 
         # ── The hold — Tex's abstention made first-class ──────────────────

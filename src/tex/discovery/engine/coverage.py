@@ -86,6 +86,18 @@ def _join(names: list[str]) -> str:
     return f"{', '.join(names[:-1])}, and {names[-1]}"
 
 
+#: Spell small counts so the spoken line is consistent with the humanized agent
+#: count (the blind-plane count is always <= the roster size).
+_NUM_WORDS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven",
+    "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+)
+
+
+def _words(n: int) -> str:
+    return _NUM_WORDS[n] if 0 <= n < len(_NUM_WORDS) else str(n)
+
+
 def summarize(result: Any) -> Coverage:
     """Map a ``PlanesResult`` to the honest coverage handle + spoken clause."""
     entities = tuple(getattr(result, "entities", ()) or ())
@@ -123,7 +135,7 @@ def summarize(result: Any) -> Coverage:
             top = next((p for p in _PRIORITY if p in blind_planes), blind_planes[0])
             name, needs = _PLANE.get(top, (top.value, "a source"))
             n = len(blind_planes)
-            others = f"{n} planes are" if n != 1 else "one plane is"
+            others = f"{_words(n)} planes are" if n != 1 else "one plane is"
             parts.append(f"{others} still blind — {needs} would open {name}")
         else:
             parts.append("every plane I lit up is reporting")

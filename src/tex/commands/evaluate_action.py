@@ -211,6 +211,18 @@ class EvaluateActionCommand:
 
         try:
             request = self._ensure_controlled_agent_registered(request)
+            # FAITHFUL CaMeL plan-emission (default-OFF behind TEX_CAMEL_EMIT_ENABLED):
+            # the activation seam. When the request declares a GENUINE untrusted-
+            # read-then-branch flow (request.metadata['camel_branch_flow']), compile
+            # it into a metered CaMeL plan from the REAL request data and stamp it
+            # onto the request metadata so the evolved CamelSpecialist runs the
+            # CFI/CHOKE-X interpreter on it inside pdp.evaluate. ANTI-THEATER: the
+            # compiler reads the untrusted content from the REAL request and emits
+            # NOTHING when there is no real branch structure — it never synthesizes
+            # a plan, untrusted source, or branch. Best-effort: a compile failure
+            # must never break the gate verdict (the specialist simply abstains
+            # without a plan, exactly as before).
+            request = self._maybe_emit_camel_plan(request)
             # Ledgered value-class budget (default-OFF behind TEX_BUDGET_ENABLED):
             # the last mutable point before pdp.evaluate(). Derive this action's
             # confidentiality-class debit, reload the lineage's sealed cumulative
@@ -468,6 +480,61 @@ class EvaluateActionCommand:
 
         registry.save(existing.model_copy(update=updates))
         return request
+
+    def _maybe_emit_camel_plan(
+        self, request: EvaluationRequest
+    ) -> EvaluationRequest:
+        """Compile a faithful CaMeL plan from the request's REAL declared
+        untrusted-read-then-branch structure and stamp it onto the request
+        metadata, so the evolved ``CamelSpecialist`` runs the metered (CFI/CHOKE-X)
+        interpreter on it inside ``pdp.evaluate``.
+
+        FAITHFULNESS (the anti-theater contract): the plan + its untrusted
+        provenance come ONLY from the real request (``tex.camel.plan_emission.
+        compile_branch_flow``). When the request carries no genuine
+        ``camel_branch_flow`` block (or one without real untrusted content / a real
+        finite branch), ``compile_branch_flow`` returns ``None`` and this method
+        leaves the request UNCHANGED — the specialist then abstains. We never
+        fabricate a plan, an untrusted source, or a branch.
+
+        Default-OFF behind ``TEX_CAMEL_EMIT_ENABLED``. If the caller ALREADY
+        supplied a ``camel_plan`` (the legacy direct-injection path), we never
+        overwrite it. Best-effort: any failure leaves the request unchanged.
+        """
+        if os.environ.get("TEX_CAMEL_EMIT_ENABLED", "").strip().casefold() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return request
+        try:
+            from tex.camel.plan_emission import (
+                compile_branch_flow,
+                stash_emitted_plan,
+            )
+
+            metadata = getattr(request, "metadata", None) or {}
+            if isinstance(metadata, dict) and metadata.get("camel_plan") is not None:
+                # A plan is already present (legacy direct-injection path) — do not
+                # overwrite, and do not also stash (the legacy path supplies its own
+                # untrusted_env/projector on metadata).
+                return request
+            emitted = compile_branch_flow(request)
+            if emitted is None:
+                # No genuine untrusted-read-then-branch structure → emit nothing.
+                return request
+            # The Plan + projector are NOT JSON-serializable; the semantic layer
+            # JSON-dumps request.metadata, so we MUST NOT stamp them there. Stow the
+            # live emitted plan in the process-local, request-id-keyed sidecar; the
+            # evolved CamelSpecialist pops it back out by request_id. Only the
+            # JSON-safe provenance marker goes onto metadata (auditor-facing).
+            stash_emitted_plan(str(request.request_id), emitted)
+            new_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            new_metadata["camel_plan_provenance"] = dict(emitted.provenance)
+            return request.model_copy(update={"metadata": new_metadata})
+        except Exception:  # noqa: BLE001 — never break the gate on a compile failure
+            return request
 
     def _build_controlled_agent_identity(
         self,

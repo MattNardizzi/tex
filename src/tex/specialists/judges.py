@@ -22,6 +22,7 @@ from tex.specialists.planguard_specialist import PlanGuardSpecialist
 # Thread 12: frontier additions (May 2026)
 from tex.specialists.pcas_specialist import PcasSpecialist
 from tex.specialists.camel_specialist import CamelSpecialist
+from tex.specialists.branch_leverage_specialist import BranchLeverageSpecialist
 from tex.specialists.melon_specialist import MelonSpecialist
 from tex.specialists.struq_specialist import StruQSpecialist
 from tex.specialists.secalign_specialist import SecAlignSpecialist
@@ -397,6 +398,11 @@ def default_specialist_judges() -> tuple[SpecialistJudge, ...]:
         # Datalog policy frontend over a shared provenance graph
         # (arxiv 2503.18813, SentinelAI ext. arxiv 2505.22852).
         CamelSpecialist(),               # Thread 12 — arxiv 2503.18813
+        # iter-6 activation: surface the metered CaMeL interpreter's CHOKE-X /
+        # CFI branch-leverage ABSTAIN as a named PDP axis. Abstains in-suite
+        # (the canonical PERMIT→ABSTAIN demotion is apply_branch_leverage_hold
+        # reading the FINAL bundle); this gives auditors a dedicated signal.
+        BranchLeverageSpecialist(),      # iter-6 — CHOKE-X/CFI over-budget axis
         # Model-side defense adapters. Heuristic backends ship; real
         # SecAlign/StruQ/MELON-tuned model backends are pluggable.
         MelonSpecialist(),               # Thread 12 — arxiv 2502.05174

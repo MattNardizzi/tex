@@ -120,11 +120,21 @@ from tex.camel.policy import (
     ToolPolicyRegistry,
 )
 from tex.camel.q_llm import QuarantinedLLM, StubQuarantinedLLM
+from tex.camel.plan_emission import (
+    DeterministicDomainProjector,
+    EmittedPlan,
+    compile_branch_flow,
+    plan_emission_enabled,
+)
 from tex.camel.value import CapValue
 
 __all__ = [
     "Assign",
     "AttenuationError",
+    "DeterministicDomainProjector",
+    "EmittedPlan",
+    "compile_branch_flow",
+    "plan_emission_enabled",
     "Branch",
     "Call",
     "Capability",

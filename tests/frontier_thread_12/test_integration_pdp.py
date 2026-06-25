@@ -61,7 +61,9 @@ def test_suite_handles_injection_payload_e2e():
         },
     )
     bundle = suite.evaluate(request=req, retrieval_context=RetrievalContext())
-    assert len(bundle.results) == 20
+    # 21 = the 20 pre-iter-6 specialists + the iter-6 BranchLeverageSpecialist
+    # (the named CHOKE-X/CFI branch-leverage axis).
+    assert len(bundle.results) == 21
     # At least one Thread 12 specialist must FORBID this scenario
     thread_12_flags = [
         r for r in bundle.results

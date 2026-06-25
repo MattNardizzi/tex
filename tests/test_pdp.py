@@ -160,7 +160,9 @@ def test_every_pipeline_stage_populates_its_output(runtime) -> None:
     # McpInjectionSpecialist + Thread-4 runtime defenses (ClawGuard,
     # MCPShield, PlanGuard, MAGE, AgentArmor) + Thread-4.5 frontier
     # additions (Argus, AttriGuard, Vigil) = 14.
-    assert len(pdp_result.specialist_bundle.results) == 20  # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign
+    # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign (→20); iter-6 adds the
+    # BranchLeverageSpecialist (the named CHOKE-X/CFI branch-leverage axis) (→21).
+    assert len(pdp_result.specialist_bundle.results) == 21
     assert pdp_result.semantic_analysis is not None
     assert len(pdp_result.semantic_analysis.dimension_results) == 5  # 5 canonical dims
     assert pdp_result.routing_result is not None

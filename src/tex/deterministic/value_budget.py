@@ -281,6 +281,61 @@ def derive_lineage_key(request: Any) -> str | None:
     return f"{tenant}|{agent_part}|lin:{lineage}"
 
 
+def resolve_budget_ceiling(request: Any, config: "BudgetConfig") -> int:
+    """The effective LEDGERED value-budget ceiling for this request.
+
+    When the capability-token flag (``TEX_CAP_TOKEN_ENABLED``) is set AND the
+    request carries a VERIFIABLE capability token (with its PoP proof), the ceiling
+    is read from the SIGNED ``value_budget`` claim in the grant — the iter-5 budget
+    the token already carried but the tracker did not yet consume. Verify-before:
+    an unverifiable token is ignored (no widening from an unverified claim); the
+    fallback is always the config's ``max_confidential``. Default-OFF (flag unset /
+    no token) → exactly ``config.max_confidential`` — bit-for-bit unchanged.
+
+    The grant can only ever be CONSULTED here; it does not weaken the floor — an
+    OVER classification still requires the cumulative sealed total to cross the
+    ceiling, and a missing/forged token never raises the ceiling above the config
+    default (it simply isn't applied).
+    """
+    from tex.camel.capability_token import capability_tokens_enabled
+
+    default_ceiling = config.max_confidential
+    if not capability_tokens_enabled():
+        return default_ceiling
+    metadata = getattr(request, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return default_ceiling
+    token = metadata.get("camel_capability_token")
+    if not isinstance(token, str) or not token.strip():
+        return default_ceiling
+    pop_proof = metadata.get("camel_capability_pop_proof")
+    pop_proof = pop_proof if isinstance(pop_proof, str) and pop_proof.strip() else None
+    audience = metadata.get("camel_capability_audience")
+    audience = (
+        audience.strip()
+        if isinstance(audience, str) and audience.strip()
+        else "tex.camel.interpreter"
+    )
+    try:
+        from tex.camel.capability_token import verify_capability_token
+
+        lineage = derive_lineage_key(request) or "default"
+        grant = verify_capability_token(
+            token,
+            expected_audience=audience,
+            pop_proof=pop_proof,
+            lineage=lineage,
+        )
+    except Exception:  # noqa: BLE001 — a verify failure → use the config default
+        return default_ceiling
+    if grant is None:
+        return default_ceiling
+    # The signed ceiling. A non-negative int by construction (the codec rejects
+    # negatives); guard defensively anyway.
+    signed = int(grant.value_budget)
+    return signed if signed >= 0 else default_ceiling
+
+
 def _budget_block(request: Any) -> Mapping[str, Any] | None:
     metadata = getattr(request, "metadata", None)
     if not isinstance(metadata, Mapping):
@@ -436,6 +491,7 @@ class ValueClassBudgetTracker:
                 debit=0,
                 total=reloaded,
                 level_class=level_class,
+                ceiling=resolve_budget_ceiling(request, config),
             )
 
     # -------------------------------------------------------------- write
@@ -492,6 +548,7 @@ class ValueClassBudgetTracker:
                 debit=debit,
                 total=new_total,
                 level_class=level_class,
+                ceiling=resolve_budget_ceiling(request, config),
             )
             self._memoize(request_id, assessment)
             return assessment
@@ -576,8 +633,14 @@ def _build_assessment(
     debit: int,
     total: int,
     level_class: ConfidentialityLevel,
+    ceiling: int | None = None,
 ) -> BudgetAssessment:
-    over = total > config.max_confidential
+    # The effective ceiling: the SIGNED token grant's value_budget when one was
+    # resolved (``resolve_budget_ceiling``), else the config default. Default-OFF
+    # (no token / flag unset) → ceiling is ``config.max_confidential`` exactly, so
+    # behaviour is unchanged.
+    budget = config.max_confidential if ceiling is None else ceiling
+    over = total > budget
     level = BudgetLevel.OVER if over else BudgetLevel.CLEAR
     reason = ""
     counterfactual = ""
@@ -585,14 +648,14 @@ def _build_assessment(
         reason = (
             f"Ledgered value-class budget: lineage '{key}' has moved a cumulative "
             f"confidentiality-class weight of {total}, exceeding the budget "
-            f"{config.max_confidential} (this action's {level_class.name} debit "
+            f"{budget} (this action's {level_class.name} debit "
             f"was {debit}). The total is summed over the lineage's SEALED history "
             "(reloads across restarts), so this is a proof over structure — a "
             "structural FORBID, never a probabilistic score."
         )
         counterfactual = (
             f"Had this lineage's cumulative confidentiality-class total stayed at "
-            f"or below {config.max_confidential}, no budget FORBID would have fired."
+            f"or below {budget}, no budget FORBID would have fired."
         )
     return BudgetAssessment(
         level=level,
@@ -600,7 +663,7 @@ def _build_assessment(
         key=key,
         debit=debit,
         total=total,
-        budget=config.max_confidential,
+        budget=budget,
         confidentiality_class=level_class.name,
         reason=reason,
         counterfactual=counterfactual,
@@ -739,6 +802,7 @@ __all__ = [
     "ValueClassBudgetTracker",
     "derive_lineage_key",
     "derive_confidentiality_class",
+    "resolve_budget_ceiling",
     "default_budget_tracker",
     "configure_default_budget_tracker",
     "observe_for_debit",

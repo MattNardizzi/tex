@@ -125,7 +125,9 @@ def test_unique_specialist_names_in_bundle(empty_context) -> None:
     # 4 baseline + 2 owasp/mcp + 5 Thread-4 runtime defenses (clawguard,
     # mcpshield, planguard, mage, agentarmor) + 3 Thread-4.5 frontier
     # additions (argus, attriguard, vigil) = 14.
-    assert len(names) == 20  # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign
+    # Thread 12 adds PCAS, CaMeL, MELON, StruQ, SecAlign (→20); iter-6 adds the
+    # BranchLeverageSpecialist (the named CHOKE-X/CFI branch-leverage axis) (→21).
+    assert len(names) == 21
     expected_thread_4 = {"clawguard", "mcpshield", "planguard", "mage", "agentarmor"}
     expected_thread_4_5 = {"argus", "attriguard", "vigil"}
     assert expected_thread_4.issubset(set(names))

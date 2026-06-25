@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from tex.contracts.runtime_enforcement import ContractEnforcer
 from tex.deterministic.cadence import apply_cadence_hold
 from tex.deterministic.value_budget import apply_budget_hold
+from tex.specialists.branch_leverage_specialist import apply_branch_leverage_hold
 from tex.deterministic.gate import (
     DeterministicGate,
     DeterministicGateResult,
@@ -430,6 +431,20 @@ class PolicyDecisionPoint:
             # TEX_BUDGET_ENABLED. See deterministic/value_budget.py.
             routing_result = apply_budget_hold(
                 base=routing_result, request=request
+            )
+            # CHOKE-X / CFI branch-leverage hold — soft rail, monotone-lowering
+            # (PERMIT→ABSTAIN only): if the metered CaMeL interpreter ABSTAINED on
+            # a high-stakes branch (certified attacker leverage > budget) or
+            # exhausted its cumulative CFI steering budget, demote to ABSTAIN — the
+            # high-stakes arm was not committed and Tex could not bound the leverage,
+            # so caution, never FORBID. Reads the camel result off the FINAL
+            # specialist bundle. No-op when no metered CaMeL branch ran (the common
+            # recipe-traffic case). Never raises a verdict. See
+            # specialists/branch_leverage_specialist.py.
+            routing_result = apply_branch_leverage_hold(
+                base=routing_result,
+                request=request,
+                bundle=specialist_bundle,
             )
             # Live multiplicative e-value spine (L9) — monotone-lowering
             # (PERMIT→ABSTAIN only), each step sealed. Inert no-op when unwired.

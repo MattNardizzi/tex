@@ -7,12 +7,19 @@ labels through every operation. Each tool call is gated against a
 ``CamelInterpreterError`` and the interpreter returns a structured
 trace.
 
-Invariants (CaMeL §5)
----------------------
-1. **No untrusted-influenced control flow.** The plan is fixed at
-   load time. The interpreter never branches on the value of a
-   ``CapValue`` whose level is above ``TRUSTED``. We enforce this by
-   construction: the plan AST contains no conditionals or loops.
+Invariants (CaMeL §5, EVOLVED past the static plan-ahead model in iter-3/4/6)
+----------------------------------------------------------------------------
+1. **Metered untrusted-influenced control flow (the static→dynamic swap).**
+   Classic CaMeL forbade ALL untrusted-influenced control flow by construction
+   (no conditional node existed). This interpreter REPLACES that binary
+   prohibition with a *metered* model: an untrusted value may steer a ``Branch``,
+   but only if produced by a node that declared a typed finite ``output_domain``,
+   and only at a measured cost — CFI cumulative control-flow-influence bits
+   (``cfi.py``) plus, for a high-stakes branch, a CHOKE-X per-branch leverage
+   certificate (``branch_leverage.py``) checked BEFORE the arm runs. Over budget
+   / over leverage / non-decidable guard → ABSTAIN (the arm is NOT committed);
+   a policy-denied call or out-of-domain value → fail-closed HALT. A plan with
+   no ``Branch`` still behaves exactly as the original straight-line interpreter.
 2. **Capability monotonicity.** A value's capability set never
    shrinks except through explicit, policy-authorized
    declassification. We do not implement declassification ops here;

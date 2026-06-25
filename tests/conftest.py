@@ -106,10 +106,13 @@ def _reset_value_budget_tracker() -> Iterator[None]:
     accumulation is preserved — that is what the budget's own tests exercise.
     """
     from tex.deterministic.value_budget import _reset_default_budget_tracker
+    from tex.camel.plan_emission import _reset_emission_sidecar
 
     _reset_default_budget_tracker()
+    _reset_emission_sidecar()
     yield
     _reset_default_budget_tracker()
+    _reset_emission_sidecar()
 
 
 @pytest.fixture

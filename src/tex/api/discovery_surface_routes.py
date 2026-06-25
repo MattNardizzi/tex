@@ -217,11 +217,12 @@ def build_discovery_surface_router() -> APIRouter:
         # counted in the spoken estate. The driver never raises; this guard is
         # belt-and-braces so SIEVE can never break the operator's deliberate act.
         sieve = _sieve_driver(request)
+        sieve_result = None
         if sieve is not None:
             try:
                 ledger = getattr(request.app.state, "discovery_ledger", None)
                 if ledger is not None:
-                    sieve.run(registry, ledger)
+                    sieve_result = sieve.run(registry, ledger)
             except Exception:  # noqa: BLE001 — SIEVE is decoupled from the voice
                 pass
 
@@ -248,9 +249,28 @@ def build_discovery_surface_router() -> APIRouter:
         ignition.fire(tenant)
         words = humanize_count(count)
         agents = "agent" if count == 1 else "agents"
+
+        # Honest coverage (ARCHITECTURE.md §9): when the SIEVE layer ran, speak
+        # not just the count but WHERE it found them and the single biggest blind
+        # spot + the vantage that would open it — never an implied totality. The
+        # rich {fired, blind, unseen-CI} rides as the object handle. Defensive:
+        # a summary failure silently degrades to the bare count, never breaks Begin.
+        clause = ""
+        coverage_object = None
+        if sieve_result is not None:
+            try:
+                from tex.discovery.engine.coverage import summarize
+
+                cov = summarize(sieve_result)
+                if cov.clause:
+                    clause = f" {cov.clause}"
+                coverage_object = cov.as_object()
+            except Exception:  # noqa: BLE001 — coverage is decoupled from the voice
+                clause = ""
+                coverage_object = None
         return {
-            "spoken": f"You have {words} {agents} running. I'll begin.",
-            "object": None,
+            "spoken": f"You have {words} {agents} running.{clause} I'll begin.",
+            "object": coverage_object,
             "already_ignited": False,
             "count": count,
         }

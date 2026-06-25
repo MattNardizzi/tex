@@ -43,8 +43,10 @@ WITHIN L3 (ledger B15):** a writable `MAP_SHARED` mapping established BEFORE the
 forbid lands lets a *syscall-free* memory store corrupt the file afterward — no
 LSM hook can observe a CPU store, so this is irreducible at the LSM layer. New
 shared-writable mappings ARE denied at acquisition (`file_open` needs a writable
-fd + `mmap_file`); the residual is only a pre-existing mapping, mitigated by
-warming forbids BEFORE the agent maps the file (born into a pre-warmed cgroup).
+fd + `mmap_file`); the residual is a pre-existing mapping — whose blast radius can
+be GROWN post-forbid via `mremap(MREMAP_MAYMOVE)`, which `mmap_file` does not see —
+mitigated by warming forbids BEFORE the agent maps the file (born into a pre-warmed
+cgroup).
 It does **NOT** defend **L4 — a rooted host / compromised kernel, or a compromise
 of the loader process itself**. The loader writes the verdict maps with CAP_BPF/
 CAP_MAC_ADMIN; root owns the kernel and can detach the programs or clear the maps.

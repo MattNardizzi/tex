@@ -386,6 +386,22 @@ def _is_enabled(env: Mapping[str, str], flag: str) -> bool:
     return isinstance(val, str) and val.strip().casefold() in _TRUTHY
 
 
+#: The full-sweep master switch. When truthy, EVERY roster plane is built (each
+#: still degrades to empty without its own source), so a single press of Begin
+#: lights up the entire layer. Kept SEPARATE from ``TEX_SIEVE_ENABLED`` so the
+#: default-safe contract holds: enabling SIEVE without ``TEX_SIEVE_ALL`` still
+#: requires explicit per-plane opt-in, and a bare merge-to-main / prod deploy
+#: never activates a plane. Genuinely-intrusive sub-actions (decoy planting,
+#: active MCP probing) stay behind their OWN sub-flags, which the sweep never
+#: sets — full sweep means passive sensing on every plane, nothing intrusive.
+_ALL_FLAG = "TEX_SIEVE_ALL"
+
+
+def _run_all(env: Mapping[str, str]) -> bool:
+    """Whether the full-sweep switch lights up every roster plane."""
+    return _is_enabled(env, _ALL_FLAG)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -415,7 +431,13 @@ def register_sensor(plane_id: PlaneId, factory: SensorFactory, *, env_flag: str 
 
 
 def active_plane_flags(env: Mapping[str, str]) -> tuple[str, ...]:
-    """The env flags that are enabled in ``env`` (sorted, for receipts/tests)."""
+    """The env flags that are enabled in ``env`` (sorted, for receipts/tests).
+
+    With the full-sweep switch (``TEX_SIEVE_ALL``) on, every roster plane is
+    active, so all roster flags are reported.
+    """
+    if _run_all(env):
+        return tuple(sorted(reg.env_flag for reg in _ROSTER.values()))
     return tuple(
         sorted(reg.env_flag for reg in _ROSTER.values() if _is_enabled(env, reg.env_flag))
     )
@@ -434,8 +456,9 @@ def build_active_sensors(env: Mapping[str, str]) -> list[EngineSensor]:
     The returned order is the roster declaration order (stable, deterministic).
     """
     sensors: list[EngineSensor] = []
+    run_all = _run_all(env)
     for reg in _ROSTER.values():
-        if _is_enabled(env, reg.env_flag):
+        if run_all or _is_enabled(env, reg.env_flag):
             sensors.append(reg.factory(env))
     return sensors
 

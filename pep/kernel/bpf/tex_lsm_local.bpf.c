@@ -46,6 +46,8 @@ char LICENSE[] SEC("license") = "GPL";
 
 #define TEX_EPERM 1 /* return -TEX_EPERM == -EPERM */
 #define TEX_FMODE_WRITE 0x2 /* FMODE_WRITE (include/linux/fs.h) */
+#define TEX_MAY_WRITE 0x2 /* MAY_WRITE (include/linux/fs.h) */
+#define TEX_MAY_APPEND 0x8 /* MAY_APPEND */
 
 // (cgroup_id, inode) -> 1 means: the enrolled agent in this cgroup is FORBIDDEN
 // from the irreversible op on this inode. Mirrors the C struct byte-for-byte in
@@ -169,7 +171,8 @@ int BPF_PROG(tex_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
 //   * open(O_TRUNC) content-zeroing (O_TRUNC implies write intent).
 // Read-only opens are allowed (the agent may still READ a protected file), so a
 // forbidden inode becomes immutable-but-readable for the enrolled agent. A
-// writable fd opened BEFORE the forbid is added is a documented residual (ledger).
+// writable fd opened BEFORE the forbid is added is caught by tex_file_permission
+// below (which re-checks every write), so that window is closed (ledger B14).
 SEC("lsm/file_open")
 int BPF_PROG(tex_file_open, struct file *file, int ret)
 {
@@ -191,5 +194,23 @@ int BPF_PROG(tex_bprm_check, struct linux_binprm *bprm, int ret)
 	if (ret)
 		return ret;
 	__u64 ino = BPF_CORE_READ(bprm, file, f_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// security_file_permission(struct file *file, int mask) — fires on every read/
+// write access to an already-open file. Denying MAY_WRITE/MAY_APPEND here closes
+// ledger B14: a writable fd opened BEFORE the forbid was added (when the open was
+// still permitted) cannot WRITE through it afterward — every write re-checks the
+// LIVE forbid-set against the kernel-resolved inode. Read/exec-only access stays
+// allowed (immutable-but-readable preserved). The map lookup is paid only inside
+// an enrolled cgroup, since tex_local_verdict gates on enrollment first.
+SEC("lsm/file_permission")
+int BPF_PROG(tex_file_permission, struct file *file, int mask, int ret)
+{
+	if (ret)
+		return ret;
+	if (!(mask & (TEX_MAY_WRITE | TEX_MAY_APPEND)))
+		return 0; /* read/exec-only access is permitted */
+	__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
 	return tex_local_verdict(ino);
 }

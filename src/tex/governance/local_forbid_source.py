@@ -53,6 +53,7 @@ import os
 import time
 from dataclasses import dataclass
 from threading import RLock
+from typing import Any
 from typing import Callable
 
 # Action types whose FORBID is attributable to a LOCAL resource (a file/binary),
@@ -262,3 +263,16 @@ class LocalForbidSource:
         if not hmac.compare_digest(expected, sig):
             return None
         return json.loads(canonical)
+
+
+def resolve_local_forbid_source(state: Any) -> "LocalForbidSource | None":
+    """Resolve the active :class:`LocalForbidSource` from app state, or None.
+
+    Mirrors ``resolve_forbid_source`` for the network floor. The source is only
+    present when the local PEP is explicitly wired (``TEX_LOCAL_PEP`` /
+    composition root attaches ``state.local_forbid_source`` AND passes its
+    ``feed_from_decision`` as ``StandingGovernance(local_forbid_sink=...)``).
+    Unwired -> None -> the route serves nothing (fail-closed, default-OFF).
+    """
+    src = getattr(state, "local_forbid_source", None)
+    return src if isinstance(src, LocalForbidSource) else None

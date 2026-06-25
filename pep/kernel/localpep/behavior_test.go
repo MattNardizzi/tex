@@ -10,10 +10,12 @@
 package localpep
 
 import (
+	"bufio"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -109,6 +111,20 @@ func runProbeChild(op, target, src string) int {
 			syscall.Close(fd)
 			err = werr
 		}
+	case "preopen_write": // B14: open a writable fd BEFORE the forbid, then write
+		// AFTER it — the write must be blocked by lsm/file_permission. Synchronizes
+		// with the test over stdout("READY")/stdin so the forbid lands between the
+		// open and the write.
+		var fd int
+		fd, err = syscall.Open(target, syscall.O_RDWR, 0) // pre-forbid: permitted
+		if err != nil {
+			break
+		}
+		os.Stdout.WriteString("READY\n")
+		var one [1]byte
+		_, _ = os.Stdin.Read(one[:]) // block until the test has added the forbid
+		_, err = syscall.Write(fd, []byte("LATE-WRITE-AFTER-FORBID"))
+		syscall.Close(fd)
 	case "hammer": // tight unlink loop until deleted or exhausted — used for load
 		for i := 0; i < 500000; i++ {
 			e := syscall.Unlink(target)
@@ -356,4 +372,62 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return os.WriteFile(dst, b, mode)
+}
+
+// TestB14PreOpenedFdWriteBlocked closes ledger B14: a writable fd opened BEFORE
+// the forbid is added cannot write through it after — lsm/file_permission
+// re-checks every write against the live forbid-set.
+func TestB14PreOpenedFdWriteBlocked(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root (BPF-LSM attach)")
+	}
+	cg := mkCgroup(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "ledger.db")
+	ino := writeFile(t, target, "ORIGINAL-LEDGER")
+
+	l, err := Open()
+	if err != nil {
+		t.Fatalf("open loader: %v", err)
+	}
+	defer l.Close()
+	cgID, err := l.Enroll(cg)
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+
+	// Launch the probe; it opens a writable fd (still permitted) and waits.
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(),
+		"TEX_PROBE_OP=preopen_write", "TEX_PROBE_TARGET="+target, "TEX_PROBE_CGROUP="+cg)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start probe: %v", err)
+	}
+	// Wait until the fd is open, THEN forbid (so the open predates the forbid).
+	if line, _ := bufio.NewReader(stdout).ReadString('\n'); !strings.Contains(line, "READY") {
+		t.Fatalf("probe did not open the fd (got %q)", line)
+	}
+	if err := l.Forbid(cgID, ino); err != nil {
+		t.Fatalf("forbid: %v", err)
+	}
+	_, _ = stdin.Write([]byte("go\n")) // release the late write
+
+	code := 0
+	if werr := cmd.Wait(); werr != nil {
+		if ee, ok := werr.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else {
+			t.Fatalf("probe wait: %v", werr)
+		}
+	}
+	if code != blockedEPERM {
+		t.Fatalf("pre-opened fd write: want blocked(EPERM)=%d, got exit %d", blockedEPERM, code)
+	}
+	b, _ := os.ReadFile(target)
+	if strings.Contains(string(b), "LATE-WRITE") {
+		t.Fatalf("B14 LEAK: write reached the file through a pre-opened fd: %q", string(b))
+	}
 }

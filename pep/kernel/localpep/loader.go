@@ -55,6 +55,7 @@ func Open() (*Loader, error) {
 		"file_open":       l.objs.TexFileOpen,
 		"bprm_check":      l.objs.TexBprmCheck,
 		"file_permission": l.objs.TexFilePermission,
+		"mmap_file":       l.objs.TexMmapFile,
 	} {
 		if prog == nil {
 			l.closeLinks()

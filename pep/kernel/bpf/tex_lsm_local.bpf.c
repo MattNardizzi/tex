@@ -48,6 +48,8 @@ char LICENSE[] SEC("license") = "GPL";
 #define TEX_FMODE_WRITE 0x2 /* FMODE_WRITE (include/linux/fs.h) */
 #define TEX_MAY_WRITE 0x2 /* MAY_WRITE (include/linux/fs.h) */
 #define TEX_MAY_APPEND 0x8 /* MAY_APPEND */
+#define TEX_PROT_WRITE 0x2 /* PROT_WRITE (include/uapi/asm-generic/mman-common.h) */
+#define TEX_MAP_SHARED 0x1 /* MAP_SHARED (include/uapi/asm-generic/mman-common.h) */
 
 // (cgroup_id, inode) -> 1 means: the enrolled agent in this cgroup is FORBIDDEN
 // from the irreversible op on this inode. Mirrors the C struct byte-for-byte in
@@ -172,7 +174,12 @@ int BPF_PROG(tex_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
 // Read-only opens are allowed (the agent may still READ a protected file), so a
 // forbidden inode becomes immutable-but-readable for the enrolled agent. A
 // writable fd opened BEFORE the forbid is added is caught by tex_file_permission
-// below (which re-checks every write), so that window is closed (ledger B14).
+// below (which re-checks every write(2)-class access), so the pre-opened-fd
+// WRITE window is closed (ledger B14). HONEST EDGE: a writable MAP_SHARED mapping
+// established BEFORE the forbid is NOT closed — a memory store through it emits no
+// syscall, so no LSM hook fires (ledger B15, irreducible at the LSM layer). New
+// shared-writable mappings are denied at acquisition by tex_file_open (needs a
+// writable fd) + tex_mmap_file below.
 SEC("lsm/file_open")
 int BPF_PROG(tex_file_open, struct file *file, int ret)
 {
@@ -211,6 +218,29 @@ int BPF_PROG(tex_file_permission, struct file *file, int mask, int ret)
 		return ret;
 	if (!(mask & (TEX_MAY_WRITE | TEX_MAY_APPEND)))
 		return 0; /* read/exec-only access is permitted */
+	__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// security_mmap_file(struct file *file, unsigned long reqprot, unsigned long prot,
+// unsigned long flags) — deny establishing a NEW writable+shared mapping of a
+// forbidden inode (only MAP_SHARED|PROT_WRITE can write back to the file; private
+// mappings are copy-on-write and never corrupt it). This closes the mmap-ACQUIRE
+// path as defence-in-depth on top of tex_file_open (which already denies the
+// writable fd a shared-writable mapping requires). HONEST EDGE it does NOT close:
+// a mapping established BEFORE the forbid — those PTEs already exist and a store
+// through them emits no syscall, so nothing fires (ledger B15, irreducible at the
+// LSM layer; mitigated by warming forbids BEFORE the agent maps the file).
+SEC("lsm/mmap_file")
+int BPF_PROG(tex_mmap_file, struct file *file, unsigned long reqprot,
+	     unsigned long prot, unsigned long flags, int ret)
+{
+	if (ret)
+		return ret;
+	if (file == NULL)
+		return 0; /* anonymous mapping — no file to protect */
+	if (!((prot & TEX_PROT_WRITE) && (flags & TEX_MAP_SHARED)))
+		return 0; /* only a shared+writable mapping can corrupt the file */
 	__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
 	return tex_local_verdict(ino);
 }

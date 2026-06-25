@@ -37,14 +37,20 @@ Enforcement holds against an adversary up to **L3 — a fully compromised agent
 USERSPACE** in the enrolled cgroup: raw syscalls (bypass libc/SDK), TOCTOU
 path-swaps (defeated — the hook matches the kernel-resolved inode), hardlink/
 symlink/`/proc/self/fd` tricks, `renameat2(RENAME_EXCHANGE)`, `copy_file_range`/
-`FICLONE`, `io_uring` ops, and writes through a fd opened before the forbid (all
-proven blocked). It does **NOT** defend **L4 — a rooted host / compromised kernel,
-or a compromise of the loader process itself**. The loader writes the verdict maps
-with CAP_BPF/CAP_MAC_ADMIN; root owns the kernel and can detach the programs or
-clear the maps. Closing L4 requires a hardware root of trust (measured boot +
-remote attestation / a TEE), which is a separate program and is **not** claimed
-here. "Un-bypassable" in this README always means *relative to L3 and the
-residual-bypass ledger*, never as an unqualified absolute.
+`FICLONE`, `io_uring` ops (incl. async io_wq offload), and `write(2)`-class writes
+through a fd opened before the forbid (all proven blocked). **One honest residual
+WITHIN L3 (ledger B15):** a writable `MAP_SHARED` mapping established BEFORE the
+forbid lands lets a *syscall-free* memory store corrupt the file afterward — no
+LSM hook can observe a CPU store, so this is irreducible at the LSM layer. New
+shared-writable mappings ARE denied at acquisition (`file_open` needs a writable
+fd + `mmap_file`); the residual is only a pre-existing mapping, mitigated by
+warming forbids BEFORE the agent maps the file (born into a pre-warmed cgroup).
+It does **NOT** defend **L4 — a rooted host / compromised kernel, or a compromise
+of the loader process itself**. The loader writes the verdict maps with CAP_BPF/
+CAP_MAC_ADMIN; root owns the kernel and can detach the programs or clear the maps.
+Closing L4 requires a hardware root of trust (measured boot + remote attestation /
+a TEE), a separate program **not** claimed here. "Un-bypassable" in this README
+always means *relative to L3 and the residual-bypass ledger*, never absolute.
 
 ## ACTIVATE (outward step (b) — the genuinely dangerous one)
 This can deny legitimate production work fleet-wide. Do it deliberately, per host:

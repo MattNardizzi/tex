@@ -64,6 +64,7 @@ func runServe() {
 	feed := fs.String("feed", "", "signed local-forbid-set source (file path or http(s) URL)")
 	secretEnv := fs.String("secret-env", "TEX_LOCAL_PEP_SECRET", "env var holding the shared HMAC secret")
 	poll := fs.Bool("poll", false, "keep polling the feed (else apply once and hold)")
+	apiKeyEnv := fs.String("api-key-env", "", "env var holding the x-tex-api-key the PDP feed route requires (optional)")
 	var agents multiFlag
 	fs.Var(&agents, "agent", "agent_id=/cgroup/v2/path mapping; repeatable")
 	_ = fs.Parse(os.Args[2:])
@@ -71,6 +72,10 @@ func runServe() {
 	secret := os.Getenv(*secretEnv)
 	if *feed == "" || secret == "" {
 		log.Fatalf("serve: --feed and a non-empty $%s are required", *secretEnv)
+	}
+	apiKey := ""
+	if *apiKeyEnv != "" {
+		apiKey = os.Getenv(*apiKeyEnv)
 	}
 	agentCgroup := map[string]string{}
 	for _, a := range agents {
@@ -88,7 +93,7 @@ func runServe() {
 	defer l.Close()
 	log.Printf("tex-local-pep serve: LSM hooks attached; consuming %s", *feed)
 
-	epoch, applied, skipped, err := l.PollFeed(*feed, []byte(secret), agentCgroup, 0)
+	epoch, applied, skipped, err := l.PollFeed(*feed, []byte(secret), agentCgroup, 0, apiKey)
 	if err != nil {
 		log.Fatalf("apply feed: %v", err)
 	}
@@ -112,7 +117,7 @@ func runServe() {
 			if !*poll {
 				continue
 			}
-			e, a, sk, perr := l.PollFeed(*feed, []byte(secret), agentCgroup, epoch)
+			e, a, sk, perr := l.PollFeed(*feed, []byte(secret), agentCgroup, epoch, apiKey)
 			if perr != nil {
 				log.Printf("poll: %v (keeping existing denies — revoke-wins)", perr)
 				continue

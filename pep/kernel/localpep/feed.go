@@ -58,9 +58,20 @@ func VerifyFeed(envBytes, secret []byte) (*ForbidSet, error) {
 }
 
 // fetchFeed reads the signed envelope from an http(s) URL or a local file path.
-func fetchFeed(source string) ([]byte, error) {
+// apiKey (when non-empty) is presented as the PDP's x-tex-api-key so the loader
+// authenticates to /v1/govern/local-forbid-set (which requires decision:read).
+// Note: the feed's authenticity does NOT rest on transport auth — it is HMAC
+// verified independently (VerifyFeed); the key only satisfies the route's scope.
+func fetchFeed(source, apiKey string) ([]byte, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
-		resp, err := http.Get(source) //nolint:gosec — operator-controlled source
+		req, err := http.NewRequest(http.MethodGet, source, nil) //nolint:gosec — operator-controlled source
+		if err != nil {
+			return nil, err
+		}
+		if apiKey != "" {
+			req.Header.Set("x-tex-api-key", apiKey)
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -111,8 +122,8 @@ func (l *Loader) ApplyFeed(set *ForbidSet, agentCgroup map[string]string) (appli
 // PollFeed fetches+verifies+applies the feed once, returning the verified epoch.
 // Used both for a single application and inside a poll loop. lastEpoch guards
 // against stale/replayed sets (epoch < last is ignored — cheap anti-rollback).
-func (l *Loader) PollFeed(source string, secret []byte, agentCgroup map[string]string, lastEpoch int) (epoch, applied, skipped int, err error) {
-	raw, err := fetchFeed(source)
+func (l *Loader) PollFeed(source string, secret []byte, agentCgroup map[string]string, lastEpoch int, apiKey string) (epoch, applied, skipped int, err error) {
+	raw, err := fetchFeed(source, apiKey)
 	if err != nil {
 		return lastEpoch, 0, 0, err
 	}

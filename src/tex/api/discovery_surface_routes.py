@@ -84,9 +84,10 @@ def _sieve_driver(request: Request):
     return getattr(request.app.state, "sieve_driver", None)
 
 
-def _run_sieve(request: Request, registry):  # noqa: ANN001
+def _run_sieve(request: Request, registry, tenant: str = "default"):  # noqa: ANN001
     """Run the full SIEVE sweep over all flag-enabled planes; return its
-    ``PlanesResult`` (or ``None``). NEVER raises — SIEVE never breaks ignite."""
+    ``PlanesResult`` (or ``None``). NEVER raises — SIEVE never breaks ignite.
+    ``tenant`` is threaded so discovered agents land in the watched estate."""
     sieve = _sieve_driver(request)
     if sieve is None:
         return None
@@ -94,7 +95,7 @@ def _run_sieve(request: Request, registry):  # noqa: ANN001
         ledger = getattr(request.app.state, "discovery_ledger", None)
         if ledger is None:
             return None
-        return sieve.run(registry, ledger)
+        return sieve.run(registry, ledger, tenant=tenant)
     except Exception:  # noqa: BLE001 — SIEVE is decoupled from the voice
         return None
 
@@ -227,7 +228,7 @@ def build_discovery_surface_router() -> APIRouter:
             words = humanize_count(count)
             agents = "agent" if count == 1 else "agents"
             clause, coverage_object = _sieve_coverage(
-                _run_sieve(request, registry), count
+                _run_sieve(request, registry, tenant), count
             )
             headline = f"{words[:1].upper()}{words[1:]}" if words else words
             return {
@@ -282,7 +283,7 @@ def build_discovery_surface_router() -> APIRouter:
         # governance boundary, so a SIEVE-surfaced shadow lands governable and is
         # counted in the spoken estate. The driver never raises; this guard is
         # belt-and-braces so SIEVE can never break the operator's deliberate act.
-        sieve_result = _run_sieve(request, registry)
+        sieve_result = _run_sieve(request, registry, tenant)
 
         if is_real_tenant:
             scheduler = getattr(request.app.state, "scan_scheduler", None)

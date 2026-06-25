@@ -88,6 +88,24 @@ def build_governance_standing_router() -> APIRouter:
             agent_external_id=body.agent_external_id,
             session_id=body.session_id,
         )
+        # GOVERNANCE-STREAM DISCOVERY (P11): record this gate call so the SIEVE
+        # governance-stream plane self-discovers ANY agent that asks Tex for a
+        # decision — the act of asking reveals the agent. Best-effort + bounded;
+        # discovery NEVER changes or breaks the decision the PEP obeys.
+        try:
+            from tex.discovery.engine.sensors.governance_stream import record_decision
+
+            record_decision(
+                {
+                    "agent_external_id": body.agent_external_id,
+                    "agent_id": str(body.agent_id) if body.agent_id is not None else None,
+                    "tool_name": body.action_type,
+                    "verdict": str(getattr(outcome, "verdict", "")) or None,
+                    "tenant": tenant,
+                }
+            )
+        except Exception:  # noqa: BLE001 — discovery never breaks the decision
+            pass
         # PROOF-CARRYING ENFORCEMENT (dormant unless a decision ledger is wired,
         # i.e. TEX_SEAL_DECISIONS=1): seal an offline-verifiable ENFORCEMENT
         # receipt for this PEP decision so a missing receipt reads as a bypass.

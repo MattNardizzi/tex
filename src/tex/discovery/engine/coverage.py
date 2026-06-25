@@ -98,8 +98,14 @@ def _words(n: int) -> str:
     return _NUM_WORDS[n] if 0 <= n < len(_NUM_WORDS) else str(n)
 
 
-def summarize(result: Any) -> Coverage:
-    """Map a ``PlanesResult`` to the honest coverage handle + spoken clause."""
+def summarize(result: Any, headline_count: int | None = None) -> Coverage:
+    """Map a ``PlanesResult`` to the honest coverage handle + spoken clause.
+
+    ``headline_count`` is the count the surface actually speaks (e.g. a connected
+    directory's agents, which arrive via the legacy path, not a SIEVE plane). When
+    given, the clause stays COHERENT with it — it never says "nothing surfaced"
+    while the headline is non-zero; it enumerates the planes still dark instead.
+    """
     entities = tuple(getattr(result, "entities", ()) or ())
     count = len(entities)
     occasions = set(getattr(result, "occasions", ()) or ())
@@ -123,23 +129,25 @@ def summarize(result: Any) -> Coverage:
             ci = (float(lo), float(hi))
     health = getattr(unseen, "coverage_health", None)
 
-    # The spoken clause — actionable honesty, never a totality claim. Lead with
-    # where the agents were found, then name the biggest blind spot + its vantage.
-    if count == 0 and not fired_planes:
-        clause = "Nothing has surfaced yet on the planes I can see."
-    else:
-        parts: list[str] = []
-        if fired:
-            parts.append(f"I found them across {_join(list(fired))}")
-        if blind_planes:
-            top = next((p for p in _PRIORITY if p in blind_planes), blind_planes[0])
-            name, needs = _PLANE.get(top, (top.value, "a source"))
-            n = len(blind_planes)
-            others = f"{_words(n)} planes are" if n != 1 else "one plane is"
-            parts.append(f"{others} still blind — {needs} would open {name}")
-        else:
-            parts.append("every plane I lit up is reporting")
+    # The spoken clause — actionable honesty, never a totality claim. Enumerate
+    # where agents were found (if any plane fired) and the planes still dark + the
+    # vantage that would open the biggest one. Stays coherent with the headline.
+    effective = headline_count if headline_count is not None else count
+    parts: list[str] = []
+    if fired:
+        parts.append(f"I found them across {_join(list(fired))}")
+    if blind_planes:
+        top = next((p for p in _PRIORITY if p in blind_planes), blind_planes[0])
+        name, needs = _PLANE.get(top, (top.value, "a source"))
+        n = len(blind_planes)
+        subj = f"{_words(n)} planes are" if n != 1 else "one plane is"
+        parts.append(f"{subj} still dark — {needs} would open {name}")
+    if parts:
         clause = ". ".join(p[0].upper() + p[1:] for p in parts) + "."
+    elif effective > 0:
+        clause = ""  # the headline already speaks the count; nothing honest to add
+    else:
+        clause = "Nothing has surfaced yet on the planes I can see."
 
     return Coverage(
         count=count,

@@ -84,6 +84,52 @@ def _sieve_driver(request: Request):
     return getattr(request.app.state, "sieve_driver", None)
 
 
+def _run_sieve(request: Request, registry):  # noqa: ANN001
+    """Run the full SIEVE sweep over all flag-enabled planes; return its
+    ``PlanesResult`` (or ``None``). NEVER raises — SIEVE never breaks ignite."""
+    sieve = _sieve_driver(request)
+    if sieve is None:
+        return None
+    try:
+        ledger = getattr(request.app.state, "discovery_ledger", None)
+        if ledger is None:
+            return None
+        return sieve.run(registry, ledger)
+    except Exception:  # noqa: BLE001 — SIEVE is decoupled from the voice
+        return None
+
+
+def _sieve_coverage(result, headline_count: int):  # noqa: ANN001
+    """Honest spoken clause + object handle from a SIEVE ``PlanesResult``.
+
+    Stays coherent with ``headline_count`` (the count the surface speaks) so the
+    line never contradicts it. Returns ("", None) when there is nothing to add or
+    on any failure — coverage is decoupled from the voice, never breaks ignite.
+    """
+    if result is None:
+        return "", None
+    try:
+        from tex.discovery.engine.coverage import summarize
+
+        cov = summarize(result, headline_count=headline_count)
+        return (f" {cov.clause}" if cov.clause else ""), cov.as_object()
+    except Exception:  # noqa: BLE001
+        return "", None
+
+
+def _begin_repeatable() -> bool:
+    """Whether Begin re-runs the sweep + re-speaks coverage on every press.
+
+    Default OFF — the presence doctrine is "speaks once, then pull-only". Set
+    ``TEX_BEGIN_REPEATABLE`` truthy to make Begin an active, repeatable
+    discover+announce button (live iteration / testing); unset to restore the
+    one-time ceremony with no code change.
+    """
+    return os.environ.get("TEX_BEGIN_REPEATABLE", "").strip().casefold() in {
+        "1", "true", "yes", "on", "enabled",
+    }
+
+
 # Agents that are "running" in the estate for the spoken count: everything
 # discovered and present, excluding the ones Tex put to sleep (the dormant
 # doctrine forbids speaking about them) and the terminally revoked. A
@@ -163,13 +209,33 @@ def build_discovery_surface_router() -> APIRouter:
         tenant = _resolve_tenant(principal, tenant_id)
 
         if ignition.has_fired(tenant):
-            # The door has already opened. Pull-only from here; never
-            # re-declare.
+            if not _begin_repeatable():
+                # Presence doctrine (default): the door opened once — pull-only
+                # from here, never re-declare. Restored by leaving
+                # TEX_BEGIN_REPEATABLE unset.
+                return {
+                    "spoken": None,
+                    "object": None,
+                    "already_ignited": True,
+                    "ignited_at": ignition.fired_at(tenant).isoformat(),
+                }
+            # Repeatable mode (TEX_BEGIN_REPEATABLE): Begin re-runs the full SIEVE
+            # sweep and re-speaks the honest coverage every press — an active
+            # discover+announce button for live iteration. The one-time ignition
+            # state is preserved (already_ignited stays true).
+            count = _estate_count(registry, tenant)
+            words = humanize_count(count)
+            agents = "agent" if count == 1 else "agents"
+            clause, coverage_object = _sieve_coverage(
+                _run_sieve(request, registry), count
+            )
+            headline = f"{words[:1].upper()}{words[1:]}" if words else words
             return {
-                "spoken": None,
-                "object": None,
+                "spoken": f"{headline} {agents} running.{clause}",
+                "object": coverage_object,
                 "already_ignited": True,
                 "ignited_at": ignition.fired_at(tenant).isoformat(),
+                "count": count,
             }
 
         # Ignition is the moment the witness starts watching: do the full
@@ -216,15 +282,7 @@ def build_discovery_surface_router() -> APIRouter:
         # governance boundary, so a SIEVE-surfaced shadow lands governable and is
         # counted in the spoken estate. The driver never raises; this guard is
         # belt-and-braces so SIEVE can never break the operator's deliberate act.
-        sieve = _sieve_driver(request)
-        sieve_result = None
-        if sieve is not None:
-            try:
-                ledger = getattr(request.app.state, "discovery_ledger", None)
-                if ledger is not None:
-                    sieve_result = sieve.run(registry, ledger)
-            except Exception:  # noqa: BLE001 — SIEVE is decoupled from the voice
-                pass
+        sieve_result = _run_sieve(request, registry)
 
         if is_real_tenant:
             scheduler = getattr(request.app.state, "scan_scheduler", None)
@@ -250,24 +308,12 @@ def build_discovery_surface_router() -> APIRouter:
         words = humanize_count(count)
         agents = "agent" if count == 1 else "agents"
 
-        # Honest coverage (ARCHITECTURE.md §9): when the SIEVE layer ran, speak
-        # not just the count but WHERE it found them and the single biggest blind
-        # spot + the vantage that would open it — never an implied totality. The
-        # rich {fired, blind, unseen-CI} rides as the object handle. Defensive:
-        # a summary failure silently degrades to the bare count, never breaks Begin.
-        clause = ""
-        coverage_object = None
-        if sieve_result is not None:
-            try:
-                from tex.discovery.engine.coverage import summarize
-
-                cov = summarize(sieve_result)
-                if cov.clause:
-                    clause = f" {cov.clause}"
-                coverage_object = cov.as_object()
-            except Exception:  # noqa: BLE001 — coverage is decoupled from the voice
-                clause = ""
-                coverage_object = None
+        # Honest coverage (ARCHITECTURE.md §9): speak not just the count but WHERE
+        # the layer found them and the single biggest plane still dark + the
+        # vantage that would open it — never an implied totality, always coherent
+        # with the spoken count. The rich {fired, blind, unseen-CI} rides as the
+        # object handle. A summary failure silently degrades to the bare count.
+        clause, coverage_object = _sieve_coverage(sieve_result, count)
         return {
             "spoken": f"You have {words} {agents} running.{clause} I'll begin.",
             "object": coverage_object,

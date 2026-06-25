@@ -518,6 +518,21 @@ def test_surface_ignite_speaks_once_then_pull_only():
     assert body2["spoken"] is None
 
 
+def test_surface_ignite_repeatable_mode_respeaks(monkeypatch):
+    # Opt-in repeatable mode (TEX_BEGIN_REPEATABLE): the one-time door still only
+    # opens once (already_ignited stays true), but Begin re-runs discovery and
+    # RE-SPEAKS the count + honest coverage on every press — an active
+    # discover+announce button for live iteration.
+    client = _client()
+    assert client.post("/v1/surface/discovery/ignite").json()["already_ignited"] is False
+
+    monkeypatch.setenv("TEX_BEGIN_REPEATABLE", "1")
+    body2 = client.post("/v1/surface/discovery/ignite").json()
+    assert body2["already_ignited"] is True
+    assert body2["spoken"] is not None
+    assert "running" in body2["spoken"]
+
+
 def test_surface_count_is_pull_only_and_spoken():
     client = _client()
     r = client.get("/v1/surface/discovery/count")

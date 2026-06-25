@@ -33,7 +33,10 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from tex.camel.capability import CapabilityLevel, ConfidentialityLevel
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    CapabilityLevel,
+    ConfidentialityLevel,
+)
 from tex.contracts.action_class import (
     ActionClassCase,
     build_action_class_corpus,

@@ -64,6 +64,17 @@ from tex.governance.private_data_exec.ifc.lattice import (
     LABEL_USER_PROMPT,
     SourceClassification,
 )
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    Capability,
+    CapabilitySet,
+    FidesLabel,
+)
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    CapabilityLevel as CamelCapabilityLevel,
+)
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    ConfidentialityLevel as CamelConfidentialityLevel,
+)
 from tex.governance.private_data_exec.ifc.memory import (
     DEFAULT_MEMORY_STREAM,
     MemoryItem,
@@ -123,6 +134,16 @@ __all__ = [
     "MemoryStream",
     "MemoryItem",
     "DEFAULT_MEMORY_STREAM",
+    # CaMeL FIDES product lattice — IFC home (decommission of tex.camel).
+    # The CaMeL integrity/confidentiality enums are exported under Camel*
+    # aliases so they do not collide with this package's own (isomorphic)
+    # IntegrityLevel/ConfidentialityLevel from ifc.lattice. The verbatim
+    # symbols also live at ifc.capability_compat for direct import.
+    "Capability",
+    "CapabilitySet",
+    "FidesLabel",
+    "CamelCapabilityLevel",
+    "CamelConfidentialityLevel",
     # Classifier
     "ClassifiedSource",
     "CallSpec",

@@ -40,7 +40,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from tex.camel.capability import CapabilityLevel, ConfidentialityLevel
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    CapabilityLevel,
+    ConfidentialityLevel,
+)
 from tex.contracts.action_class import (
     ActionClassCase,
     ActionClassCertificate,

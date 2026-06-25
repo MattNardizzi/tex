@@ -26,7 +26,8 @@ autonomously → **FORBID**.
 Why this is a structural proof, not a probability
 -------------------------------------------------
 The trifecta is a deterministic conjunction over labels the flow already
-carries (the FIDES dual-axis capability labels from ``tex.camel.capability``)
+carries (the FIDES dual-axis capability labels from the IFC home
+``tex.governance.private_data_exec.ifc.capability_compat``)
 plus the action's state-change character. It is not an estimate. That is what
 makes it eligible for the structural FORBID floor, alongside PCAS/CaMeL/IFC
 proofs — a deterministic structural mitigation a paraphrase cannot route
@@ -80,7 +81,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from tex.camel.capability import CapabilityLevel, ConfidentialityLevel
+from tex.governance.private_data_exec.ifc.capability_compat import (
+    CapabilityLevel,
+    ConfidentialityLevel,
+)
 
 
 _METADATA_KEY = "rule_of_two"

@@ -626,7 +626,10 @@ def test_qif_coupling_moves_the_estimate_in_the_right_direction() -> None:
 
 
 def test_qif_points_carry_fides_tags() -> None:
-    from tex.camel.capability import CapabilityLevel, ConfidentialityLevel
+    from tex.governance.private_data_exec.ifc.capability_compat import (
+        CapabilityLevel,
+        ConfidentialityLevel,
+    )
 
     points = build_qif_redteam_points(seed=_SEED, n_points=150)
     tiers = {p.confidentiality for p in points}

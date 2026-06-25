@@ -109,6 +109,15 @@ func runProbeChild(op, target, src string) int {
 			syscall.Close(fd)
 			err = werr
 		}
+	case "hammer": // tight unlink loop until deleted or exhausted — used for load
+		for i := 0; i < 500000; i++ {
+			e := syscall.Unlink(target)
+			if e == nil {
+				err = nil
+				break
+			}
+			err = e
+		}
 	case "ropen": // read-only open — MUST be allowed (immutable but readable)
 		var fd int
 		fd, err = syscall.Open(target, syscall.O_RDONLY, 0)

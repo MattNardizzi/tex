@@ -45,6 +45,7 @@
 char LICENSE[] SEC("license") = "GPL";
 
 #define TEX_EPERM 1 /* return -TEX_EPERM == -EPERM */
+#define TEX_FMODE_WRITE 0x2 /* FMODE_WRITE (include/linux/fs.h) */
 
 // (cgroup_id, inode) -> 1 means: the enrolled agent in this cgroup is FORBIDDEN
 // from the irreversible op on this inode. Mirrors the C struct byte-for-byte in
@@ -105,5 +106,90 @@ int BPF_PROG(tex_path_unlink, const struct path *dir, struct dentry *victim, int
 	if (ret)
 		return ret;
 	__u64 ino = BPF_CORE_READ(victim, d_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// ===== S4 breadth: the rest of the irreversible local-action class ========= //
+// Blocking unlink alone is not enough — an attacker who cannot delete a file can
+// still destroy it by zeroing its contents (truncate / open(O_TRUNC)) or by
+// renaming another file over it. And executing a forbidden binary is itself an
+// irreversible local action (the address space is replaced). These hooks close
+// that gap so a FORBID genuinely stops the irreversible action, not just delete.
+
+// security_path_truncate(const struct path *path) — truncate(2) AND the O_TRUNC
+// leg of open(2) both reach do_truncate -> security_path_truncate here
+// (CONFIG_SECURITY_PATH=y). Zeroing a forbidden file is as irreversible as
+// deleting it.
+SEC("lsm/path_truncate")
+int BPF_PROG(tex_path_truncate, const struct path *path, int ret)
+{
+	if (ret)
+		return ret;
+	__u64 ino = BPF_CORE_READ(path, dentry, d_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// security_file_truncate(struct file *file) — ftruncate(2) on an already-open fd
+// (a path that does not pass through path_truncate).
+SEC("lsm/file_truncate")
+int BPF_PROG(tex_file_truncate, struct file *file, int ret)
+{
+	if (ret)
+		return ret;
+	__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// security_inode_rename(old_dir, old_dentry, new_dir, new_dentry) — block when
+// the MOVED file (old) or the OVERWRITE target (new) is a forbidden inode.
+// rename-onto unlinks the target's inode as part of the operation (irreversible);
+// move-away evades a path-locked policy. new_dentry may have no inode (pure move
+// to a fresh name) -> CO-RE read yields 0, which is never in the forbid-set, so
+// that case is correctly NOT denied.
+SEC("lsm/inode_rename")
+int BPF_PROG(tex_inode_rename, struct inode *old_dir, struct dentry *old_dentry,
+	     struct inode *new_dir, struct dentry *new_dentry, int ret)
+{
+	if (ret)
+		return ret;
+	__u64 old_ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
+	int v = tex_local_verdict(old_ino);
+	if (v)
+		return v;
+	__u64 new_ino = BPF_CORE_READ(new_dentry, d_inode, i_ino);
+	return tex_local_verdict(new_ino);
+}
+
+// security_file_open(struct file *file) — the keystone of immutability. Deny any
+// WRITE-intent open of a forbidden inode. This single hook closes the entire
+// content-mutation surface that per-syscall hooks would otherwise have to chase:
+//   * plain write(2)/pwrite(2) overwrite (no truncate, no unlink — just clobber),
+//   * mmap(MAP_SHARED) + memory-store corruption (the store emits NO syscall, but
+//     it REQUIRES a writable fd, which is denied here),
+//   * open(O_TRUNC) content-zeroing (O_TRUNC implies write intent).
+// Read-only opens are allowed (the agent may still READ a protected file), so a
+// forbidden inode becomes immutable-but-readable for the enrolled agent. A
+// writable fd opened BEFORE the forbid is added is a documented residual (ledger).
+SEC("lsm/file_open")
+int BPF_PROG(tex_file_open, struct file *file, int ret)
+{
+	if (ret)
+		return ret;
+	unsigned int fmode = BPF_CORE_READ(file, f_mode);
+	if (!(fmode & TEX_FMODE_WRITE))
+		return 0; /* read-only open is permitted */
+	__u64 ino = BPF_CORE_READ(file, f_inode, i_ino);
+	return tex_local_verdict(ino);
+}
+
+// security_bprm_check_security(struct linux_binprm *bprm) — execve(2)/execveat(2).
+// Block executing a forbidden binary; the subject is the resolved program file's
+// inode. The exec is denied before the address space is replaced.
+SEC("lsm/bprm_check_security")
+int BPF_PROG(tex_bprm_check, struct linux_binprm *bprm, int ret)
+{
+	if (ret)
+		return ret;
+	__u64 ino = BPF_CORE_READ(bprm, file, f_inode, i_ino);
 	return tex_local_verdict(ino);
 }

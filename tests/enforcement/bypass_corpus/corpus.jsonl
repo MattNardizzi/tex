@@ -1,0 +1,13 @@
+{"id":"B4-unlink","ledger":"B4","op":"unlink","target":"file","expect":"blocked","content_survives":false,"adversary":"L3","note":"raw delete of a forbidden inode"}
+{"id":"B4c-unlinkat-dirfd","ledger":"B4c/B6b","op":"procfd","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"unlinkat via O_PATH dirfd — *at() TOCTOU surface, defeated by inode-keying"}
+{"id":"B6b-hardlink-alias","ledger":"B6b","op":"hardlink","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"alias the inode elsewhere then delete the alias — inode-keyed deny defeats it"}
+{"id":"B4t-truncate","ledger":"B4t","op":"truncate","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"truncate(2) content-zeroing"}
+{"id":"B4t-open-otrunc","ledger":"B4t","op":"otrunc","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"open(O_TRUNC) content-zeroing (`: > file`)"}
+{"id":"B4t-ftruncate","ledger":"B4t","op":"ftruncate","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"ftruncate(2) on a write fd"}
+{"id":"B11-write-overwrite","ledger":"B11","op":"write","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"plain write(2) clobber — denied at the write-intent open"}
+{"id":"B11-mmap-write-open","ledger":"B11","op":"mmap_write","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"MAP_SHARED store needs a writable fd — denied at open, closing the no-syscall mmap hole"}
+{"id":"B4r-rename-away","ledger":"B4r","op":"rename_from","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"move the forbidden inode away (path-lock evasion)"}
+{"id":"B4r-rename-onto","ledger":"B4r","op":"rename_onto","target":"file","expect":"blocked","content_survives":true,"adversary":"L3","note":"overwrite the forbidden inode (rename unlinks its old inode)"}
+{"id":"B4b-exec","ledger":"B4b","op":"exec","target":"binary","expect":"blocked","content_survives":false,"adversary":"L3","note":"execute a forbidden binary"}
+{"id":"CTL-readonly-open","ledger":"-","op":"ropen","target":"file","expect":"allowed","content_survives":true,"adversary":"L0","note":"control: read-only open of a forbidden inode MUST succeed (immutable but readable; no false-deny)"}
+{"id":"B10-cgroup-escape-root","ledger":"B10","op":"cgroup_escape","target":"file","expect":"open","content_survives":false,"adversary":"L3->L4","note":"RESIDUAL: escape to the root cgroup then delete — reachable ONLY by a root agent (an unprivileged agent cannot rewrite root cgroup.procs). Deploy MUST run governed agents unprivileged + cgroup-delegated."}

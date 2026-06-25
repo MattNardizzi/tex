@@ -42,9 +42,18 @@ func Open() (*Loader, error) {
 	// Attach every local-action LSM program. AttachLSM installs the program at
 	// the kernel MAC boundary; the returned link must be held for the hook to
 	// stay active (closing it detaches — see Close / the kill-switch story).
+	// The forbid-set LOCKS an inode against the whole irreversible-action class:
+	// delete (unlink), content-destroy (truncate/O_TRUNC, ftruncate), move/
+	// overwrite (rename), and exec (bprm) — so a FORBID stops the irreversible
+	// action regardless of which syscall the agent reaches for.
 	for name, prog := range map[string]*ebpf.Program{
-		"inode_unlink": l.objs.TexInodeUnlink,
-		"path_unlink":  l.objs.TexPathUnlink,
+		"inode_unlink":  l.objs.TexInodeUnlink,
+		"path_unlink":   l.objs.TexPathUnlink,
+		"path_truncate": l.objs.TexPathTruncate,
+		"file_truncate": l.objs.TexFileTruncate,
+		"inode_rename":  l.objs.TexInodeRename,
+		"file_open":     l.objs.TexFileOpen,
+		"bprm_check":    l.objs.TexBprmCheck,
 	} {
 		if prog == nil {
 			l.closeLinks()

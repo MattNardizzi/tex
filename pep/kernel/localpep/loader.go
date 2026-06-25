@@ -51,9 +51,11 @@ func Open() (*Loader, error) {
 		"path_unlink":   l.objs.TexPathUnlink,
 		"path_truncate": l.objs.TexPathTruncate,
 		"file_truncate": l.objs.TexFileTruncate,
-		"inode_rename":  l.objs.TexInodeRename,
-		"file_open":     l.objs.TexFileOpen,
-		"bprm_check":    l.objs.TexBprmCheck,
+		"inode_rename":    l.objs.TexInodeRename,
+		"file_open":       l.objs.TexFileOpen,
+		"bprm_check":      l.objs.TexBprmCheck,
+		"file_permission": l.objs.TexFilePermission,
+		"mmap_file":       l.objs.TexMmapFile,
 	} {
 		if prog == nil {
 			l.closeLinks()

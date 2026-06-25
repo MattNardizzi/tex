@@ -1892,12 +1892,34 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         else None
     )
 
+    # LIVE local-action FORBID -> in-kernel LOCAL PEP feed. Mirror of the network
+    # forbid-set above, for the local/non-network irreversible-action class: one
+    # LocalForbidSource is what the local kernel PEP (pep/kernel/localpep) polls at
+    # /v1/govern/local-forbid-set (HMAC-signed) AND, when TEX_LOCAL_PEP is on, the
+    # sink a live resource-attributable local FORBID warms. Default OFF: with the
+    # flag unset the sink is None, nothing is attached to app.state, and behaviour
+    # is byte-for-byte unchanged (the route then serves an inert, unsigned envelope).
+    import os as _os
+
+    from tex.governance.local_forbid_source import LocalForbidSource
+
+    _local_pep_on = _os.environ.get("TEX_LOCAL_PEP", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    _local_forbid_source = LocalForbidSource() if _local_pep_on else None
+    if _local_forbid_source is not None:
+        app.state.local_forbid_source = _local_forbid_source
+    _local_forbid_sink = (
+        _local_forbid_source.feed_from_decision if _local_forbid_source is not None else None
+    )
+
     app.state.standing_governance = StandingGovernance(
         agent_registry=runtime.agent_registry,
         evaluate_command=runtime.evaluate_action_command,
         held_sink=runtime.held_decision_sink,
         provenance_engine=runtime.provenance_engine,
         forbid_sink=_forbid_sink,
+        local_forbid_sink=_local_forbid_sink,
     )
 
     # PROOF-CARRYING ENFORCEMENT: expose the decision ledger (built dormant

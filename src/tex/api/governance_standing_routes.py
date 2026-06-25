@@ -196,4 +196,34 @@ def build_governance_standing_router() -> APIRouter:
             entries = []
         return {"forbid": entries, "count": len(entries), "epoch": epoch}
 
+    @router.get(
+        "/local-forbid-set",
+        summary="The HMAC-signed local-action FORBID set the in-kernel local PEP enforces",
+    )
+    def local_forbid_set(
+        request: Request,
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ) -> dict[str, Any]:
+        # The local-action kernel PEP (pep/kernel/localpep) polls this to warm its
+        # in-kernel (cgroup, inode) deny map. Unlike the network forbid-set this is
+        # HMAC-SIGNED (shared TEX_LOCAL_PEP_SECRET): the loader verifies the exact
+        # bytes at the enforcement point, so a compromised agent can neither forge
+        # the set nor strip an entry. Fail-closed + default-OFF: an unwired source
+        # is treated as empty, and with no secret configured the envelope is inert
+        # (the loader rejects the empty signature and keeps its existing denies —
+        # revoke-wins), so this route changes nothing until the PEP is provisioned.
+        import os
+
+        from tex.governance.local_forbid_source import (
+            LocalForbidSource,
+            resolve_local_forbid_source,
+        )
+
+        _governance(request)  # same precondition as the rest of /v1/govern
+        secret = os.environ.get("TEX_LOCAL_PEP_SECRET", "")
+        if not secret:
+            return {"set_canonical": "", "sig": "", "inert": True}
+        source = resolve_local_forbid_source(request.app.state) or LocalForbidSource()
+        return source.signed_response(principal.tenant, secret=secret)
+
     return router

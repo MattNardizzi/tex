@@ -10,10 +10,12 @@
 package localpep
 
 import (
+	"bufio"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -109,6 +111,50 @@ func runProbeChild(op, target, src string) int {
 			syscall.Close(fd)
 			err = werr
 		}
+	case "preopen_write": // B14: open a writable fd BEFORE the forbid, then write
+		// AFTER it — the write must be blocked by lsm/file_permission. Synchronizes
+		// with the test over stdout("READY")/stdin so the forbid lands between the
+		// open and the write.
+		var fd int
+		fd, err = syscall.Open(target, syscall.O_RDWR, 0) // pre-forbid: permitted
+		if err != nil {
+			break
+		}
+		os.Stdout.WriteString("READY\n")
+		var one [1]byte
+		_, _ = os.Stdin.Read(one[:]) // block until the test has added the forbid
+		_, err = syscall.Write(fd, []byte("LATE-WRITE-AFTER-FORBID"))
+		syscall.Close(fd)
+	case "mmap_after_forbid": // open O_RDWR BEFORE forbid, mmap shared+writable AFTER
+		// it — tex_mmap_file must deny ACQUIRING the mapping post-forbid.
+		var fd int
+		fd, err = syscall.Open(target, syscall.O_RDWR, 0)
+		if err != nil {
+			break
+		}
+		os.Stdout.WriteString("READY\n")
+		var one [1]byte
+		_, _ = os.Stdin.Read(one[:])
+		_, err = unix.Mmap(fd, 0, 4096, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+		syscall.Close(fd)
+	case "mmap_store_preforbid": // B15 RESIDUAL: map shared+writable BEFORE the
+		// forbid, store through it AFTER — a syscall-free store no LSM hook sees.
+		var fd int
+		fd, err = syscall.Open(target, syscall.O_RDWR, 0)
+		if err != nil {
+			break
+		}
+		var b []byte
+		b, err = unix.Mmap(fd, 0, 4096, unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
+		syscall.Close(fd) // the mapping survives the fd close
+		if err != nil {
+			break
+		}
+		os.Stdout.WriteString("READY\n")
+		var one [1]byte
+		_, _ = os.Stdin.Read(one[:])
+		copy(b, []byte("PWNED")) // short marker that fits within the file (writeback won't extend EOF)
+		err = unix.Msync(b, unix.MS_SYNC)
 	case "hammer": // tight unlink loop until deleted or exhausted — used for load
 		for i := 0; i < 500000; i++ {
 			e := syscall.Unlink(target)
@@ -356,4 +402,158 @@ func copyFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	return os.WriteFile(dst, b, mode)
+}
+
+// TestB14PreOpenedFdWriteBlocked closes ledger B14: a writable fd opened BEFORE
+// the forbid is added cannot write through it after — lsm/file_permission
+// re-checks every write against the live forbid-set.
+func TestB14PreOpenedFdWriteBlocked(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root (BPF-LSM attach)")
+	}
+	cg := mkCgroup(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "ledger.db")
+	ino := writeFile(t, target, "ORIGINAL-LEDGER")
+
+	l, err := Open()
+	if err != nil {
+		t.Fatalf("open loader: %v", err)
+	}
+	defer l.Close()
+	cgID, err := l.Enroll(cg)
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+
+	// Launch the probe; it opens a writable fd (still permitted) and waits.
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(),
+		"TEX_PROBE_OP=preopen_write", "TEX_PROBE_TARGET="+target, "TEX_PROBE_CGROUP="+cg)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start probe: %v", err)
+	}
+	// Wait until the fd is open, THEN forbid (so the open predates the forbid).
+	if line, _ := bufio.NewReader(stdout).ReadString('\n'); !strings.Contains(line, "READY") {
+		t.Fatalf("probe did not open the fd (got %q)", line)
+	}
+	if err := l.Forbid(cgID, ino); err != nil {
+		t.Fatalf("forbid: %v", err)
+	}
+	_, _ = stdin.Write([]byte("go\n")) // release the late write
+
+	code := 0
+	if werr := cmd.Wait(); werr != nil {
+		if ee, ok := werr.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else {
+			t.Fatalf("probe wait: %v", werr)
+		}
+	}
+	if code != blockedEPERM {
+		t.Fatalf("pre-opened fd write: want blocked(EPERM)=%d, got exit %d", blockedEPERM, code)
+	}
+	b, _ := os.ReadFile(target)
+	if strings.Contains(string(b), "LATE-WRITE") {
+		t.Fatalf("B14 LEAK: write reached the file through a pre-opened fd: %q", string(b))
+	}
+}
+
+// runSyncedProbe launches a probe that opens a resource, prints READY, and waits
+// on stdin; the test runs betweenReadyAndGo (e.g. adds the forbid) in that gap,
+// then releases the probe. Returns the probe's exit code.
+func runSyncedProbe(t *testing.T, op, cg, target string, betweenReadyAndGo func()) int {
+	t.Helper()
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "TEX_PROBE_OP="+op, "TEX_PROBE_TARGET="+target, "TEX_PROBE_CGROUP="+cg)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start probe %s: %v", op, err)
+	}
+	if line, _ := bufio.NewReader(stdout).ReadString('\n'); !strings.Contains(line, "READY") {
+		t.Fatalf("probe %s not READY (got %q)", op, line)
+	}
+	betweenReadyAndGo()
+	_, _ = stdin.Write([]byte("go\n"))
+	if werr := cmd.Wait(); werr != nil {
+		if ee, ok := werr.(*exec.ExitError); ok {
+			return ee.ExitCode()
+		}
+		t.Fatalf("probe %s wait: %v", op, werr)
+	}
+	return 0
+}
+
+// TestMmapAcquireAfterForbidBlocked: tex_mmap_file denies ACQUIRING a new shared+
+// writable mapping of a forbidden inode (here via an fd opened pre-forbid, mapped
+// post-forbid). This closes the mmap-acquisition path.
+func TestMmapAcquireAfterForbidBlocked(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root (BPF-LSM attach)")
+	}
+	cg := mkCgroup(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "ledger.db")
+	ino := writeFile(t, target, "ORIGINAL")
+	l, err := Open()
+	if err != nil {
+		t.Fatalf("open loader: %v", err)
+	}
+	defer l.Close()
+	cgID, err := l.Enroll(cg)
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	code := runSyncedProbe(t, "mmap_after_forbid", cg, target, func() {
+		if e := l.Forbid(cgID, ino); e != nil {
+			t.Fatalf("forbid: %v", e)
+		}
+	})
+	if code != blockedEPERM {
+		t.Fatalf("mmap-shared-writable acquire after forbid: want blocked(EPERM)=%d, got exit %d", blockedEPERM, code)
+	}
+}
+
+// TestB15PreForbidMmapStoreResidual PINS a KNOWN-OPEN, honestly-ledgered residual
+// (B15): a writable MAP_SHARED mapping established BEFORE the forbid lands lets a
+// syscall-free memory store corrupt the file afterward. No LSM hook can see a CPU
+// store, so this is irreducible at the LSM layer (closing it needs PTE write-
+// protection / a different mechanism). The test asserts the store SUCCEEDS so the
+// gap can never be silently re-claimed as "closed" by an overclaim. Mitigation:
+// warm forbids BEFORE the agent maps the file (born into a pre-warmed cgroup).
+func TestB15PreForbidMmapStoreResidual(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root (BPF-LSM attach)")
+	}
+	cg := mkCgroup(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "ledger.db")
+	ino := writeFile(t, target, "ORIGINAL-LEDGER-CONTENT-PADDED-LONG-ENOUGH")
+	l, err := Open()
+	if err != nil {
+		t.Fatalf("open loader: %v", err)
+	}
+	defer l.Close()
+	cgID, err := l.Enroll(cg)
+	if err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	code := runSyncedProbe(t, "mmap_store_preforbid", cg, target, func() {
+		if e := l.Forbid(cgID, ino); e != nil {
+			t.Fatalf("forbid: %v", e)
+		}
+	})
+	b, _ := os.ReadFile(target)
+	corrupted := strings.HasPrefix(string(b), "PWNED")
+	if code == 0 && corrupted {
+		return // residual confirmed present + honestly ledgered (B15) — expected
+	}
+	t.Fatalf("B15 residual changed: probe exit=%d corrupted=%v. If the store is now "+
+		"BLOCKED this is GOOD — close B15 in the ledger and flip this test; do not "+
+		"leave the ledger overclaiming.", code, corrupted)
 }

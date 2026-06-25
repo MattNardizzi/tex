@@ -28,9 +28,23 @@ cannot forge or strip a signed set without `TEX_LOCAL_PEP_SECRET`.
   check `cat /sys/kernel/security/lsm`). **Not on Render or macOS** — this governs
   the *agent fleet host*, not the Tex control plane (Render stays decide+prove).
 - **Run governed agents UNPRIVILEGED + cgroup-delegated** so they cannot rewrite
-  `cgroup.procs` to escape the enrolled cgroup (ledger B10).
-- **Warm forbids BEFORE the agent acts** (born into a pre-warmed governed cgroup)
-  so there is no writable-fd-opened-before-the-forbid window (ledger B14).
+  `cgroup.procs` to escape the enrolled cgroup (ledger B10). This is the single
+  load-bearing deploy rule: a *root* agent can move itself out of the governed
+  cgroup, which trends toward L4 (below). An unprivileged agent provably cannot.
+
+## THREAT MODEL — what this DOES and does NOT defend (no overclaim)
+Enforcement holds against an adversary up to **L3 — a fully compromised agent
+USERSPACE** in the enrolled cgroup: raw syscalls (bypass libc/SDK), TOCTOU
+path-swaps (defeated — the hook matches the kernel-resolved inode), hardlink/
+symlink/`/proc/self/fd` tricks, `renameat2(RENAME_EXCHANGE)`, `copy_file_range`/
+`FICLONE`, `io_uring` ops, and writes through a fd opened before the forbid (all
+proven blocked). It does **NOT** defend **L4 — a rooted host / compromised kernel,
+or a compromise of the loader process itself**. The loader writes the verdict maps
+with CAP_BPF/CAP_MAC_ADMIN; root owns the kernel and can detach the programs or
+clear the maps. Closing L4 requires a hardware root of trust (measured boot +
+remote attestation / a TEE), which is a separate program and is **not** claimed
+here. "Un-bypassable" in this README always means *relative to L3 and the
+residual-bypass ledger*, never as an unqualified absolute.
 
 ## ACTIVATE (outward step (b) — the genuinely dangerous one)
 This can deny legitimate production work fleet-wide. Do it deliberately, per host:

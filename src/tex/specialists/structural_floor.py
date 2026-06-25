@@ -66,6 +66,9 @@ from tex.contracts.rule_of_two import (
     evaluate_rule_of_two,
 )
 from tex.deterministic.cadence import CadenceLevel, assess_for_floor
+from tex.deterministic.value_budget import (
+    assess_for_floor as assess_budget_for_floor,
+)
 from tex.domain.finding import Finding
 from tex.domain.severity import Severity
 from tex.specialists.base import SpecialistBundle, SpecialistResult
@@ -271,6 +274,38 @@ def _cadence_deny(request: Any) -> StructuralDeny | None:
     )
 
 
+BUDGET_SPECIALIST = "value_budget"
+BUDGET_CODE = "value_budget.confidentiality_over"
+
+
+def _budget_deny(request: Any) -> StructuralDeny | None:
+    """Ledgered value-class confidentiality budget OVER the cap → a structural deny.
+
+    Only ``BudgetLevel.OVER`` fires the floor. OVER is a proof over the lineage's
+    SEALED cumulative history (we summed the sealed per-class debits and it
+    crossed the budget ``B``), reloaded across restarts — a deterministic fact
+    about structure, never a probabilistic score — so it qualifies for the floor
+    exactly as a PCAS deny or an IFC type violation does.
+
+    The DEGRADED level (the sealed authoritative total could not be reloaded /
+    verified) is NOT returned here: forbidding an *unknown* budget would be a
+    proof Tex cannot make. Instead it is fail-closed to ABSTAIN on the soft rail
+    (``value_budget.apply_budget_hold``, PERMIT→ABSTAIN), so an unverifiable
+    ledger never silently allows but also never manufactures a FORBID it can't
+    prove. Reads the shared singleton via a pure peek — never debits — so the
+    floor never double-counts the action already metered at the evaluate_action
+    seam.
+    """
+    assessment = assess_budget_for_floor(request)
+    if not assessment.over_budget:
+        return None
+    return StructuralDeny(
+        specialist=BUDGET_SPECIALIST,
+        reason=assessment.reason,
+        codes=(BUDGET_CODE,),
+    )
+
+
 def _rv4_permanent_denies(request: Any) -> list[StructuralDeny]:
     """RV4 path policies that are PERMANENTLY violated (bad prefixes) → denies.
 
@@ -319,6 +354,13 @@ def detect_structural_floor(
          (``tex.deterministic.cadence``), when ``request`` carries an agent
          identity to key on. A *counted* threshold, never a score; only HARD fires
          the floor (SOFT is a soft PERMIT→ABSTAIN hold, not a proof).
+      6. **Value-class budget OVER the cap** — a lineage whose cumulative,
+         SEALED confidentiality-class total crossed the budget ``B``
+         (``tex.deterministic.value_budget``), default-OFF behind
+         ``TEX_BUDGET_ENABLED``. A proof over sealed structure (summed sealed
+         debits), reloaded across restarts; only OVER fires the floor. The
+         DEGRADED state (unverifiable ledger) is a soft PERMIT→ABSTAIN hold, not
+         a FORBID — Tex never forbids a budget it cannot prove.
 
     Returns ``NEUTRAL_STRUCTURAL_FLOOR`` when none fire. ``request`` is optional
     so the pure specialist-bundle form (used widely in tests) keeps working; the
@@ -342,6 +384,9 @@ def detect_structural_floor(
         cadence = _cadence_deny(request)
         if cadence is not None:
             denies.append(cadence)
+        budget = _budget_deny(request)
+        if budget is not None:
+            denies.append(budget)
 
     if not denies:
         return NEUTRAL_STRUCTURAL_FLOOR

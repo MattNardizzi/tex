@@ -95,6 +95,23 @@ def _reset_action_cadence_tracker() -> Iterator[None]:
     _reset_default_cadence_tracker()
 
 
+@pytest.fixture(autouse=True)
+def _reset_value_budget_tracker() -> Iterator[None]:
+    """Isolate the ledgered value-class budget tracker per test.
+
+    The budget keeps a process-wide, cumulative tracker singleton (it must, to
+    sum a lineage's confidentiality-class movement across requests and restarts).
+    Reset it before and after every test so budget state from one test can never
+    leak into the next and trip a false ABSTAIN/FORBID. Within a single test,
+    accumulation is preserved — that is what the budget's own tests exercise.
+    """
+    from tex.deterministic.value_budget import _reset_default_budget_tracker
+
+    _reset_default_budget_tracker()
+    yield
+    _reset_default_budget_tracker()
+
+
 @pytest.fixture
 def evidence_path(tmp_path: Path) -> Path:
     """Per-test evidence path so concurrent tests do not share state."""

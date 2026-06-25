@@ -316,6 +316,14 @@ class SealedFactKind(StrEnum):
     # and L3's count-conservation — both keyed on DECISION — never see it.
     VERDICT_TRANSCRIPT = "verdict_transcript"
     PRECEDENT = "precedent"      # a discretionary ABSTAIN was auto-resolved from sealed prior human resolutions
+    # The authoritative cumulative confidentiality-class budget total for one
+    # (tenant, agent, lineage), sealed per-debit and per-identity-sequenced so a
+    # restart reloads the running total and a fork/replay is detectable as a chain
+    # break or sequence gap (deterministic/value_budget.py). A DISTINCT kind on
+    # purpose: it is neither a verdict (DECISION) nor a pre-verdict marker
+    # (ATTEMPT), so L1's seal-binding and L3's count-conservation — both keyed on
+    # DECISION — never see it.
+    BUDGET = "budget"
 
 
 class SealedFact(BaseModel):

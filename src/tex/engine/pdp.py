@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from tex.contracts.runtime_enforcement import ContractEnforcer
 from tex.deterministic.cadence import apply_cadence_hold
+from tex.deterministic.value_budget import apply_budget_hold
 from tex.deterministic.gate import (
     DeterministicGate,
     DeterministicGateResult,
@@ -417,6 +418,17 @@ class PolicyDecisionPoint:
             # detect_structural_floor and short-circuited before the router), so this
             # only ever sees SOFT here. Never raises a verdict. See deterministic/cadence.py.
             routing_result = apply_cadence_hold(
+                base=routing_result, request=request
+            )
+            # Ledgered value-class budget — soft rail, monotone-lowering
+            # (PERMIT→ABSTAIN only): if the lineage's authoritative sealed
+            # cumulative confidentiality-class total could not be reloaded /
+            # verified (DEGRADED), demote to ABSTAIN — an unknown budget must
+            # never silently allow. The OVER level is already a structural FORBID
+            # above (it fed detect_structural_floor and short-circuited before the
+            # router), so this only ever sees DEGRADED here. Inert no-op unless
+            # TEX_BUDGET_ENABLED. See deterministic/value_budget.py.
+            routing_result = apply_budget_hold(
                 base=routing_result, request=request
             )
             # Live multiplicative e-value spine (L9) — monotone-lowering

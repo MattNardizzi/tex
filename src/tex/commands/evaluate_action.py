@@ -211,6 +211,29 @@ class EvaluateActionCommand:
 
         try:
             request = self._ensure_controlled_agent_registered(request)
+            # Ledgered value-class budget (default-OFF behind TEX_BUDGET_ENABLED):
+            # the last mutable point before pdp.evaluate(). Derive this action's
+            # confidentiality-class debit, reload the lineage's sealed cumulative
+            # total, add the debit, and seal the new authoritative total as a
+            # SealedFact(BUDGET) per-lineage. The structural floor (OVER→FORBID)
+            # and the degraded hold (DEGRADED→ABSTAIN) then read the same sealed
+            # total inside the PDP for this request_id. Observe exactly once here
+            # so the action is metered exactly once; the floor/hold only peek.
+            # Best-effort: a budget-seam failure must never break the gate verdict
+            # — the floor independently fails closed to ABSTAIN on an unverifiable
+            # ledger, so a raise here cannot silently allow.
+            if os.environ.get("TEX_BUDGET_ENABLED", "").strip().casefold() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }:
+                try:
+                    from tex.deterministic.value_budget import observe_for_debit
+
+                    observe_for_debit(request)
+                except Exception:  # noqa: BLE001
+                    pass
             pdp_result = self._pdp.evaluate(
                 request=request,
                 policy=policy,

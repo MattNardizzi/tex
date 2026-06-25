@@ -120,16 +120,18 @@ def _external_id(entity: SieveEntity) -> str:
     return f"{_EXTERNAL_ID_PREFIX}{anchor}"
 
 
-def reconciliation_key(entity: SieveEntity) -> str:
+def reconciliation_key(entity: SieveEntity, tenant: str = SIEVE_TENANT) -> str:
     """The stable output-boundary key for ``ReconciliationIndex`` linking.
 
     Mirrors ``CandidateAgent.reconciliation_key`` (domain L379) and
     ``_key_from_metadata`` (service.py L149) EXACTLY:
     ``f"{source}:{tenant}:{external_id.casefold()}"``. Both the candidate and
     the saved ``AgentIdentity.metadata`` carry the parts that compose this key,
-    so the index re-links the entity across scans rather than churning it.
+    so the index re-links the entity across scans rather than churning it. The
+    ``tenant`` defaults to ``SIEVE_TENANT`` but the live path threads the tenant
+    being watched so discovered agents land in the SAME tenant as the estate.
     """
-    return f"{SIEVE_SOURCE}:{SIEVE_TENANT}:{_external_id(entity).casefold()}"
+    return f"{SIEVE_SOURCE}:{tenant}:{_external_id(entity).casefold()}"
 
 
 def _risk_band(entity: SieveEntity) -> DiscoveryRiskBand:
@@ -155,7 +157,7 @@ def _capability_hints(entity: SieveEntity) -> DiscoveredCapabilityHints:
     )
 
 
-def to_candidate_agent(entity: SieveEntity) -> CandidateAgent:
+def to_candidate_agent(entity: SieveEntity, tenant: str = SIEVE_TENANT) -> CandidateAgent:
     """Project a resolved entity to the canonical ``CandidateAgent`` shape.
 
     Carries ``fusion_confidence`` through as ``confidence``, the stable
@@ -180,7 +182,7 @@ def to_candidate_agent(entity: SieveEntity) -> CandidateAgent:
 
     return CandidateAgent(
         source=SIEVE_SOURCE,
-        tenant_id=SIEVE_TENANT,
+        tenant_id=tenant,
         external_id=_external_id(entity),
         name=name,
         description="SIEVE-resolved entity (cross-plane probabilistic fusion)",
@@ -287,6 +289,8 @@ def project(
     registry: _Registry,
     ledger: _Ledger,
     index: _Index,
+    *,
+    tenant: str = SIEVE_TENANT,
 ) -> None:
     """Write one resolved entity through the governance boundary.
 
@@ -308,8 +312,8 @@ def project(
     returned ``AgentIdentity`` from a gate-blocked save as a silent no-op so a
     self-governance refusal never breaks the projection.
     """
-    candidate = to_candidate_agent(entity)
-    key = reconciliation_key(entity)
+    candidate = to_candidate_agent(entity, tenant)
+    key = reconciliation_key(entity, tenant)
 
     existing_agent_id = index.get_agent_id(key)
     is_new = existing_agent_id is None

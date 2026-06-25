@@ -75,12 +75,14 @@ class SieveDriver:
         except Exception:  # noqa: BLE001 — introspection must never raise
             return ()
 
-    def run(self, registry, ledger, *, index=None):  # noqa: ANN001
+    def run(self, registry, ledger, *, index=None, tenant: str = "default"):  # noqa: ANN001
         """Run the flag-enabled SIEVE planes and project into registry/ledger.
 
         Returns the ``PlanesResult`` (object handle) or ``None`` if the run
         degraded. NEVER raises — any failure is logged at INFO and swallowed so
-        ignite is never broken by SIEVE.
+        ignite is never broken by SIEVE. ``tenant`` is the tenant being watched
+        (the ignite tenant): discovered agents are written under it so they land
+        in the SAME estate as the rest of the inventory.
         """
         try:
             from tex.discovery.engine.pipeline import run_planes
@@ -96,6 +98,7 @@ class SieveDriver:
                 registry=registry,
                 ledger=ledger,
                 index=index,
+                tenant_id=tenant,
             )
         except Exception as exc:  # noqa: BLE001 — SIEVE never breaks ignite
             _logger.info("sieve: run degraded (no-op): %s", exc)

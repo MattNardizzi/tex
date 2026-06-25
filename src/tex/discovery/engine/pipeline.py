@@ -391,6 +391,7 @@ def run_planes(
     ledger=None,  # noqa: ANN001 - InMemoryDiscoveryLedger (optional)
     index=None,  # noqa: ANN001 - ReconciliationIndex (optional)
     withheld_planes: Sequence[PlaneId] = (PlaneId.WITHHELD_THIRD,),
+    tenant_id: str = "default",
 ) -> PlanesResult:
     """SENSE across ALL flag-enabled planes → FUSE → ESTIMATE → ADAPT.
 
@@ -484,7 +485,7 @@ def run_planes(
 
             index = ReconciliationIndex(registry=registry)
         for entity in entities:
-            adapter.project(entity, registry, ledger, index)
+            adapter.project(entity, registry, ledger, index, tenant=tenant_id)
             projected += 1
 
     return PlanesResult(

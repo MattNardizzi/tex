@@ -72,7 +72,7 @@ RESEARCH_LOG.md §1 P11/P0, N3 (token-conservation residual).
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import UTC, datetime
 from typing import Callable, Iterable, Iterator, Mapping, Sequence
 
@@ -102,6 +102,29 @@ EventSource = (
     | Iterable[Mapping[str, object]]
     | None
 )
+
+#: In-process ring buffer of recent PDP gate calls. The /v1/govern/decide route
+#: appends one row per call via ``record_decision``; the governance-stream sensor
+#: reads it via ``live_decisions`` so ANY agent that asks Tex for one decision
+#: self-discovers (the P11 white space). Bounded (never grows unbounded) and
+#: per-process — discovered agents persist in the registry; this buffer only needs
+#: to survive until the next sweep.
+_LIVE_DECISIONS: "deque[dict[str, object]]" = deque(maxlen=5000)
+
+
+def record_decision(event: Mapping[str, object]) -> None:
+    """Record one PDP gate call so the governance-stream plane self-discovers the
+    calling agent. Cheap, bounded, and NEVER raises — fully decoupled from the
+    governance decision the gate returns."""
+    try:
+        _LIVE_DECISIONS.append(dict(event))
+    except Exception:  # noqa: BLE001 — discovery never breaks the gate
+        pass
+
+
+def live_decisions() -> list[dict[str, object]]:
+    """The live in-process decision-event source for the governance-stream sensor."""
+    return list(_LIVE_DECISIONS)
 
 #: Event field aliases → the canonical footprint name. The tap accepts the
 #: vocabulary the real rails (StandingGovernance decision log / OTel GenAI spans /
@@ -434,14 +457,13 @@ class GovernanceStreamSensor:
 def build_governance_stream_sensor(env: Mapping[str, str]) -> GovernanceStreamSensor:
     """Registry factory for the P11/P0 governance-stream sensor (degrade-empty).
 
-    The registry hands this the process ``env`` mapping. There is no source to
-    construct from env alone — the governance event source is an in-process hook
-    wired at runtime by the host (``register_sensor`` with a configured
-    instance), so the env-built sensor is a faithful INERT sensor: it has no
-    source and therefore senses nothing. This keeps the flag-gated activation
-    path (``TEX_SIEVE_P11_OTEL``) default-safe — enabling the flag without
-    wiring a real hook yields an empty plane, never a crash. ``emit_coverage_
-    health`` follows ``TEX_SIEVE_P0_COVERAGE`` so the P0 residual stays opt-in.
+    The source is the in-process ``live_decisions`` hook — the bounded ring
+    buffer the ``/v1/govern/decide`` route feeds via ``record_decision`` on every
+    gate call. So with the plane flag (``TEX_SIEVE_P11_OTEL``) on, any agent that
+    asks Tex for one decision self-discovers. Still default-safe: the plane only
+    builds when its flag is set, and an empty buffer (no gate traffic) senses
+    nothing — never a crash. ``emit_coverage_health`` follows
+    ``TEX_SIEVE_P0_COVERAGE`` so the P0 residual stays opt-in.
     """
     emit_p0 = (env.get("TEX_SIEVE_P0_COVERAGE", "") or "").strip().casefold() in {
         "1",
@@ -450,7 +472,7 @@ def build_governance_stream_sensor(env: Mapping[str, str]) -> GovernanceStreamSe
         "on",
         "enabled",
     }
-    return GovernanceStreamSensor(source=None, emit_coverage_health=emit_p0)
+    return GovernanceStreamSensor(source=live_decisions, emit_coverage_health=emit_p0)
 
 
 __all__ = [

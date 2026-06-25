@@ -37,8 +37,10 @@ from typing import Any, Callable
 from pydantic import BaseModel, ConfigDict, Field
 
 from tex.camel.capability import Capability, CapabilityLevel, CapabilitySet
+from tex.camel.cfi import CfiLedger, cfi_influence_bits, scope_symmetric_difference
 from tex.camel.plan import (
     Assign,
+    Branch,
     Call,
     Expr,
     Literal,
@@ -56,13 +58,35 @@ from tex.camel.value import CapValue
 
 
 class CamelInterpreterError(Exception):
-    """Raised on policy denial, unbound variable, missing tool, etc."""
+    """Raised on policy denial, unbound variable, missing tool, etc.
+
+    A raised ``CamelInterpreterError`` is the fail-closed HALT path: the
+    interpreter stops the plan and returns an empty UNTRUSTED value with
+    ``trace.halted = True`` and ``risk = 1.0``.
+    """
 
     def __init__(self, message: str, *, node_index: int | None = None) -> None:
         if node_index is not None:
             super().__init__(f"{message} (at node #{node_index})")
         else:
             super().__init__(message)
+        self.message = message
+        self.node_index = node_index
+
+
+class _CamelAbstain(Exception):
+    """Internal signal: the CFI steering budget is exhausted at a ``Branch``.
+
+    This is NOT a halt and NOT a FORBID. Tex never forbids a long-horizon task
+    merely for spending its control-flow-influence budget; the task CONTINUES,
+    but the over-budget branch resolves to ABSTAIN (the branch is not taken,
+    neither arm runs, the prior environment is preserved, and the plan keeps
+    executing its remaining straight-line nodes). The interpreter records this
+    on the trace via ``abstained`` rather than ``halted``.
+    """
+
+    def __init__(self, message: str, *, node_index: int) -> None:
+        super().__init__(message)
         self.message = message
         self.node_index = node_index
 
@@ -91,6 +115,21 @@ class ExecutionTrace(BaseModel):
     final_sources: tuple[str, ...] = Field(default_factory=tuple)
     halted: bool = False
     halt_reason: str | None = Field(default=None, max_length=500)
+    # ABSTAIN is distinct from HALT: the plan ran to completion but at least one
+    # ``Branch`` was skipped because the cumulative CFI steering budget was
+    # exhausted. The task is not forbidden; it simply did not take the priced
+    # branch. ``abstained`` is never set together with ``halted`` for the same
+    # cause (HALT is fail-closed; ABSTAIN is fail-quiet-and-continue).
+    abstained: bool = False
+    abstain_reason: str | None = Field(default=None, max_length=500)
+    # Cumulative control-flow-influence bits debited across all taken branches.
+    cfi_bits_spent: float = Field(default=0.0, ge=0.0)
+
+    @property
+    def risk(self) -> float:
+        """Coarse risk signal for downstream consumers: 1.0 on fail-closed
+        HALT, else 0.0. (ABSTAIN is deliberate, not risky — risk stays 0.0.)"""
+        return 1.0 if self.halted else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +163,13 @@ class CamelInterpreter:
     ``(final_value, trace)``.
     """
 
-    __slots__ = ("_tool_policies", "_tool_impls", "_q_llm", "_untrusted_env")
+    __slots__ = (
+        "_tool_policies",
+        "_tool_impls",
+        "_q_llm",
+        "_untrusted_env",
+        "_steer_budget",
+    )
 
     def __init__(
         self,
@@ -133,15 +178,23 @@ class CamelInterpreter:
         tool_impls: dict[str, ToolFn] | None = None,
         q_llm: QuarantinedLLM | None = None,
         untrusted_env: dict[str, str] | None = None,
+        steer_budget: float = float("inf"),
     ) -> None:
         if not tool_policies.is_frozen:
             raise CamelInterpreterError(
                 "ToolPolicyRegistry must be frozen before interpreter use"
             )
+        if steer_budget < 0:
+            raise CamelInterpreterError("steer_budget must be non-negative")
         self._tool_policies = tool_policies
         self._tool_impls = dict(tool_impls or {})
         self._q_llm = q_llm or StubQuarantinedLLM()
         self._untrusted_env = dict(untrusted_env or {})
+        # Hardcoded cumulative control-flow-influence budget (bits). Default
+        # +inf = unbounded = classic straight-line behavior is unaffected
+        # (no plan without a Branch ever debits). A finite budget enables the
+        # cumulative-ABSTAIN rail across this interpreter's single run().
+        self._steer_budget = steer_budget
 
     # ------------------------------------------------------------------ run
 
@@ -152,10 +205,16 @@ class CamelInterpreter:
             raise CamelInterpreterError(f"invalid plan: {exc}") from exc
 
         env: dict[str, CapValue] = {}
+        # var name -> declared finite output_domain of the node that bound it
+        # (only QLLM/Read carry one). Absent name => unbounded capacity.
+        domains: dict[str, tuple | None] = {}
+        ledger = CfiLedger()
         entries: list[TraceEntry] = []
         final_value: CapValue | None = None
         halted = False
         halt_reason: str | None = None
+        abstained = False
+        abstain_reason: str | None = None
 
         # Inject the user prompt as a USER-level value the plan may
         # reference via ``Read("user", "prompt")`` or similar. The
@@ -164,10 +223,28 @@ class CamelInterpreter:
 
         for i, node in enumerate(plan.nodes):
             try:
-                final_value, entry = self._step(i, node, env)
+                final_value, entry = self._step(
+                    i, node, env, domains=domains, ledger=ledger
+                )
                 entries.append(entry)
                 if isinstance(node, Return):
                     break
+            except _CamelAbstain as exc:
+                # Cumulative budget exhausted at this Branch: skip it (neither
+                # arm runs), record ABSTAIN, and CONTINUE the plan. Not a halt.
+                abstained = True
+                abstain_reason = exc.message
+                entries.append(
+                    TraceEntry(
+                        node_index=i,
+                        op="Branch",
+                        target=None,
+                        cap_level=CapabilityLevel.UNTRUSTED.name,
+                        sources=(),
+                        note=f"abstained: {exc.message}",
+                    )
+                )
+                continue
             except CamelInterpreterError as exc:
                 halted = True
                 halt_reason = exc.message
@@ -200,17 +277,30 @@ class CamelInterpreter:
             final_sources=tuple(sorted(final_value.caps.sources)),
             halted=halted,
             halt_reason=halt_reason,
+            abstained=abstained,
+            abstain_reason=abstain_reason,
+            cfi_bits_spent=ledger.total_bits,
         )
         return final_value, trace
 
     # ----------------------------------------------------------------- step
 
     def _step(
-        self, index: int, node: PlanNode, env: dict[str, CapValue]
+        self,
+        index: int,
+        node: PlanNode,
+        env: dict[str, CapValue],
+        *,
+        domains: dict[str, tuple | None],
+        ledger: CfiLedger,
     ) -> tuple[CapValue | None, TraceEntry]:
         if isinstance(node, Assign):
             value = self._eval_expr(node.expr, env, node_index=index)
             env[node.name] = value
+            # Carry a Read's declared output_domain onto the bound name so a
+            # later Branch can look it up. A non-Read expr (Literal/Var) has no
+            # declared domain: record None (unbounded) so it cannot steer.
+            domains[node.name] = getattr(node.expr, "output_domain", None)
             return None, TraceEntry(
                 node_index=index,
                 op="Assign",
@@ -267,6 +357,9 @@ class CamelInterpreter:
                 answer_text, from_values=tuple(input_values)
             )
             env[node.result_var] = result
+            # Record this Q-LLM's declared output_domain (may be None =
+            # unbounded) so a later Branch on result_var can be priced/gated.
+            domains[node.result_var] = node.output_domain
             return None, TraceEntry(
                 node_index=index,
                 op="QLLM",
@@ -275,6 +368,9 @@ class CamelInterpreter:
                 sources=tuple(sorted(result.caps.sources)),
                 note=f"query_len={len(node.query)}",
             )
+
+        if isinstance(node, Branch):
+            return self._step_branch(index, node, env, domains=domains, ledger=ledger)
 
         if isinstance(node, Return):
             value = self._eval_expr(node.expr, env, node_index=index)
@@ -290,6 +386,131 @@ class CamelInterpreter:
             f"unknown plan node type: {type(node).__name__}",
             node_index=index,
         )
+
+    # --------------------------------------------------------------- branch
+
+    def _step_branch(
+        self,
+        index: int,
+        node: Branch,
+        env: dict[str, CapValue],
+        *,
+        domains: dict[str, tuple | None],
+        ledger: CfiLedger,
+    ) -> tuple[CapValue | None, TraceEntry]:
+        """Execute one metered ``Branch``.
+
+        (a) fail-closed if the condition's producing node declared no typed
+            finite output_domain (untyped => unbounded capacity);
+        (b) HALT if the produced value is not IN the declared domain;
+        (c) price the branch (cfi_influence_bits) and debit the ledger;
+        (d) if cumulative total exceeds steer_budget -> ABSTAIN (continue);
+        (e) else execute the chosen arm, propagating the condition value's
+            UNTRUSTED taint into the arm's values via CapValue.derived.
+        """
+        # The condition variable must be bound.
+        if node.cond_var not in env:
+            raise CamelInterpreterError(
+                f"Branch condition variable {node.cond_var!r} is unbound",
+                node_index=index,
+            )
+        cond_value = env[node.cond_var]
+
+        # (a) no declared domain => unbounded capacity => fail-closed HALT.
+        domain = domains.get(node.cond_var)
+        if domain is None:
+            raise CamelInterpreterError(
+                f"Branch on {node.cond_var!r} has no declared output_domain "
+                f"(untyped/unbounded control-flow capacity)",
+                node_index=index,
+            )
+        if len(domain) < 1:
+            raise CamelInterpreterError(
+                f"Branch on {node.cond_var!r} has an empty output_domain",
+                node_index=index,
+            )
+
+        # (b) the produced value must lie inside the declared domain.
+        if cond_value.value not in domain:
+            raise CamelInterpreterError(
+                f"Branch condition value {cond_value.value!r} is not in the "
+                f"declared output_domain {domain!r}",
+                node_index=index,
+            )
+
+        # (c) price + debit.
+        sink_weight = scope_symmetric_difference(node.then_nodes, node.else_nodes)
+        debit = cfi_influence_bits(domain, sink_weight)
+        total = ledger.append(debit)
+
+        # (d) cumulative over budget => ABSTAIN (NOT a halt/FORBID; continue).
+        if total > self._steer_budget:
+            raise _CamelAbstain(
+                f"CFI steer budget exhausted: cumulative {total} bits "
+                f"> budget {self._steer_budget} (debit {debit} at this branch)",
+                node_index=index,
+            )
+
+        # (e) execute the chosen arm. The condition's *value* selects the arm
+        # by Python truthiness (then-arm iff truthy); the output_domain bounds
+        # *capacity* (how many bits the choice can carry) but does NOT redefine
+        # truthiness — so a 2-element domain like ("yes","no") sends BOTH
+        # non-empty strings to the then-arm. Plans that need a specific value to
+        # take the else-arm should use a domain whose else value is falsy
+        # (e.g. ("send", "")) or a downstream equality Call. The chosen arm's
+        # values inherit the condition's UNTRUSTED taint (taint propagation).
+        chosen = node.then_nodes if cond_value.value else node.else_nodes
+        self._exec_nodes(
+            chosen, env, domains=domains, ledger=ledger, taint=cond_value
+        )
+        return None, TraceEntry(
+            node_index=index,
+            op="Branch",
+            target=node.cond_var,
+            cap_level=cond_value.level.name,
+            sources=tuple(sorted(cond_value.caps.sources)),
+            note=(
+                f"arm={'then' if cond_value.value else 'else'} "
+                f"debit={debit} cum={total}"
+            ),
+        )
+
+    def _exec_nodes(
+        self,
+        nodes: tuple[PlanNode, ...],
+        env: dict[str, CapValue],
+        *,
+        domains: dict[str, tuple | None],
+        ledger: CfiLedger,
+        taint: CapValue,
+    ) -> None:
+        """Execute a Branch arm's node list against the shared env.
+
+        Every value the arm BINDS (Assign/Call/QLLM result) is re-derived to
+        carry ``taint`` (the condition value's caps) — because the existence of
+        that binding is conditioned on the untrusted control-flow decision.
+        This is the taint-propagation leg: an UNTRUSTED condition spreads its
+        UNTRUSTED level into everything its chosen arm produces."""
+        for j, sub in enumerate(nodes):
+            # Nested Returns are rejected by validate_structure; arms only hold
+            # Assign/Call/QLLM/Branch. Reuse _step, then taint the binding this
+            # sub-node produced (new or overwritten) with the condition's caps —
+            # its existence/value is control-flow-dependent on the untrusted
+            # condition. A nested Branch has no direct binding to taint here;
+            # its own _step_branch already taints its chosen arm's bindings.
+            before = set(env)
+            _value, _entry = self._step(
+                j, sub, env, domains=domains, ledger=ledger
+            )
+            new_names = set(env) - before
+            target = getattr(sub, "result_var", None) or getattr(sub, "name", None)
+            tainted = set(new_names)
+            if target is not None and target in env:
+                tainted.add(target)
+            for name in tainted:
+                env[name] = CapValue.derived(
+                    env[name].value, from_values=(env[name], taint)
+                )
 
     # ----------------------------------------------------------------- expr
 

@@ -78,13 +78,21 @@ from tex.camel.interpreter import (
     CamelInterpreterError,
     ExecutionTrace,
 )
+from tex.camel.cfi import (
+    CfiLedger,
+    CfiLedgerEntry,
+    cfi_influence_bits,
+    scope_symmetric_difference,
+)
 from tex.camel.plan import (
     Assign,
+    Branch,
     Call,
     Literal,
     Plan,
     PlanError,
     PlanNode,
+    QLLM,
     Read,
     Return,
     Var,
@@ -98,6 +106,7 @@ from tex.camel.value import CapValue
 
 __all__ = [
     "Assign",
+    "Branch",
     "Call",
     "Capability",
     "CapabilityLevel",
@@ -105,11 +114,14 @@ __all__ = [
     "CamelInterpreter",
     "CamelInterpreterError",
     "CapValue",
+    "CfiLedger",
+    "CfiLedgerEntry",
     "ExecutionTrace",
     "Literal",
     "Plan",
     "PlanError",
     "PlanNode",
+    "QLLM",
     "QuarantinedLLM",
     "Read",
     "Return",
@@ -117,4 +129,6 @@ __all__ = [
     "ToolPolicy",
     "ToolPolicyRegistry",
     "Var",
+    "cfi_influence_bits",
+    "scope_symmetric_difference",
 ]

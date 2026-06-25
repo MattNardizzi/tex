@@ -47,6 +47,10 @@ from typing import Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# The canonical scalar a typed finite output domain may range over. A domain is
+# a *finite tuple* of these — the same JSON-scalar subset CapValue admits.
+DomainScalar = Union[str, int, bool, None]
+
 
 class PlanError(Exception):
     """Raised on malformed plan construction or unresolved variables."""
@@ -79,10 +83,19 @@ class Read(_PlanNodeBase):
 
     The interpreter looks up ``source`` in its registered untrusted-input
     map and tags the value with UNTRUSTED capability.
+
+    ``output_domain`` — an optional *typed finite* tuple of the values this
+    read is declared to produce. When present (and when the read's result is
+    later used as a ``Branch`` condition), the interpreter prices the
+    control-flow influence at ``log2(len(output_domain))`` bits and verifies
+    the produced value lies inside the domain. When absent, the value carries
+    UNBOUNDED capacity and may not steer a ``Branch`` (the interpreter
+    fail-closes). The pricing is only as sound as this honest declaration.
     """
 
     source: str = Field(min_length=1, max_length=128)
     key: str | None = Field(default=None, max_length=128)
+    output_domain: tuple[DomainScalar, ...] | None = Field(default=None)
 
 
 Expr = Union[Literal, Var, Read]
@@ -104,11 +117,21 @@ class Call(_PlanNodeBase):
 
 
 class QLLM(_PlanNodeBase):
-    """Invoke the quarantined LLM."""
+    """Invoke the quarantined LLM.
+
+    ``output_domain`` — an optional *typed finite* tuple of the values the
+    quarantined LLM is constrained to emit (e.g. ``("yes", "no")`` for a
+    classification). This is the typed-declassification handle that lets an
+    otherwise-UNTRUSTED Q-LLM answer steer a ``Branch``: the interpreter
+    prices the branch at ``log2(len(output_domain))`` control-flow-influence
+    bits and rejects (HALTs) any answer outside the domain. Without it, the
+    Q-LLM answer is UNBOUNDED capacity and may not be a ``Branch`` condition.
+    """
 
     query: str = Field(min_length=1, max_length=4096)
     inputs: tuple[Var, ...] = Field(default_factory=tuple)
     result_var: str = Field(min_length=1, max_length=64)
+    output_domain: tuple[DomainScalar, ...] | None = Field(default=None)
 
 
 class Return(_PlanNodeBase):
@@ -117,7 +140,38 @@ class Return(_PlanNodeBase):
     expr: Expr
 
 
-PlanNode = Union[Assign, Call, QLLM, Return]
+class Branch(_PlanNodeBase):
+    """Conditional control flow gated on a *typed, capacity-priced* condition.
+
+    This is the CaMeL static→dynamic swap. Classic CaMeL forbids *all*
+    untrusted-influenced control flow by construction (no conditional node
+    exists; the interpreter never branches on a CapValue above TRUSTED).
+    ``Branch`` replaces that binary prohibition with a *metered* dynamic
+    model: an untrusted value may steer control flow, but only if it was
+    produced by a node that declared a typed finite ``output_domain``, and
+    only at a measured cost — ``log2(len(output_domain)) * sink_weight``
+    bits of control-flow influence, debited against a cumulative budget.
+
+    - ``cond_var``   — name of a Var bound by a *prior* ``QLLM`` or ``Read``
+                       that declared an ``output_domain``. The interpreter
+                       fail-closes (HALT, risk=1.0) if the producing node had
+                       no ``output_domain`` (untyped/unbounded capacity).
+    - ``then_nodes`` — executed when the condition value is truthy / matches.
+    - ``else_nodes`` — executed otherwise. Either arm may be empty.
+
+    The arms are ordinary plan-node lists (they may themselves contain
+    ``Branch`` nodes, recursively). Arms may NOT contain a ``Return`` — the
+    overall plan still terminates at exactly one top-level ``Return``.
+    """
+
+    cond_var: str = Field(min_length=1, max_length=64)
+    then_nodes: tuple["PlanNode", ...] = Field(default_factory=tuple)
+    else_nodes: tuple["PlanNode", ...] = Field(default_factory=tuple)
+
+
+PlanNode = Union[Assign, Call, QLLM, Branch, Return]
+
+Branch.model_rebuild()
 
 
 class Plan(BaseModel):
@@ -129,20 +183,37 @@ class Plan(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
     def validate_structure(self) -> None:
-        """Sanity-check: exactly one ``Return``, must be last."""
+        """Sanity-check: exactly one top-level ``Return``, must be last; no
+        ``Return`` may appear inside a ``Branch`` arm (arms re-join the main
+        line — only the top-level plan terminates)."""
         seen_return = False
         for i, n in enumerate(self.nodes):
             if isinstance(n, Return):
                 if i != len(self.nodes) - 1:
                     raise PlanError("Return must be the final node")
                 seen_return = True
+            elif isinstance(n, Branch):
+                _validate_branch_arms(n)
         if not seen_return:
             raise PlanError("Plan must end with a Return node")
 
 
+def _validate_branch_arms(branch: "Branch") -> None:
+    """Recursively validate a ``Branch``: arms may not contain a ``Return``;
+    nested ``Branch`` nodes are validated transitively."""
+    for arm in (branch.then_nodes, branch.else_nodes):
+        for n in arm:
+            if isinstance(n, Return):
+                raise PlanError("Return may not appear inside a Branch arm")
+            if isinstance(n, Branch):
+                _validate_branch_arms(n)
+
+
 __all__ = [
     "Assign",
+    "Branch",
     "Call",
+    "DomainScalar",
     "Expr",
     "Literal",
     "Plan",

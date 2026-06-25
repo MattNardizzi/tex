@@ -25,7 +25,7 @@ endif
 
 BPF_CFLAGS ?= -O2 -g -Wall -target bpf -D__TARGET_ARCH_$(BPF_TARGET_ARCH)
 
-.PHONY: all vmlinux bpf generate build clean vm-test
+.PHONY: all vmlinux bpf generate build clean vm-test lsm-generate lsm-build lsm-vm-test
 
 # Surface the resolved arch so build logs/CI show what was actually compiled.
 arch-info:
@@ -56,8 +56,23 @@ build: vmlinux bpf generate
 
 clean:
 	rm -f bpf/tex_redirect.o bpf/vmlinux.h agent/texredirect_*.go tex-kernel-pep
+	rm -f localpep/texlocal_bpf*.go localpep/texlocal_bpf*.o tex-local-pep
 
 # Build + load + verifier + behavior tests inside the Lima VM (see hack/).
 # Runs the kernel-half Go tests as root against the running kernel's BTF.
 vm-test:
 	hack/build-and-test.sh
+
+# ---- LOCAL-action LSM leg (separate GPL object + isolated loader) --------- #
+# This leg is built independently of the egress floor so a failure here never
+# regresses the working 5-program floor. Requires `bpf` in the active LSM list
+# (lsm=...,bpf boot param) to attach — see the contract / README.
+lsm-generate: vmlinux
+	cd localpep && BPF2GO_FLAGS="-D__TARGET_ARCH_$(BPF_TARGET_ARCH)" go generate ./...
+
+lsm-build: lsm-generate
+	cd localpep/cmd/tex-local-pep && CGO_ENABLED=0 go build -o ../../../tex-local-pep .
+
+# Build + run the local-action behavior tests as root against the live kernel.
+lsm-vm-test: lsm-generate
+	cd localpep && go test -c -o /tmp/localpep.test . && sudo /tmp/localpep.test -test.v -test.count=1

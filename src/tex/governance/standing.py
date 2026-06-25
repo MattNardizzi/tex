@@ -249,6 +249,7 @@ class StandingGovernance:
         held_sink: Any | None = None,
         provenance_engine: Any | None = None,
         forbid_sink: Callable[..., Any] | None = None,
+        local_forbid_sink: Callable[..., Any] | None = None,
         default_channel: str = "api",
         default_environment: str = "production",
     ) -> None:
@@ -261,6 +262,12 @@ class StandingGovernance:
         # the kernel hot set. None => the feed is inert (default; behaviour is
         # byte-for-byte unchanged). Feeding NEVER affects the ruling returned.
         self._forbid_sink = forbid_sink
+        # Parallel sink for the LOCAL-action plane (local_forbid_source.
+        # feed_from_decision). When set (TEX_LOCAL_PEP on), a resource-attributable
+        # FORBID on a local-action type warms the in-kernel LOCAL deny set
+        # (pep/kernel/localpep). None => inert (default; byte-for-byte unchanged).
+        # Like the network sink, feeding NEVER affects the ruling the PEP obeys.
+        self._local_forbid_sink = local_forbid_sink
         self._default_channel = default_channel
         self._default_environment = default_environment
         self._lock = threading.RLock()
@@ -353,7 +360,41 @@ class StandingGovernance:
         self._maybe_feed_forbid_set(
             outcome, action_type=action_type, recipient=recipient, tenant=tenant
         )
+        self._maybe_feed_local_forbid_set(
+            outcome,
+            action_type=action_type,
+            recipient=recipient,
+            agent_id=agent_id,
+            tenant=tenant,
+        )
         return outcome
+
+    def _maybe_feed_local_forbid_set(
+        self,
+        outcome: DecisionOutcome,
+        *,
+        action_type: str,
+        recipient: str | None,
+        agent_id: UUID | str | None,
+        tenant: str | None,
+    ) -> None:
+        """Warm the LOCAL-action kernel deny set from a live, resource-attributable
+        FORBID. Inert unless a sink is wired (``TEX_LOCAL_PEP``) and the outcome is
+        a FORBID on a local-action type with a resource (recipient) + agent. Like
+        the network feed, this is best-effort and NEVER changes the ruling."""
+        if self._local_forbid_sink is None or outcome.verdict is not Verdict.FORBID:
+            return
+        if not recipient or agent_id is None:
+            return
+        try:
+            self._local_forbid_sink(
+                action_type=action_type,
+                recipient=recipient,
+                agent_id=str(agent_id),
+                tenant=tenant,
+            )
+        except Exception:  # noqa: BLE001 — a sink failure must never break the ruling
+            pass
 
     def _maybe_feed_forbid_set(
         self,

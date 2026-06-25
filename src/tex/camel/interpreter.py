@@ -36,6 +36,11 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tex.camel.branch_leverage import (
+    NonDecidableGuard,
+    certify_leverage,
+    selector_for,
+)
 from tex.camel.capability import Capability, CapabilityLevel, CapabilitySet
 from tex.camel.cfi import CfiLedger, cfi_influence_bits, scope_symmetric_difference
 from tex.camel.plan import (
@@ -401,8 +406,13 @@ class CamelInterpreter:
         """Execute one metered ``Branch``.
 
         (a) fail-closed if the condition's producing node declared no typed
-            finite output_domain (untyped => unbounded capacity);
+            finite output_domain (untyped => unbounded capacity) — EXCEPT a
+            high-stakes branch, where a non-decidable guard ABSTAINs (CHOKE-X
+            never samples-and-commits);
         (b) HALT if the produced value is not IN the declared domain;
+        (CHOKE-X) for a high-stakes branch, certify per-branch attacker leverage
+            BEFORE executing; over budget => ABSTAIN (the high-stakes/irreversible
+            arm is NOT committed);
         (c) price the branch (cfi_influence_bits) and debit the ledger;
         (d) if cumulative total exceeds steer_budget -> ABSTAIN (continue);
         (e) else execute the chosen arm, propagating the condition value's
@@ -415,10 +425,20 @@ class CamelInterpreter:
                 node_index=index,
             )
         cond_value = env[node.cond_var]
-
-        # (a) no declared domain => unbounded capacity => fail-closed HALT.
         domain = domains.get(node.cond_var)
+
+        # (a) no declared domain => unbounded capacity. For a HIGH-STAKES branch
+        # this is a non-decidable guard => fail-closed-to-ABSTAIN (CHOKE-X never
+        # samples-and-commits a high-stakes/irreversible arm it cannot certify).
+        # For a non-high-stakes branch the classic CFI behavior is unchanged: HALT.
         if domain is None:
+            if node.is_high_stakes:
+                raise _CamelAbstain(
+                    f"high-stakes Branch on {node.cond_var!r} has a non-decidable "
+                    f"guard (no finite enumerable signed domain): ABSTAIN rather "
+                    f"than sample-and-commit",
+                    node_index=index,
+                )
             raise CamelInterpreterError(
                 f"Branch on {node.cond_var!r} has no declared output_domain "
                 f"(untyped/unbounded control-flow capacity)",
@@ -438,6 +458,28 @@ class CamelInterpreter:
                 node_index=index,
             )
 
+        # (CHOKE-X) HIGH-STAKES per-branch leverage certification, BEFORE any
+        # execution. Transparent endorsement: certify_leverage reads only the
+        # declared DOMAIN (the abstract set of all attacker values) + trusted
+        # inputs — NEVER cond_value.value (the single realized value). The
+        # realized value only selects the arm below, AFTER endorsement is granted.
+        if node.is_high_stakes:
+            try:
+                certified_bits = certify_leverage(node, domain, trusted_env={})
+            except NonDecidableGuard as exc:
+                # A high-stakes guard outside the decidable finite-enum fragment:
+                # ABSTAIN, never sample-and-commit. (Domain was non-None here, so
+                # this fires only if a future non-enum guard form reaches CHOKE-X.)
+                raise _CamelAbstain(str(exc), node_index=index) from exc
+            if certified_bits > node.budget_bits:
+                raise _CamelAbstain(
+                    f"CHOKE-X: high-stakes Branch on {node.cond_var!r} certifies "
+                    f"{certified_bits} bits of attacker leverage > budget "
+                    f"{node.budget_bits} (effect_class={node.effect_class!r}): "
+                    f"ABSTAIN, the high-stakes arm is NOT committed",
+                    node_index=index,
+                )
+
         # (c) price + debit.
         sink_weight = scope_symmetric_difference(node.then_nodes, node.else_nodes)
         debit = cfi_influence_bits(domain, sink_weight)
@@ -451,15 +493,20 @@ class CamelInterpreter:
                 node_index=index,
             )
 
-        # (e) execute the chosen arm. The condition's *value* selects the arm
-        # by Python truthiness (then-arm iff truthy); the output_domain bounds
+        # (e) execute the chosen arm. The condition's *value* selects the arm via
+        # the SAME selector CHOKE-X certifies with (``selector_for``): exact
+        # equality to ``match_value`` when the branch set ``match_enabled``, else
+        # Python truthiness (then-arm iff truthy). The output_domain bounds
         # *capacity* (how many bits the choice can carry) but does NOT redefine
-        # truthiness — so a 2-element domain like ("yes","no") sends BOTH
-        # non-empty strings to the then-arm. Plans that need a specific value to
-        # take the else-arm should use a domain whose else value is falsy
-        # (e.g. ("send", "")) or a downstream equality Call. The chosen arm's
-        # values inherit the condition's UNTRUSTED taint (taint propagation).
-        chosen = node.then_nodes if cond_value.value else node.else_nodes
+        # the selector — so a truthiness branch with a 2-element domain like
+        # ("yes","no") sends BOTH non-empty strings to the then-arm; a branch that
+        # needs ("refund","no_refund") to split both arms sets ``match_enabled``.
+        # The chosen arm's values inherit the condition's UNTRUSTED taint
+        # (taint propagation). Selecting the arm here reads the realized value;
+        # for a high-stakes branch this happens ONLY AFTER CHOKE-X endorsement
+        # above (which read only the domain), preserving transparent endorsement.
+        chosen_arm = selector_for(node)(cond_value.value, {})
+        chosen = node.then_nodes if chosen_arm == "then" else node.else_nodes
         self._exec_nodes(
             chosen, env, domains=domains, ledger=ledger, taint=cond_value
         )
@@ -470,7 +517,7 @@ class CamelInterpreter:
             cap_level=cond_value.level.name,
             sources=tuple(sorted(cond_value.caps.sources)),
             note=(
-                f"arm={'then' if cond_value.value else 'else'} "
+                f"arm={chosen_arm} "
                 f"debit={debit} cum={total}"
             ),
         )

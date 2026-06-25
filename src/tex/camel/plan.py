@@ -51,6 +51,15 @@ from pydantic import BaseModel, ConfigDict, Field
 # a *finite tuple* of these — the same JSON-scalar subset CapValue admits.
 DomainScalar = Union[str, int, bool, None]
 
+# Permissive sentinel for a ``Branch``'s per-branch attacker-influence budget.
+# A branch left at this default is NOT high-stakes via its budget — this is the
+# back-compat marker so iter-3 branches (which predate CHOKE-X and never set
+# ``budget_bits``) behave EXACTLY as before. Chosen large enough that no realistic
+# finite enum domain's certified leverage (log2|domain|) reaches it. It is NOT
+# +inf because ``budget_bits`` is a typed ``int``; this is the integer stand-in
+# for "unmetered per-branch leverage".
+_UNMETERED = 1 << 30
+
 
 class PlanError(Exception):
     """Raised on malformed plan construction or unresolved variables."""
@@ -158,15 +167,76 @@ class Branch(_PlanNodeBase):
                        no ``output_domain`` (untyped/unbounded capacity).
     - ``then_nodes`` — executed when the condition value is truthy / matches.
     - ``else_nodes`` — executed otherwise. Either arm may be empty.
+    - ``match_value`` — OPTIONAL value-discriminating arm selection. When set, the
+                       then-arm fires iff ``cond_value == match_value`` (exact
+                       equality), else the else-arm; when absent (the iter-3
+                       default), arm selection is Python truthiness of the
+                       condition value. This is the handle that lets a finite enum
+                       like ``{refund, no_refund}`` — where BOTH values are truthy —
+                       genuinely split across both arms, so CHOKE-X can certify the
+                       real per-value leverage. The certifier (``branch_leverage``)
+                       uses the SAME selector the interpreter does, keeping the
+                       2-safety certificate sound w.r.t. actual execution.
 
     The arms are ordinary plan-node lists (they may themselves contain
     ``Branch`` nodes, recursively). Arms may NOT contain a ``Return`` — the
     overall plan still terminates at exactly one top-level ``Return``.
+
+    High-stakes branches (CHOKE-X)
+    ------------------------------
+    CFI-BUDGET (above) bounds *cumulative* control-flow influence with a flat
+    per-branch charge. That flat charge admits a single high-leverage flip: one
+    in-budget branch can still commit an irreversible arm under attacker control.
+    ``budget_bits`` and ``effect_class`` arm the companion CHOKE-X per-branch
+    leverage certifier on this same node:
+
+    - ``budget_bits`` — the *attacker-influence* budget for THIS branch, in bits
+      of certified leverage (NOT the cumulative CFI budget). A branch is
+      HIGH-STAKES iff ``budget_bits == 0`` OR ``effect_class == 'irreversible'``.
+      The default ``_UNMETERED`` sentinel (a permissive non-zero value) marks a
+      branch as NOT high-stakes via budget — back-compat for iter-3 branches that
+      predate CHOKE-X. A high-stakes branch is certified BEFORE it executes: the
+      finite-enum certifier (``branch_leverage.certify_leverage``) measures, by
+      2-safety self-composition over the condition's signed ``output_domain``,
+      how many DISTINCT arms the attacker can steer to; if that exceeds
+      ``budget_bits`` the branch resolves to ABSTAIN (the high-stakes arm is NOT
+      committed). A non-decidable (non-finite-enum) high-stakes guard ABSTAINs
+      rather than sample-and-commit.
+    - ``effect_class`` — coarse reversibility of the side effects the arms reach.
+      ``'irreversible'`` forces high-stakes regardless of ``budget_bits``.
+
+    Non-high-stakes branches (the iter-3 default) keep classic CFI behavior
+    unchanged — they are never certified by CHOKE-X.
     """
 
     cond_var: str = Field(min_length=1, max_length=64)
     then_nodes: tuple["PlanNode", ...] = Field(default_factory=tuple)
     else_nodes: tuple["PlanNode", ...] = Field(default_factory=tuple)
+    # Optional value-discriminating arm selection. ``match_enabled`` flips the
+    # selector from Python truthiness (iter-3 default) to exact equality: when
+    # True the then-arm fires iff the condition value EQUALS ``match_value``. A
+    # separate boolean (rather than a sentinel) lets a guard legitimately match on
+    # ``None``, which is itself a valid ``DomainScalar``. Lets a fully-truthy enum
+    # like ``{refund, no_refund}`` split both arms so CHOKE-X can certify real
+    # per-value leverage; the certifier uses the SAME selector for soundness.
+    match_enabled: bool = Field(default=False)
+    match_value: DomainScalar = Field(default=None)
+    # Per-branch attacker-influence budget (bits of certified leverage). The
+    # default sentinel ``_UNMETERED`` is a permissive non-zero value: a branch
+    # left at the default is NOT high-stakes via budget, so iter-3 branches that
+    # predate CHOKE-X behave EXACTLY as before. ``budget_bits == 0`` makes a
+    # branch high-stakes (zero attacker leverage tolerated).
+    budget_bits: int = Field(default=_UNMETERED, ge=0)
+    # Coarse reversibility class of the arms' side effects. ``'irreversible'``
+    # forces the branch high-stakes regardless of ``budget_bits``.
+    effect_class: str = Field(default="reversible", max_length=32)
+
+    @property
+    def is_high_stakes(self) -> bool:
+        """A branch is high-stakes iff its attacker-influence budget is zero OR
+        its effect class is irreversible. High-stakes branches are certified by
+        CHOKE-X before execution; others keep classic CFI behavior."""
+        return self.budget_bits == 0 or self.effect_class == "irreversible"
 
 
 PlanNode = Union[Assign, Call, QLLM, Branch, Return]

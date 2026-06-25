@@ -78,6 +78,11 @@ from tex.camel.interpreter import (
     CamelInterpreterError,
     ExecutionTrace,
 )
+from tex.camel.branch_leverage import (
+    NonDecidableGuard,
+    certify_leverage,
+    truthiness_selector,
+)
 from tex.camel.cfi import (
     CfiLedger,
     CfiLedgerEntry,
@@ -118,6 +123,7 @@ __all__ = [
     "CfiLedgerEntry",
     "ExecutionTrace",
     "Literal",
+    "NonDecidableGuard",
     "Plan",
     "PlanError",
     "PlanNode",
@@ -129,6 +135,8 @@ __all__ = [
     "ToolPolicy",
     "ToolPolicyRegistry",
     "Var",
+    "certify_leverage",
     "cfi_influence_bits",
     "scope_symmetric_difference",
+    "truthiness_selector",
 ]

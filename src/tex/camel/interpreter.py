@@ -32,9 +32,12 @@ for direct emission into Tex's hash-chained evidence ledger.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:  # type-only; avoids any import cycle at module load
+    from tex.camel.capability_token import CapabilityGrant
 
 from tex.camel.branch_leverage import (
     NonDecidableGuard,
@@ -203,11 +206,40 @@ class CamelInterpreter:
 
     # ------------------------------------------------------------------ run
 
-    def run(self, plan: Plan, *, user_prompt: str = "") -> tuple[CapValue, ExecutionTrace]:
+    def run(
+        self,
+        plan: Plan,
+        *,
+        user_prompt: str = "",
+        capability_grant: "CapabilityGrant | None" = None,
+    ) -> tuple[CapValue, ExecutionTrace]:
+        """Execute ``plan``.
+
+        ``capability_grant`` (default ``None``) is the SIGNED, broker-verified
+        three-budget grant from a capability token (``camel.capability_token``).
+        When present, the interpreter spends the grant's signed ``steer_budget`` IN
+        PLACE OF the hardcoded constructor arg, and uses the grant's signed branch
+        leverage budget as a per-high-stakes-branch ceiling (taken as the MIN with
+        each branch's declared ``budget_bits`` so the token can only TIGHTEN, never
+        widen). When ``None`` (the default / flag-OFF path) the interpreter uses its
+        constructor ``steer_budget`` and each branch's own ``budget_bits`` exactly
+        as iter-3/4 — bit-for-bit unchanged. The caller MUST verify the token (and
+        its PoP sender binding) and pass the resulting grant only on success; an
+        unverified token yields no grant and this method is never reached with one.
+        """
         try:
             plan.validate_structure()
         except PlanError as exc:
             raise CamelInterpreterError(f"invalid plan: {exc}") from exc
+
+        # The effective cumulative CFI budget: the SIGNED token budget when a grant
+        # is present (replacing the hardcoded constructor arg), else the constructor
+        # default. Flag-OFF => grant is None => constructor value, unchanged.
+        effective_steer_budget = (
+            capability_grant.steer_budget
+            if capability_grant is not None
+            else self._steer_budget
+        )
 
         env: dict[str, CapValue] = {}
         # var name -> declared finite output_domain of the node that bound it
@@ -229,7 +261,13 @@ class CamelInterpreter:
         for i, node in enumerate(plan.nodes):
             try:
                 final_value, entry = self._step(
-                    i, node, env, domains=domains, ledger=ledger
+                    i,
+                    node,
+                    env,
+                    domains=domains,
+                    ledger=ledger,
+                    steer_budget=effective_steer_budget,
+                    grant=capability_grant,
                 )
                 entries.append(entry)
                 if isinstance(node, Return):
@@ -298,6 +336,8 @@ class CamelInterpreter:
         *,
         domains: dict[str, tuple | None],
         ledger: CfiLedger,
+        steer_budget: float = float("inf"),
+        grant: "CapabilityGrant | None" = None,
     ) -> tuple[CapValue | None, TraceEntry]:
         if isinstance(node, Assign):
             value = self._eval_expr(node.expr, env, node_index=index)
@@ -375,7 +415,15 @@ class CamelInterpreter:
             )
 
         if isinstance(node, Branch):
-            return self._step_branch(index, node, env, domains=domains, ledger=ledger)
+            return self._step_branch(
+                index,
+                node,
+                env,
+                domains=domains,
+                ledger=ledger,
+                steer_budget=steer_budget,
+                grant=grant,
+            )
 
         if isinstance(node, Return):
             value = self._eval_expr(node.expr, env, node_index=index)
@@ -402,6 +450,8 @@ class CamelInterpreter:
         *,
         domains: dict[str, tuple | None],
         ledger: CfiLedger,
+        steer_budget: float = float("inf"),
+        grant: "CapabilityGrant | None" = None,
     ) -> tuple[CapValue | None, TraceEntry]:
         """Execute one metered ``Branch``.
 
@@ -471,11 +521,22 @@ class CamelInterpreter:
                 # ABSTAIN, never sample-and-commit. (Domain was non-None here, so
                 # this fires only if a future non-enum guard form reaches CHOKE-X.)
                 raise _CamelAbstain(str(exc), node_index=index) from exc
-            if certified_bits > node.budget_bits:
+            # The effective per-branch leverage budget. When a SIGNED capability
+            # grant is present its branch leverage budget applies as a CEILING,
+            # taken as the MIN with the branch's own declared ``budget_bits`` — so
+            # the token can only TIGHTEN the per-branch budget, never widen it.
+            # With no grant (flag-OFF) the branch's own ``budget_bits`` governs
+            # exactly as iter-4.
+            effective_budget_bits = (
+                min(node.budget_bits, grant.branch_leverage_budget)
+                if grant is not None
+                else node.budget_bits
+            )
+            if certified_bits > effective_budget_bits:
                 raise _CamelAbstain(
                     f"CHOKE-X: high-stakes Branch on {node.cond_var!r} certifies "
                     f"{certified_bits} bits of attacker leverage > budget "
-                    f"{node.budget_bits} (effect_class={node.effect_class!r}): "
+                    f"{effective_budget_bits} (effect_class={node.effect_class!r}): "
                     f"ABSTAIN, the high-stakes arm is NOT committed",
                     node_index=index,
                 )
@@ -485,11 +546,15 @@ class CamelInterpreter:
         debit = cfi_influence_bits(domain, sink_weight)
         total = ledger.append(debit)
 
-        # (d) cumulative over budget => ABSTAIN (NOT a halt/FORBID; continue).
-        if total > self._steer_budget:
+        # (d) cumulative over the EFFECTIVE budget => ABSTAIN (NOT a halt/FORBID;
+        # continue). ``steer_budget`` is the SIGNED token budget when a capability
+        # grant drove this run, else the constructor default — passed down from
+        # ``run`` so the same comparison serves both the flag-OFF (constructor) and
+        # flag-ON (signed-token) paths without branching here.
+        if total > steer_budget:
             raise _CamelAbstain(
                 f"CFI steer budget exhausted: cumulative {total} bits "
-                f"> budget {self._steer_budget} (debit {debit} at this branch)",
+                f"> budget {steer_budget} (debit {debit} at this branch)",
                 node_index=index,
             )
 
@@ -508,7 +573,13 @@ class CamelInterpreter:
         chosen_arm = selector_for(node)(cond_value.value, {})
         chosen = node.then_nodes if chosen_arm == "then" else node.else_nodes
         self._exec_nodes(
-            chosen, env, domains=domains, ledger=ledger, taint=cond_value
+            chosen,
+            env,
+            domains=domains,
+            ledger=ledger,
+            taint=cond_value,
+            steer_budget=steer_budget,
+            grant=grant,
         )
         return None, TraceEntry(
             node_index=index,
@@ -530,6 +601,8 @@ class CamelInterpreter:
         domains: dict[str, tuple | None],
         ledger: CfiLedger,
         taint: CapValue,
+        steer_budget: float = float("inf"),
+        grant: "CapabilityGrant | None" = None,
     ) -> None:
         """Execute a Branch arm's node list against the shared env.
 
@@ -547,7 +620,13 @@ class CamelInterpreter:
             # its own _step_branch already taints its chosen arm's bindings.
             before = set(env)
             _value, _entry = self._step(
-                j, sub, env, domains=domains, ledger=ledger
+                j,
+                sub,
+                env,
+                domains=domains,
+                ledger=ledger,
+                steer_budget=steer_budget,
+                grant=grant,
             )
             new_names = set(env) - before
             target = getattr(sub, "result_var", None) or getattr(sub, "name", None)

@@ -83,6 +83,7 @@ from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from tex.domain.verdict import Verdict
+from tex.provenance.floor_seal import seal_floor_decision
 from tex.selfgov.governor import describe_standing_activate, gate_controller_mutation
 
 __all__ = [
@@ -280,6 +281,7 @@ class StandingGovernance:
         provenance_engine: Any | None = None,
         forbid_sink: Callable[..., Any] | None = None,
         local_forbid_sink: Callable[..., Any] | None = None,
+        decision_ledger: Any | None = None,
         default_channel: str = "api",
         default_environment: str = "production",
     ) -> None:
@@ -298,6 +300,15 @@ class StandingGovernance:
         # (pep/kernel/localpep). None => inert (default; byte-for-byte unchanged).
         # Like the network sink, feeding NEVER affects the ruling the PEP obeys.
         self._local_forbid_sink = local_forbid_sink
+        # Optional SealedFactLedger — the SAME object the deep PDP seals into
+        # (built dormant unless TEX_SEAL_DECISIONS=1; injected from main.py). When
+        # set, EVERY deterministic FLOOR ruling (_forbid_floor /
+        # _abstain_uninspectable) seals one offline-verifiable
+        # SealedFact(ENFORCEMENT) here AND stamps its decision_id + the record's
+        # hash onto the returned DecisionOutcome, so "every action sealed" holds
+        # for the floor, not only the deep path. None => byte-for-byte inert: the
+        # floor mints no id and seals nothing, exactly as before this seam.
+        self._decision_ledger = decision_ledger
         self._default_channel = default_channel
         self._default_environment = default_environment
         self._lock = threading.RLock()
@@ -491,6 +502,11 @@ class StandingGovernance:
                 "No sealed identity for this agent. Forbidding until discovery "
                 "seals it.",
                 scope="identity",
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tid,
             )
 
         if not self._is_governable(agent):
@@ -498,6 +514,11 @@ class StandingGovernance:
                 self._agent_uuid(agent),
                 "Agent is not in a running, governable state.",
                 scope="lifecycle",
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tid,
             )
 
         surface = getattr(agent, "capability_surface", None)
@@ -508,6 +529,11 @@ class StandingGovernance:
                 self._agent_uuid(agent),
                 "Action falls outside the agent's sealed capability surface.",
                 scope="surface",
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tid,
             )
 
         # ---- G9: un-inspectable content -> ABSTAIN (ASK), never a silent PERMIT.
@@ -545,6 +571,11 @@ class StandingGovernance:
                 "Deep adjudication unavailable; refusing to release on the "
                 "structural floor alone.",
                 scope="deep_error",
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tid,
             )
 
         outcome = self._adjudicate_deep(
@@ -721,6 +752,11 @@ class StandingGovernance:
                 "Deep adjudication raised; failing closed.",
                 tier="deep",
                 scope="deep_error",
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tenant,
             )
 
         response = getattr(result, "response", None) or result
@@ -822,13 +858,37 @@ class StandingGovernance:
         *,
         tier: str = "floor",
         scope: str = "floor",
+        action_type: str | None = None,
+        channel: str | None = None,
+        environment: str | None = None,
+        recipient: str | None = None,
+        tenant: str | None = None,
     ) -> DecisionOutcome:
+        # When a ledger is wired (TEX_SEAL_DECISIONS=1) seal this deterministic
+        # floor FORBID as one offline-verifiable SealedFact(ENFORCEMENT) and stamp
+        # the minted decision_id + the record's hash onto the outcome, so a floor
+        # ruling carries a retrievable evidence record exactly like the deep path.
+        # Ledger None => mint nothing, seal nothing: byte-for-byte unchanged.
+        decision_id, evidence_hash = self._seal_floor(
+            verdict="FORBID",
+            scope=scope,
+            reason=reason,
+            reason_code=None,
+            action_type=action_type,
+            channel=channel,
+            environment=environment,
+            recipient=recipient,
+            tenant=tenant,
+            agent_id=agent_id,
+        )
         return DecisionOutcome(
             verdict=Verdict.FORBID,
             released=False,
             reason=reason,
             tier=tier,
             agent_id=agent_id,
+            decision_id=decision_id,
+            evidence_hash=evidence_hash,
             forbid_scope=scope,
         )
 
@@ -885,14 +945,84 @@ class StandingGovernance:
                 "reason": reason_code,
             },
         )
+        # Seal the deterministic floor ABSTAIN as one offline-verifiable
+        # SealedFact(ENFORCEMENT) when a ledger is wired, and stamp the minted
+        # decision_id + record hash onto the outcome. Sealing runs AFTER the hold
+        # is raised and never suppresses it. Ledger None => inert (no id, no seal).
+        decision_id, evidence_hash = self._seal_floor(
+            verdict="ABSTAIN",
+            scope=None,
+            reason="Un-inspectable content; held for a human (not released).",
+            reason_code=reason_code,
+            action_type=action_type,
+            channel=channel,
+            environment=environment,
+            recipient=recipient,
+            tenant=tenant,
+            agent_id=agent_id,
+        )
         return DecisionOutcome(
             verdict=Verdict.ABSTAIN,
             released=False,
             reason="Un-inspectable content; held for a human (not released).",
             tier="floor",
             agent_id=agent_id,
+            decision_id=decision_id,
+            evidence_hash=evidence_hash,
             held=True,
         )
+
+    def _seal_floor(
+        self,
+        *,
+        verdict: str,
+        scope: str | None,
+        reason: str | None,
+        reason_code: str | None,
+        action_type: str | None,
+        channel: str | None,
+        environment: str | None,
+        recipient: str | None,
+        tenant: str | None,
+        agent_id: UUID | None,
+    ) -> tuple[UUID | None, str | None]:
+        """Seal one deterministic-floor ruling and return ``(decision_id,
+        evidence_hash)`` to stamp onto the outcome.
+
+        Inert by construction when no ledger is wired: returns ``(None, None)``
+        BEFORE minting any id, so a default boot (TEX_SEAL_DECISIONS unset) leaves
+        the floor outcome byte-for-byte unchanged. When a ledger IS present, it
+        mints a genuine Tex-authored audit id (uuid4, exactly like the deep path's
+        decision_id) and seals one ENFORCEMENT fact; ``evidence_hash`` is the
+        SealedFactRecord's real hash-chain ``record_hash`` (a sha256 hex, offline-
+        verifiable), never a synthesized deep-evidence digest.
+
+        Fail-soft like the forbid-set feeds and the hold sink: any defect degrades
+        to no/partial sealing and NEVER alters or breaks the ruling.
+        """
+        ledger = self._decision_ledger
+        if ledger is None:
+            return (None, None)
+        decision_id = uuid4()
+        try:
+            record = seal_floor_decision(
+                ledger,
+                verdict=verdict,
+                scope=scope,
+                reason=reason,
+                reason_code=reason_code,
+                action_type=action_type,
+                channel=channel,
+                environment=environment,
+                recipient=recipient,
+                tenant=tenant,
+                agent_id=str(agent_id) if agent_id is not None else None,
+                decision_id=str(decision_id),
+            )
+        except Exception:  # noqa: BLE001 — sealing must never break the ruling
+            record = None
+        evidence_hash = record.record_hash if record is not None else None
+        return (decision_id, evidence_hash)
 
     # ------------------------------------------------------------------ helpers
 

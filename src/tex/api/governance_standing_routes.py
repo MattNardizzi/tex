@@ -143,6 +143,35 @@ def _governance(request: Request):
     return gov
 
 
+def _default_plane_registry():
+    """Build a fresh, EMPTY PlaneSignalRegistry honoring the operator TTL env
+    overrides. Used when no registry is attached at composition — an empty store
+    yields all-DECIDE-ONLY, which is the correct resting state. NEVER cached on
+    app.state here (no signal is ever upgraded by the act of reading)."""
+    import os
+
+    from tex.governance.plane_signals import (
+        _DEFAULT_CRED_TTL_S,
+        _DEFAULT_POLL_TTL_S,
+        PlaneSignalRegistry,
+    )
+
+    def _ttl(name: str, default: float) -> float:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            val = float(raw)
+            return val if val > 0 else default
+        except ValueError:
+            return default
+
+    return PlaneSignalRegistry(
+        cred_ttl_s=_ttl("TEX_PLANE_CRED_TTL_S", _DEFAULT_CRED_TTL_S),
+        poll_ttl_s=_ttl("TEX_PLANE_POLL_TTL_S", _DEFAULT_POLL_TTL_S),
+    )
+
+
 def _resolve_tenant(principal: TexPrincipal, override: str | None) -> str:
     if override and principal.can_access_tenant(override):
         return override.strip().casefold()
@@ -339,6 +368,93 @@ def build_governance_standing_router() -> APIRouter:
             return {"set_canonical": "", "sig": "", "inert": True}
         source = resolve_local_forbid_source(request.app.state) or LocalForbidSource()
         return source.signed_response(principal.tenant, secret=secret)
+
+    @router.get(
+        "/agents/plane",
+        summary="Per-agent enforcement-plane badge — derived from LIVE signals, never optimistic",
+    )
+    def agents_plane(
+        request: Request,
+        tenant_id: str | None = Query(default=None),
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ) -> dict[str, Any]:
+        """For each governed agent, derive exactly ONE enforcement plane from a
+        LIVE, OBSERVED signal — and DEGRADE on absence/staleness, never upgrade
+        on capability/availability.
+
+        Default-OFF behind ``TEX_PLANE_STATUS`` (inert 503 when unset). Even with
+        the flag ON the signal registry defaults EMPTY, so every governed agent
+        reads ``DECIDE-ONLY`` with ``last_handshake_ts=null`` — the correct,
+        honest resting state (and the only true output on Render, where there is
+        no in-path Body and no downstream demand-verifier wired).
+
+        HONEST CEILING (do not change behavior to contradict any of this):
+
+        * **Never optimistic.** A plane upgrades ONLY from a recorded, fresh,
+          OBSERVED signal. Broker/mint availability, route existence, and the
+          flag itself are NOT signals — they never upgrade a plane.
+        * **CREDENTIAL-ENFORCED** requires an observed B3 demand-verifier
+          handshake (a downstream resource ran the verifier and accepted a
+          Tex-minted cred), recorded within ``TEX_PLANE_CRED_TTL_S``. No such
+          producer is wired today, so this is empty by default.
+        * **IN-PATH-BLOCKING** requires a fresh forbid-set poll (a live
+          kernel/proxy PEP heartbeat) for the tenant, within
+          ``TEX_PLANE_POLL_TTL_S``. No poll-recency producer is wired today, and
+          on Render no loader polls — so this is structurally unreachable there.
+        * **Possession != authorization.** A minted token proves WHO, not INTENT
+          (replayable by a hijacked agent), and an agent's own standing
+          credential that bypasses the verifier records NO handshake and keeps
+          the agent at DECIDE-ONLY.
+        """
+        # --- A. FLAG GATE (default-OFF, first thing — inert when unset) -------- #
+        import os
+
+        on = os.environ.get("TEX_PLANE_STATUS", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if not on:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="plane status route disabled",
+            )
+
+        # --- B. GOVERNANCE PRECONDITION (503 if unwired) ---------------------- #
+        gov = _governance(request)
+
+        # --- C. TENANT -------------------------------------------------------- #
+        tenant = _resolve_tenant(principal, tenant_id)
+
+        # --- D. SIGNAL REGISTRY (default-EMPTY) ------------------------------- #
+        # A registry attached at composition is read live; an unwired app gets a
+        # fresh EMPTY registry, so every agent derives the floor. Either way the
+        # read is PURE and can only UPGRADE off a recorded, fresh signal — and the
+        # default-empty store upgrades nothing.
+        from tex.governance.plane_signals import PlaneSignalRegistry
+
+        registry = getattr(request.app.state, "plane_signal_registry", None)
+        if registry is None:
+            registry = _default_plane_registry()
+
+        # --- E. ENUMERATE GOVERNED AGENTS + DERIVE PER-AGENT PLANE ------------ #
+        # Only governed agents (the ones Tex can actually rule on); each one's
+        # plane is derived independently from the live signals for that agent /
+        # its tenant. No signal => DECIDE-ONLY. Stale signal => degrades.
+        agents: list[dict[str, Any]] = []
+        for agent in gov._list_tenant_agents(tenant):  # noqa: SLF001 — same accessor /posture uses
+            if not gov._is_governable(agent):  # noqa: SLF001
+                continue
+            uid = gov._agent_uuid(agent)  # noqa: SLF001
+            agent_id = str(uid) if uid is not None else str(
+                getattr(agent, "external_agent_id", None)
+                or getattr(agent, "name", "")
+                or ""
+            )
+            agents.append(registry.derive(agent_id, tenant).to_jsonable())
+
+        return {"tenant": tenant, "agents": agents, "count": len(agents)}
 
     @router.post(
         "/mint",

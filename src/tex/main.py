@@ -1308,7 +1308,7 @@ class _WarmupGateMiddleware:
     with the SSE streaming routes. Only mounted in deferred mode.
     """
 
-    _PASS_THROUGH_EXACT = ("/health", "/")
+    _PASS_THROUGH_EXACT = ("/health", "/", "/.well-known/tex-jwks.json")
     _PASS_THROUGH_PREFIX = ("/docs", "/openapi", "/redoc")
 
     def __init__(self, app: Any) -> None:
@@ -1540,8 +1540,15 @@ def create_app(
     # enforcement point (kernel hook, MCP/mesh gateway, in-process gate) calls
     # /v1/govern/decide before letting an action cross; /v1/govern/posture is
     # the governed-vs-observed boundary, spoken.
-    from tex.api.governance_standing_routes import build_governance_standing_router
+    from tex.api.governance_standing_routes import (
+        build_governance_standing_router,
+        build_jwks_router,
+    )
     app.include_router(build_governance_standing_router())
+    # Public JWKS discovery: GET /.well-known/tex-jwks.json exposes ONLY the
+    # Ed25519 PUBLIC signing key so a remote verifier can check a Tex-signed
+    # capability token offline. Default-OFF (empty {"keys":[]} unless TEX_TGPCC).
+    app.include_router(build_jwks_router())
     app.include_router(tee_router)  # THREAD 12: composite TEE attestation
     app.include_router(vet_router)  # THREAD 13: VET Web Proofs + AID
     app.include_router(zkprov_router)  # THREAD 14: ZKPROV training-data provenance

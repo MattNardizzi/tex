@@ -68,3 +68,18 @@ forge/**/*private*
 
 # private session handoff — never commit (public repo)
 EXECUTION_LAYER_HANDOFF.md
+
+# SOTA rebuild loop contract (local only)
+EXECUTION_LAYER_SOTA_LOOP.md
+
+# Enforcement-layer loop contract + scratch (local only)
+ENFORCEMENT_LAYER_LOOP.md
+enforcement_vm_scratch/
+
+# UI<->backend sync loop contract + state (local only, public repo)
+UI_BACKEND_SYNC_LOOP.md
+UI_BACKEND_SYNC_BUILDLOG.md
+
+# B-series frontier loop contract + state (local only, public repo)
+B_SERIES_FRONTIER_LOOP.md
+B_SERIES_FRONTIER_BUILDLOG.md

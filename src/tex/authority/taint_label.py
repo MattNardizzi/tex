@@ -99,6 +99,10 @@ __all__ = [
     "label_producer_secret",
     "PROV_COMMIT_ENC",
     "label_dominates_floor",
+    "PdpIntegrityLabel",
+    "map_ifc_integrity_to_camel",
+    "map_ifc_confidentiality",
+    "build_pdp_commitment",
 ]
 
 # The encoding tag stamped into every prov_commit so an offline verifier knows
@@ -317,3 +321,147 @@ def verify_label_envelope(
     except Exception:  # noqa: BLE001 — any serialization defect fails closed
         return False
     return hmac.compare_digest(expected, str(signature))
+
+
+# --------------------------------------------------------------------------- #
+# LIVE PDP label producer (TG-PCC B1+) — Tex's own, agent-INDEPENDENT label     #
+#                                                                              #
+# This is the in-process producer that makes Tex's PDP — NOT the calling agent  #
+# — the source of the integrity label the E2 mint-gate consults. The signal it  #
+# rides on is the IfcSpecialist's per-request label (response.metadata[         #
+# 'ifc_labels']), which Tex's own classifier assigns from the SOURCE TYPE it    #
+# determines (default request.content => USER_INPUT; operator/PEP-set metadata  #
+# markers drop it to TOOL_UNTRUSTED / lift it to TOOL_TRUSTED; retrieved policy #
+# clauses => SYS_INSTR). The agent puts text in body.content but cannot tell    #
+# the classifier that text is trusted — the markers are EvaluationRequest.      #
+# metadata keys, never MintRequest body fields, and the bare standing path      #
+# passes none — which is exactly what keeps this label agent-independent.       #
+#                                                                              #
+# GRANULARITY CEILING (state plainly; do NOT claim away): this is a SINGLE-     #
+# REQUEST SOURCE classification, strictly COARSER than full operand-lineage. It #
+# CANNOT catch an injection laundered as trusted-looking USER_INPUT, because    #
+# that needs a multi-hop operand DAG which only exists when the agent runs      #
+# through the CaMeL/FIDES interpreter (NOT on the decide()/mint path). The      #
+# ``lineage_root`` here is a degenerate single-node commitment over the PDP-    #
+# named decision edge, not a reconstructed operand DAG. The label assessor is   #
+# in the TCB — this moves trust into Tex's own classifier + in-process signing, #
+# it does not eliminate trust.                                                  #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class PdpIntegrityLabel:
+    """The agent-independent integrity label Tex's PDP derived for one ruling.
+
+    Carried in-process on ``DecisionOutcome.integrity_label`` (never serialized,
+    exactly like ``response`` / ``forbid_scope``) so the mint route can build a
+    self-signed ``ProvenanceCommitment`` from it WITHOUT reading any caller field.
+
+    ``integrity`` / ``confidentiality`` are on the CaMeL/FIDES axis the gate's
+    floor uses. ``label_id`` is ``pdp:{decision_id}:{evidence_hash}`` — it binds
+    the label to the exact PDP ruling, both being Tex-minted audit ids the caller
+    cannot forge. ``source`` is the IFC integrity enum NAME it was derived from;
+    ``basis`` is a short human reason for the audit trail.
+    """
+
+    integrity: CapabilityLevel
+    confidentiality: ConfidentialityLevel
+    label_id: str
+    source: str
+    basis: str
+
+
+# IFC IntegrityLevel NAME -> CaMeL CapabilityLevel. The two lattices run in
+# OPPOSITE numeric directions (IFC: higher int = more trusted, join=min; CaMeL:
+# lower int = more trusted, join=max — see PROV_COMMIT_ENC note above), so the
+# mapping MUST be by enum NAME, never a bare int passthrough. Conservative:
+#   * SYS_INSTR (operator-authored root of trust)      -> TRUSTED (0)
+#   * TOOL_TRUSTED (trusted-but-not-authoritative)     -> USER (1)  [never TRUSTED]
+#   * USER_INPUT (direct user text)                    -> USER (1)  [partially trusted]
+#   * TOOL_UNTRUSTED (external/tool output)            -> UNTRUSTED (2)
+#   * TOOL_DESC (most attacker-controllable)           -> UNTRUSTED (2)
+#   * anything unrecognized / absent                   -> UNTRUSTED (2)  [fail-closed]
+# NOTE the non-circularity: USER_INPUT -> USER does NOT dominate the default
+# TRUSTED floor, so a bare free-text mint REFUSES rather than laundering the
+# agent's own content as TRUSTED. A label reaches TRUSTED only from an
+# operator-controlled signal (SYS_INSTR), which the agent does not control.
+_IFC_INTEGRITY_TO_CAMEL: dict[str, CapabilityLevel] = {
+    "SYS_INSTR": CapabilityLevel.TRUSTED,
+    "TOOL_TRUSTED": CapabilityLevel.USER,
+    "USER_INPUT": CapabilityLevel.USER,
+    "TOOL_UNTRUSTED": CapabilityLevel.UNTRUSTED,
+    "TOOL_DESC": CapabilityLevel.UNTRUSTED,
+}
+
+# IFC ConfidentialityLevel NAME -> CaMeL ConfidentialityLevel. Both lattices use
+# the SAME direction and the SAME names (PUBLIC=0 < INTERNAL=1 < CONFIDENTIAL=2
+# < RESTRICTED=3), so this is a NAME->NAME 1:1. Unknown/absent fails closed to
+# RESTRICTED (most sensitive — refused under any non-RESTRICTED floor).
+_IFC_CONF_TO_CAMEL: dict[str, ConfidentialityLevel] = {
+    "PUBLIC": ConfidentialityLevel.PUBLIC,
+    "INTERNAL": ConfidentialityLevel.INTERNAL,
+    "CONFIDENTIAL": ConfidentialityLevel.CONFIDENTIAL,
+    "RESTRICTED": ConfidentialityLevel.RESTRICTED,
+}
+
+
+def map_ifc_integrity_to_camel(name: Any) -> CapabilityLevel:
+    """Map an IFC integrity enum NAME to the CaMeL integrity axis (fail-closed).
+
+    Unknown / absent / non-string => UNTRUSTED (the least-trusted level) so a
+    label Tex cannot positively classify never raises the gate.
+    """
+    if not isinstance(name, str):
+        return CapabilityLevel.UNTRUSTED
+    return _IFC_INTEGRITY_TO_CAMEL.get(name.strip().upper(), CapabilityLevel.UNTRUSTED)
+
+
+def map_ifc_confidentiality(name: Any) -> ConfidentialityLevel:
+    """Map an IFC confidentiality enum NAME to the CaMeL axis (fail-closed).
+
+    Unknown / absent / non-string => RESTRICTED (the most-sensitive level) so an
+    unclassifiable confidentiality is treated as the most-protected, never waved
+    through as PUBLIC.
+    """
+    if not isinstance(name, str):
+        return ConfidentialityLevel.RESTRICTED
+    return _IFC_CONF_TO_CAMEL.get(name.strip().upper(), ConfidentialityLevel.RESTRICTED)
+
+
+def build_pdp_commitment(
+    pdp_label: PdpIntegrityLabel,
+    *,
+    floor: FidesLabel,
+    aud: str,
+    act: str,
+) -> ProvenanceCommitment:
+    """Build the agent-independent ProvenanceCommitment from a PDP-derived label.
+
+    The ``lineage_root`` is an HONEST single-node commitment over the one PDP-
+    named source (the decision edge), NOT a reconstructed operand DAG — see the
+    granularity-ceiling note on this module. The caller (the mint route in LIVE
+    mode) SELF-SIGNS the returned commitment with ``label_producer_secret()`` in
+    process; no caller-presented field is read.
+    """
+    label = FidesLabel(
+        integrity=pdp_label.integrity,
+        confidentiality=pdp_label.confidentiality,
+    )
+    lineage_root = compute_lineage_root(
+        [
+            OperandNode(
+                node_id="pdp.decision",
+                label_id=pdp_label.label_id,
+                integrity=pdp_label.integrity,
+                confidentiality=pdp_label.confidentiality,
+            )
+        ]
+    )
+    return ProvenanceCommitment(
+        label=label,
+        floor=floor,
+        lineage_root=lineage_root,
+        label_id=pdp_label.label_id,
+        aud=aud,
+        act=act,
+    )

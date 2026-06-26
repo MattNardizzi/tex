@@ -1927,6 +1927,14 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         provenance_engine=runtime.provenance_engine,
         forbid_sink=_forbid_sink,
         local_forbid_sink=_local_forbid_sink,
+        # The SAME SealedFactLedger the deep PDP seals into (built dormant unless
+        # TEX_SEAL_DECISIONS=1; runtime.pdp._decision_ledger is the line-885 ledger
+        # already injected into the PDP and surfaced on app.state below). Passing
+        # it makes EVERY deterministic-floor ruling (floor FORBID / floor ABSTAIN)
+        # seal one ENFORCEMENT receipt onto that one chain, so "every action
+        # sealed" holds for the floor too — not only the deep path. None in the
+        # default deploy -> floor sealing is a byte-for-byte no-op.
+        decision_ledger=getattr(runtime.pdp, "_decision_ledger", None),
     )
 
     # PROOF-CARRYING ENFORCEMENT: expose the decision ledger (built dormant

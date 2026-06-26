@@ -48,6 +48,11 @@ from tex.domain.evidence import EvidenceMaturity
 from tex.provenance.ledger import SealedFactLedger
 from tex.provenance.models import SealedFact, SealedFactKind, SealedFactRecord
 
+# Sentinel for "no value observed" that is distinct from a real ``None``
+# last_handshake_ts (the honest DECIDE-ONLY floor) — so "no prior fact" is never
+# confused with "a prior fact whose handshake was None".
+_MISSING = object()
+
 _logger = logging.getLogger(__name__)
 
 # Real, live ECDSA-P256 + hash-chain crypto (authorship + integrity), newly wired
@@ -198,5 +203,126 @@ def snapshot_planes(
                 sealed += 1
         except Exception:  # noqa: BLE001 — one bad agent must not abort the whole tick
             _logger.warning("PLANE snapshot skipped one agent", exc_info=True)
+            continue
+    return sealed
+
+
+def _latest_sealed_plane(
+    ledger: SealedFactLedger,
+    agent_id: str,
+    tenant: str,
+) -> tuple[str, object] | None:
+    """Read the most-recent sealed PLANE fact for ``(agent_id, tenant)`` and
+    return ``(plane, last_handshake_ts)`` — or ``None`` if none exists.
+
+    "Most-recent" is the freshest ``captured_at`` (ties broken by seal order, the
+    later record winning), EXACTLY the selection the voice answer path uses
+    (``/v1/ask`` plane branch picks the max-``captured_at`` snapshot). This is the
+    single source of truth the change-check compares against, so a seal-on-change
+    tick never disagrees with what the voice would currently answer.
+
+    Read-only — never mutates the ledger; a registry/ledger hiccup degrades to
+    ``None`` (treated as "no prior fact" → the next tick seals once, then settles).
+    """
+    best_when = None
+    best: tuple[str, object] | None = None
+    try:
+        records = ledger.list_by_kind(SealedFactKind.PLANE)
+    except Exception:  # noqa: BLE001 — defensive; never break the snapshotter
+        return None
+    for idx, rec in enumerate(records):
+        detail = getattr(rec.fact, "detail", None) or {}
+        if rec.fact.subject_id != agent_id:
+            continue
+        if (detail.get("tenant") or None) != (tenant or None):
+            continue
+        when = detail.get("captured_at")
+        when_key = (float(when) if when is not None else float("-inf"), idx)
+        if best_when is None or when_key > best_when:
+            best_when = when_key
+            best = (detail.get("plane"), detail.get("last_handshake_ts", _MISSING))
+    return best
+
+
+def snapshot_planes_on_change(
+    ledger: SealedFactLedger | None,
+    governance: object,
+    registry: object,
+    *,
+    tenant: str,
+    captured_at: float | None = None,
+) -> int:
+    """Seal a fresh PLANE fact ONLY for agents whose derived plane CHANGED.
+
+    This is the BOUNDED, continuous variant of :func:`snapshot_planes`. It walks
+    the same governed-agent enumeration and reads the same
+    ``registry.derive(agent_id, tenant)`` observed signal, but before sealing it
+    compares that signal against the agent's MOST-RECENT sealed PLANE fact
+    (:func:`_latest_sealed_plane`) and seals ONLY when:
+
+      * no prior sealed PLANE fact exists for this agent (first observation), OR
+      * the derived ``plane`` differs from the last sealed plane, OR
+      * the derived ``last_handshake_ts`` differs (a freshness change at the same
+        plane — e.g. a re-handshake — still a real observed delta worth sealing).
+
+    Why this keeps the ledger BOUNDED: in a steady-state estate (every agent
+    DECIDE-ONLY and unchanging) each agent seals exactly once — the very first
+    tick that sees it — and every subsequent tick seals NOTHING. So per-tick
+    growth in steady state is ZERO; the ledger grows only on a genuine plane
+    transition. This is what makes "re-snapshot every standing cycle forever" safe.
+
+    The sealed claim still EQUALS the observed ``derive()`` output byte-for-byte
+    (it reuses :func:`seal_plane` / :func:`build_plane_fact`, no upgraded guess,
+    same possession != authorization disclaimer). Returns the count NEWLY sealed
+    (0 on a ``ledger is None`` no-op, so a default boot does nothing here).
+    """
+    if ledger is None:
+        return 0
+    when = time.time() if captured_at is None else float(captured_at)
+    sealed = 0
+    try:
+        agents = governance._list_tenant_agents(tenant)  # noqa: SLF001 — same accessor the endpoint uses
+    except Exception:  # noqa: BLE001 — never break the snapshotter on a registry hiccup
+        return 0
+    for agent in agents:
+        try:
+            if not governance._is_governable(agent):  # noqa: SLF001
+                continue
+            uid = governance._agent_uuid(agent)  # noqa: SLF001
+            agent_name = (
+                getattr(agent, "external_agent_id", None)
+                or getattr(agent, "name", None)
+                or None
+            )
+            agent_id = str(uid) if uid is not None else str(agent_name or "")
+            if not agent_id:
+                continue
+            derived = registry.derive(agent_id, tenant)
+            prior = _latest_sealed_plane(ledger, agent_id, tenant)
+            if prior is not None:
+                prior_plane, prior_handshake = prior
+                # Bounded: an UNCHANGED plane seals nothing. We compare both the
+                # plane and the handshake freshness so the steady state (identical
+                # observed signal) is a true no-op, but a real re-handshake/upgrade
+                # at the same plane still seals a fresh, freshness-checkable fact.
+                if (
+                    prior_plane == derived.plane
+                    and prior_handshake is not _MISSING
+                    and prior_handshake == derived.last_handshake_ts
+                ):
+                    continue
+            rec = seal_plane(
+                ledger,
+                agent_id,
+                derived.plane,
+                tenant=tenant,
+                last_handshake_ts=derived.last_handshake_ts,
+                captured_at=when,
+                agent_name=str(agent_name) if agent_name is not None else None,
+            )
+            if rec is not None:
+                sealed += 1
+        except Exception:  # noqa: BLE001 — one bad agent must not abort the whole tick
+            _logger.warning("PLANE seal-on-change skipped one agent", exc_info=True)
             continue
     return sealed

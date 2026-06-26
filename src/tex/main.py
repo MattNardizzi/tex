@@ -1967,6 +1967,46 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         app.state.standing_gate = build_standing_gate(app.state.standing_governance)
         app.state.standing_gate_observer = None
 
+    # PLANE SNAPSHOTTING (E1): seal each governed agent's OBSERVED enforcement
+    # plane onto the SAME SealedFactLedger, so the voice (/v1/ask) can answer
+    # "is AtlasPay credential-enforced or decide-only?" from a SEALED snapshot —
+    # or ABSTAIN — and NEVER by reading live state in the answer path.
+    #
+    # TWO independent default-OFF gates, prod-INERT by default:
+    #   (1) app.state.decision_ledger is None unless TEX_SEAL_DECISIONS=1 → no
+    #       sealed ledger → seal_plane is a zero-cost no-op AND the voice plane
+    #       branch ABSTAINs (its `ledger is None` check).
+    #   (2) TEX_SEAL_PLANE (default off) independently gates the snapshotter, so
+    #       plane-snapshotting can be off even when decision-sealing is on.
+    # We attach an EMPTY PlaneSignalRegistry (so derive() returns the honest
+    # DECIDE-ONLY floor for every agent) and take ONE guarded snapshot at wire
+    # time — NO new background task/thread/scheduler tick is started, so a default
+    # boot is unchanged. (Re-snapshotting on the standing-watch tick is a follow-up
+    # wire; the invariant — zero new loop on a default boot — holds regardless.)
+    _seal_plane = os.environ.get(
+        "TEX_SEAL_PLANE", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    if _seal_plane and app.state.decision_ledger is not None:
+        try:
+            from tex.api.governance_standing_routes import _default_plane_registry
+            from tex.provenance.plane_seal import snapshot_planes
+
+            registry = getattr(app.state, "plane_signal_registry", None)
+            if registry is None:
+                registry = _default_plane_registry()
+                app.state.plane_signal_registry = registry
+            gov = app.state.standing_governance
+            for _tenant in {
+                gov._agent_tenant(a)  # noqa: SLF001 — same accessor the plane endpoint uses
+                for a in getattr(gov._registry, "list_all", lambda: [])()  # noqa: SLF001
+            }:
+                if _tenant:
+                    snapshot_planes(
+                        app.state.decision_ledger, gov, registry, tenant=_tenant
+                    )
+        except Exception:  # noqa: BLE001 — plane snapshotting must never break boot
+            _logger.warning("plane snapshot at wire time failed", exc_info=True)
+
     # REFLEXIVE SELF-GOVERNANCE (selfgov L5). Bind the reflexive governor to the
     # live PDP so Tex's OWN controller mutations are governed + sealed. Gated on
     # TEX_SEAL_DECISIONS (same flag, same ledger) — a no-op on a default boot.

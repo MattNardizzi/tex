@@ -32,10 +32,13 @@ __all__ = [
     "AnswerBuild",
     "build_dimension_answer",
     "build_record_answer",
+    "build_plane_answer",
     "RECORD_TEMPLATE",
+    "PLANE_TEMPLATE",
     "ABSTAIN_NO_ROUTE",
     "ABSTAIN_NO_FACT",
     "ABSTAIN_NO_RECORD",
+    "ABSTAIN_NO_PLANE",
     "FORBID_CONTRADICTION",
 ]
 
@@ -47,6 +50,7 @@ __all__ = [
 ABSTAIN_NO_ROUTE = "I only speak for your AI agents — ask me about those."
 ABSTAIN_NO_FACT = "I don't have a sealed fact for that yet, so I won't answer it."
 ABSTAIN_NO_RECORD = "I have no sealed record under that handle."
+ABSTAIN_NO_PLANE = "I have no sealed enforcement-plane fact for that agent yet."
 FORBID_CONTRADICTION = "That isn't what the record shows, so I won't say it."
 
 
@@ -256,3 +260,41 @@ def build_record_answer(decision: Any) -> AnswerBuild | None:
         "seq": None,
     }
     return AnswerBuild(answer=answer, template=RECORD_TEMPLATE, slots=slots, object=obj, proof_ref=proof_ref)
+
+
+# ── The plane path: one agent's OBSERVED enforcement plane, from a sealed snapshot ─
+# The spoken meaning is the observed plane; the answer carries ``captured_at`` so a
+# stale snapshot is visible (never asserted from capability). Every slot is read
+# verbatim from the sealed PLANE fact's ``detail`` — never derived, never the live
+# registry. The freshness-honesty (captured_at + last_handshake_ts) lives in the
+# sealed claim string; the SPOKEN line states the plane and when it was observed.
+PLANE_TEMPLATE = "Agent {agent} is on the {plane} enforcement plane, observed as of {captured_at}."
+
+
+def build_plane_answer(detail: Any) -> AnswerBuild | None:
+    """Verbalize one sealed PLANE fact's ``detail`` deterministically, or None.
+
+    Reads ``plane``, ``captured_at`` and an agent label (``agent_name`` preferred,
+    else ``agent_id``) straight off the sealed snapshot detail. Returns None to
+    ABSTAIN when a required field is absent — Tex stays silent rather than guess a
+    plane. No object handle (a plane is meaning, spoken, not a record to grab).
+    """
+    if not isinstance(detail, dict):
+        return None
+    plane = detail.get("plane")
+    captured_at = detail.get("captured_at")
+    agent = detail.get("agent_name") or detail.get("agent_id")
+    if not plane or captured_at is None or not agent:
+        return None
+    slots = {"agent": str(agent), "plane": str(plane), "captured_at": str(captured_at)}
+    try:
+        u = UtteranceForm(
+            dimension="plane",
+            template=PLANE_TEMPLATE,
+            required_slots=("agent", "plane", "captured_at"),
+            speaks_when=lambda _s: True,
+        )
+        answer = fill(u, slots)
+    except (ValueError, KeyError):
+        return None
+    return AnswerBuild(answer=answer, template=PLANE_TEMPLATE, slots=slots, object=None, proof_ref=None)

@@ -33,6 +33,7 @@ chain, so even a decline is provable.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -245,6 +246,57 @@ def _lookup_decision(request: Any, intent: Intent) -> Any | None:
     return None
 
 
+def _lookup_plane_fact(request: Any, intent: Intent) -> dict[str, Any] | None:
+    """Resolve the FRESHEST sealed PLANE fact for the agent the operator named.
+
+    SEALED-FACT-ONLY: reads ``app.state.decision_ledger`` (the SealedFactLedger,
+    None unless TEX_SEAL_DECISIONS=1) and NEVER the live PlaneSignalRegistry. The
+    spoken transcript (``intent.handle``) is matched, case-insensitively, against
+    each PLANE fact's ``subject_id`` and ``detail['agent_name']`` — a hit requires
+    the named agent to appear as a whole token in the transcript. Among matches the
+    freshest by ``detail['captured_at']`` wins. None => no ledger, or no sealed
+    PLANE fact names this agent => the caller ABSTAINs (never a guessed plane).
+    """
+    from tex.provenance.models import SealedFactKind
+
+    ledger = getattr(getattr(request.app, "state", None), "decision_ledger", None)
+    if ledger is None:
+        return None
+    transcript = (intent.handle or "").casefold()
+    if not transcript:
+        return None
+    try:
+        records = ledger.list_by_kind(SealedFactKind.PLANE)
+    except Exception:  # noqa: BLE001 — a ledger hiccup must not 500 the voice
+        return None
+
+    best: dict[str, Any] | None = None
+    best_ts = float("-inf")
+    for rec in records:
+        detail = getattr(rec.fact, "detail", None) or {}
+        names = [
+            str(detail.get("agent_name") or ""),
+            str(rec.fact.subject_id or ""),
+        ]
+        # A token match: the named agent must appear as a whole word in the
+        # transcript (so "AtlasPay" matches but a bare substring of a longer id
+        # does not silently bind the wrong agent).
+        matched = False
+        for name in names:
+            n = name.strip().casefold()
+            if n and re.search(r"\b" + re.escape(n) + r"\b", transcript):
+                matched = True
+                break
+        if not matched:
+            continue
+        captured_at = detail.get("captured_at")
+        ts = float(captured_at) if isinstance(captured_at, (int, float)) else float("-inf")
+        if ts >= best_ts:
+            best_ts = ts
+            best = dict(detail)
+    return best
+
+
 def answer_question(
     request: Any,
     *,
@@ -289,9 +341,15 @@ def answer_question(
     # to the deterministic pipeline below UNCHANGED — so the plan path only ever ADDS
     # coverage. RECORD intents keep their exact-record lookup (skipped here). Inert by
     # default (no compiler → byte-identical behaviour).
+    # PLANE is sealed-fact-only by contract (it must never read the live registry
+    # nor an LLM), so it is excluded from the plan path exactly like RECORD.
     _state = getattr(getattr(request, "app", None), "state", None)
     _compiler = getattr(_state, "presence_plan_compiler", None)
-    if _compiler is not None and intent.kind is not IntentKind.RECORD:
+    if (
+        _compiler is not None
+        and intent.kind is not IntentKind.RECORD
+        and intent.kind is not IntentKind.PLANE
+    ):
         from tex.presence.plan.answer import answer_with_plan
 
         try:
@@ -355,6 +413,35 @@ def answer_question(
         if gate.verdict is Verdict.PERMIT:
             return _seal(Verdict.PERMIT, build.answer, build.object, build.proof_ref, "record", gate_dict)
         return _seal(Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_RECORD, None, None, "record", gate_dict)
+
+    # ── An enforcement-plane question ───────────────────────────────────────
+    # SEALED-FACT-ONLY. We read the freshest sealed PLANE fact for the named
+    # agent from app.state.decision_ledger and answer from it; the live
+    # PlaneSignalRegistry is NEVER read here. No ledger / no matching sealed
+    # PLANE fact => authored ABSTAIN, never a guessed DECIDE-ONLY.
+    if intent.kind is IntentKind.PLANE:
+        detail = _lookup_plane_fact(request, intent)
+        if detail is None:
+            return _seal(
+                Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_PLANE, None, None, "plane",
+                {"reason": "no-sealed-plane-fact", "scorer": "router"},
+            )
+        build = answer_forms.build_plane_answer(detail)
+        if build is None:
+            return _seal(
+                Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_PLANE, None, None, "plane",
+                {"reason": "plane-not-verbalizable", "scorer": "router"},
+            )
+        # A plane has no PERMIT/FORBID to contradict, so sealed_verdict stays None
+        # (Rule B cannot fire). The gate still re-proves the reconstruction.
+        gate = _GATE.evaluate(
+            answer=build.answer, template=build.template, slots=build.slots,
+            asserted_verdict=None, sealed_verdict=None,
+        )
+        gate_dict = _gate_summary(gate)
+        if gate.verdict is Verdict.PERMIT:
+            return _seal(Verdict.PERMIT, build.answer, build.object, build.proof_ref, "plane", gate_dict)
+        return _seal(Verdict.ABSTAIN, answer_forms.ABSTAIN_NO_PLANE, None, None, "plane", gate_dict)
 
     # ── A dimension question ────────────────────────────────────────────────
     dimension = intent.dimension or ""

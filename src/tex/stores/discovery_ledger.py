@@ -171,6 +171,45 @@ class InMemoryDiscoveryLedger:
                 previous_hash = entry.record_hash
             return True
 
+    def find_break(self) -> DiscoveryLedgerEntry | None:
+        """
+        Replay the chain and return the FIRST entry whose hash or link
+        does not verify, or ``None`` if the chain is intact.
+
+        This is the read-only companion to :meth:`verify_chain`: same
+        replay, same break conditions, but it surfaces the offending
+        entry (so callers can read its real ``appended_at``) instead of
+        collapsing to a bool. HONEST CAVEAT: ``appended_at`` is the
+        time the offending record was written to the ledger, NOT a
+        separate "we detected the break at" time — Tex does not record
+        a distinct detection timestamp here.
+        """
+
+        with self._lock:
+            previous_hash: str | None = None
+            for entry in self._entries:
+                payload = {
+                    "candidate": _to_jsonable(entry.candidate.model_dump(mode="json")),
+                    "outcome": _to_jsonable(entry.outcome.model_dump(mode="json")),
+                }
+                payload_sha256 = _sha256_hex(_stable_json(payload))
+                if payload_sha256 != entry.payload_sha256:
+                    return entry
+                expected_record = _sha256_hex(
+                    _stable_json(
+                        {
+                            "payload_sha256": payload_sha256,
+                            "previous_hash": previous_hash,
+                        }
+                    )
+                )
+                if expected_record != entry.record_hash:
+                    return entry
+                if entry.previous_hash != previous_hash:
+                    return entry
+                previous_hash = entry.record_hash
+            return None
+
 
 # ---------------------------------------------------------------------------
 # helpers

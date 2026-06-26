@@ -115,6 +115,24 @@ _NON_ACTING_STATUSES = {"SLEEPING", "REVOKED", "QUARANTINED"}
 _UNINSPECTABLE_ACTION_TYPES = frozenset({"https_opaque", "http_opaque_body"})
 
 
+def _label_live_on() -> bool:
+    """True iff the LIVE PDP label producer is switched on (TEX_TAINT_LABEL_LIVE).
+
+    Default-OFF. With this unset, ``_attach_pdp_label`` is a no-op and
+    ``DecisionOutcome.integrity_label`` is always None — so a default boot is
+    byte-for-byte inert and the mint route's E2 gate keeps its legacy
+    caller-presented behaviour.
+    """
+    import os
+
+    return os.environ.get("TEX_TAINT_LABEL_LIVE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class DecisionOutcome:
     """The result of a single standing-governance ruling.
@@ -162,6 +180,18 @@ class DecisionOutcome:
     # tightens off ``allowed_tools``, not this digest — so today it is an audit
     # field, not a binding. None when there is no tool restriction to commit.
     surface_seal_hash: str | None = None
+    # The agent-INDEPENDENT integrity label Tex's PDP derived for THIS ruling
+    # (TG-PCC B1+ live producer). Populated only on a released PERMIT and only
+    # when the live producer flag (TEX_TAINT_LABEL_LIVE) is on; None otherwise.
+    # It carries the IFC-derived source/trust label on the CaMeL/FIDES axis so
+    # the mint route's E2 gate can build a SELF-SIGNED ProvenanceCommitment from
+    # it — feeding the gate with a label TEX computed, not one the agent supplied.
+    # Never serialized (in-process plumbing only, exactly like ``response`` /
+    # ``forbid_scope``) so the /decide and /mint wire bytes are unchanged and a
+    # default boot stays byte-for-byte inert. Type is
+    # ``tex.authority.taint_label.PdpIntegrityLabel | None`` (string-annotated to
+    # avoid importing the authority layer into the governance core at module load).
+    integrity_label: "Any | None" = None
 
     def to_jsonable(self) -> dict[str, Any]:
         return {
@@ -566,6 +596,64 @@ class StandingGovernance:
         except Exception:  # noqa: BLE001 — piggyback is best-effort; ruling stands
             return outcome
 
+    @staticmethod
+    def _attach_pdp_label(
+        outcome: DecisionOutcome, ifc_labels: Any | None
+    ) -> DecisionOutcome:
+        """Stamp a released PERMIT with the agent-INDEPENDENT integrity label Tex's
+        PDP derived for this ruling (TG-PCC B1+ live producer).
+
+        Flag-gated on ``TEX_TAINT_LABEL_LIVE`` (default-OFF — a default boot
+        attaches nothing). ``ifc_labels`` is the IfcSpecialist's per-request label
+        dict the PDP attached to the durable ``Decision.metadata['ifc_labels']``
+        (see ``pdp.py:1102``); the deep adjudicator reads it off the
+        ``EvaluateActionResult.decision`` and hands it here. The integrity NAME is
+        mapped onto the CaMeL axis BY NAME (the IFC and CaMeL encodings are
+        inverse), and the label is bound to the exact ruling via
+        ``label_id = pdp:{decision_id}:{evidence_hash}``.
+
+        IMPORTANT (ground-truth correction): the label rides on
+        ``Decision.metadata``, NOT on ``EvaluationResponse`` — the latter has no
+        ``metadata`` field, so it CANNOT be read off ``outcome.response``. That is
+        why the dict is extracted in ``_adjudicate_deep`` (where the decision is in
+        scope) and passed in.
+
+        Best-effort: any defect (no labels, older engine, mapping error) degrades
+        to NO label — exactly like ``_attach_surface_piggyback`` and the
+        forbid-set feeds, this NEVER alters the ruling. The mint route then fails
+        closed (no PDP label => refuse under the live flag)."""
+        if not _label_live_on():
+            return outcome
+        try:
+            if not isinstance(ifc_labels, dict):
+                return outcome
+            from dataclasses import replace
+
+            from tex.authority.taint_label import (
+                PdpIntegrityLabel,
+                map_ifc_confidentiality,
+                map_ifc_integrity_to_camel,
+            )
+
+            integ_name = ifc_labels.get("integrity")
+            integ = map_ifc_integrity_to_camel(integ_name)
+            conf = map_ifc_confidentiality(ifc_labels.get("confidentiality"))
+            # Bind the label to THIS ruling. decision_id/evidence_hash are
+            # Tex-minted audit ids the caller cannot forge; a degenerate
+            # placeholder keeps the id well-formed if an older engine omits one.
+            did = str(outcome.decision_id) if outcome.decision_id else "unknown"
+            eh = outcome.evidence_hash or "unknown"
+            label = PdpIntegrityLabel(
+                integrity=integ,
+                confidentiality=conf,
+                label_id=f"pdp:{did}:{eh}",
+                source=str(integ_name),
+                basis=f"ifc:{integ_name}",
+            )
+            return replace(outcome, integrity_label=label)
+        except Exception:  # noqa: BLE001 — labelling must NEVER break a ruling
+            return outcome
+
     def decide_for_request(
         self, request: Any, tenant: str | None = None
     ) -> DecisionOutcome:
@@ -641,7 +729,7 @@ class StandingGovernance:
         evidence_hash = getattr(response, "evidence_hash", None)
 
         if verdict is Verdict.PERMIT:
-            return DecisionOutcome(
+            outcome = DecisionOutcome(
                 verdict=Verdict.PERMIT,
                 released=True,
                 reason="Released by full adjudication.",
@@ -651,6 +739,19 @@ class StandingGovernance:
                 evidence_hash=evidence_hash,
                 response=response,
             )
+            # Stamp the agent-INDEPENDENT PDP integrity label (TG-PCC B1+ live
+            # producer; flag-gated TEX_TAINT_LABEL_LIVE, default-OFF). The IFC
+            # label rides on the durable Decision.metadata (NOT on the
+            # EvaluationResponse), so it must be read here off ``result.decision``
+            # while it is in scope. Best-effort — never alters the ruling.
+            decision = getattr(result, "decision", None)
+            decision_meta = getattr(decision, "metadata", None) or {}
+            ifc_labels = (
+                decision_meta.get("ifc_labels")
+                if isinstance(decision_meta, dict)
+                else None
+            )
+            return self._attach_pdp_label(outcome, ifc_labels)
 
         if verdict is Verdict.ABSTAIN:
             # The engine refused to settle alone. Surface it to the one voice

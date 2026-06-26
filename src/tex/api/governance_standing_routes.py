@@ -458,7 +458,9 @@ def build_governance_standing_router() -> APIRouter:
             from tex.authority.broker import canonical_intent_commit
             from tex.authority.taint_label import (
                 ProvenanceCommitment,
+                build_pdp_commitment,
                 label_producer_secret,
+                sign_label_envelope,
                 verify_label_envelope,
             )
             from tex.camel.capability import (
@@ -466,6 +468,19 @@ def build_governance_standing_router() -> APIRouter:
                 ConfidentialityLevel,
                 FidesLabel,
             )
+
+            # LIVE PRODUCER (TG-PCC B1+, default-OFF, nested under the taint flag):
+            # when on, TEX'S OWN PDP is the label producer. The route derives the
+            # commitment from ``outcome.integrity_label`` (the IFC-derived,
+            # agent-independent label the PDP computed for THIS ruling) and
+            # SELF-SIGNS it in-process with the operator secret — IGNORING the
+            # caller's operand_label_* / label_signature entirely. The agent
+            # cannot supply or raise its own label: that is the substance of
+            # agent-independence. Unset => the legacy caller-presented +
+            # verify-caller-HMAC path runs byte-for-byte as today.
+            live_on = os.environ.get(
+                "TEX_TAINT_LABEL_LIVE", ""
+            ).strip().lower() in {"1", "true", "yes", "on"}
 
             t_audience = body.audience or body.recipient
             if not t_audience:
@@ -481,63 +496,115 @@ def build_governance_standing_router() -> APIRouter:
             floor = _floor_for(t_audience, body.action_type)
             secret = label_producer_secret()
 
-            # FAIL CLOSED if the trusted-producer label is absent / unverifiable.
-            # A missing producer secret, a missing label, or a bad signature ALL
-            # refuse — the agent cannot self-assert integrity, so absence of an
-            # independent label means "treat as tainted / refuse", never permit.
-            missing = (
-                secret is None
-                or body.operand_label_integrity is None
-                or body.operand_label_confidentiality is None
-                or not body.label_signature
-                or not body.lineage_root
-                or not body.operand_label_id
-            )
-            if missing:
-                return JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content=_refusal_payload(
-                        outcome,
-                        reason_override=(
-                            "insufficient_integrity: no verifiable trusted-producer "
-                            f"label for aud={t_audience} act={body.action_type}"
+            if live_on:
+                # --- LIVE: Tex's PDP produced the label; self-sign in process. ---
+                # Fail closed when there is no producer secret (the agent could
+                # otherwise self-produce a valid-looking label) or when the PDP
+                # attached no label (e.g. a floor-tier PERMIT with no deep run —
+                # impossible for a released deep PERMIT, but defended explicitly):
+                # absence of an agent-independent label means "refuse", never mint.
+                if secret is None or getattr(outcome, "integrity_label", None) is None:
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content=_refusal_payload(
+                            outcome,
+                            reason_override=(
+                                "insufficient_integrity: no PDP-produced label / "
+                                f"no producer secret for aud={t_audience} "
+                                f"act={body.action_type}"
+                            ),
                         ),
+                    )
+                pdp_label = outcome.integrity_label
+                label = FidesLabel(
+                    integrity=pdp_label.integrity,
+                    confidentiality=pdp_label.confidentiality,
+                )
+                commit = build_pdp_commitment(
+                    pdp_label,
+                    floor=floor,
+                    aud=t_audience,
+                    act=body.action_type,
+                )
+                # Tex SELF-SIGNS in-process — the agent never holds the secret and
+                # never supplies a signature. There is no verify-CALLER step in
+                # LIVE mode because the commitment is self-authored, not
+                # caller-attested. We sign-then-self-verify as a serialization /
+                # tamper self-check (a defective envelope fails CLOSED, never
+                # mints); the token's authenticity itself comes from the broker's
+                # signature over the embedded prov_commit downstream.
+                _label_signature = sign_label_envelope(commit, secret=secret)
+                if not verify_label_envelope(commit, _label_signature, secret=secret):
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content=_refusal_payload(
+                            outcome,
+                            reason_override=(
+                                "insufficient_integrity: PDP label self-seal "
+                                "failed (fail-closed)"
+                            ),
+                        ),
+                    )
+            else:
+                # --- LEGACY (default): caller-presented producer label + verify. ---
+                # FAIL CLOSED if the trusted-producer label is absent / unverifiable.
+                # A missing producer secret, a missing label, or a bad signature ALL
+                # refuse — the agent cannot self-assert integrity, so absence of an
+                # independent label means "treat as tainted / refuse", never permit.
+                missing = (
+                    secret is None
+                    or body.operand_label_integrity is None
+                    or body.operand_label_confidentiality is None
+                    or not body.label_signature
+                    or not body.lineage_root
+                    or not body.operand_label_id
+                )
+                if missing:
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content=_refusal_payload(
+                            outcome,
+                            reason_override=(
+                                "insufficient_integrity: no verifiable trusted-producer "
+                                f"label for aud={t_audience} act={body.action_type}"
+                            ),
+                        ),
+                    )
+
+                label = FidesLabel(
+                    integrity=CapabilityLevel(int(body.operand_label_integrity)),
+                    confidentiality=ConfidentialityLevel(
+                        int(body.operand_label_confidentiality)
                     ),
                 )
-
-            label = FidesLabel(
-                integrity=CapabilityLevel(int(body.operand_label_integrity)),
-                confidentiality=ConfidentialityLevel(
-                    int(body.operand_label_confidentiality)
-                ),
-            )
-            commit = ProvenanceCommitment(
-                label=label,
-                floor=floor,
-                lineage_root=str(body.lineage_root),
-                label_id=str(body.operand_label_id),
-                aud=t_audience,
-                act=body.action_type,
-            )
-
-            # 1) The label must be AUTHENTIC — signed by the trusted producer.
-            if not verify_label_envelope(
-                commit, str(body.label_signature), secret=secret  # type: ignore[arg-type]
-            ):
-                return JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content=_refusal_payload(
-                        outcome,
-                        reason_override=(
-                            "insufficient_integrity: trusted-producer label "
-                            "signature invalid"
-                        ),
-                    ),
+                commit = ProvenanceCommitment(
+                    label=label,
+                    floor=floor,
+                    lineage_root=str(body.lineage_root),
+                    label_id=str(body.operand_label_id),
+                    aud=t_audience,
+                    act=body.action_type,
                 )
 
-            # 2) The authentic label must DOMINATE the floor (meet ⊒ floor). An
-            # UNTRUSTED-derived operand floors the meet to UNTRUSTED and fails
-            # here — refuse BEFORE any PoP parse, key resolution, or broker.mint.
+                # The label must be AUTHENTIC — signed by the trusted producer.
+                if not verify_label_envelope(
+                    commit, str(body.label_signature), secret=secret  # type: ignore[arg-type]
+                ):
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content=_refusal_payload(
+                            outcome,
+                            reason_override=(
+                                "insufficient_integrity: trusted-producer label "
+                                "signature invalid"
+                            ),
+                        ),
+                    )
+
+            # The authentic/self-signed label must DOMINATE the floor (meet ⊒
+            # floor). An UNTRUSTED-derived operand floors the meet to UNTRUSTED and
+            # fails here — refuse BEFORE any PoP parse, key resolution, or
+            # broker.mint. SHARED by both legs.
             if not commit.dominates_floor():
                 return JSONResponse(
                     status_code=status.HTTP_403_FORBIDDEN,

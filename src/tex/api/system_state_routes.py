@@ -114,6 +114,18 @@ class SystemChainDTO(BaseModel):
     snapshot_chain_checked: int = 0
     snapshot_count: int = 0
     durable_persistence: bool = False
+    # Real break timestamps. Both are ``None`` when the chain is intact;
+    # NEVER a fabricated ``datetime.now()``. These are additive and
+    # backward-compatible with the always-on chain booleans above — the
+    # UI's "Tex is down" / faltering surface reads them but defaults to
+    # safe-intact when absent.
+    #
+    # HONEST CAVEAT: each is the recorded write-time of the OFFENDING
+    # record (snapshot ``captured_at`` / ledger ``appended_at``), not a
+    # separate "we detected the break at" time. Tex records no distinct
+    # detection timestamp; this is the most faithful real time available.
+    snapshot_broke_at: str | None = None
+    discovery_broke_at: str | None = None
 
 
 class SystemStateResponse(BaseModel):
@@ -361,6 +373,16 @@ def _chain_block(request: Request) -> SystemChainDTO:
             durable = getattr(discovery_ledger, "is_durable", False)
             if durable:
                 out.durable_persistence = True
+            # Real break time when (and only when) the chain is broken.
+            # ``find_break`` returns the offending entry; its
+            # ``appended_at`` is its real write-time, never now().
+            if not out.discovery_chain_intact:
+                find_break = getattr(discovery_ledger, "find_break", None)
+                if callable(find_break):
+                    broken = find_break()
+                    appended_at = getattr(broken, "appended_at", None)
+                    if appended_at is not None:
+                        out.discovery_broke_at = appended_at.isoformat()
         except Exception:  # noqa: BLE001
             out.discovery_chain_intact = False
 
@@ -371,6 +393,21 @@ def _chain_block(request: Request) -> SystemChainDTO:
             out.snapshot_chain_intact = bool(verify.get("intact"))
             out.snapshot_chain_checked = int(verify.get("checked") or 0)
             out.snapshot_count = len(snapshot_store)
+            # Real break time: the offending snapshot's recorded
+            # ``captured_at``. ``verify_chain`` returns the break index
+            # into the SAME oldest→newest chain order that ``list_recent``
+            # (reversed) produces, so we read that record's captured_at.
+            # HONEST: this is the snapshot's captured_at, not a separate
+            # detection time. Never now().
+            if not out.snapshot_chain_intact:
+                break_idx = verify.get("break_at_index")
+                if isinstance(break_idx, int) and break_idx >= 0:
+                    recent = snapshot_store.list_recent(limit=200)
+                    chain = list(reversed(recent))
+                    if break_idx < len(chain):
+                        captured_at = chain[break_idx].get("captured_at")
+                        if captured_at:
+                            out.snapshot_broke_at = str(captured_at)
         except Exception:  # noqa: BLE001
             out.snapshot_chain_intact = False
 

@@ -51,6 +51,7 @@ DIMENSIONS: tuple[str, ...] = (
 class IntentKind(StrEnum):
     RECORD = "record"        # the operator named one exact sealed object
     DIMENSION = "dimension"  # a question about one of the six sealed dimensions
+    PLANE = "plane"          # a question about ONE agent's enforcement plane
     ABSTAIN = "abstain"      # no sealed source could be resolved — do not guess
 
 
@@ -104,6 +105,35 @@ _KEYWORD_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
     for dim, kws in _KEYWORDS.items()
     for kw in kws
 )
+
+
+# Enforcement-PLANE keywords. A plane question asks which enforcement plane a
+# NAMED agent is on ("is AtlasPay credential-enforced or decide-only?"). These are
+# matched as whole, multi-word phrases (case-insensitive). PLANE routing fires ONLY
+# when one of these is present — otherwise routing is byte-identical to before, so
+# PLANE never steals a DIMENSION route. The agent itself is resolved by the answer
+# path against the sealed PLANE facts (subject_id / agent_name), not parsed here:
+# agent names are free text, and the answer path is the only place that knows which
+# agents have a sealed snapshot.
+_PLANE_KEYWORDS: tuple[str, ...] = (
+    "plane",
+    "decide-only",
+    "decide only",
+    "credential-enforced",
+    "credential enforced",
+    "in-path",
+    "in path",
+    "enforcement plane",
+)
+_PLANE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(r"\b" + re.escape(kw).replace(r"\ ", r"[\s-]") + r"\b", re.IGNORECASE)
+    for kw in _PLANE_KEYWORDS
+)
+
+
+def _is_plane_question(text: str) -> bool:
+    """True iff the transcript carries an explicit enforcement-plane keyword."""
+    return any(pat.search(text) for pat in _PLANE_PATTERNS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +192,21 @@ def route_intent(transcript: str) -> Intent:
             asserted_verdict=asserted_verdict,
             asserted_hashes=asserted_hashes,
             reason="sha256-handle",
+        )
+
+    # 1.5) Enforcement-plane question. Fires ONLY on an explicit plane keyword,
+    #      and only after the record-handle checks (a UUID/SHA is still a RECORD).
+    #      The named agent is carried as the raw transcript and resolved in the
+    #      answer path against sealed PLANE facts — never guessed here. This sits
+    #      ABOVE the dimension vote so a plane question is never mis-routed to a
+    #      dimension; with no plane keyword, behaviour below is byte-identical.
+    if _is_plane_question(text):
+        return Intent(
+            kind=IntentKind.PLANE,
+            handle=text,
+            asserted_verdict=asserted_verdict,
+            asserted_hashes=asserted_hashes,
+            reason="plane-keyword",
         )
 
     # 2) Dimension by keyword vote.

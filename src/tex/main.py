@@ -1927,6 +1927,14 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         provenance_engine=runtime.provenance_engine,
         forbid_sink=_forbid_sink,
         local_forbid_sink=_local_forbid_sink,
+        # The SAME SealedFactLedger the deep PDP seals into (built dormant unless
+        # TEX_SEAL_DECISIONS=1; runtime.pdp._decision_ledger is the line-885 ledger
+        # already injected into the PDP and surfaced on app.state below). Passing
+        # it makes EVERY deterministic-floor ruling (floor FORBID / floor ABSTAIN)
+        # seal one ENFORCEMENT receipt onto that one chain, so "every action
+        # sealed" holds for the floor too — not only the deep path. None in the
+        # default deploy -> floor sealing is a byte-for-byte no-op.
+        decision_ledger=getattr(runtime.pdp, "_decision_ledger", None),
     )
 
     # PROOF-CARRYING ENFORCEMENT: expose the decision ledger (built dormant
@@ -1966,6 +1974,74 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
         # NullObserver (zero overhead). Behaviour is byte-for-byte today's.
         app.state.standing_gate = build_standing_gate(app.state.standing_governance)
         app.state.standing_gate_observer = None
+
+    # PLANE SNAPSHOTTING (E1): seal each governed agent's OBSERVED enforcement
+    # plane onto the SAME SealedFactLedger, so the voice (/v1/ask) can answer
+    # "is AtlasPay credential-enforced or decide-only?" from a SEALED snapshot —
+    # or ABSTAIN — and NEVER by reading live state in the answer path.
+    #
+    # TWO independent default-OFF gates, prod-INERT by default:
+    #   (1) app.state.decision_ledger is None unless TEX_SEAL_DECISIONS=1 → no
+    #       sealed ledger → seal_plane is a zero-cost no-op AND the voice plane
+    #       branch ABSTAINs (its `ledger is None` check).
+    #   (2) TEX_SEAL_PLANE (default off) independently gates the snapshotter, so
+    #       plane-snapshotting can be off even when decision-sealing is on.
+    # We attach an EMPTY PlaneSignalRegistry (so derive() returns the honest
+    # DECIDE-ONLY floor for every agent), take ONE guarded SEAL-ON-CHANGE snapshot
+    # at wire time, AND wire the SAME seal-on-change producer onto the standing
+    # watch so agents discovered AFTER boot (everything /ignite finds, plus POST
+    # /v1/agents) also get a fresh sealed PLANE fact — not only the agents present
+    # at the one boot snapshot. SEAL-ON-CHANGE keeps it BOUNDED: a steady-state
+    # estate seals each agent once and then stops, so the standing tick does NOT
+    # grow the ledger per cycle. NO new thread/loop is created by THIS block — the
+    # standing-watch thread already exists; we only hand it an additive callable,
+    # which stays None unless the gates are on. A default boot is byte-for-byte
+    # unchanged: zero new loop, nothing sealed.
+    _seal_plane = os.environ.get(
+        "TEX_SEAL_PLANE", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    if _seal_plane and app.state.decision_ledger is not None:
+        try:
+            from tex.api.governance_standing_routes import _default_plane_registry
+            from tex.provenance.plane_seal import snapshot_planes_on_change
+
+            registry = getattr(app.state, "plane_signal_registry", None)
+            if registry is None:
+                registry = _default_plane_registry()
+                app.state.plane_signal_registry = registry
+            gov = app.state.standing_governance
+            _plane_ledger = app.state.decision_ledger
+
+            def _seal_planes_for_tenant(*, tenant_id: str) -> int:
+                """Seal-on-change for one tenant — the SAME producer ignite uses.
+                Bound to the live ledger/governance/registry; reads the live
+                registry HERE, in the producer, never in the voice answer path.
+                """
+                if not tenant_id:
+                    return 0
+                return snapshot_planes_on_change(
+                    _plane_ledger, gov, registry, tenant=tenant_id
+                )
+
+            # (a) One guarded seal-on-change snapshot at wire time for the agents
+            #     already present (idempotent: a second wire would seal nothing).
+            for _tenant in {
+                gov._agent_tenant(a)  # noqa: SLF001 — same accessor the plane endpoint uses
+                for a in getattr(gov._registry, "list_all", lambda: [])()  # noqa: SLF001
+            }:
+                if _tenant:
+                    _seal_planes_for_tenant(tenant_id=_tenant)
+
+            # (b) Continuous re-seal on the standing watch — additive, bounded,
+            #     no new loop. None unless these gates are on, so default-INERT.
+            try:
+                scheduler = getattr(app.state, "scan_scheduler", None)
+                if scheduler is not None:
+                    scheduler.attach_plane_seal(_seal_planes_for_tenant)
+            except Exception:  # noqa: BLE001 — additive wiring; never block boot
+                _logger.warning("plane seal-on-change wire failed", exc_info=True)
+        except Exception:  # noqa: BLE001 — plane snapshotting must never break boot
+            _logger.warning("plane snapshot at wire time failed", exc_info=True)
 
     # REFLEXIVE SELF-GOVERNANCE (selfgov L5). Bind the reflexive governor to the
     # live PDP so Tex's OWN controller mutations are governed + sealed. Gated on

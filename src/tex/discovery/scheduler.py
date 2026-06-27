@@ -102,6 +102,7 @@ class BackgroundScanScheduler:
         "_sieve_driver",
         "_agent_registry",
         "_discovery_ledger",
+        "_plane_seal_callable",
     )
 
     def __init__(
@@ -146,8 +147,29 @@ class BackgroundScanScheduler:
         self._sieve_driver = None
         self._agent_registry = None
         self._discovery_ledger = None
+        # PLANE seal-on-change handle — wired post-construction via
+        # ``attach_plane_seal`` (see main._attach_runtime_to_app). None unless
+        # ``TEX_SEAL_PLANE`` is set AND a sealed ledger exists, so with no flags
+        # this is a no-op and the standing tick is byte-for-byte unchanged.
+        self._plane_seal_callable = None
 
     # ------------------------------------------------------------------ lifecycle
+
+    def attach_plane_seal(self, plane_seal_callable=None) -> None:
+        """Wire the seal-on-change PLANE snapshotter so the standing tick re-seals
+        a FRESH sealed PLANE fact for every governed agent whose derived plane
+        CHANGED — the same producer ``/ignite`` uses, so an agent discovered AFTER
+        boot gets a sealed plane the voice can answer from, not only the agents
+        present at the one boot-time snapshot.
+
+        ``plane_seal_callable`` takes a ``tenant_id`` keyword and returns the count
+        newly sealed (typically a closure over
+        ``plane_seal.snapshot_planes_on_change`` bound to the live ledger +
+        governance + registry). ADDITIVE and default-safe: ``None`` unless
+        ``TEX_SEAL_PLANE`` is set AND ``decision_ledger`` is live, so with no flags
+        this is a pure no-op. Idempotent; safe to call before ``start()``.
+        """
+        self._plane_seal_callable = plane_seal_callable
 
     def attach_sieve(
         self,
@@ -306,6 +328,27 @@ class BackgroundScanScheduler:
                     surface_holds=True,
                 )
                 drift_counts = self._emit_drift_events(tenant_id=tenant_id, run=run)
+
+                # PLANE seal-on-change — ADDITIVE, default-safe. After this
+                # tenant's scan reconciles its agents into the SHARED registry,
+                # re-seal a FRESH sealed PLANE fact for every governed agent whose
+                # derived plane CHANGED since its last sealed fact (or that has
+                # none yet — e.g. an agent discovered AFTER boot). Bounded by
+                # construction: a steady-state tenant (all DECIDE-ONLY, unchanging)
+                # seals each agent once and then nothing, so the ledger does NOT
+                # grow per-tick. ``None`` unless TEX_SEAL_PLANE is set AND a sealed
+                # ledger exists, so at default this is a pure no-op. Never breaks
+                # the cycle.
+                if self._plane_seal_callable is not None:
+                    try:
+                        self._plane_seal_callable(tenant_id=tenant_id)
+                    except Exception as exc:  # noqa: BLE001 — never break the watch
+                        _logger.warning(
+                            "BackgroundScanScheduler: PLANE seal-on-change failed "
+                            "for tenant=%s: %s",
+                            tenant_id, exc,
+                        )
+
                 summary = run.summary
                 snapshot_id: str | None = None
                 if self._snapshot_capture_callable is not None:

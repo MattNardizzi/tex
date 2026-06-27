@@ -316,6 +316,14 @@ class SealedFactKind(StrEnum):
     # and L3's count-conservation — both keyed on DECISION — never see it.
     VERDICT_TRANSCRIPT = "verdict_transcript"
     PRECEDENT = "precedent"      # a discretionary ABSTAIN was auto-resolved from sealed prior human resolutions
+    # A point-in-time snapshot of an agent's OBSERVED enforcement plane
+    # (DECIDE-ONLY / CREDENTIAL-ENFORCED / IN-PATH-BLOCKING). A DISTINCT kind on
+    # purpose: it is neither a per-action gate event (ENFORCEMENT) nor a verdict
+    # (DECISION), so it is appended with the plain (un-sequenced) ``append`` and
+    # stays invisible to the per-identity ``verify_no_gaps`` sequence — a missing
+    # plane snapshot is NOT a bypass. It records what plane was observed, never
+    # asserts authorization (see provenance/plane_seal.py).
+    PLANE = "plane"              # an observed per-agent enforcement-plane snapshot
 
 
 class SealedFact(BaseModel):

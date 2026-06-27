@@ -118,6 +118,41 @@ def _sieve_coverage(result, headline_count: int):  # noqa: ANN001
         return "", None
 
 
+def _seal_planes_on_change(request: Request, tenant: str) -> None:
+    """Seal a FRESH PLANE fact for every governed agent in ``tenant`` whose
+    derived plane CHANGED since its last sealed fact — right after Begin, so the
+    capstone/voice has a current sealed plane for everything ignition just
+    discovered, not only the agents present at the one boot-time snapshot.
+
+    ONE seal-on-change implementation (``plane_seal.snapshot_planes_on_change``),
+    shared with the standing-watch tick. Gated + default-INERT: a no-op unless
+    ``TEX_SEAL_PLANE`` is set AND ``app.state.decision_ledger`` is live (i.e.
+    ``TEX_SEAL_DECISIONS=1``). Never raises — sealing is decoupled from the
+    operator's deliberate act, exactly like SIEVE/discovery here.
+    """
+    if os.environ.get("TEX_SEAL_PLANE", "").strip().casefold() not in {
+        "1", "true", "yes", "on", "enabled",
+    }:
+        return
+    ledger = getattr(request.app.state, "decision_ledger", None)
+    if ledger is None:
+        return
+    governance = getattr(request.app.state, "standing_governance", None)
+    if governance is None:
+        return
+    try:
+        from tex.api.governance_standing_routes import _default_plane_registry
+        from tex.provenance.plane_seal import snapshot_planes_on_change
+
+        registry = getattr(request.app.state, "plane_signal_registry", None)
+        if registry is None:
+            registry = _default_plane_registry()
+            request.app.state.plane_signal_registry = registry
+        snapshot_planes_on_change(ledger, governance, registry, tenant=tenant)
+    except Exception:  # noqa: BLE001 — sealing must never break ignition
+        pass
+
+
 def _begin_repeatable() -> bool:
     """Whether Begin re-runs the sweep + re-speaks coverage on every press.
 
@@ -230,6 +265,10 @@ def build_discovery_surface_router() -> APIRouter:
             clause, coverage_object = _sieve_coverage(
                 _run_sieve(request, registry, tenant), count
             )
+            # Re-seal on change so a repeatable Begin keeps the sealed plane facts
+            # current for anything the re-sweep surfaced (gated, bounded, no-op at
+            # default).
+            _seal_planes_on_change(request, tenant)
             headline = f"{words[:1].upper()}{words[1:]}" if words else words
             return {
                 "spoken": f"{headline} {agents} running.{clause}",
@@ -303,6 +342,12 @@ def build_discovery_surface_router() -> APIRouter:
                     governance.activate(tenant)
                 except Exception:  # noqa: BLE001
                     pass
+
+            # Seal a fresh PLANE fact for every governed agent ignition just
+            # discovered (seal-on-change, gated default-OFF), so the voice can
+            # answer about a newly-found agent from a sealed snapshot right after
+            # Begin — not only ABSTAIN until the next standing tick.
+            _seal_planes_on_change(request, tenant)
 
         count = _estate_count(registry, tenant)
         ignition.fire(tenant)

@@ -535,7 +535,9 @@
   function settle(){
     done = true;
     body.classList.add("warm");
-    [coldLine, ...vlines].forEach(hide); hide(vcoda); hide(verdict);
+    [coldLine, ...vlines].forEach(hide); hide(vcoda);
+    coldLine.style.display = "none";                        // skip = the turn is over: remove the spent layers at once
+    verdict.style.display = "none";
     show(nameLine); show(headLine); show(heroSee);
     body.classList.add("chrome-in");
     show(cue);
@@ -547,14 +549,19 @@
     await sleep(260); show(coldLine);
     await sleep(2400); hide(coldLine);
     await sleep(420);
-    for (const l of vlines){ show(l); await sleep(720); }   // the verdict rises, line by line — a touch more deliberate
-    await sleep(650); show(vcoda);                          // a held breath, then the turn
+    for (const l of vlines){ if (done) return; show(l); await sleep(720); }   // the verdict rises, line by line — a touch more deliberate
+    if (done) return;
+    await sleep(650);
+    if (done) return;
+    show(vcoda);                                            // a held breath, then the turn
     await sleep(2800);                                       // the coda lands — and is given the time to be read, and felt
     if (done) return;
     [...vlines].forEach(hide); hide(vcoda);                 // it clears
     body.classList.add("warm");                             // the room warms
     await sleep(1100);                                      // the silence
     if (done) return;
+    coldLine.style.display = "none";                        // the spent layers leave the stack, so the name owns the center
+    verdict.style.display = "none";
     show(nameLine);                                         // the name rises, slow
     await sleep(1000);
     if (done) return;

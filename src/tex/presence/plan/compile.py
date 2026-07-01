@@ -80,8 +80,12 @@ OP_GUIDE: dict[OpKind, str] = {
         "membership over a COMPLETE scan — args: field, op, value. Seals 'yes' (with the "
         "matching rows) OR a provable 'no' (with the full scanned set as witness). Works over "
         "identity.list_agents and any fully-read store (recent_decisions/actions/records/"
-        "entries, connector_health) when the read was complete. 'do I have an X agent?', "
-        "'are any connectors offline?'"
+        "entries, connector_health) when the read was complete. USE THIS for every 'do I have "
+        "any X?' / 'is there an agent called X?' / 'are any connectors offline?' question — "
+        "NOT identity.resolve_agent (which abstains on not-found instead of proving a 'no'). "
+        "CRITICAL: read the UNFILTERED list and put the criterion in THIS op's args — a "
+        "filter pushed into the leaf params (e.g. status=REVOKED) discards the scanned set, "
+        "leaving a 'no' with no witness → forced abstain."
     ),
     OpKind.GROUP_BY: (
         "distribution by a key over a row-list — args: field (owner|lifecycle_status|trust_tier|"

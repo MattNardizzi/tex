@@ -967,7 +967,7 @@ _SPECS: tuple[tuple[str, str, Callable[..., Any]], ...] = (
     # identity
     ("identity.get_agent", "Fetch one agent identity by id (kwargs: agent_id).", _identity_get_agent),
     ("identity.list_agents", "List agents (kwargs: tenant, status, include_revoked). Includes REVOKED by default.", _identity_list_agents),
-    ("identity.resolve_agent", "Resolve an agent by NAME to its record (kwargs: name). Use this to look up an agent the user named (e.g. 'billing-bot'); ambiguous names abstain.", _identity_resolve_agent),
+    ("identity.resolve_agent", "Resolve an agent by NAME to its record (kwargs: name) — for reading a KNOWN agent's fields ('what environment is billing-bot in'). NOT for existence questions ('do I have X?') — those need ABSENCE_SCAN over identity.list_agents, which can prove a 'no'; resolve_agent just abstains on not-found. Ambiguous names abstain.", _identity_resolve_agent),
     # discovery
     ("discovery.chain_head", "Latest discovery-ledger entry via latest() (O(1)).", _discovery_chain_head),
     ("discovery.recent_entries", "Recent discovery-ledger entries (kwargs: tenant, limit).", _discovery_recent),

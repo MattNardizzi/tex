@@ -20,15 +20,14 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<!-- One design system across the product and this site, by law. One voice:
-     Inter — a clean humanist sans, the screen-native heir to Helvetica / San
-     Francisco — the same voice Tex speaks in the product (tex-systems). It
-     carries every human word and every label; hierarchy is built from size,
-     tracking, ink-value and case, never from weight. Italic is reserved for the
-     one pivotal line. Geist Mono is loaded for ONE thing only: the raw machine
-     identifiers (the sha256 handle), where a proportional face would be harder
-     to read and copy. Nothing else is loaded — the site holds the one voice. -->
-<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400..500&family=Inter:ital,wght@0,200..600;1,200..600&display=swap" rel="stylesheet" />
+<!-- Two registers, one system. Tex's VOICE is Inter — the exact face, weight
+     (300) and size Tex speaks in the product (tex-systems); every first-person
+     declaration on this page is set in it. The page's own CHROME — brand, nav,
+     labels, buttons — stays in Geist, a quieter, more mechanical sans, so there
+     is a natural transition between the surface and the moment Tex speaks: they
+     are deliberately NOT the same font. Geist Mono carries the one machine
+     identifier. Italic (Inter) is reserved for the single pivotal line. -->
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400..500&family=Inter:ital,wght@0,200..600;1,200..600&display=swap" rel="stylesheet" />
 
 <!-- Calendly — the one outbound action. Opens an inline modal; the visitor
      never leaves vortexblack.ai. -->
@@ -51,12 +50,14 @@
     --ink-mute:#9b9388;
     --ink-hair:#d8d4cc;
 
-    /* One voice: Inter, matching tex-systems. --serif is repointed to it as
-       well, so every rule that still names var(--serif) inherits the one voice
-       and its existing size/tracking/case is preserved. Geist Mono stays, for
-       machine identifiers only. */
+    /* Tex's VOICE is Inter — matching the product (tex-systems). --serif is
+       repointed to it, so every first-person line that names var(--serif) speaks
+       in Tex's exact voice while its existing size/tracking/case is preserved.
+       The CHROME (--sans) stays Geist on purpose — a distinct, quieter sans — so
+       the page and Tex's voice read as two registers, never one flat font. Geist
+       Mono is the one machine identifier. */
     --serif:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --sans:"Geist",-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Arial,sans-serif;
     --mono:"Geist Mono","SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
 
     --reading:34em;
@@ -139,7 +140,7 @@
   .cold-line{z-index:3;opacity:0;transition:opacity var(--d-rise) ease;}
   .cold-line.show{opacity:1;}
   .cold-line p{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.35rem,3.4vw,2.05rem);line-height:1.4;letter-spacing:-.012em;
     color:var(--ink-soft);max-width:24ch;
   }
@@ -148,14 +149,14 @@
   .verdict{z-index:2;}
   .vstack{display:flex;flex-direction:column;align-items:center;}
   .vline{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.55rem,4.6vw,2.9rem);line-height:1.18;letter-spacing:-.02em;color:var(--ink);
     opacity:0;transform:translateY(var(--lift));transition:opacity 760ms var(--ease),transform 760ms var(--ease);
   }
   .vline.show{opacity:1;transform:none;}
   .vcoda{
     margin-top:clamp(1.1rem,3.4vh,2.2rem);
-    font-family:var(--serif);font-style:italic;font-weight:400;
+    font-family:var(--serif);font-style:italic;font-weight:300;
     font-size:clamp(1.1rem,2.9vw,1.7rem);letter-spacing:0;color:var(--ink-soft);
     opacity:0;transition:opacity 1100ms ease;  /* the coda arrives slower — a realization, not a flash */
   }
@@ -167,14 +168,17 @@
   .reveal{z-index:4;}
   .reveal-stack{display:flex;flex-direction:column;align-items:center;gap:clamp(1.3rem,3.2vh,2.2rem);max-width:min(92vw,34rem);}
   .name-line{
-    font-family:var(--serif);font-weight:400;
-    font-size:clamp(2.3rem,7vw,4rem);line-height:1.05;letter-spacing:-.012em;color:var(--ink);
+    /* "I am Tex." — set to Tex's EXACT product voice (tex-systems .tex-voice-line):
+       Inter Light (300) at the same clamp size the voice uses in the product, not
+       the old bigger/heavier hero cut. */
+    font-family:var(--serif);font-weight:300;
+    font-size:clamp(33.75px,3.15vw,45px);line-height:1.55;letter-spacing:-.005em;color:var(--ink);
     opacity:0;transform:translateY(var(--lift));
     transition:opacity var(--d-voice) var(--ease),transform var(--d-voice) var(--ease);
   }
   .name-line.show{opacity:1;transform:none;}
   .head-line{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.25rem,3vw,1.75rem);line-height:1.32;letter-spacing:-.01em;color:var(--ink);
     opacity:0;transition:opacity var(--d-rise) ease;text-wrap:balance;
   }
@@ -206,7 +210,7 @@
      =========================================================== */
   .spine{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;}
   .spine-stack{display:flex;flex-direction:column;align-items:center;gap:.08em;}
-  .spine-watch,.spine-decide{font-family:var(--serif);font-weight:400;line-height:1.08;letter-spacing:-.022em;}
+  .spine-watch,.spine-decide{font-family:var(--serif);font-weight:300;line-height:1.08;letter-spacing:-.022em;}
   .spine-watch{font-size:clamp(1.9rem,6vw,3.5rem);color:var(--ink-mute);}
   .spine-decide{font-size:clamp(2.15rem,6.6vw,3.85rem);color:var(--ink);}
 
@@ -220,7 +224,7 @@
     color:var(--ink-mute);margin-bottom:clamp(1.6rem,4vh,2.6rem);
   }
   .line{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.65rem,4vw,2.7rem);line-height:1.26;letter-spacing:-.018em;color:var(--ink);
     text-wrap:balance;
   }
@@ -228,13 +232,13 @@
   .line.italic{font-style:italic;}
   .sub{
     margin-top:1.5em;max-width:30em;
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.05rem,1.75vw,1.28rem);line-height:1.62;letter-spacing:-.004em;color:var(--ink-soft);
     text-wrap:pretty;
   }
   .turn{
     margin-top:1.3em;
-    font-family:var(--serif);font-weight:400;font-style:italic;font-size:clamp(1.3rem,3.2vw,1.95rem);
+    font-family:var(--serif);font-weight:300;font-style:italic;font-size:clamp(1.3rem,3.2vw,1.95rem);
     line-height:1.22;letter-spacing:-.012em;color:var(--ink);
   }
   .proof{
@@ -244,10 +248,10 @@
 
   /* The judgment triad — held is ink. No alarm colour, ever. */
   .triad{display:flex;flex-direction:column;align-items:center;gap:.14em;margin:.2em 0 0;}
-  .triad p{font-family:var(--serif);font-weight:400;font-size:clamp(1.55rem,3.8vw,2.5rem);line-height:1.2;letter-spacing:-.018em;color:var(--ink);}
+  .triad p{font-family:var(--serif);font-weight:300;font-size:clamp(1.55rem,3.8vw,2.5rem);line-height:1.2;letter-spacing:-.018em;color:var(--ink);}
   .moment{display:flex;flex-direction:column;align-items:center;gap:.45em;margin-top:clamp(2.4rem,6vh,3.8rem);}
-  .moment .quiet{font-family:var(--serif);font-weight:400;font-size:clamp(1.25rem,3vw,1.8rem);letter-spacing:-.01em;color:var(--ink-mute);}
-  .moment .stop{font-family:var(--serif);font-weight:400;font-size:clamp(1.7rem,4.2vw,2.8rem);line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
+  .moment .quiet{font-family:var(--serif);font-weight:300;font-size:clamp(1.25rem,3vw,1.8rem);letter-spacing:-.01em;color:var(--ink-mute);}
+  .moment .stop{font-family:var(--serif);font-weight:300;font-size:clamp(1.7rem,4.2vw,2.8rem);line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .moment .stop em{font-style:italic;}
 
   /* The reveal-on-scroll: children rise, gently staggered — the same rise,
@@ -297,7 +301,7 @@
      =========================================================== */
   .coda{min-height:78vh;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;}
   .coda-line{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(2.15rem,6.6vw,3.85rem);line-height:1.08;letter-spacing:-.022em;color:var(--ink);
     opacity:0;transform:translateY(14px);
     transition:opacity var(--d-rise) var(--ease),transform var(--d-rise) var(--ease);
@@ -311,7 +315,7 @@
   .closer{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:clamp(80px,14vh,160px) 7vw;}
   .closer-w{display:flex;flex-direction:column;align-items:center;max-width:30em;}
   .closer-line{
-    font-family:var(--serif);font-weight:400;
+    font-family:var(--serif);font-weight:300;
     font-size:clamp(1.9rem,5.4vw,3.3rem);line-height:1.14;letter-spacing:-.022em;color:var(--ink);
   }
   /* Begin — the one weighted act, identical to the product's Approve pill. */

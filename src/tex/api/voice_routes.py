@@ -443,4 +443,55 @@ def build_voice_router() -> APIRouter:
             headers["X-Tex-Voice-Prosody-Tier"] = plan.tier.value
         return JSONResponse(content=payload, headers=headers)
 
+    @router.get(
+        "/speak/stream_timed",
+        summary="Stream a sealed line's audio AND char timing chunk-by-chunk "
+        "(word-sync at streaming latency)",
+    )
+    def speak_stream_timed(
+        request: Request,
+        text: str = Query(default="", max_length=4000),
+        prosody: str | None = Query(
+            default=None,
+            max_length=32,
+            description="Verdict TIER token, as for /v1/speak. On the streamed "
+            "path the rate + lead pause are applied (char times shifted to stay "
+            "in sync); the loudness gain and terminal glide degrade — they need "
+            "the full clip (see /v1/speak/timed).",
+        ),
+        principal: TexPrincipal = Depends(RequireScope("decision:read")),
+    ) -> StreamingResponse:
+        # The STREAMING half of the word-timed path. Same ElevenLabs-only gate
+        # as /v1/speak/timed (503 → the client falls back to the full-clip
+        # timed path, then plain /v1/speak — purely additive, never a
+        # regression), but audio + character timing leave as NDJSON chunks the
+        # moment the vendor produces them, so the first sound lands in
+        # ~hundreds of ms instead of after full synthesis. ElevenLabs' own
+        # latency guidance prefers this HTTP streaming endpoint over the
+        # input-buffering WebSocket when the whole text is known upfront —
+        # always true here: only already-sealed lines ever reach synthesis.
+        el = ElevenLabsTTS()
+        if not el.available():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="word-timed voice not configured (no ElevenLabs key)",
+            )
+        plan = None if prosody is None else (plan_from_token(prosody) or DEFAULT_PROSODY)
+        try:
+            lines = el.stream_timed(text, sample_rate=_SPEAK_SAMPLE_RATE, prosody=plan)
+        except RuntimeError as exc:
+            # A connect/auth failure BEFORE the first chunk: fail closed so the
+            # client's fallback chain (timed → stream → silence) takes over.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"word-timed stream unavailable: {exc}",
+            ) from exc
+        headers = {"Cache-Control": "no-store", "X-Tex-Voice-Backend": el.name}
+        if plan is not None:
+            headers["X-Tex-Voice-Prosody"] = plan.style_label
+            headers["X-Tex-Voice-Prosody-Tier"] = plan.tier.value
+        return StreamingResponse(
+            lines, media_type="application/x-ndjson", headers=headers
+        )
+
     return router

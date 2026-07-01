@@ -785,6 +785,128 @@ class ElevenLabsTTS:
             "words": words,
         }
 
+    def stream_timed(self, text: str, *, sample_rate: int, prosody: "ProsodyPlan | None" = None):
+        """Stream the EXACT sealed ``text`` WITH character timing, chunk by
+        chunk — word-sync at STREAMING first-audio latency. Returns a generator
+        of NDJSON lines (bytes): first a header ``{"backend","sample_rate"}``,
+        then per vendor chunk ``{"audio_b64","chars","starts"}`` where
+        ``audio_b64`` is raw s16le mono PCM (base64) at ``sample_rate`` and
+        ``chars``/``starts`` are that chunk's aligned characters and start times
+        in seconds (already shifted by any prosody lead pause). Same honest gate
+        + verbatim semantics as ``synthesize_timed`` (flash model pinned,
+        normalization off, only already-sealed lines).
+
+        Uses the documented HTTP ``/stream/with-timestamps`` endpoint — per
+        ElevenLabs' own latency guidance the input-buffering WebSocket is the
+        WRONG tool when the full text is known upfront, which is always Tex's
+        case: the answer is sealed before synthesis begins.
+
+        Prosody on this path (honest degradation, midway between ``stream`` and
+        ``synthesize_timed``): the tier's rate rides ``voice_settings.speed``
+        (generation-time) and the lead pause is delivered as a real
+        leading-silence first chunk with every char time shifted to match; the
+        loudness gain and terminal-pitch glide are NOT applied — they need the
+        full clip — so this path carries the pace + pause cues only.
+
+        Raises BEFORE the first yield on connect/auth/HTTP errors so the route
+        can 503 and the client can fall back to the full-clip timed path; a
+        failure mid-stream simply truncates (the client stops cleanly)."""
+        import base64
+        import json
+        import urllib.error
+        import urllib.request
+
+        key = self._api_key()
+        if key is None:
+            raise RuntimeError(
+                "ElevenLabsTTS.stream_timed called while unavailable "
+                "(ELEVENLABS_API_KEY not set)."
+            )
+        rate = sample_rate if sample_rate in self._SUPPORTED_PCM_RATES else 24000
+        header = (json.dumps({"backend": "elevenlabs", "sample_rate": rate}) + "\n").encode()
+        if not (text or "").strip():
+            def _empty():
+                # Nothing sealed to say → header only (no vendor call, no cost).
+                yield header
+            return _empty()
+
+        from tex.presence.prosody import (  # lazy
+            elevenlabs_voice_settings,
+            lead_silence_pcm16,
+        )
+
+        body = {
+            "text": text,
+            "model_id": self._model(),          # SOTA real-time; pinned
+            "apply_text_normalization": "off",  # voice the SEALED string verbatim
+            "voice_settings": elevenlabs_voice_settings(prosody),
+        }
+        request = urllib.request.Request(
+            f"{self.API_BASE}/v1/text-to-speech/{self._voice()}"
+            f"/stream/with-timestamps?output_format=pcm_{rate}",
+            data=json.dumps(body).encode("utf-8"),
+            method="POST",
+            headers={
+                "xi-api-key": key,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            resp = urllib.request.urlopen(request, timeout=self._TIMEOUT_S)
+        except urllib.error.HTTPError as exc:
+            detail = b""
+            try:
+                detail = exc.read()[:300]
+            except Exception:  # pragma: no cover - defensive
+                pass
+            raise RuntimeError(
+                f"ElevenLabs stream_timed HTTP {exc.code}: "
+                f"{detail.decode('utf-8', 'replace')}"
+            ) from exc
+
+        shift = (prosody.lead_pause_ms / 1000.0) if prosody is not None else 0.0
+
+        def _lines():
+            yield header
+            if prosody is not None and prosody.lead_pause_ms > 0:
+                lead = lead_silence_pcm16(prosody, rate)
+                if lead:
+                    yield (
+                        json.dumps(
+                            {
+                                "audio_b64": base64.b64encode(lead).decode(),
+                                "chars": [],
+                                "starts": [],
+                            }
+                        )
+                        + "\n"
+                    ).encode()
+            with resp:
+                for raw_line in resp:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    if line.startswith(b"data:"):  # defensive: tolerate SSE framing
+                        line = line[5:].strip()
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                    except Exception:
+                        continue  # partial/keepalive frame — skip, never crash the stream
+                    align = chunk.get("alignment") or {}
+                    starts = [
+                        (None if s is None else s + shift)
+                        for s in (align.get("character_start_times_seconds") or [])
+                    ]
+                    out = {
+                        "audio_b64": chunk.get("audio_base64", "") or "",
+                        "chars": align.get("characters") or [],
+                        "starts": starts,
+                    }
+                    if out["audio_b64"] or out["chars"]:
+                        yield (json.dumps(out) + "\n").encode()
+
+        return _lines()
+
     def stream(self, text: str, *, chunk_size: int = 4096, voice_settings: dict | None = None):
         """Stream the EXACT sealed ``text`` as MP3 chunks from ElevenLabs'
         ``/stream`` endpoint — the first audio bytes arrive in ~hundreds of ms

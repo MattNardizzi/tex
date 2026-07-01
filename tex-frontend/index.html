@@ -20,14 +20,15 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<!-- Two registers, one system. Tex's VOICE is Inter — the exact face, weight
+<!-- Three registers, one system. Tex's VOICE is Inter — the exact face, weight
      (300) and size Tex speaks in the product (tex-systems); every first-person
-     declaration on this page is set in it. The page's own CHROME — brand, nav,
-     labels, buttons — stays in Geist, a quieter, more mechanical sans, so there
-     is a natural transition between the surface and the moment Tex speaks: they
-     are deliberately NOT the same font. Geist Mono carries the one machine
-     identifier. Italic (Inter) is reserved for the single pivotal line. -->
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400..500&family=Inter:ital,wght@0,200..600;1,200..600&display=swap" rel="stylesheet" />
+     DECLARATION is set in it. Its SUPPORT — the smaller line that elaborates
+     beneath each declaration — is EB Garamond, the serif Steve Jobs' Apple set
+     "Think Different" in; the sans/serif contrast makes voice-vs-elaboration
+     legible at a glance, so they are deliberately NOT the same font. The page
+     CHROME (brand, nav, buttons) is Geist, and Geist Mono carries the one
+     machine identifier. Italic is EB Garamond's, for the pivotal aside. -->
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;1,400&family=Geist:wght@400;500&family=Geist+Mono:wght@400..500&family=Inter:ital,wght@0,200..600;1,200..600&display=swap" rel="stylesheet" />
 
 <!-- Calendly — the one outbound action. Opens an inline modal; the visitor
      never leaves vortexblack.ai. -->
@@ -50,13 +51,14 @@
     --ink-mute:#9b9388;
     --ink-hair:#d8d4cc;
 
-    /* Tex's VOICE is Inter — matching the product (tex-systems). --serif is
-       repointed to it, so every first-person line that names var(--serif) speaks
-       in Tex's exact voice while its existing size/tracking/case is preserved.
-       The CHROME (--sans) stays Geist on purpose — a distinct, quieter sans — so
-       the page and Tex's voice read as two registers, never one flat font. Geist
-       Mono is the one machine identifier. */
+    /* THREE type registers. Tex's VOICE is Inter (--serif points to it — the var
+       name is legacy; it now carries the voice, matching tex-systems). Its SUPPORT
+       is EB Garamond (--support) — the serif that elaborates beneath each
+       declaration. The CHROME (--sans) is Geist; Geist Mono (--mono) is the
+       machine identifier. Voice and support are deliberately different families
+       so the hierarchy reads at a glance, never one flat font. */
     --serif:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --support:"EB Garamond","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
     --sans:"Geist",-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Arial,sans-serif;
     --mono:"Geist Mono","SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
 
@@ -156,7 +158,7 @@
   .vline.show{opacity:1;transform:none;}
   .vcoda{
     margin-top:clamp(1.1rem,3.4vh,2.2rem);
-    font-family:var(--serif);font-style:italic;font-weight:300;
+    font-family:var(--support);font-style:italic;font-weight:400;
     font-size:clamp(1.1rem,2.9vw,1.7rem);letter-spacing:0;color:var(--ink-soft);
     opacity:0;transition:opacity 1100ms ease;  /* the coda arrives slower — a realization, not a flash */
   }
@@ -178,8 +180,10 @@
   }
   .name-line.show{opacity:1;transform:none;}
   .head-line{
-    font-family:var(--serif);font-weight:300;
-    font-size:clamp(1.25rem,3vw,1.75rem);line-height:1.32;letter-spacing:-.01em;color:var(--ink);
+    /* the support line under "I am Tex." — EB Garamond (the support register),
+       stepped down in size + ink so it elaborates beneath the voice, never rivals it. */
+    font-family:var(--support);font-weight:400;
+    font-size:clamp(1.1rem,2.1vw,1.35rem);line-height:1.5;letter-spacing:0;color:var(--ink-soft);
     opacity:0;transition:opacity var(--d-rise) ease;text-wrap:balance;
   }
   .head-line.show{opacity:1;}
@@ -231,15 +235,15 @@
   .line .soft{color:var(--ink-mute);}
   .line.italic{font-style:italic;}
   .sub{
-    margin-top:1.5em;max-width:30em;
-    font-family:var(--serif);font-weight:300;
-    font-size:clamp(1.05rem,1.75vw,1.28rem);line-height:1.62;letter-spacing:-.004em;color:var(--ink-soft);
+    margin-top:1.5em;max-width:32em;
+    font-family:var(--support);font-weight:400;
+    font-size:clamp(1.05rem,1.75vw,1.3rem);line-height:1.6;letter-spacing:0;color:var(--ink-soft);
     text-wrap:pretty;
   }
   .turn{
     margin-top:1.3em;
-    font-family:var(--serif);font-weight:300;font-style:italic;font-size:clamp(1.3rem,3.2vw,1.95rem);
-    line-height:1.22;letter-spacing:-.012em;color:var(--ink);
+    font-family:var(--support);font-weight:400;font-style:italic;font-size:clamp(1.3rem,3.2vw,1.95rem);
+    line-height:1.32;letter-spacing:0;color:var(--ink);
   }
   .proof{
     margin-top:clamp(2.2rem,5vh,3.2rem);
@@ -250,7 +254,7 @@
   .triad{display:flex;flex-direction:column;align-items:center;gap:.14em;margin:.2em 0 0;}
   .triad p{font-family:var(--serif);font-weight:300;font-size:clamp(1.55rem,3.8vw,2.5rem);line-height:1.2;letter-spacing:-.018em;color:var(--ink);}
   .moment{display:flex;flex-direction:column;align-items:center;gap:.45em;margin-top:clamp(2.4rem,6vh,3.8rem);}
-  .moment .quiet{font-family:var(--serif);font-weight:300;font-size:clamp(1.25rem,3vw,1.8rem);letter-spacing:-.01em;color:var(--ink-mute);}
+  .moment .quiet{font-family:var(--support);font-weight:400;font-size:clamp(1.15rem,2.6vw,1.55rem);letter-spacing:0;color:var(--ink-mute);}
   .moment .stop{font-family:var(--serif);font-weight:300;font-size:clamp(1.7rem,4.2vw,2.8rem);line-height:1.2;letter-spacing:-.02em;color:var(--ink);}
   .moment .stop em{font-style:italic;}
 

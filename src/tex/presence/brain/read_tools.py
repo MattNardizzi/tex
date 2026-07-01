@@ -166,6 +166,10 @@ def _exec_recent_actions(state, request, *, tenant, **kwargs):
         "tenant_filter_applied": False,
         "note": "action_ledger has no tenant column; scoped by agent_id only",
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        # A partially-filled page proves the read saw everything there was; a full
+        # page cannot (more rows may exist beyond it). This flag is what lets the
+        # plan layer seal an honest 'no' (provable absence) over this read.
+        "read_complete": len(rows) < limit,
     }
     return value, refs
 
@@ -224,6 +228,7 @@ def _decision_recent(state, request, *, tenant, **kwargs):
     limit, clamped = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
     verdict = _arg(request, kwargs, "verdict")
     rows = store.list_recent(limit=limit)
+    fetched = len(rows)  # pre-filter page size — completeness is about the SCAN, not the match
     if verdict is not None:
         rows = tuple(r for r in rows if _verdict_str(r.verdict) == _verdict_str(verdict))
     refs = tuple(
@@ -238,6 +243,7 @@ def _decision_recent(state, request, *, tenant, **kwargs):
         "tenant_filter_applied": False,
         "note": "decision_store has no tenant column; result is fleet-wide",
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        "read_complete": fetched < limit,
     }
     return value, refs
 
@@ -315,6 +321,8 @@ def _evidence_recent(state, request, *, tenant, **kwargs):
         "tenant_scope": "fleet",
         "tenant_filter_applied": False,
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        # read_all() walked the WHOLE chain — the tail is complete iff nothing fell off it.
+        "read_complete": len(rows) <= limit,
     }
     return value, refs
 
@@ -374,6 +382,7 @@ def _identity_list_agents(state, request, *, tenant, **kwargs):
     elif not include_revoked:
         rows = [a for a in rows if str(a.lifecycle_status) != "REVOKED"]
 
+    matched = len(rows)  # before the limit slice — a sliced-off row breaks completeness
     rows = rows[:limit]
     refs = tuple(
         digest_ref(record_id=a.agent_id, store="agent_registry", payload=a)
@@ -389,6 +398,10 @@ def _identity_list_agents(state, request, *, tenant, **kwargs):
         "tenant_filter_applied": tenant is not None,
         "note": "agent_registry.list_all() includes REVOKED agents",
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        # The registry was fully scanned; the returned rows are complete iff the
+        # limit didn't drop any. (Closes the hole where a small requested limit
+        # could previously pass as a complete snapshot for provable absence.)
+        "read_complete": matched <= limit,
     }
     return value, refs
 
@@ -489,6 +502,8 @@ def _discovery_recent(state, request, *, tenant, **kwargs):
         "tenant_scope": tenant or "all",
         "tenant_filter_applied": tenant is not None,
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        # list_all() saw the whole ledger — complete iff the tail dropped nothing.
+        "read_complete": len(rows) <= limit,
     }
     return value, refs
 
@@ -572,6 +587,7 @@ def _monitoring_recent_drift(state, request, *, tenant, **kwargs):
         "tenant_scope": tenant or "all",
         "tenant_filter_applied": applied,
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        "read_complete": len(dicts) < limit,
     }
     return value, refs
 
@@ -598,6 +614,7 @@ def _monitoring_recent_scans(state, request, *, tenant, **kwargs):
         "tenant_scope": tenant or "all",
         "tenant_filter_applied": tenant is not None,
         "limit_clamped_to": _MAX_ROWS if clamped else None,
+        "read_complete": len(dicts) < limit,
     }
     return value, refs
 
@@ -701,6 +718,160 @@ def _aggregate_recent_verdicts(state, request, *, tenant, **kwargs):
         "tenant_scope": "fleet",
         "tenant_filter_applied": False,
         "note": "decision_store has no tenant column; distribution is fleet-wide",
+    }
+    return value, refs
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FORMERLY-CLOSED ROOMS — held decisions, sealed PLANE facts, connector health,
+# lifecycle transitions, and daily state snapshots. Real stores the planner
+# could not reach before these tools existed.
+# ─────────────────────────────────────────────────────────────────────────────
+def _decision_held(state, request, *, tenant, **kwargs):
+    """Decisions currently HELD for a human — the live queue, in-memory since boot."""
+    sink = _store(state, "held_decision_sink")
+    if sink is None or not hasattr(sink, "peek"):
+        return _unavailable("held_decision_sink")
+    limit, _ = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
+    items = list(sink.peek())
+    dicts = []
+    for h in items[-limit:]:
+        d = h.to_jsonable() if hasattr(h, "to_jsonable") else dict(h)
+        d.setdefault("raised_at", None)
+        dicts.append(d)
+    refs = tuple(
+        digest_ref(record_id=d.get("decision_id") or f"{d.get('agent_id')}:{d.get('raised_at')}",
+                   store="held_decision_sink", payload=d)
+        for d in dicts
+    )
+    value = {
+        "held": dicts,
+        "returned": len(dicts),
+        "tenant_scope": "fleet",
+        "tenant_filter_applied": False,
+        "note": "held decisions are in-memory since boot; no tenant column",
+        "read_complete": len(items) <= limit,
+    }
+    return value, refs
+
+
+def _plane_sealed_facts(state, request, *, tenant, **kwargs):
+    """Sealed enforcement-plane facts from the SealedFactLedger (TEX_SEAL_PLANE)."""
+    ledger = _store(state, "decision_ledger")
+    if ledger is None or not hasattr(ledger, "list_by_kind"):
+        return _unavailable("decision_ledger (sealed-fact ledger; needs TEX_SEAL_DECISIONS=1)")
+    from tex.provenance.models import SealedFactKind
+
+    limit, _ = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
+    try:
+        records = list(ledger.list_by_kind(SealedFactKind.PLANE))
+    except Exception:  # noqa: BLE001 — a ledger hiccup degrades, never raises into a plan
+        return _unavailable("decision_ledger")
+    rows = []
+    refs = []
+    for rec in records[-limit:]:
+        detail = dict(getattr(rec.fact, "detail", None) or {})
+        rows.append({
+            "sequence": rec.sequence,
+            "subject_id": rec.fact.subject_id,
+            "agent_name": str(detail.get("agent_name") or ""),
+            "captured_at": detail.get("captured_at"),
+            **{k: v for k, v in detail.items() if k not in ("agent_name", "captured_at")},
+        })
+        refs.append(chained_ref(
+            record_id=rec.sequence, record_hash=rec.record_hash,
+            store="sealed_fact_ledger", previous_hash=rec.previous_hash,
+            fallback_payload=rows[-1],
+        ))
+    value = {
+        "facts": rows,
+        "returned": len(rows),
+        "tenant_scope": "fleet",
+        "tenant_filter_applied": False,
+        "note": "sealed PLANE facts; ledger is in-memory (facts since boot)",
+        "read_complete": len(records) <= limit,
+    }
+    return value, tuple(refs)
+
+
+def _monitoring_connector_health(state, request, *, tenant, **kwargs):
+    """Current connector health — a COMPLETE current-state list (per tenant when given)."""
+    store = _store(state, "connector_health_store")
+    if store is None:
+        return _unavailable("connector_health_store")
+    rows = store.list_for_tenant(tenant) if tenant is not None else store.list_all()
+    dicts = []
+    for h in rows:
+        d = h.to_dict() if hasattr(h, "to_dict") else dict(h)
+        d.setdefault("status", str(getattr(h, "status", "")))
+        dicts.append(d)
+    refs = tuple(
+        digest_ref(record_id=f"{d.get('tenant_id')}:{d.get('connector_name')}",
+                   store="connector_health_store", payload=d)
+        for d in dicts
+    )
+    value = {
+        "connectors": dicts,
+        "returned": len(dicts),
+        "tenant_scope": tenant or "all",
+        "tenant_filter_applied": tenant is not None,
+        "read_complete": True,  # list_all/list_for_tenant is the whole current state
+    }
+    return value, refs
+
+
+def _identity_transitions(state, request, *, tenant, **kwargs):
+    """Lifecycle transitions (from→to status, reason when recorded) — since boot."""
+    store = _store(state, "lifecycle_transition_store")
+    if store is None or not hasattr(store, "list_all"):
+        return _unavailable("lifecycle_transition_store")
+    limit, _ = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
+    agent_name = _arg(request, kwargs, "agent_name")
+    to_status = _arg(request, kwargs, "to_status")
+    rows = list(store.list_all())
+    if tenant is not None:
+        rows = [t for t in rows if t.tenant_id is None or t.tenant_id == tenant]
+    if isinstance(agent_name, str) and agent_name.strip():
+        want = agent_name.strip().casefold()
+        rows = [t for t in rows if want in t.agent_name.casefold()]
+    if isinstance(to_status, str) and to_status.strip():
+        rows = [t for t in rows if t.to_status.upper() == to_status.strip().upper()]
+    dicts = [t.to_dict() for t in rows[-limit:]]
+    refs = tuple(
+        digest_ref(record_id=f"{d.get('agent_id')}:{d.get('occurred_at')}",
+                   store="lifecycle_transition_store", payload=d)
+        for d in dicts
+    )
+    value = {
+        "transitions": dicts,
+        "returned": len(dicts),
+        "tenant_scope": tenant or "all",
+        "tenant_filter_applied": tenant is not None,
+        "note": "transitions recorded since boot; earlier changes were never recorded",
+        "read_complete": len(rows) <= limit,
+    }
+    return value, refs
+
+
+def _monitoring_state_snapshots(state, request, *, tenant, **kwargs):
+    """Daily governance state snapshots — real past-state rows for as-of questions."""
+    store = _store(state, "state_snapshot_store")
+    if store is None or not hasattr(store, "list_all"):
+        return _unavailable("state_snapshot_store")
+    limit, _ = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
+    rows = list(store.list_all())
+    dicts = rows[-limit:]
+    refs = tuple(
+        digest_ref(record_id=d.get("snapshot_day"), store="state_snapshot_store", payload=d)
+        for d in dicts
+    )
+    value = {
+        "snapshots": dicts,
+        "returned": len(dicts),
+        "tenant_scope": "fleet",
+        "tenant_filter_applied": False,
+        "note": "one snapshot per UTC day, recorded from installation onward; no back-fill",
+        "read_complete": len(rows) <= limit,
     }
     return value, refs
 
@@ -810,6 +981,12 @@ _SPECS: tuple[tuple[str, str, Callable[..., Any]], ...] = (
     # aggregates
     ("aggregates.governance_posture", "Agent lifecycle/trust distribution (kwargs: tenant). Includes REVOKED.", _aggregate_governance_posture),
     ("aggregates.recent_verdicts", "Verdict distribution over a recent decision window. Fleet-wide.", _aggregate_recent_verdicts),
+    # formerly-closed rooms
+    ("human_decision.held_decisions", "Decisions currently HELD for a human (kwargs: limit). Use for 'what's held / waiting on me right now'. In-memory since boot.", _decision_held),
+    ("plane.sealed_facts", "Sealed enforcement-plane facts (kwargs: limit) — rows carry agent_name + plane detail. Use for 'what plane facts are sealed for agent X' (FILTER agent_name).", _plane_sealed_facts),
+    ("monitoring.connector_health", "Current connector health — COMPLETE list (kwargs: none); each row has connector_name + status (HEALTHY|DEGRADED|OFFLINE). Use for 'are any connectors offline'.", _monitoring_connector_health),
+    ("identity.transitions", "Agent lifecycle transitions with from_status/to_status/reason/occurred_at (kwargs: agent_name, to_status, limit). Recorded since boot. Use for 'why/when was agent X revoked or quarantined'.", _identity_transitions),
+    ("monitoring.state_snapshots", "Daily governance snapshots (kwargs: limit) — rows carry snapshot_day, taken_at, agent_total, agents_by_status, decision_total. Use with TIME_WINDOW(field=taken_at) + GET for 'as of <past date>' questions. History starts at installation.", _monitoring_state_snapshots),
 )
 
 

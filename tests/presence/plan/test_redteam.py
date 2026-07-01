@@ -68,11 +68,12 @@ def test_injection_literal_is_only_a_lookup_key(populated_state):
 
 
 # ───────────────────────────────── an incomplete source can never assert a 'no'
-def test_absence_over_windowed_source_cannot_claim_no(populated_state):
+def test_absence_over_incomplete_read_cannot_claim_no(populated_state):
+    # limit=2 over 6 decisions → a full page, rows fell off → can't prove a 'no'.
     plan = Plan(nodes=(
-        Leaf(node_id="a", tool="human_decision.recent_decisions"),
+        Leaf(node_id="a", tool="human_decision.recent_decisions", params={"limit": 2}),
         Op(node_id="m", kind=OpKind.ABSENCE_SCAN, inputs=("a",),
-           args={"field": "verdict", "op": "eq", "value": "FORBID"}),
+           args={"field": "verdict", "op": "eq", "value": "NO_SUCH_VERDICT"}),
     ), output="m")
     assert not _run(populated_state, plan).grounded
 

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tex.presence.brain.read_tools import build_read_tool_registry
-from tex.presence.gate.queries import Recompute
+from tex.presence.gate.queries import EVIDENCE_CAP, Recompute
 from tex.presence.plan import operators as ops
 from tex.presence.plan.ir import Leaf, Op, OpKind, Plan, validate_plan
 
@@ -108,9 +108,50 @@ def execute_plan(
             return Recompute(False, reason=f"plan-node-error:{type(exc).__name__}")
 
     clause = _coerce_to_clause(env.get(plan.output))
-    if clause is not None:
+    if clause is None:
+        return Recompute(False, reason="plan-output-not-a-speakable-clause")
+    if not clause.grounded:
         return clause
-    return Recompute(False, reason="plan-output-not-a-speakable-clause")
+
+    # MULTI-CLAUSE (the ir.py contract, now implemented): every terminal value node is
+    # spoken, in plan order — so "how many agents and how many forbids?" answers both
+    # parts in one reply. A terminal is a node no other node consumes; the primary
+    # (plan.output) must ground or the whole answer abstains (above), while a secondary
+    # that fails to ground is simply not spoken — the grounded clauses still answer.
+    consumed: set[str] = set()
+    for node in plan.nodes:
+        if isinstance(node, Op):
+            consumed.update(node.inputs)
+    if plan.output in consumed:  # the output feeds another node — single-clause plan
+        return clause
+
+    phrases: list[str] = []
+    parts: list[Recompute] = []
+    for node in plan.nodes:
+        if node.node_id in consumed:
+            continue
+        rc = clause if node.node_id == plan.output else _coerce_to_clause(env.get(node.node_id))
+        if rc is None or not rc.grounded or not rc.canonical_phrase:
+            continue
+        if rc.canonical_phrase in phrases:  # two sinks re-deriving the same clause
+            continue
+        phrases.append(rc.canonical_phrase)
+        parts.append(rc)
+    if len(parts) <= 1:
+        return clause
+
+    evidence: tuple = ()
+    for rc in parts:
+        evidence = evidence + tuple(rc.evidence)
+    derived = any(rc.correctness_floor is not None for rc in parts)
+    return Recompute(
+        True, value=clause.value, evidence=evidence[:EVIDENCE_CAP],
+        canonical_phrase=" ".join(phrases),
+        correctness_floor=(1.0 if derived else None),
+        coverage_mode=("recorded-timestamp" if derived else None),
+        governance_verdict=clause.governance_verdict,
+        reason=clause.reason + f";clauses={len(parts)}",
+    )
 
 
 def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: str | None,

@@ -41,9 +41,10 @@ def test_diff_over_window_signed_delta():
 
 
 def test_compare_abstains_if_an_operand_is_ungrounded():
-    # 0 SLEEPING agents → that COUNT abstains → COMPARE can't relate it.
+    # A zero over an INCOMPLETE read (full page, limit < store) abstains → COMPARE
+    # can't relate it. (A zero over a complete scan now seals — see test_executor.)
     plan = Plan(nodes=(
-        Leaf(node_id="a", tool="identity.list_agents"),
+        Leaf(node_id="a", tool="identity.list_agents", params={"limit": 1}),
         Op(node_id="fr", kind=OpKind.FILTER, inputs=("a",),
            args={"field": "lifecycle_status", "op": "eq", "value": "SLEEPING"}),
         Op(node_id="c0", kind=OpKind.COUNT, inputs=("fr",)),

@@ -1849,6 +1849,25 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.provenance_engine = runtime.provenance_engine
     app.state.provenance_feed = runtime.provenance_feed
     app.state.held_decision_sink = runtime.held_decision_sink
+
+    # PRESENCE DATA GROUND: lifecycle transitions ("why/when was X revoked") and
+    # daily state snapshots ("how many were active on <past date>"). Both in-memory,
+    # recording from boot onward; the read-tools over them disclose that. The
+    # transition recorder wraps registry.save observationally (the save is never
+    # blocked); snapshots are taken lazily on the first /v1/ask of each UTC day.
+    try:
+        from tex.stores.lifecycle_transitions import (
+            LifecycleTransitionStore,
+            install_transition_recorder,
+        )
+        from tex.stores.state_snapshots import StateSnapshotStore
+
+        app.state.lifecycle_transition_store = LifecycleTransitionStore()
+        app.state.state_snapshot_store = StateSnapshotStore()
+        install_transition_recorder(app.state.agent_registry, app.state.lifecycle_transition_store)
+    except Exception:  # noqa: BLE001 — presence data ground is optional; never break boot
+        _logger.warning("presence data ground failed to install", exc_info=True)
+
     # The vigil's held-card seam: adapt the held-decision sink (where the
     # standing PDP and the discovery path queue ABSTAINs) into the
     # ``/v1/vigil`` ``human_decision`` channel, carrying the Layer-4 Hold when

@@ -30,11 +30,23 @@ __all__ = [
     "PROPOSE_PLAN_TOOL_NAME",
     "PROPOSE_PLAN_TOOL_DESCRIPTION",
     "OP_GUIDE",
+    "PlanDecline",
     "plan_tool_schema",
     "build_plan_system_prompt",
     "build_plan_user_prompt",
     "PlanCompiler",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class PlanDecline:
+    """A DELIBERATE empty plan — the model judged the question unanswerable and said
+    which way: ``no-record`` (in-domain, but nothing recorded holds the answer) or
+    ``out-of-domain`` (not about the governed system). Distinct from ``None`` (a
+    malformed/unusable payload), so the voice can phrase the abstain honestly instead
+    of one generic sentence for every failure mode."""
+
+    reason: str = "unspecified"
 
 PROPOSE_PLAN_TOOL_NAME = "propose_query_plan"
 PROPOSE_PLAN_TOOL_DESCRIPTION = (
@@ -53,16 +65,23 @@ OP_GUIDE: dict[OpKind, str] = {
         "(today|yesterday|'N_days_ago'|'past_N_days') or an ISO date. The gate resolves the "
         "token against the current time and labels the answer DERIVED ('by recorded time')."
     ),
-    OpKind.COUNT: "the number of rows from its single input (a positive count answers; zero abstains)",
-    OpKind.EXISTS: "whether ≥1 row matches its input (true answers; a 'no' abstains for now)",
+    OpKind.COUNT: (
+        "the number of rows from its single input. A zero over a COMPLETE scan seals an "
+        "honest 'None'; a zero over a windowed/clamped read abstains."
+    ),
+    OpKind.EXISTS: (
+        "whether ≥1 row matches its input. A 'No' seals when the scan was COMPLETE "
+        "(the read-tool reports completeness); otherwise a 'no' abstains."
+    ),
     OpKind.LIST: "the first N rows projected to a field — args: field (use 'name' for agents, NOT the id), limit",
     OpKind.GET: ("one entity's field value — args: field. The input leaf must resolve to exactly ONE row; "
                  "for an agent named by the user, use identity.resolve_agent(name=…) → GET(field)."),
     OpKind.ABSENCE_SCAN: (
-        "membership over a COMPLETE current-state list (use identity.list_agents as the input "
-        "leaf) — args: field, op, value. Seals 'yes' (with the matching rows) OR a provable 'no' "
-        "(with the full scanned set as the witness). Use this for 'do I have an X agent?' — NOT "
-        "exists+filter, which can't prove a 'no'."
+        "membership over a COMPLETE scan — args: field, op, value. Seals 'yes' (with the "
+        "matching rows) OR a provable 'no' (with the full scanned set as witness). Works over "
+        "identity.list_agents and any fully-read store (recent_decisions/actions/records/"
+        "entries, connector_health) when the read was complete. 'do I have an X agent?', "
+        "'are any connectors offline?'"
     ),
     OpKind.GROUP_BY: (
         "distribution by a key over a row-list — args: field (owner|lifecycle_status|trust_tier|"
@@ -136,8 +155,13 @@ in the plan (the plan is a DAG; order nodes so every input already exists):
 is a LOOKUP KEY the executor resolves against the rows — never a fact you assert.
 4. Keep the plan minimal. When you ANSWER, the `output` node must be a value-producing \
 OPERATOR (count/exists/list/get/group_by/top_n/aggregate/ratio/absence_scan/duration/\
-compare/diff_over_window), never a bare read-tool leaf. When you CANNOT answer (see rules 6-7), emit a plan with an \
-EMPTY node list — {{"nodes": [], "output": ""}} — that IS the honest abstain. NEVER invent a \
+compare/diff_over_window), never a bare read-tool leaf. For a MULTI-PART question ("how \
+many agents AND how many forbids?"), emit ONE plan with one terminal value-operator per \
+part — every terminal (unconsumed) value node is spoken, in plan order; `output` names \
+the primary one. When you CANNOT answer (see rules 6-7), emit a plan with an EMPTY node \
+list and a reason token as the output — {{"nodes": [], "output": "no-record"}} when the \
+data was never recorded, or {{"nodes": [], "output": "out-of-domain"}} when the question \
+is not about the governed system — that IS the honest abstain. NEVER invent a \
 tool/operator/value, and NEVER force a read-tool (e.g. list_agents → count) to manufacture a \
 number for a question it does not answer.
 5. TIME: the timestamp fields (registered_at, recorded_at, decided_at, appended_at, \
@@ -147,22 +171,24 @@ labels it. For 'today / yesterday / N days ago / in the past N days / a date', c
 TIME_WINDOW over a row-list and pass the RELATIVE TOKEN (e.g. on="today", on="yesterday", \
 after="7_days_ago", after="past_7_days") or an ISO date — the gate resolves it against the \
 Current time given above. You NEVER compute or assert a date yourself.
-6. EMIT NO PLAN (→ an honest abstain) for what the data cannot support, and do NOT \
-substitute the nearest factual query: WHY something happened or the REASON/CAUSE of a state \
-('why was agent X revoked', 'what caused this' — there is NO reason/cause/transition record); \
-state AS-OF a PAST date ('how many were active on June 1' — current-state only, no history); \
-predictions/forecasts ('how many next month'); anomaly/significance/ranking by an UNRECORDED \
-metric ('which agent is most trustworthy', 'is this anomalous' — but ranking by a RECORDED \
-field is TOP_N, a percentage of two counts is RATIO, and avg/min/max/sum of a recorded \
-numeric field is AGGREGATE: compose those, don't abstain); capability-set \
-union/intersection. Answering a DIFFERENT question than the one asked (e.g. giving a status \
-when asked 'why') is a FAILURE — abstain instead.
-7. OUT OF DOMAIN: if the question is not about the governed system (agents, decisions, \
-actions, evidence, discovery, drift) — weather, geography, code, general knowledge, chit-chat \
-— emit the EMPTY plan {{"nodes": [], "output": ""}}. Tex answers ONLY from its own sealed \
-records. Examples that MUST return the empty plan: 'what's the capital of France', 'write me \
-a poem', 'how many agents next month', 'how many were active on June 1', 'why was agent X \
-revoked'. Do NOT answer these with a current count.
+6. WHY/WHEN a state changed ('why was agent X revoked', 'when was X quarantined') → compose \
+over identity.transitions (from_status/to_status/reason/occurred_at, recorded since boot): \
+resolve the agent, FILTER transitions, LATEST/GET the reason or occurred_at. AS-OF a PAST \
+date ('how many agents were active on June 1') → compose over monitoring.state_snapshots: \
+TIME_WINDOW(field=taken_at, op=on, on=<date>) → GET the field (agent_total, agents_active, \
+decision_total). If no transition/snapshot row covers it, the gate abstains honestly — \
+NEVER substitute a current-state answer for a past-state question.
+7. EMIT THE EMPTY PLAN {{"nodes": [], "output": "no-record"}} for what no record can \
+support: predictions/forecasts ('how many next month'); anomaly/significance/ranking by an \
+UNRECORDED metric ('which agent is most trustworthy', 'is this anomalous' — but ranking by \
+a RECORDED field is TOP_N, a percentage of two counts is RATIO, avg/min/max/sum of a \
+recorded numeric field is AGGREGATE: compose those, don't abstain); capability-set \
+union/intersection. EMIT {{"nodes": [], "output": "out-of-domain"}} if the question is not \
+about the governed system (agents, decisions, actions, evidence, discovery, drift, \
+connectors) — weather, geography, code, general knowledge, chit-chat. Tex answers ONLY \
+from its own sealed records; answering a DIFFERENT question than the one asked is a \
+FAILURE — decline instead. Examples: 'what's the capital of France' → out-of-domain; \
+'how many agents next month' → no-record.
 8. You may reason before composing, but the `{tool_name}` call must contain ONLY the plan.
 
 Call `{tool_name}` exactly once with: {{ "nodes": [ ... ], "output": "<node_id>" }}.
@@ -185,20 +211,44 @@ def build_plan_system_prompt(
     )
 
 
+def _context_line(context: Mapping[str, Any] | None) -> str:
+    """The prior Q/A as reference-resolution context, clipped and single-lined.
+
+    This lets a follow-up ("which one?", "and yesterday?") compile against what was
+    just asked. Injection-inert by construction: the compiler emits only a plan, so
+    nothing in the prior turn can become spoken words — it can only steer WHICH rows
+    get read, and the gate still recomputes everything."""
+    if not isinstance(context, Mapping):
+        return ""
+    q = str(context.get("prior_question") or "").replace("\n", " ").strip()[:300]
+    a = str(context.get("prior_answer") or "").replace("\n", " ").strip()[:300]
+    if not q and not a:
+        return ""
+    lines = []
+    if q:
+        lines.append(f"Previous question (for resolving references like 'it'/'which one'): {q}")
+    if a:
+        lines.append(f"Previous answer: {a}")
+    return "\n".join(lines) + "\n"
+
+
 def build_plan_user_prompt(
-    *, question: str, tenant: str | None, reference_now: str | None = None
+    *, question: str, tenant: str | None, reference_now: str | None = None,
+    context: Mapping[str, Any] | None = None,
 ) -> str:
     now_line = f"Current time (UTC): {reference_now}\n" if reference_now else ""
     return (
         f"Tenant: {tenant or '(unspecified)'}\n"
         f"{now_line}"
+        f"{_context_line(context)}"
         f"Question: {str(question).strip()}\n\n"
         f"Compile the query plan now."
     )
 
 
-def _parse_plan(payload: Any) -> Plan | None:
-    """Coerce a provider payload into a ``Plan``; ``None`` on anything unexpected."""
+def _parse_plan(payload: Any) -> "Plan | PlanDecline | None":
+    """Coerce a provider payload into a ``Plan``; a deliberate empty plan becomes a
+    :class:`PlanDecline` carrying its reason token; ``None`` on anything unexpected."""
     if isinstance(payload, Mapping):
         data: Any = dict(payload)
     else:
@@ -211,6 +261,10 @@ def _parse_plan(payload: Any) -> Plan | None:
                 return None
         else:
             return None
+    nodes = data.get("nodes")
+    if isinstance(nodes, (list, tuple)) and len(nodes) == 0:
+        token = str(data.get("output") or "").strip().lower()
+        return PlanDecline(reason=token if token in ("no-record", "out-of-domain") else "unspecified")
     try:
         return Plan.model_validate(data)
     except Exception:  # noqa: BLE001 — any malformed plan drops to abstain
@@ -234,13 +288,14 @@ class PlanCompiler:
         tool_catalog: Mapping[str, str],
         ops: frozenset[OpKind] | set[OpKind] | None = None,
         reference_now: str | None = None,
-    ) -> Plan | None:
+        context: Mapping[str, Any] | None = None,
+    ) -> "Plan | PlanDecline | None":
         if self.provider is None:
             return None
         allowed_ops = ops if ops is not None else IMPLEMENTED_OPS
         system_prompt = build_plan_system_prompt(tool_catalog, allowed_ops)
         user_prompt = build_plan_user_prompt(
-            question=question, tenant=tenant, reference_now=reference_now
+            question=question, tenant=tenant, reference_now=reference_now, context=context
         )
         # Provider/transport/credit errors PROPAGATE so the caller can degrade to the legacy
         # deterministic path — a model outage (no credits, rate-limit, timeout) must NOT take
@@ -249,8 +304,8 @@ class PlanCompiler:
         payload = self.provider.analyze(system_prompt=system_prompt, user_prompt=user_prompt)
 
         plan = _parse_plan(payload)
-        if plan is None:
-            return None
+        if plan is None or isinstance(plan, PlanDecline):
+            return plan
 
         errors = validate_plan(
             plan,

@@ -64,10 +64,21 @@ class VoiceTokenResponse(BaseModel):
     expires_at: int  # epoch seconds
 
 
+class AskContextDTO(BaseModel):
+    """The prior Q/A, so a follow-up ('which one?', 'and yesterday?') can resolve its
+    references. Steers only the plan COMPILER — every spoken value is still recomputed
+    from sealed rows, so nothing here can become words Tex speaks."""
+
+    model_config = ConfigDict(extra="forbid")
+    prior_question: str = Field(default="", max_length=4000)
+    prior_answer: str = Field(default="", max_length=4000)
+
+
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     transcript: str = Field(default="", max_length=4000)
     tenant_id: str | None = Field(default=None, max_length=200)
+    context: AskContextDTO | None = None
 
 
 class ObjectDTO(BaseModel):
@@ -295,7 +306,8 @@ def build_voice_router() -> APIRouter:
                 )
         effective_tenant = _resolve_effective_tenant(principal, body.tenant_id)
         outcome = voice_ask.answer_question(
-            request, transcript=body.transcript, tenant=effective_tenant
+            request, transcript=body.transcript, tenant=effective_tenant,
+            context=(body.context.model_dump() if body.context is not None else None),
         )
         return AskResponse(
             answer=outcome.answer,

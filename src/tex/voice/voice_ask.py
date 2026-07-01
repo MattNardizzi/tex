@@ -302,11 +302,25 @@ def answer_question(
     *,
     transcript: str,
     tenant: str | None,
+    context: Any = None,
 ) -> AskOutcome:
     """Answer a spoken question ONLY from sealed facts, or abstain. Never raises
-    on a bad transcript — an unanswerable question is an ABSTAIN, not a 500."""
+    on a bad transcript — an unanswerable question is an ABSTAIN, not a 500.
+
+    ``context`` (optional) is the prior Q/A for follow-up reference resolution —
+    consumed only by the plan compiler; the deterministic floor ignores it."""
     intent = route_intent(transcript)
     attestor = get_attestor(request)
+
+    # Lazy daily state snapshot: the first ask of each UTC day records the current
+    # posture so "as of <past date>" questions accumulate real rows to ground in.
+    # Cheap no-op every other time; guarded so it can never break the voice.
+    try:
+        from tex.stores.state_snapshots import record_daily_snapshot
+
+        record_daily_snapshot(getattr(getattr(request, "app", None), "state", None))
+    except Exception:  # noqa: BLE001
+        pass
 
     def _seal(
         outcome_verdict: Verdict, answer: str, obj, proof, dim, gate_dict,
@@ -358,6 +372,7 @@ def answer_question(
                 templated_abstain="I don't have an answer to that in the records.",
                 attestor=getattr(_state, "presence_attestor", None),  # the PRESENCE attestor (has .attest)
                 held_sink=getattr(_state, "held_decision_sink", None),
+                context=context,
             )
         except Exception:  # noqa: BLE001 — the plan path must never break the voice
             _logger.warning("presence plan path raised; falling through", exc_info=True)

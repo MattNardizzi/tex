@@ -65,18 +65,36 @@ def test_exists_true_seals(populated_state):
 
 
 # ─────────────────────────────────────────────── honest abstention (never a lie)
-def test_zero_count_abstains_not_seals(populated_state):
-    """No REVOKED agents → the executor refuses to seal '0' (absence needs a
-    completeness proof, deferred to ABSENCE_SCAN) rather than asserting it."""
+def test_zero_count_seals_over_complete_scan(populated_state):
+    """No REVOKED agents over the COMPLETE registry scan → a sealed honest 'None',
+    witnessed by the full scanned set (the proof nothing matched)."""
     rc = _run(populated_state, Plan(nodes=(
         _leaf(), _filter("lifecycle_status", "eq", "REVOKED"),
+        Op(node_id="n", kind=OpKind.COUNT, inputs=("f",))), output="n"))
+    assert rc.grounded and rc.value == 0 and len(rc.evidence) == 2
+    assert rc.canonical_phrase.startswith("None")
+
+
+def test_zero_count_over_incomplete_read_abstains(populated_state):
+    """A full-page read (limit < store size) can't prove a zero — rows fell off the
+    page. The zero must abstain, never seal."""
+    rc = _run(populated_state, Plan(nodes=(
+        _leaf(limit=1), _filter("lifecycle_status", "eq", "REVOKED"),
         Op(node_id="n", kind=OpKind.COUNT, inputs=("f",))), output="n"))
     assert not rc.grounded and rc.evidence == ()
 
 
-def test_exists_false_abstains_not_guesses_no(populated_state):
+def test_exists_false_seals_over_complete_scan(populated_state):
     rc = _run(populated_state, Plan(nodes=(
         _leaf(), _filter("name", "contains", "okta"),
+        Op(node_id="e", kind=OpKind.EXISTS, inputs=("f",))), output="e"))
+    assert rc.grounded and rc.value is False
+    assert rc.canonical_phrase.startswith("No")
+
+
+def test_exists_false_over_incomplete_read_abstains(populated_state):
+    rc = _run(populated_state, Plan(nodes=(
+        _leaf(limit=1), _filter("name", "contains", "okta"),
         Op(node_id="e", kind=OpKind.EXISTS, inputs=("f",))), output="e"))
     assert not rc.grounded
 

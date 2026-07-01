@@ -39,6 +39,24 @@ __all__ = ["answer_with_plan", "evaluation_from_recompute"]
 
 _PLAN_CLAIM_ID = "plan"
 
+# Distinct honest-abstain phrasings — a user must be able to tell "that data doesn't
+# exist" from "I can't compute that yet" from a generic failure. All still ABSTAIN-tier;
+# only the words differ, and every one is authored here, never by the model.
+ABSTAIN_NO_RECORD_TEXT = (
+    "Nothing recorded holds that answer — that isn't in the records yet."
+)
+ABSTAIN_OUT_OF_DOMAIN_TEXT = (
+    "That's outside my records. I speak for your agents — their actions, decisions, and evidence."
+)
+ABSTAIN_UNPROVABLE_TEXT = (
+    "I couldn't prove that from the records I hold, so I won't guess."
+)
+
+_DECLINE_TEXTS = {
+    "no-record": ABSTAIN_NO_RECORD_TEXT,
+    "out-of-domain": ABSTAIN_OUT_OF_DOMAIN_TEXT,
+}
+
 
 def _state(request: Any) -> Any:
     state = getattr(getattr(request, "app", None), "state", None)
@@ -88,11 +106,18 @@ def answer_with_plan(
     registry: dict[str, Any] | None = None,
     attestor: Any = None,
     held_sink: Any = None,
+    context: Any = None,
 ) -> AnswerEnvelope | None:
     """Compile → execute → speak. Returns an :class:`AnswerEnvelope` (an honest-abstain
     envelope when the model produced no usable plan), or ``None`` when the MODEL ITSELF is
     unavailable (no credits / outage / rate-limit) — the caller then degrades to the legacy
-    deterministic path so a model outage never takes the voice down. Never raises."""
+    deterministic path so a model outage never takes the voice down. Never raises.
+
+    ``context`` is the prior Q/A ({"prior_question", "prior_answer"}) for follow-up
+    reference resolution — it steers only the COMPILE step; the gate still recomputes
+    every spoken value from real rows."""
+    from tex.presence.plan.compile import PlanDecline
+
     state = _state(request)
     reg = registry if registry is not None else build_read_tool_registry(state)
     catalog = {name: getattr(tool, "description", "") for name, tool in reg.items()}
@@ -101,11 +126,27 @@ def answer_with_plan(
     try:
         plan = compiler.compile(
             question=transcript, tenant=tenant, tool_catalog=catalog,
-            reference_now=now.isoformat(),
+            reference_now=now.isoformat(), context=context,
         )
+    except TypeError:  # an older compiler without the context kwarg (test doubles)
+        try:
+            plan = compiler.compile(
+                question=transcript, tenant=tenant, tool_catalog=catalog,
+                reference_now=now.isoformat(),
+            )
+        except Exception:  # noqa: BLE001
+            _logger.warning("plan compile: model unavailable — degrading to the legacy path", exc_info=True)
+            return None
     except Exception:  # noqa: BLE001 — the MODEL is unavailable (no credits / outage / rate-limit)
         _logger.warning("plan compile: model unavailable — degrading to the legacy path", exc_info=True)
         return None  # signal the caller to fall back to the deterministic path, never go dark
+
+    if isinstance(plan, PlanDecline):  # a DELIBERATE decline — phrase it by its reason
+        return AnswerEnvelope(
+            spoken_text=_DECLINE_TEXTS.get(plan.reason, templated_abstain),
+            prosody_plan=ProsodyPlan.from_tier(PresenceTier.ABSTAIN),
+            surface_object=None,
+        )
 
     if plan is None:  # the model replied but produced no usable plan → a genuine honest abstain
         return AnswerEnvelope(
@@ -122,7 +163,9 @@ def answer_with_plan(
 
     evaluation = evaluation_from_recompute(rc)
     try:
-        envelope = build_envelope((evaluation,), templated_abstain=templated_abstain, attestor=attestor)
+        # A plan that RAN but couldn't ground gets the "couldn't prove it" phrasing —
+        # distinct from "no record" and from the generic fallback.
+        envelope = build_envelope((evaluation,), templated_abstain=ABSTAIN_UNPROVABLE_TEXT, attestor=attestor)
     except Exception:  # noqa: BLE001 — composition/attestation must never break the voice
         _logger.warning("plan build_envelope raised; abstaining", exc_info=True)
         return AnswerEnvelope(spoken_text=templated_abstain, surface_object=None)

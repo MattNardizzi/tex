@@ -96,10 +96,12 @@ def test_window_over_count_leaf_abstains():
 
 
 def test_incomplete_tail_window_abstains_not_underreports():
-    # 'past 30 days' over a tail whose oldest row is 1 day ago → we might be missing older
-    # matches → abstain rather than under-report.
+    # 'past 30 days' over a FULL PAGE (limit=2 of 3 decisions) whose oldest visible row
+    # is newer than the window start → older matches may have fallen off the page →
+    # abstain rather than under-report. (An unclamped read of the whole store is now
+    # provably complete via read_complete and grounds instead.)
     plan = Plan(nodes=(
-        Leaf(node_id="a", tool="human_decision.recent_decisions"),
+        Leaf(node_id="a", tool="human_decision.recent_decisions", params={"limit": 2}),
         Op(node_id="w", kind=OpKind.TIME_WINDOW, inputs=("a",),
            args={"field": "decided_at", "op": "after", "after": "past_30_days"}),
         Op(node_id="n", kind=OpKind.COUNT, inputs=("w",)),

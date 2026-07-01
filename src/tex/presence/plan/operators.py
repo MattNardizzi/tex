@@ -72,6 +72,11 @@ _LEAF_ROWS: dict[str, str] = {
     "evidence.recent_records": "records",
     "monitoring.recent_drift": "events",
     "monitoring.recent_scans": "scans",
+    "human_decision.held_decisions": "held",
+    "plane.sealed_facts": "facts",
+    "monitoring.connector_health": "connectors",
+    "identity.transitions": "transitions",
+    "monitoring.state_snapshots": "snapshots",
 }
 _LEAF_ENTITY: dict[str, tuple[str, str]] = {
     "identity.get_agent": ("agent", "found"),
@@ -100,6 +105,7 @@ _FLEET_SOURCE_TOOLS: frozenset[str] = frozenset({
     "human_decision.total", "execution.recent_actions", "execution.action_count",
     "execution.action_total", "evidence.chain_head", "evidence.recent_records",
     "evidence.record_total", "discovery.chain_head", "monitoring.latest_snapshot",
+    "human_decision.held_decisions", "plane.sealed_facts", "monitoring.state_snapshots",
 })
 _NOUN: dict[str, tuple[str, str]] = {
     "identity.list_agents": ("agent", "agents"),
@@ -117,6 +123,11 @@ _NOUN: dict[str, tuple[str, str]] = {
     "evidence.recent_records": ("evidence record", "evidence records"),
     "monitoring.recent_drift": ("drift event", "drift events"),
     "monitoring.drift_count": ("drift event", "drift events"),
+    "human_decision.held_decisions": ("held decision", "held decisions"),
+    "plane.sealed_facts": ("sealed plane fact", "sealed plane facts"),
+    "monitoring.connector_health": ("connector", "connectors"),
+    "identity.transitions": ("lifecycle transition", "lifecycle transitions"),
+    "monitoring.state_snapshots": ("state snapshot", "state snapshots"),
 }
 
 
@@ -206,7 +217,14 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
         # would be a lower bound). Previously a brain asking for limit:1000 over a 3-row store
         # wrong-abstained 'how many decisions in total'.
         truncated = cap is not None and len(rows) >= int(cap)
-        complete = tool_name in _COMPLETE_SNAPSHOT_TOOLS and not truncated
+        # Completeness: the TOOL is the authority when it reports read_complete (it saw the
+        # store and knows whether anything fell off its page/tail). Legacy tools without the
+        # flag keep the tool-name allowlist. Either way a truncated read is never complete.
+        read_complete = value.get("read_complete")
+        if read_complete is not None:
+            complete = bool(read_complete) and not truncated
+        else:
+            complete = tool_name in _COMPLETE_SNAPSHOT_TOOLS and not truncated
         return RowSet(rows, tuple(refs), tool_name, tenant_scope, applied,
                       total=(None if truncated else len(rows)), fleet_only=fleet_only,
                       clamped=truncated, complete=complete)
@@ -288,10 +306,15 @@ def op_filter(rs: RowSet, args: Mapping[str, Any]) -> RowSet:
 
     qualifier = _safe_qualifier(target) if cop is CompareOp.EQ and target is not None else None
     qualifiers = rs.qualifiers + ((qualifier,) if qualifier else ())
+    # Over a COMPLETE scan, carry the full scanned set as the completeness witness so a
+    # filtered-to-zero COUNT/EXISTS downstream can still seal an honest 'no' (the same
+    # mechanism op_time_window uses for a windowed zero).
+    source_refs = rs.source_refs or (rs.refs[:EVIDENCE_CAP] if (rs.complete and aligned) else ())
     return RowSet(
         tuple(kept_rows), tuple(kept_refs), rs.source, rs.tenant_scope,
         rs.tenant_filter_applied, total=len(kept_rows), fleet_only=rs.fleet_only,
         clamped=rs.clamped, complete=rs.complete, qualifiers=qualifiers,
+        time_basis=rs.time_basis, window_label=rs.window_label, source_refs=source_refs,
     )
 
 
@@ -310,6 +333,15 @@ def op_count(rs: RowSet) -> Recompute:
             return Recompute(True, value=0, evidence=rs.source_refs, canonical_phrase=phrase,
                              correctness_floor=1.0, coverage_mode="recorded-timestamp",
                              reason="derived:time_count=0")
+        # A zero over a provably-COMPLETE scan seals as an honest 'no' — the full
+        # scanned set is the witness that none of it matched. Without that proof
+        # (windowed/clamped read, or an empty scan with nothing to witness), abstain.
+        witness = rs.source_refs or rs.refs[:EVIDENCE_CAP]
+        if rs.complete and witness:
+            qual = (" ".join(q for q in rs.qualifiers if q) + " ") if any(rs.qualifiers) else ""
+            phrase = _disclose_fleet(f"None — no {qual}{_noun(rs.source, 0)}.", rs.fleet_only)
+            return Recompute(True, value=0, evidence=witness, canonical_phrase=phrase,
+                             reason="sealed:zero_count_complete")
         return _bad(rs.source, "zero-count-needs-absence-proof")
     if rs.clamped:
         return _bad(rs.source, "count-clamped-incomplete")  # value is a lower bound — don't seal
@@ -330,12 +362,24 @@ def op_count(rs: RowSet) -> Recompute:
 
 
 def op_exists(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
-    """Is there ≥1 matching row? A positive EXISTS seals; a negative EXISTS abstains
-    (a sealed "no" requires the completeness proof of ABSENCE_SCAN — deferred)."""
+    """Is there ≥1 matching row? A positive EXISTS seals; a negative EXISTS seals
+    an honest 'No' when the scan was provably COMPLETE (the scanned set is the
+    witness), and abstains otherwise — a windowed read can never prove a 'no'."""
     if not rs.available:
         return _bad(rs.source, f"exists-source-unavailable:{rs.reason}")
     n = rs.total if rs.total is not None else len(rs.rows)
     if n <= 0:
+        witness = rs.source_refs or rs.refs[:EVIDENCE_CAP]
+        if rs.complete and witness:
+            qual = (" ".join(q for q in rs.qualifiers if q) + " ") if any(rs.qualifiers) else ""
+            phrase = _disclose_fleet(f"No — no {qual}{_noun(rs.source, 0)}.", rs.fleet_only)
+            if rs.time_basis:
+                return Recompute(True, value=False, evidence=witness,
+                                 canonical_phrase=phrase[:-1] + " (by recorded time).",
+                                 correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                                 reason="derived:exists_false_complete")
+            return Recompute(True, value=False, evidence=witness, canonical_phrase=phrase,
+                             reason="sealed:exists_false_complete")
         return _bad(rs.source, "exists-false-needs-absence-proof")
     if not rs.refs:
         return _bad(rs.source, "exists-no-evidence-witness")
@@ -486,10 +530,12 @@ def op_absence(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
 # ─────────────────────────────────────────────────────────────────────────────
 _TIMESTAMP_FIELDS = frozenset({
     "registered_at", "recorded_at", "decided_at", "appended_at", "discovered_at", "updated_at",
+    "occurred_at", "taken_at", "raised_at",
 })
 _FIELD_VERB = {
     "registered_at": "registered", "recorded_at": "recorded", "decided_at": "decided",
     "appended_at": "appended", "discovered_at": "discovered", "updated_at": "updated",
+    "occurred_at": "occurred", "taken_at": "taken", "raised_at": "raised",
 }
 _DAYS_AGO_RE = re.compile(r"\A(\d+)[ _]days?[ _]ago\Z", re.I)
 _PAST_DAYS_RE = re.compile(r"\A(?:past|last|in[ _]the[ _]past)[ _](\d+)[ _]days?\Z", re.I)

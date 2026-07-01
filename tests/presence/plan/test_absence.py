@@ -13,9 +13,9 @@ from tex.presence.plan.executor import execute_plan
 from tex.presence.plan.ir import Leaf, Op, OpKind, Plan
 
 
-def _membership(field, op, value, *, tool="identity.list_agents") -> Plan:
+def _membership(field, op, value, *, tool="identity.list_agents", **params) -> Plan:
     return Plan(nodes=(
-        Leaf(node_id="a", tool=tool),
+        Leaf(node_id="a", tool=tool, params=params),
         Op(node_id="m", kind=OpKind.ABSENCE_SCAN, inputs=("a",),
            args={"field": field, "op": op, "value": value}),
     ), output="m")
@@ -45,9 +45,18 @@ def test_status_membership_yes_and_no(populated_state):
     assert no.grounded and no.value is False               # none revoked → sealed 'no'
 
 
-def test_membership_over_incomplete_source_abstains(populated_state):
-    """recent_decisions is a windowed tail, not a complete snapshot — it can't prove a
-    'no', so the operator abstains rather than guess one."""
+def test_membership_over_complete_tail_seals(populated_state):
+    """An unclamped tail that provably read the WHOLE store (read_complete) is a
+    complete scan — membership over it seals, both directions."""
     rc = _run(populated_state,
               _membership("verdict", "eq", "FORBID", tool="human_decision.recent_decisions"))
+    assert rc.grounded and rc.value is True  # 3 FORBID decisions exist
+
+
+def test_membership_over_incomplete_source_abstains(populated_state):
+    """A full-page read (limit smaller than the store) cannot prove a 'no' — rows fell
+    off the page, so the operator abstains rather than guess one."""
+    rc = _run(populated_state,
+              _membership("verdict", "eq", "NO_SUCH_VERDICT",
+                          tool="human_decision.recent_decisions", limit=2))
     assert not rc.grounded and "not-complete" in rc.reason

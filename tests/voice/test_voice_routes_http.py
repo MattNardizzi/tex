@@ -441,7 +441,7 @@ def test_ask_degrades_when_object_payload_is_unserializable(client: TestClient, 
     from tex.voice import voice_ask
     from tex.voice.voice_ask import AskOutcome
 
-    def _bad_outcome(request, *, transcript, tenant):
+    def _bad_outcome(request, *, transcript, tenant, context=None):
         return AskOutcome(
             verdict=Verdict.PERMIT,
             answer="There are 2 agents.",

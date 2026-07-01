@@ -89,13 +89,13 @@ def test_model_unavailable_returns_none_for_legacy_fallback(populated_state):
     assert env is None
 
 
-def test_zero_count_plan_abstains_not_lies(populated_state):
+def test_zero_count_plan_speaks_a_sealed_none(populated_state):
     env = answer_with_plan(
         populated_state, transcript="how many revoked agents", tenant="acme",
         compiler=_StubCompiler(_count_revoked_plan()), templated_abstain=_ABSTAIN,
     )
-    assert env.spoken_text == _ABSTAIN
-    assert not env.verdicts
+    assert env.spoken_text.startswith("None")   # a sealed honest zero, not an abstain
+    assert env.verdicts                          # grounded, witnessed by the full scan
 
 
 def test_surface_object_carries_the_evidence(populated_state):

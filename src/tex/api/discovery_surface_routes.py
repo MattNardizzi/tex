@@ -360,8 +360,12 @@ def build_discovery_surface_router() -> APIRouter:
         # with the spoken count. The rich {fired, blind, unseen-CI} rides as the
         # object handle. A summary failure silently degrades to the bare count.
         clause, coverage_object = _sieve_coverage(sieve_result, count)
+        # The coverage clause already ends with "I'll begin" when it names dark
+        # planes; add the standalone sign-off only when there is no clause, so the
+        # spoken line never doubles it.
+        signoff = "" if clause else " I'll begin."
         return {
-            "spoken": f"You have {words} {agents} running.{clause} I'll begin.",
+            "spoken": f"You have {words} {agents} running.{clause}{signoff}",
             "object": coverage_object,
             "already_ignited": False,
             "count": count,

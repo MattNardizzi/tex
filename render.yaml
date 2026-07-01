@@ -112,6 +112,49 @@ services:
         value: "1"
       - key: TEX_PRESENCE_PLANNER_MODEL
         value: claude-opus-4-8
+      # VOICE INPUT (the recognizer grant). /v1/voice/token turns ON only when
+      # BOTH are set: the wss URL Tex hands the browser, and the grant secret —
+      # the SAME value pasted on tex-voice-gateway below (sync:false keeps it
+      # out of this public file). Until then the token route answers 503 and
+      # hold-to-speak stays dark: fail-closed, never a guessable default.
+      # After the gateway's first deploy, verify the hostname Render actually
+      # assigned (it suffixes the name if taken) and correct this URL to match.
+      - key: TEX_VOICE_GATEWAY_URL
+        value: wss://tex-voice-gateway.onrender.com
+      - key: TEX_VOICE_GATEWAY_SECRET
+        sync: false
+
+  # ── The VOICE GATEWAY (the recognizer socket) ──────────────────────────────
+  # Standalone browser→Tex WebSocket for push-to-talk STT
+  # (src/tex/gateway/voice_gateway.py). Lean python runtime: websockets +
+  # faster-whisper only — ElevenLabs speaks, this service only LISTENS. The
+  # Whisper model (base.en, ~145 MB, int8 on CPU) is downloaded at BUILD time
+  # so the running service never fetches anything. Live only when
+  # TEX_VOICE_GATEWAY_SECRET is set here AND on tex-web (same value) — until
+  # then tex-web's /v1/voice/token answers 503 and the loop stays dark.
+  - type: web
+    name: tex-voice-gateway
+    runtime: python
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: >
+      pip install -r requirements-gateway.txt &&
+      python -c "from faster_whisper import download_model;
+      download_model('base.en', output_dir='/opt/render/project/src/.whisper')"
+    startCommand: >
+      PYTHONPATH=src TEX_VOICE_GATEWAY_HOST=0.0.0.0 TEX_VOICE_GATEWAY_PORT=$PORT
+      python -m tex.gateway.voice_gateway
+    envVars:
+      - key: TEX_APP_ENV
+        value: production
+      # The shared grant secret. SECRET — paste the SAME value here and on
+      # tex-web in the dashboard (sync:false keeps it out of this public file).
+      - key: TEX_VOICE_GATEWAY_SECRET
+        sync: false
+      - key: TEX_WHISPER_DIR
+        value: /opt/render/project/src/.whisper
 
   # ⚠ DEACTIVATED — REAL-ONLY MODE (2026-06). This worker drives the SYNTHETIC
   # meridian-7 demo estate (~1 invented agent-action/sec). It must NOT run in

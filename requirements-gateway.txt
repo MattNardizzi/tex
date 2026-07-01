@@ -1,0 +1,7 @@
+# The standalone voice gateway process (src/tex/gateway/voice_gateway.py) —
+# lean on purpose: websockets for the browser socket, faster-whisper for real
+# STT. No FastAPI, no Kokoro (ElevenLabs speaks; this service only LISTENS).
+# The Whisper model itself is baked in at BUILD time — see the
+# tex-voice-gateway service in render.yaml.
+websockets>=13
+faster-whisper>=1.0.0

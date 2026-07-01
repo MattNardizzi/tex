@@ -34,8 +34,8 @@ __all__ = ["IMPLEMENTED_OPS", "execute_plan"]
 # (so an enum value added ahead of its implementation can never be executed).
 IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION,
-     OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.TOP_N, OpKind.AGGREGATE, OpKind.LATEST,
+     OpKind.DURATION, OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW, OpKind.RATIO}
 )
 
 # OPERATOR-PURITY INVARIANT (structural, not a vibe). Every operator the gate runs MUST
@@ -49,8 +49,8 @@ IMPLEMENTED_OPS: frozenset[OpKind] = frozenset(
 # it) — a silent "just add an operator" PR fails loudly at import instead.
 CERTIFIED_PURE_OPS: frozenset[OpKind] = frozenset(
     {OpKind.FILTER, OpKind.TIME_WINDOW, OpKind.COUNT, OpKind.EXISTS, OpKind.LIST, OpKind.GET,
-     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.LATEST, OpKind.DURATION,
-     OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW}
+     OpKind.ABSENCE_SCAN, OpKind.GROUP_BY, OpKind.TOP_N, OpKind.AGGREGATE, OpKind.LATEST,
+     OpKind.DURATION, OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW, OpKind.RATIO}
 )
 _uncertified = IMPLEMENTED_OPS - CERTIFIED_PURE_OPS
 if _uncertified:  # fail loud at import — never ship an implemented-but-uncertified operator
@@ -130,12 +130,14 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
         return Recompute(False, reason="op-missing-input")
     first = inputs[0]
 
-    if node.kind in (OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW):
+    if node.kind in (OpKind.COMPARE, OpKind.DIFF_OVER_WINDOW, OpKind.RATIO):
         operands = [_coerce_to_clause(x) for x in inputs]  # tolerate bare count-leaf operands
         if len(operands) != 2 or not all(isinstance(x, Recompute) for x in operands):
             return Recompute(False, reason=f"{node.kind.value}-needs-two-grounded-scalar-nodes")
         if node.kind is OpKind.COMPARE:
             return ops.op_compare(operands[0], operands[1], node.args)
+        if node.kind is OpKind.RATIO:
+            return ops.op_ratio(operands[0], operands[1], node.args)
         return ops.op_diff_over_window(operands[0], operands[1], node.args)
 
     if node.kind is OpKind.FILTER:
@@ -170,6 +172,14 @@ def _run_node(node: Any, env: dict[str, Any], *, reg: dict[str, Any], tenant: st
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="group-by-input-not-rowset")
         return ops.op_group_by(first, node.args)
+    if node.kind is OpKind.TOP_N:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="top-n-input-not-rowset")
+        return ops.op_top_n(first, node.args)
+    if node.kind is OpKind.AGGREGATE:
+        if not isinstance(first, ops.RowSet):
+            return Recompute(False, reason="aggregate-input-not-rowset")
+        return ops.op_aggregate(first, node.args)
     if node.kind is OpKind.LATEST:
         if not isinstance(first, ops.RowSet):
             return Recompute(False, reason="latest-input-not-rowset")

@@ -74,7 +74,10 @@ class OpKind(StrEnum):
     DURATION = "duration"      # elapsed time from a single row's timestamp to now
     COMPARE = "compare"        # relate two scalar node outputs (=, >, drift, …)
     DIFF_OVER_WINDOW = "diff_over_window"  # delta of a count across a window
+    RATIO = "ratio"            # the share of one grounded count within another (n of d, %)
     GROUP_BY = "group_by"      # distribution of rows by a key
+    TOP_N = "top_n"            # the largest groups of rows by a recorded key
+    AGGREGATE = "aggregate"    # avg/min/max/sum of a recorded numeric field over rows
     ABSENCE_SCAN = "absence_scan"  # PROVABLE non-membership / zero over a chain
 
 

@@ -36,7 +36,7 @@ from tex.presence.plan.ir import CompareOp
 
 __all__ = ["RowSet", "rowset_from_leaf", "op_filter", "op_count", "op_exists", "op_list",
            "op_get", "op_absence", "op_time_window", "op_group_by", "op_latest", "op_duration",
-           "op_compare", "op_diff_over_window"]
+           "op_compare", "op_diff_over_window", "op_ratio", "op_top_n", "op_aggregate"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -151,7 +151,10 @@ def _safe_criterion(value: Any) -> str:
 
 def _safe_qualifier(value: Any) -> str | None:
     """A sanitized inline qualifier (e.g. 'revoked') for phrasing, or None to drop it — an
-    unsafe/long value is simply not spoken rather than injected into the count phrase."""
+    unsafe/long value is simply not spoken rather than injected into the count phrase.
+    None in → None out (str(None) would otherwise speak the literal word 'none')."""
+    if value is None:
+        return None
     token = str(value).strip().casefold()
     return token if _SAFE_QUALIFIER_RE.match(token) else None
 
@@ -674,6 +677,141 @@ def op_group_by(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# TOP_N — the largest groups of rows by a RECORDED key ("which owner has the most
+# agents", "which agent acted the most"). GROUP_BY's honesty rules apply verbatim
+# (clamped → abstain: a ranking over a truncated read can be flat wrong; missing
+# field → abstain; time-windowed rows → DERIVED). Ties at the cutoff are ALL spoken —
+# announcing a single "most" when two groups tie would be a confident wrong.
+# ─────────────────────────────────────────────────────────────────────────────
+def op_top_n(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
+    if not rs.available:
+        return _bad(rs.source, f"top-n-source-unavailable:{rs.reason}")
+    if not rs.rows and rs.total is not None:  # count-style leaf: nothing to rank
+        return _bad(rs.source, "top-n-needs-rows")
+    if rs.clamped:
+        return _bad(rs.source, "top-n-clamped-incomplete")  # ranking over a truncated read lies
+    field_name = args.get("field")
+    if not isinstance(field_name, str):
+        return _bad(rs.source, "top-n-bad-field")
+    try:
+        k = int(args["limit"]) if args.get("limit") is not None else 1
+    except (TypeError, ValueError):
+        k = 1
+    if k <= 0:
+        return _bad(rs.source, "top-n-bad-limit")
+
+    aligned = len(rs.refs) == len(rs.rows)
+    buckets: dict[str, list] = {}
+    for i, row in enumerate(rs.rows):
+        if field_name not in row:
+            return _bad(rs.source, "top-n-missing-field")
+        bucket = buckets.setdefault(str(row.get(field_name)), [0, []])
+        bucket[0] += 1
+        if aligned:
+            bucket[1].append(rs.refs[i])
+    if not buckets:
+        return _bad(rs.source, "top-n-empty")
+
+    # Deterministic ranking: by count desc, then key — so equal runs speak identically.
+    items = sorted(buckets.items(), key=lambda kv: (-kv[1][0], kv[0]))
+    cutoff = min(k, len(items))
+    # Extend through ties at the cutoff: every group with the k-th group's count is included.
+    while cutoff < len(items) and items[cutoff][1][0] == items[cutoff - 1][1][0]:
+        cutoff += 1
+    top = items[:cutoff]
+    refs = tuple(ref for _, v in top for ref in v[1])[:EVIDENCE_CAP]
+    if not refs:
+        return _bad(rs.source, "top-n-no-witness")
+
+    total = len(rs.rows)
+    dist = {key: v[0] for key, v in top}
+    _, plur = _NOUN.get(rs.source, ("record", "records"))
+    label = field_name.replace("_", " ")
+    if len(top) == 1:
+        key, (count, _) = top[0]
+        phrase = f"Most {plur} by {label}: {key} ({count} of {total})."
+    else:
+        parts = ", ".join(f"{key}: {c}" for key, c in dist.items())
+        phrase = f"Top {plur} by {label}: {parts} (of {total})."
+    phrase = _disclose_fleet(phrase, rs.fleet_only)
+    if rs.time_basis:
+        return Recompute(True, value=dist, evidence=refs,
+                         canonical_phrase=phrase[:-1] + " (by recorded time).",
+                         correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                         reason=f"derived:top_n_{field_name}")
+    return Recompute(True, value=dist, evidence=refs, canonical_phrase=phrase,
+                     reason=f"sealed:top_n_{field_name}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGGREGATE — avg/min/max/sum of a RECORDED numeric field over rows. Pure: the value
+# is arithmetic over exactly the rows bound as evidence. Strict by design: EVERY row
+# must carry a numeric value for the field, or the operator abstains — an average
+# that silently skips rows is a confident wrong. Timestamps are not numbers here
+# (LATEST/DURATION own time); a clamped read abstains (aggregate over a truncated
+# set misstates the population).
+# ─────────────────────────────────────────────────────────────────────────────
+_AGG_KINDS = frozenset({"avg", "min", "max", "sum"})
+_AGG_WORD = {"avg": "average", "min": "lowest", "max": "highest", "sum": "total"}
+
+
+def op_aggregate(rs: RowSet, args: Mapping[str, Any]) -> Recompute:
+    if not rs.available:
+        return _bad(rs.source, f"aggregate-source-unavailable:{rs.reason}")
+    if not rs.rows and rs.total is not None:
+        return _bad(rs.source, "aggregate-needs-rows")
+    if rs.clamped:
+        return _bad(rs.source, "aggregate-clamped-incomplete")
+    if not rs.rows:
+        return _bad(rs.source, "aggregate-empty-needs-rows")
+    if len(rs.refs) != len(rs.rows):
+        return _bad(rs.source, "aggregate-refs-misaligned")
+    field_name = args.get("field")
+    agg = str(args.get("agg", "")).strip().lower()
+    if not isinstance(field_name, str) or field_name in _TIMESTAMP_FIELDS:
+        return _bad(rs.source, "aggregate-bad-field")
+    if agg not in _AGG_KINDS:
+        return _bad(rs.source, f"aggregate-bad-agg:{agg}")
+
+    values: list[float] = []
+    for row in rs.rows:
+        if field_name not in row:
+            return _bad(rs.source, "aggregate-missing-field")
+        v = row.get(field_name)
+        num = _as_float(v)
+        if num is None or isinstance(v, bool):
+            return _bad(rs.source, "aggregate-non-numeric-field")
+        values.append(num)
+
+    if agg == "avg":
+        result = sum(values) / len(values)
+    elif agg == "min":
+        result = min(values)
+    elif agg == "max":
+        result = max(values)
+    else:
+        result = sum(values)
+    # Speak ints as ints; trim floats to at most 4 decimals (pure formatting, not rounding
+    # the recomputed value away — `value` carries the full-precision result).
+    spoken = str(int(result)) if float(result).is_integer() else f"{result:.4f}".rstrip("0").rstrip(".")
+
+    n = len(rs.rows)
+    _, plur = _NOUN.get(rs.source, ("record", "records"))
+    qual = (" ".join(q for q in rs.qualifiers if q) + " ") if any(rs.qualifiers) else ""
+    label = field_name.replace("_", " ")
+    phrase = f"The {_AGG_WORD[agg]} {label} across {n} {qual}{plur} is {spoken}."
+    phrase = _disclose_fleet(phrase, rs.fleet_only)
+    evidence = rs.refs[:EVIDENCE_CAP]
+    if rs.time_basis:
+        return Recompute(True, value=result, evidence=evidence,
+                         canonical_phrase=phrase[:-1] + " (by recorded time).",
+                         correctness_floor=1.0, coverage_mode="recorded-timestamp",
+                         reason=f"derived:aggregate_{agg}_{field_name}={spoken}")
+    return Recompute(True, value=result, evidence=evidence, canonical_phrase=phrase,
+                     reason=f"sealed:aggregate_{agg}_{field_name}={spoken}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # LATEST — select the single most-recent row by a timestamp field (a 1-row RowSet,
 # for DURATION/GET to read). DERIVED + complete=False: a tail's max is the most-recent
 # SEEN row, never a provable 'last ever'.
@@ -786,6 +924,42 @@ def op_compare(a: Recompute, b: Recompute, args: Mapping[str, Any]) -> Recompute
     floor, mode = _min_tier_floor(a, b)
     return Recompute(True, value=result, evidence=evidence, canonical_phrase=phrase,
                      correctness_floor=floor, coverage_mode=mode, reason=f"compare:{rel}={result}")
+
+
+def _fmt_number(value: float) -> str:
+    """Trim a float for speech: 33.300000 → '33.3', 50.0 → '50'."""
+    text = f"{value:.1f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def op_ratio(a: Recompute, b: Recompute, args: Mapping[str, Any]) -> Recompute:
+    """The share of one grounded count within another — the division the old prompt
+    banned, admitted as a PURE join of two proven recomputes (like COMPARE/DIFF, it
+    never reads rows and cannot invent a value; both operands were already recomputed
+    from real rows). Semantics are strictly "n of d": the part must be ≤ the whole and
+    the whole must be positive — a plan that violates either is mis-composed and
+    abstains rather than speaking a >100% or 0/0 'percentage'."""
+    if not (a.grounded and b.grounded and isinstance(a.value, int) and isinstance(b.value, int)
+            and not isinstance(a.value, bool) and not isinstance(b.value, bool)):
+        return Recompute(False, reason="ratio-needs-two-grounded-integer-counts")
+    if a.value < 0 or b.value < 0:
+        return Recompute(False, reason="ratio-negative-count")
+    if b.value == 0:
+        return Recompute(False, reason="ratio-zero-denominator")
+    if a.value > b.value:
+        return Recompute(False, reason="ratio-part-exceeds-whole")
+    evidence = (a.evidence + b.evidence)[:EVIDENCE_CAP]
+    if not evidence:
+        return Recompute(False, reason="ratio-no-evidence")
+    pct = 100.0 * a.value / b.value
+    part = _safe_qualifier(args.get("part_label"))
+    whole = _safe_qualifier(args.get("whole_label")) or "records"
+    subject = f"{a.value} {part}" if part else f"{a.value}"
+    phrase = f"{subject} of {b.value} {whole} — {_fmt_number(pct)}%."
+    floor, mode = _min_tier_floor(a, b)
+    return Recompute(True, value=round(pct, 1), evidence=evidence, canonical_phrase=phrase,
+                     correctness_floor=floor, coverage_mode=mode,
+                     reason=f"ratio={a.value}/{b.value}")
 
 
 def op_diff_over_window(a: Recompute, b: Recompute, args: Mapping[str, Any]) -> Recompute:

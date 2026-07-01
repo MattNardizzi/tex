@@ -51,10 +51,12 @@ NOVEL = [
     "how many agents will we have next month",
     "what's the capital of France",
     "how many agents were active on June 1st",
-    # causal/superlative/ratio — must honestly decline, NOT answer an adjacent fact:
+    # causal — must honestly decline, NOT answer an adjacent fact:
     "why was data-export revoked",
     "what caused the most recent forbid",
+    # ratio/aggregate — now COMPUTABLE via RATIO/AGGREGATE (must ground, not decline):
     "what percentage of agents are active",
+    "what is the average final score of the recent actions",
     # previously-flaky filtered counts — must ground stably:
     "how many forbid decisions are there",
     "how many decisions have been made in total",

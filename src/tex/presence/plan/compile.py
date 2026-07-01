@@ -86,6 +86,25 @@ OP_GUIDE: dict[OpKind, str] = {
         "signed difference of TWO earlier COUNT nodes — inputs: [node_a, node_b], optional "
         "left_label/right_label. e.g. 'how many more agents registered today than yesterday'."
     ),
+    OpKind.RATIO: (
+        "the share of one COUNT within another, spoken as 'n of d — %' — inputs: "
+        "[part_count, whole_count], optional args: part_label, whole_label. The part must be "
+        "a SUBSET of the whole (filter the same source). e.g. 'what percentage of decisions "
+        "were forbidden' = recent_decisions → FILTER(verdict=FORBID) → COUNT, plus the "
+        "unfiltered COUNT, → RATIO(part_label='forbid', whole_label='decisions')."
+    ),
+    OpKind.TOP_N: (
+        "the largest groups of rows by a RECORDED key — args: field, limit (default 1; ties at "
+        "the cutoff are all spoken). e.g. 'which owner has the most agents' = list_agents → "
+        "TOP_N(field='owner'); 'which agent acted the most' = recent_actions → "
+        "TOP_N(field='agent_id'). ONLY recorded fields — never an unrecorded metric."
+    ),
+    OpKind.AGGREGATE: (
+        "avg|min|max|sum of a RECORDED numeric field over rows — args: field, agg. e.g. 'what "
+        "is the average final score of my actions' = recent_actions → AGGREGATE(field="
+        "'final_score', agg='avg'). Every row must carry the numeric field or the gate "
+        "abstains; NOT for timestamps (use LATEST/DURATION) or unrecorded metrics."
+    ),
 }
 
 
@@ -116,8 +135,8 @@ in the plan (the plan is a DAG; order nodes so every input already exists):
 3. Any literal in params/args (a name, a status like "REVOKED", a verdict like "FORBID") \
 is a LOOKUP KEY the executor resolves against the rows — never a fact you assert.
 4. Keep the plan minimal. When you ANSWER, the `output` node must be a value-producing \
-OPERATOR (count/exists/list/get/group_by/absence_scan/duration/compare/diff_over_window), \
-never a bare read-tool leaf. When you CANNOT answer (see rules 6-7), emit a plan with an \
+OPERATOR (count/exists/list/get/group_by/top_n/aggregate/ratio/absence_scan/duration/\
+compare/diff_over_window), never a bare read-tool leaf. When you CANNOT answer (see rules 6-7), emit a plan with an \
 EMPTY node list — {{"nodes": [], "output": ""}} — that IS the honest abstain. NEVER invent a \
 tool/operator/value, and NEVER force a read-tool (e.g. list_agents → count) to manufacture a \
 number for a question it does not answer.
@@ -132,9 +151,10 @@ Current time given above. You NEVER compute or assert a date yourself.
 substitute the nearest factual query: WHY something happened or the REASON/CAUSE of a state \
 ('why was agent X revoked', 'what caused this' — there is NO reason/cause/transition record); \
 state AS-OF a PAST date ('how many were active on June 1' — current-state only, no history); \
-predictions/forecasts ('how many next month'); anomaly/significance/ranking by an unrecorded \
-metric ('which agent is most trustworthy', 'is this anomalous'); a PERCENTAGE/ratio (there is \
-no division operator — a GROUP_BY breakdown is fine, an invented % is not); capability-set \
+predictions/forecasts ('how many next month'); anomaly/significance/ranking by an UNRECORDED \
+metric ('which agent is most trustworthy', 'is this anomalous' — but ranking by a RECORDED \
+field is TOP_N, a percentage of two counts is RATIO, and avg/min/max/sum of a recorded \
+numeric field is AGGREGATE: compose those, don't abstain); capability-set \
 union/intersection. Answering a DIFFERENT question than the one asked (e.g. giving a status \
 when asked 'why') is a FAILURE — abstain instead.
 7. OUT OF DOMAIN: if the question is not about the governed system (agents, decisions, \

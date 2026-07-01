@@ -3,10 +3,10 @@ SIEVE coverage summary — turn a multi-plane ``PlanesResult`` into the honest,
 spoken coverage clause + a structured object handle (ARCHITECTURE.md §9).
 
 The headline is NEVER a bare count and NEVER an implied totality. It is: how many
-agents were resolved, which planes actually saw them, which planes are still
-blind, and the single vantage that would open the biggest gap. A blind plane is
-always rendered as "needs vantage X", never as zero/absent — the honesty doctrine
-the whole layer exists to keep.
+agents were resolved, which planes actually saw them, and how many are still
+dark — after which the spoken line yields to Begin. The vantage that would open
+each blind plane still rides in the structured object as "needs vantage X", never
+as zero/absent — the honesty doctrine the whole layer exists to keep.
 
 ``summarize`` NEVER raises: every field is read defensively so it can run inside
 the ignite path without ever breaking Begin.
@@ -38,19 +38,6 @@ _PLANE: dict[PlaneId, tuple[str, str]] = {
 
 #: Meta / synthetic planes that are not real vantages to speak about.
 _META = frozenset({PlaneId.WITHHELD_THIRD, PlaneId.COVERAGE_HEALTH})
-
-#: Priority order for picking the single "biggest gap" to name when blind.
-_PRIORITY: tuple[PlaneId, ...] = (
-    PlaneId.GOVERNANCE_STREAM,
-    PlaneId.SIGNED_ID,
-    PlaneId.NETWORK_EGRESS,
-    PlaneId.KERNEL_EBPF,
-    PlaneId.ENDPOINT_EDR,
-    PlaneId.MANAGED_CONTROL,
-    PlaneId.MCP_TOOLGRAPH,
-    PlaneId.SAAS_AUTOMATION,
-    PlaneId.STATIC_SUPPLYCHAIN,
-)
 
 
 @dataclass(frozen=True)
@@ -137,11 +124,9 @@ def summarize(result: Any, headline_count: int | None = None) -> Coverage:
     if fired:
         parts.append(f"I found them across {_join(list(fired))}")
     if blind_planes:
-        top = next((p for p in _PRIORITY if p in blind_planes), blind_planes[0])
-        name, needs = _PLANE.get(top, (top.value, "a source"))
         n = len(blind_planes)
         subj = f"{_words(n)} planes are" if n != 1 else "one plane is"
-        parts.append(f"{subj} still dark — {needs} would open {name}")
+        parts.append(f"{subj} still dark — I'll begin")
     if parts:
         clause = ". ".join(p[0].upper() + p[1:] for p in parts) + "."
     elif effective > 0:

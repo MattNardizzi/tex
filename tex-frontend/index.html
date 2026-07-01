@@ -37,12 +37,12 @@
 
 <style>
   :root{
-    /* The room. Cold is the era of tools; warm is the moment Tex speaks.
-       The page rests on warm paper — never clinical #fff, which reads like a
-       blank document. The cold sheet sits over the hero and lifts once, when
-       Tex declares itself, so the warm is revealed and never painted. */
-    --paper:#fcfbf9;            /* the room, at rest */
-    --cold:#ffffff;             /* the era of tools — the hero's first breath */
+    /* The room. It opens WARM — a soft off-white — under the narration (the
+       antagonist's setup). The moment Tex declares himself ("I am Tex.") the
+       whole page shifts to stark white and stays there for good: Tex's world is
+       clean and resolved. Warm = before Tex; stark white = Tex, and everything after. */
+    --paper:#fcfbf9;            /* the warm room — the narration, before Tex */
+    --cold:#ffffff;             /* stark white — arrives as Tex declares, and stays */
 
     /* Ink — warm near-black, two greys for asides and proof, one hairline.
        Identical to the product's palette. */
@@ -81,7 +81,8 @@
   body{
     font-family:var(--sans);
     color:var(--ink);
-    background:var(--paper);
+    background-color:var(--paper);                  /* opens warm, under the narration */
+    transition:background-color var(--d-warm) ease; /* warms -> stark white when Tex declares */
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale;
     text-rendering:optimizeLegibility;
@@ -89,6 +90,8 @@
     font-feature-settings:"kern","liga","calt";
     overflow-x:hidden;
   }
+  /* When Tex declares himself ("I am Tex."), the whole page goes stark white — and stays. */
+  body.stark{background-color:var(--cold);}
   a{color:inherit;text-decoration:none;}
   button{font-family:inherit;background:none;border:0;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;}
   ::selection{background:var(--ink);color:var(--paper);}
@@ -130,8 +133,9 @@
      Plays once, then rests. Click or Space settles it early.
      =========================================================== */
   .hero{position:relative;min-height:100svh;min-height:100vh;width:100%;overflow:hidden;cursor:default;}
-  .cold-sheet{position:absolute;inset:0;background:var(--cold);z-index:0;opacity:1;transition:opacity var(--d-warm) ease;}
-  body.warm .cold-sheet{opacity:0;}
+  /* .cold-sheet retired: the room no longer starts white and warms. It now opens
+     warm (body --paper) and the whole page goes stark white via body.stark. */
+  .cold-sheet{display:none;}
 
   .layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;pointer-events:none;}
   /* The content sits a hair above true center — the product's bias — so there
@@ -369,11 +373,10 @@
 
   /* ===========================================================
      Reduced motion — the lines are content, not decoration. Show
-     everything; the room is warm; nothing moves.
+     everything; the room rests stark white; nothing moves.
      =========================================================== */
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;}
-    .cold-sheet{opacity:0;}
   }
 
   @media (max-width:720px){
@@ -501,7 +504,7 @@
   </section>
 
   <!-- ============ CODA — six layers, collapsed. The spine opened the layers
-       ("Tex decides"); this closes them. One sentence, alone on warm paper,
+       ("Tex decides"); this closes them. One sentence, alone on the stark white,
        the spine's twin in ink and scale. ============ -->
   <section class="coda" id="coda" aria-label="One voice.">
     <p class="coda-line">One voice.</p>
@@ -523,7 +526,7 @@
   </footer>
 
   <noscript>
-    <div style="position:fixed;inset:0;display:flex;flex-direction:column;gap:1rem;align-items:center;justify-content:center;background:#fcfbf9;color:#14110d;font-family:Georgia,serif;text-align:center;padding:2rem;">
+    <div style="position:fixed;inset:0;display:flex;flex-direction:column;gap:1rem;align-items:center;justify-content:center;background:#ffffff;color:#14110d;font-family:Georgia,serif;text-align:center;padding:2rem;">
       <div style="font-size:clamp(2rem,7vw,3.6rem);">I am Tex.</div>
       <div style="font-size:clamp(1.1rem,3vw,1.5rem);max-width:28ch;">I decide what your agents may do. You will not supervise me.</div>
     </div>
@@ -548,11 +551,11 @@
 
   /* ---- The turn. Plays once. Click / Space jumps to the resting state.
      The market's noise is carried by the words now, not by a wall — so the
-     verdict simply rises on bare paper, the room warms, and the name arrives. ---- */
+     verdict rises on the warm paper, the room turns stark white, and Tex arrives. ---- */
   let done = false;
   function settle(){
     done = true;
-    body.classList.add("warm");
+    body.classList.add("stark");                            // skip to rest: Tex has declared = stark white
     [coldLine, ...vlines].forEach(hide); hide(vcoda);
     coldLine.style.display = "none";                        // skip = the turn is over: remove the spent layers at once
     verdict.style.display = "none";
@@ -575,11 +578,11 @@
     await sleep(2800);                                       // the coda lands — and is given the time to be read, and felt
     if (done) return;
     [...vlines].forEach(hide); hide(vcoda);                 // it clears
-    body.classList.add("warm");                             // the room warms
     await sleep(1100);                                      // the silence
     if (done) return;
     coldLine.style.display = "none";                        // the spent layers leave the stack, so the name owns the center
     verdict.style.display = "none";
+    body.classList.add("stark");                            // Tex declares — the room goes stark white, and stays
     show(nameLine);                                         // the name rises, slow
     await sleep(1000);
     if (done) return;

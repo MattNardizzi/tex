@@ -13,7 +13,7 @@ resolved entities into the existing `agent_registry`/`discovery_ledger` so the P
 > instrument carrying a self-measured catchability; the headline deliverable is a *lower-bound-with-CI
 > + a named-vantage ledger*, never a count. This single frame structurally forces the honesty layer.
 
-This file is research-derived (traceable to `RESEARCH_LOG.md` sources) — see **§13 Prompt-provenance**.
+This file is research-derived (traceable to `docs/internal/RESEARCH_LOG.md` sources) — see **§13 Prompt-provenance**.
 
 ---
 
@@ -448,7 +448,7 @@ being double-counted.
 
 - It does not treat any single plane as identity (every plane is an anonymity-set-weighted edge).
 - It does not claim totality — the headline is always a lower bound + CI + named blind spots.
-- It does not fake-find the zero-signal class — those are NAMED in the register (`BLIND_SPOT_REGISTER.md`).
+- It does not fake-find the zero-signal class — those are NAMED in the register (`docs/internal/BLIND_SPOT_REGISTER.md`).
 - It does not auto-activate on merge — every plane is flag-gated OFF / default-safe (§8).
 - It does not rebuild the governance boundary — it reuses registry/ledger/PDP exactly (§7).
 
@@ -456,7 +456,7 @@ being double-counted.
 
 ## 13. Prompt-provenance note (the formula is research-derived)
 
-**This formula is RESEARCH-DERIVED, traceable to the sources in `RESEARCH_LOG.md`, and is NOT taken
+**This formula is RESEARCH-DERIVED, traceable to the sources in `docs/internal/RESEARCH_LOG.md`, and is NOT taken
 from the seed prompt's named techniques.** The prompt's named techniques (Fellegi-Sunter,
 capture-recapture/Chao, JA4, behavioral fingerprinting) are treated strictly as *today's frontier to
 surpass*: each is justified independently from a cited source AND pushed past a stated frontier limit

@@ -20,13 +20,15 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<!-- One design system across the product and this site, by law. The voice is
-     EB Garamond, roman and upright — the same well Tex speaks from in the
-     product, set at a single weight (400) and never heavier: presence is the
-     weight and the verb, not the point size. Italic is reserved for the one
-     pivotal line. The chrome and the one machine object are Geist / Geist Mono.
-     We request only the weights we use, so the page is light to the millisecond. -->
-<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<!-- One design system across the product and this site, by law. One voice:
+     Inter — a clean humanist sans, the screen-native heir to Helvetica / San
+     Francisco — the same voice Tex speaks in the product (tex-systems). It
+     carries every human word and every label; hierarchy is built from size,
+     tracking, ink-value and case, never from weight. Italic is reserved for the
+     one pivotal line. Geist Mono is loaded for ONE thing only: the raw machine
+     identifiers (the sha256 handle), where a proportional face would be harder
+     to read and copy. Nothing else is loaded — the site holds the one voice. -->
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400..500&family=Inter:ital,wght@0,200..600;1,200..600&display=swap" rel="stylesheet" />
 
 <!-- Calendly — the one outbound action. Opens an inline modal; the visitor
      never leaves vortexblack.ai. -->
@@ -49,8 +51,12 @@
     --ink-mute:#9b9388;
     --ink-hair:#d8d4cc;
 
-    --serif:"EB Garamond","Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
-    --sans:"Geist",-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Arial,sans-serif;
+    /* One voice: Inter, matching tex-systems. --serif is repointed to it as
+       well, so every rule that still names var(--serif) inherits the one voice
+       and its existing size/tracking/case is preserved. Geist Mono stays, for
+       machine identifiers only. */
+    --serif:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --mono:"Geist Mono","SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
 
     --reading:34em;

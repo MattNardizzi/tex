@@ -142,8 +142,9 @@
   .cold-line{z-index:3;opacity:0;transition:opacity var(--d-rise) ease;}
   .cold-line.show{opacity:1;}
   .cold-line p{
-    font-family:var(--serif);font-weight:300;
-    font-size:clamp(1.35rem,3.4vw,2.05rem);line-height:1.4;letter-spacing:-.012em;
+    /* narration, not Tex's voice — EB Garamond (the complementary register). */
+    font-family:var(--support);font-weight:400;
+    font-size:clamp(1.35rem,3.4vw,2.05rem);line-height:1.4;letter-spacing:0;
     color:var(--ink-soft);max-width:24ch;
   }
 
@@ -151,8 +152,9 @@
   .verdict{z-index:2;}
   .vstack{display:flex;flex-direction:column;align-items:center;}
   .vline{
-    font-family:var(--serif);font-weight:300;
-    font-size:clamp(1.55rem,4.6vw,2.9rem);line-height:1.18;letter-spacing:-.02em;color:var(--ink);
+    /* narration (the antagonist setup), not Tex's voice — EB Garamond. */
+    font-family:var(--support);font-weight:400;
+    font-size:clamp(1.55rem,4.6vw,2.9rem);line-height:1.28;letter-spacing:0;color:var(--ink);
     opacity:0;transform:translateY(var(--lift));transition:opacity 760ms var(--ease),transform 760ms var(--ease);
   }
   .vline.show{opacity:1;transform:none;}
@@ -214,9 +216,11 @@
      =========================================================== */
   .spine{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:0 7vw;text-align:center;}
   .spine-stack{display:flex;flex-direction:column;align-items:center;gap:.08em;}
-  .spine-watch,.spine-decide{font-family:var(--serif);font-weight:300;line-height:1.08;letter-spacing:-.022em;}
-  .spine-watch{font-size:clamp(1.9rem,6vw,3.5rem);color:var(--ink-mute);}
-  .spine-decide{font-size:clamp(2.15rem,6.6vw,3.85rem);color:var(--ink);}
+  .spine-watch,.spine-decide{line-height:1.08;letter-spacing:-.022em;}
+  /* "Everything else watches." is narration (not Tex) — EB Garamond; "Tex decides."
+     is Tex's declaration — Inter. The sans/serif split is the point of the spine. */
+  .spine-watch{font-family:var(--support);font-weight:400;letter-spacing:0;font-size:clamp(1.9rem,6vw,3.5rem);color:var(--ink-mute);}
+  .spine-decide{font-family:var(--serif);font-weight:300;font-size:clamp(2.15rem,6.6vw,3.85rem);color:var(--ink);}
 
   /* ===========================================================
      Beats — six layers, each one thing Tex says + one quiet proof.

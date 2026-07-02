@@ -28,18 +28,35 @@ correctly 401/403'd.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
 from tex.api.vigil_routes import _resolve_effective_tenant
 from tex.gateway import grant
-from tex.gateway.backends import ElevenLabsTTS, synthesize_tts, synthesize_tts_stream
+from tex.gateway.backends import (
+    ElevenLabsTTS,
+    select_stt,
+    synthesize_tts,
+    synthesize_tts_stream,
+)
 from tex.presence.contract import DEFAULT_PROSODY
 from tex.presence.prosody import plan_from_token, prosody_param_for_envelope
 from tex.voice import voice_ask
@@ -48,10 +65,30 @@ __all__ = ["build_voice_router"]
 
 _logger = logging.getLogger(__name__)
 
-# Where the browser opens the recognizer WebSocket. Tex's OWN gateway, inside
-# the same trust domain — never a third party. Overridable per deploy.
-_GATEWAY_URL = os.environ.get("TEX_VOICE_GATEWAY_URL", "ws://localhost:8765")
+
+def _gateway_url() -> str:
+    """Where the browser opens the recognizer WebSocket. Tex's OWN gateway,
+    inside the same trust domain — never a third party.
+
+    Resolution order: an explicit ``TEX_VOICE_GATEWAY_URL`` wins (a standalone
+    gateway service); else the SAME-SERVICE mount ``/v1/voice/stream`` derived
+    from ``RENDER_EXTERNAL_URL`` (set automatically by Render, so the deployed
+    brain hears on the socket it already serves — no second service, no second
+    bill); else local dev on the API's own port."""
+    explicit = (os.environ.get("TEX_VOICE_GATEWAY_URL") or "").strip()
+    if explicit:
+        return explicit
+    external = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip()
+    if external:
+        ws = external.replace("https://", "wss://").replace("http://", "ws://")
+        return ws.rstrip("/") + "/v1/voice/stream"
+    return "ws://localhost:8000/v1/voice/stream"
+
+
 _SPEAK_SAMPLE_RATE = 24000
+# Emit at most one partial per this many PCM frames (mirrors the standalone
+# gateway's cadence; only backends that produce real interims ever emit).
+_PARTIAL_EVERY = 5
 
 
 # --------------------------------------------------------------------------- DTOs
@@ -284,7 +321,86 @@ def build_voice_router() -> APIRouter:
                 detail="voice gateway secret not configured",
             )
         token, expires_at = minted
-        return VoiceTokenResponse(ws_url=_GATEWAY_URL, token=token, expires_at=expires_at)
+        return VoiceTokenResponse(ws_url=_gateway_url(), token=token, expires_at=expires_at)
+
+    @router.websocket("/voice/stream")
+    async def voice_stream(websocket: WebSocket) -> None:
+        # The SAME-SERVICE recognizer socket: the standalone gateway's exact
+        # wire protocol (binary s16le PCM in; {"type":"partial"/"final","text"}
+        # out; {"type":"end"} = release), mounted on the API the deploy already
+        # runs so hearing costs no second service. Auth mirrors the gateway:
+        # the ?token= minted by GET /v1/voice/token (which sits behind the
+        # bearer-keyed proxy); production-like with a bad/missing token closes
+        # 4401. The recognizer is the select_stt() chain — ElevenLabs Scribe
+        # when the key is present (the deploy that can speak can hear), else
+        # the honest offline placeholder that never pretends to transcribe.
+        token = websocket.query_params.get("token")
+        ok, _tenant = grant.verify_token(token)
+        if grant.is_production_like() and not ok:
+            await websocket.close(code=4401, reason="invalid or missing voice token")
+            return
+        await websocket.accept()
+
+        backend = select_stt()
+        sample_rate = 16000
+        session = backend.session(sample_rate=sample_rate)
+        frames = 0
+        final_sent = False
+
+        async def _send_final() -> None:
+            nonlocal final_sent
+            # finish() may block on one recognition round-trip — keep the event
+            # loop free (this socket is not the only thing this service does).
+            final = await asyncio.to_thread(session.finish)
+            await websocket.send_json({"type": "final", "text": final.text})
+            final_sent = True
+
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+                pcm = message.get("bytes")
+                if pcm:
+                    frames += 1
+                    partial = session.feed(pcm)
+                    if partial is not None and frames % _PARTIAL_EVERY == 0:
+                        await websocket.send_json(
+                            {"type": "partial", "text": partial.text}
+                        )
+                    continue
+                raw = message.get("text")
+                if not raw:
+                    continue
+                try:
+                    control = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                mtype = control.get("type")
+                if mtype == "start":
+                    sr = int(control.get("sample_rate") or sample_rate)
+                    if sr != sample_rate:
+                        sample_rate = sr
+                        session = backend.session(sample_rate=sample_rate)
+                elif mtype == "end":
+                    await _send_final()
+                    break
+        except WebSocketDisconnect:
+            pass
+        except Exception as exc:  # noqa: BLE001 — one socket must never crash the API
+            _logger.info("voice stream: connection ended abnormally: %s", exc)
+        finally:
+            if not final_sent:
+                # Released without an explicit end (socket dropped): still emit
+                # whatever was heard, so the client never hangs on a lost turn.
+                try:
+                    await _send_final()
+                except Exception:  # noqa: BLE001 — best-effort; client degrades to silence
+                    pass
+            try:
+                await websocket.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     @router.post(
         "/ask",

@@ -1100,7 +1100,125 @@ class OpenAICloudTTS:
 # OpenAI cloud transcription (gpt-4o-transcribe) preferred when its key is
 # present — SOTA WER, smooth, CPU-free; local faster-whisper then OfflineSTT are
 # the offline fallback (no silent cap — select_stt logs every skip).
-_STT_PREFERENCE: tuple[STTBackend, ...] = (OpenAICloudSTT(), ParakeetSTT(), WhisperSTT())
+class _ScribeSTTSession:
+    """One push-to-talk utterance against ElevenLabs Scribe (batch): PCM is
+    buffered while the gesture is held and ONE recognition request fires at
+    ``finish()`` — the release IS the commit, so batch-on-release loses nothing
+    to a streaming recognizer except live partials (which the browsers that can
+    stream already get from their own recognizer). No fabricated interims:
+    ``feed`` returns None rather than pretending recognition is under way."""
+
+    def __init__(self, *, sample_rate: int, model_id: str, api_key: str) -> None:
+        self._sample_rate = sample_rate
+        self._model = model_id
+        self._key = api_key
+        self._pcm = bytearray()
+
+    def feed(self, pcm: bytes) -> Transcript | None:
+        self._pcm += pcm
+        return None
+
+    def finish(self) -> Transcript:
+        text = ""
+        if len(self._pcm) >= 2:
+            try:
+                text = _scribe_transcribe(
+                    bytes(self._pcm), self._sample_rate, self._model, self._key
+                )
+            except Exception as exc:  # noqa: BLE001 — a failed recognition is a quiet ""
+                _logger.warning("scribe stt: recognition failed: %s", exc)
+        return Transcript(text=text, is_final=True, sample_rate=self._sample_rate)
+
+
+def _scribe_transcribe(pcm: bytes, sample_rate: int, model_id: str, key: str) -> str:
+    """One multipart POST to ElevenLabs speech-to-text (stdlib only, mirroring
+    the TTS path's urllib posture). WAV-wraps the utterance PCM, sends the
+    EXACT audio heard, returns the transcript text ("" on anything hollow)."""
+    import json as _json
+    import urllib.request
+    import uuid
+
+    wav = _pcm_to_wav(pcm, sample_rate)
+    boundary = f"tex{uuid.uuid4().hex}"
+    body = bytearray()
+    body += (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="model_id"\r\n\r\n'
+        f"{model_id}\r\n"
+    ).encode()
+    body += (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="utterance.wav"\r\n'
+        "Content-Type: audio/wav\r\n\r\n"
+    ).encode()
+    body += wav
+    body += f"\r\n--{boundary}--\r\n".encode()
+    request = urllib.request.Request(
+        f"{ElevenLabsTTS.API_BASE}/v1/speech-to-text",
+        data=bytes(body),
+        method="POST",
+        headers={
+            "xi-api-key": key,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30.0) as resp:
+        data = _json.loads(resp.read().decode("utf-8"))
+    return str(data.get("text") or "").strip()
+
+
+class ElevenLabsScribeSTT:
+    """ElevenLabs Scribe — the accuracy-leading cloud recognizer (top of the
+    Artificial Analysis streaming-WER board in 2026) riding the SAME key the
+    live voice already deploys, so where Tex can speak, Tex can hear. A vendor
+    in the AUDIO path only: it transcribes the operator's utterance verbatim;
+    what Tex ANSWERS still comes solely from /v1/ask over sealed facts.
+
+    Batch-on-release by design (see _ScribeSTTSession): push-to-talk makes the
+    release the end-of-turn, which deletes the streaming recognizer's one
+    advantage here (endpointing) and avoids Scribe realtime's 2-seconds-of-
+    audio floor on short asks. Model pinned to the stable batch Scribe,
+    overridable per deploy via ``TEX_ELEVENLABS_STT_MODEL``."""
+
+    name_live = "elevenlabs-scribe"
+    MODEL = "scribe_v1"
+    requires: tuple[str, ...] = ()  # stdlib urllib only — the live gate is the API key
+
+    @property
+    def name(self) -> str:
+        return self.name_live if self.available() else "elevenlabs-scribe(seam)"
+
+    @staticmethod
+    def _api_key() -> str | None:
+        key = (os.environ.get("ELEVENLABS_API_KEY") or "").strip()
+        return key or None
+
+    @classmethod
+    def _model(cls) -> str:
+        return os.environ.get("TEX_ELEVENLABS_STT_MODEL", cls.MODEL)
+
+    def available(self) -> bool:
+        return self._api_key() is not None
+
+    def session(self, *, sample_rate: int) -> STTSession:
+        key = self._api_key()
+        if key is None:
+            raise RuntimeError(
+                "ElevenLabsScribeSTT.session called while unavailable "
+                "(ELEVENLABS_API_KEY not set); use select_stt() so the "
+                "fallback chain handles it."
+            )
+        return _ScribeSTTSession(
+            sample_rate=sample_rate, model_id=self._model(), api_key=key
+        )
+
+
+_STT_PREFERENCE: tuple[STTBackend, ...] = (
+    ElevenLabsScribeSTT(),
+    OpenAICloudSTT(),
+    ParakeetSTT(),
+    WhisperSTT(),
+)
 # ElevenLabs (cloud, Tex's signature voice) preferred when its key is present;
 # then OpenAI cloud TTS (gpt-4o-mini-tts) for OpenAI-key deployments; local
 # Kokoro is the no-vendor fallback; OfflineTTS the always-on floor.

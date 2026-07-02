@@ -823,7 +823,13 @@ class EvaluateResponseDTO(BaseModel):
         )
         evidence_dto = EvidenceLayerDTO(
             evidence_hash=response.evidence_hash or "",
-            chain_valid=True,
+            # Honest per-decision signal: True iff THIS decision was actually
+            # sealed into the hash-chained evidence log (an evidence_hash was
+            # returned). Previously hardcoded True, which asserted a valid chain
+            # on every evaluation even when sealing failed or the chain was
+            # broken — a claim/reality mismatch. Whole-chain health is surfaced
+            # separately by GET /v1/system/state (discovery/snapshot intact).
+            chain_valid=bool(response.evidence_hash),
             record_count=total_evidence,
         )
 

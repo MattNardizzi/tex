@@ -79,6 +79,10 @@ class HeldDecision:
     note: str
     detail: dict[str, Any] = field(default_factory=dict)
     raised_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Owning tenant, so the /held surface can filter to the caller's tenant
+    # (a scoped key must not see — or seal — another tenant's held decisions).
+    # Defaults to "default" for back-compat and the single-partition/operator view.
+    tenant_id: str = "default"
     # Optional Layer-4 hold object (engine/hold.py, as a dict) when this held
     # decision originates from a PDP ABSTAIN rather than the provenance path.
     # Carries the two-sided certificate band, the epistemic/aleatoric type,
@@ -99,6 +103,7 @@ class HeldDecision:
             "hold": self.hold,
             "decision_id": self.decision_id,
             "anchor_sha256": self.anchor_sha256,
+            "tenant_id": self.tenant_id,
         }
 
 
@@ -120,6 +125,28 @@ class HeldDecisionSink:
     def peek(self) -> tuple[HeldDecision, ...]:
         with self._lock:
             return tuple(self._items)
+
+    def peek_for_tenant(self, tenant: str | None) -> tuple[HeldDecision, ...]:
+        """
+        Held items visible to ``tenant``.
+
+        A ``None`` / ``"default"`` caller is the operator/fleet view and sees
+        every held item (mirrors the discovery/agent-list omniscient-default
+        convention). A specific tenant sees only its own held decisions, so a
+        scoped key can neither read nor (via the returned decision_id) seal
+        another tenant's holds. Comparison is casefold/trim on both sides.
+        """
+        with self._lock:
+            if tenant is None:
+                return tuple(self._items)
+            wanted = tenant.strip().casefold()
+            if wanted in ("", "default"):
+                return tuple(self._items)
+            return tuple(
+                item
+                for item in self._items
+                if (item.tenant_id or "default").strip().casefold() == wanted
+            )
 
     def pull(self) -> tuple[HeldDecision, ...]:
         """Return and clear the held items (the surface has spoken them)."""

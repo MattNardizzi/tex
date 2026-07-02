@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from tex.api.auth import RequireScope, TexPrincipal, authenticate_request
+from tex.api.auth import (
+    RequireScope,
+    TexPrincipal,
+    authenticate_request,
+    enforce_tenant_match,
+)
 from tex.api.outcome_autoseal import capture_resolution_outcome
 
 from tex.api.schemas import (
@@ -112,16 +119,45 @@ def health_check() -> dict[str, str]:
     response_model=EvaluateResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Evaluate one action through Tex",
-    dependencies=[Depends(RequireScope("decision:write"))],
 )
 def evaluate_action(
     payload: EvaluateRequestDTO,
     request: Request,
+    # The scope guard rides on a PARAM (not the decorator) so the handler holds
+    # the authenticated principal — needed to bind the agent tenant. Enforcement
+    # is identical (decision:write).
+    principal: TexPrincipal = Depends(RequireScope("decision:write")),
 ) -> EvaluateResponseDTO:
     """
     Evaluates one action request through Tex and returns the public response.
     """
     command = _get_evaluate_action_command(request)
+
+    # Tenant binding: the request's agent_identity carries a caller-chosen
+    # tenant_id that flows into agent auto-registration and the durable
+    # Decision. Without this, a tenant-A key could register or mutate agents in
+    # tenant-B's estate (a cross-tenant WRITE on the primary decision path).
+    # Force the owning tenant to the authenticated principal's tenant:
+    # enforce_tenant_match honours anonymous/default and admin:cross_tenant keys
+    # (so the single-tenant launch demo is unchanged) but 403s a scoped key that
+    # names a foreign tenant. Rebuild via model_copy because the DTO is frozen.
+    requested_tenant = (
+        payload.agent_identity.tenant_id if payload.agent_identity is not None else None
+    )
+    effective_tenant = enforce_tenant_match(principal, requested_tenant)
+    update: dict[str, Any] = {
+        # Stamp the resolved tenant into request metadata so the decision is
+        # tagged with its owning tenant EVEN WHEN no agent_identity is supplied —
+        # this is what makes an authenticated tenant able to replay/seal its own
+        # decision. EvaluationRequest.tenant_id reads this first.
+        "metadata": {**payload.metadata, "tenant_id": effective_tenant},
+    }
+    if payload.agent_identity is not None:
+        update["agent_identity"] = payload.agent_identity.model_copy(
+            update={"tenant_id": effective_tenant}
+        )
+    payload = payload.model_copy(update=update)
+
     domain_request = payload.to_domain()
 
     try:
@@ -152,11 +188,14 @@ def evaluate_action(
     "/decisions/{decision_id}/replay",
     status_code=status.HTTP_200_OK,
     summary="Replay a stored Tex decision for audit",
-    dependencies=[Depends(RequireScope("decision:read"))],
 )
 def replay_decision(
     decision_id: UUID,
     request: Request,
+    # Principal rides on a PARAM so the handler can tenant-scope the lookup: a
+    # decision_id is a global UUID, so without this a scoped key could read
+    # another tenant's decision by id.
+    principal: TexPrincipal = Depends(RequireScope("decision:read")),
 ) -> dict[str, Any]:
     """
     Return the durable Decision record for a prior evaluation.
@@ -174,6 +213,10 @@ def replay_decision(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"decision not found: {decision_id}",
         )
+    # Tenant binding: a scoped key may only replay its own tenant's decisions.
+    # enforce_tenant_match 403s a mismatch; anonymous/default and
+    # admin:cross_tenant keys are honoured (single-tenant/operator path intact).
+    enforce_tenant_match(principal, decision.tenant_id)
     return decision.model_dump(mode="json")
 
 
@@ -181,11 +224,13 @@ def replay_decision(
     "/decisions/{decision_id}/evidence-bundle",
     status_code=status.HTTP_200_OK,
     summary="Export the signed evidence bundle for a decision",
-    dependencies=[Depends(RequireScope("evidence:read"))],
 )
 def evidence_bundle_for_decision(
     decision_id: UUID,
     request: Request,
+    # Principal on a PARAM so the per-decision bundle is tenant-scoped by the
+    # owning decision's tenant (the bundle is keyed by a global decision_id).
+    principal: TexPrincipal = Depends(RequireScope("evidence:read")),
 ) -> dict[str, Any]:
     """
     Return the hash-chained evidence bundle containing every record
@@ -208,6 +253,15 @@ def evidence_bundle_for_decision(
     treating the slice's first record as if it were the chain genesis.
     The fix is the witness pattern below.
     """
+    # Tenant binding: resolve the owning decision first and 403 a scoped key
+    # whose tenant does not match. When the decision is not in the store (e.g.
+    # an evidence-only slice), fall through — the bundle 404s below if empty.
+    decision_store = getattr(request.app.state, "decision_store", None)
+    if decision_store is not None:
+        owning = cast(Any, decision_store).get(decision_id)
+        if owning is not None:
+            enforce_tenant_match(principal, owning.tenant_id)
+
     exporter = _require_app_state_attr(request, "evidence_exporter")
     exporter_obj = cast(Any, exporter)
 
@@ -275,6 +329,12 @@ def seal_human_resolution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"decision not found: {decision_id}",
         )
+
+    # Tenant binding: the human seal is the highest-trust act Tex records. A
+    # scoped key may only seal its own tenant's held decision — enforce_tenant_match
+    # 403s a mismatch (anonymous/default and admin:cross_tenant honoured), so a
+    # leaked/guessed decision_id can no longer be resolved across tenants.
+    enforce_tenant_match(principal, decision.tenant_id)
 
     recorder = _require_app_state_attr(request, "evidence_recorder")
 
@@ -557,12 +617,49 @@ def calibrate_policy(
     return CalibratePolicyResponseDTO.from_command_result(result)
 
 
+_EXPORT_DIR_ENV = "TEX_EVIDENCE_EXPORT_DIR"
+_DEFAULT_EXPORT_DIR = "var/tex/exports"
+
+
+def _jail_export_path(raw_path: str) -> str:
+    """
+    Confine a caller-supplied export filename to the server-controlled exports
+    directory.
+
+    The export path arrives from the request body. Without confinement it is an
+    arbitrary-file-WRITE primitive: a caller could name
+    ``var/tex/evidence/evidence.jsonl`` (the hash-chained evidence log) or
+    ``var/tex/keys/...`` and overwrite the very artifacts the product's proofs
+    depend on. We keep ONLY the basename of whatever was requested — every
+    directory component, absolute prefix, and ``..`` segment is discarded — and
+    resolve it under the exports dir, so the write can never escape the jail. A
+    containment re-check backstops the basename strip.
+    """
+    base = Path(os.environ.get(_EXPORT_DIR_ENV, _DEFAULT_EXPORT_DIR)).resolve()
+    filename = Path(raw_path).name
+    candidate = (base / filename).resolve()
+    if candidate == base or base not in candidate.parents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid export path: must be a bare filename",
+        )
+    base.mkdir(parents=True, exist_ok=True)
+    return str(candidate)
+
+
 @router.post(
     "/evidence/export",
     response_model=ExportBundleResponseDTO,
     status_code=status.HTTP_200_OK,
     summary="Export Tex evidence artifacts",
-    dependencies=[Depends(RequireScope("evidence:read"))],
+    # A full-chain export writes a file to the server and dumps the global
+    # hash-chained evidence log (which cannot be tenant-sliced without breaking
+    # chain continuity), so it is an operator/audit action, not a per-tenant
+    # read. Require the write scope: a per-tenant customer key (default scopes,
+    # no evidence:write) is blocked from bulk-exporting the fleet chain, while
+    # per-decision evidence stays available tenant-scoped via
+    # /decisions/{id}/evidence-bundle.
+    dependencies=[Depends(RequireScope("evidence:write"))],
 )
 def export_bundle(
     payload: ExportBundleRequestDTO,
@@ -572,17 +669,18 @@ def export_bundle(
     Exports Tex evidence artifacts in either wrapped JSON or raw JSONL form.
     """
     command = _get_export_bundle_command(request)
+    safe_path = _jail_export_path(payload.path)
 
     try:
         if payload.export_format == "jsonl":
-            result = command.export_jsonl(path=payload.path)
+            result = command.export_jsonl(path=safe_path)
         elif (
             payload.record_type is not None
             or payload.decision_id is not None
             or payload.outcome_id is not None
         ):
             result = command.export_filtered_json(
-                path=payload.path,
+                path=safe_path,
                 record_type=payload.record_type,
                 decision_id=payload.decision_id,
                 outcome_id=payload.outcome_id,
@@ -592,7 +690,7 @@ def export_bundle(
             )
         else:
             result = command.export_json(
-                path=payload.path,
+                path=safe_path,
                 export_name=payload.export_name,
                 verify_chain=payload.verify_chain,
                 indent=payload.indent,

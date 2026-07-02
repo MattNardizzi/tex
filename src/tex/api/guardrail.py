@@ -649,6 +649,12 @@ def _to_evaluation_request(
             "tenant": principal.tenant,
             "api_key_fingerprint": principal.api_key_fingerprint,
         }
+        # Bind the owning tenant from the AUTHENTICATED principal (not the
+        # gateway-supplied body) so the durable Decision is stamped with — and
+        # later filterable to — the tenant that actually created it. This is the
+        # authoritative source EvaluationRequest.tenant_id reads first. Anonymous
+        # (dev/keyless) leaves it unset ⇒ "default", unchanged.
+        metadata["tenant_id"] = principal.tenant
 
     payload: dict[str, Any] = {
         "request_id": req.request_id or uuid4(),

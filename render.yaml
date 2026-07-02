@@ -18,18 +18,17 @@
 #     heartbeat and re-asserts ignition + re-onboards, then carries on.
 #
 # ── The WEB service is assumed to already exist. ───────────────────────────
-# Set these THREE env vars on it (Dashboard → your web service → Environment),
-# so ignition treats meridian-7 as the deployment's OWN real estate (full
-# discovery, standing watch enrolled, live PDP switched on, holds surfaced)
-# rather than an ephemeral preview override:
+# REAL-ONLY MODE (2026-06): the production web service governs REAL discovered
+# estates only. On it (Dashboard → your web service → Environment), confirm:
 #
-#     TEX_SANDBOX=1
-#     TEX_SANDBOX_TENANT=meridian-7
-#     TEX_SANDBOX_SEED=7
+#     TEX_APP_ENV=production      # forces the synthetic-estate seeding OFF
+#     TEX_SANDBOX                 # MUST be UNSET (do NOT set it to 1)
 #
-# Without TEX_SANDBOX_TENANT, pressing "Yes" maps the estate but governs
-# nothing — no holds ever reach the glass. This is the single most important
-# setting.
+# Do NOT set TEX_SANDBOX / TEX_SANDBOX_TENANT / TEX_SANDBOX_SEED on the web
+# service: they drive the invented meridian-7 demo estate and would surface
+# synthetic agents as if they were real on the live site. The synthetic
+# practice-course lives ONLY in the SUSPENDED worker below, for use in a
+# non-production environment.
 #
 # ── Add the worker ─────────────────────────────────────────────────────────
 # Either deploy this blueprint (Dashboard → New → Blueprint) or create it by

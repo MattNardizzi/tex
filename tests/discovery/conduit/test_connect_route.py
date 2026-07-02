@@ -61,6 +61,11 @@ def test_start_configured_returns_admin_consent_url(client, monkeypatch):
 
 def test_callback_admin_consent_seals_grant(client, monkeypatch):
     monkeypatch.setenv("TEX_CONDUIT_ENTRA_CLIENT_ID", "tex-multitenant-app-123")
+    # Sealing now requires VERIFICATION: Tex must be able to build a credentialed
+    # directory transport from the grant (proving it can actually reach the
+    # consented tenant), not just receive a bare admin_consent=true. So the
+    # deployment must have real Entra app credentials configured.
+    monkeypatch.setenv("TEX_CONDUIT_ENTRA_CLIENT_SECRET", "test-secret-not-real")
     start = _start(client, "contoso.onmicrosoft.com")
     cid = start["connection_id"]
 
@@ -70,6 +75,7 @@ def test_callback_admin_consent_seals_grant(client, monkeypatch):
     ).json()
 
     assert cb["connected"] is True
+    assert cb["verified"] is True
     assert cb["sealed"] is True
     assert cb["receipt_kind"] == "grant_sealed"
     assert cb["provider"] == "microsoft_graph"
@@ -77,6 +83,27 @@ def test_callback_admin_consent_seals_grant(client, monkeypatch):
     assert cb["degraded"] is False
     # The UI is told which real tenant to ignite next.
     assert cb["next"]["ignite_tenant"] == "contoso.onmicrosoft.com"
+
+
+def test_callback_without_credentials_records_consent_but_does_not_seal(client, monkeypatch):
+    """Security gate: admin_consent=true alone MUST NOT seal a grant. When Tex
+    cannot build a credentialed transport to verify the consent (no Entra app
+    secret configured), the consent is recorded UNVERIFIED and NO sealed receipt
+    is issued — so a forged callback can never surface as a sealed directory grant."""
+    monkeypatch.setenv("TEX_CONDUIT_ENTRA_CLIENT_ID", "tex-multitenant-app-123")
+    monkeypatch.delenv("TEX_CONDUIT_ENTRA_CLIENT_SECRET", raising=False)
+    start = _start(client, "contoso.onmicrosoft.com")
+    cid = start["connection_id"]
+
+    cb = client.get(
+        f"{_BASE}/callback",
+        params={"state": cid, "admin_consent": "True", "tenant": "contoso.onmicrosoft.com", "format": "json"},
+    ).json()
+
+    assert cb["connected"] is False
+    assert cb["verified"] is False
+    assert cb["sealed"] is False
+    assert cb["state"] == "consent_recorded_unverified"
 
 
 def test_callback_denied_seals_nothing(client, monkeypatch):

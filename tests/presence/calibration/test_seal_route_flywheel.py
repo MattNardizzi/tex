@@ -49,9 +49,16 @@ class _AbstainBrain:
         return "nonsense", (PresenceClaim("meaning_of_life", "42", ClaimKind.AGGREGATE),)
 
 
-def _decision(verdict: Verdict, *, presence: bool, score: float = 0.5) -> Decision:
+def _decision(
+    verdict: Verdict, *, presence: bool, score: float = 0.5, tenant: str | None = None
+) -> Decision:
     """A persistable Decision; ``presence`` stamps the presence-origin marker into the
     one extensible field (metadata) the gate keys on, else plain governance metadata.
+
+    ``tenant`` stamps ``metadata["tenant_id"]`` so the decision belongs to a specific
+    tenant — required now that the seal route is tenant-scoped (a scoped key may only
+    seal its own tenant's decision), mirroring the real flow where a tenant's presence
+    hold is stamped with that tenant.
 
     A presence-origin Decision must ALSO affirm ``presence_calibration_eligible=True``
     to feed the conformal floor — the fail-closed marker that says "my final_score IS a
@@ -64,6 +71,8 @@ def _decision(verdict: Verdict, *, presence: bool, score: float = 0.5) -> Decisi
         if presence
         else {"pdp": {"pdp_version": "v3"}}
     )
+    if tenant is not None:
+        meta["tenant_id"] = tenant
     return Decision(
         decision_id=uuid4(),
         request_id=uuid4(),
@@ -176,7 +185,9 @@ def test_label_lands_under_authenticated_tenant_only(calib_dir, monkeypatch):
     monkeypatch.setenv("TEX_API_KEYS", "k_acme:acme:decision:write+decision:read")
     client = TestClient(create_app())
 
-    held = _decision(Verdict.ABSTAIN, presence=True)
+    # The decision belongs to the acme tenant (as a real acme-session presence
+    # hold would be stamped), so the acme key sealing it is a same-tenant act.
+    held = _decision(Verdict.ABSTAIN, presence=True, tenant="acme")
     resp = _seal(
         client, held, verdict="refused", headers={"Authorization": "Bearer k_acme"}
     )

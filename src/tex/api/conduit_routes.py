@@ -35,9 +35,10 @@ import os
 import uuid
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 
+from tex.api.auth import RequireScope, TexPrincipal
 from tex.discovery.conduit.providers.base import ConsentCallback
 from tex.discovery.conduit.providers.entra import ENTRA_READ_SCOPES
 from tex.domain.discovery import DiscoverySource
@@ -136,6 +137,13 @@ def build_conduit_router() -> APIRouter:
             description="The customer's Entra tenant id/domain (recommended). "
             "'organizations' lets the admin's tenant resolve at consent time.",
         ),
+        # Require an authenticated caller to MINT a connection: the callback that
+        # seals a grant can only be reached with a server-issued connection_id
+        # (state), and now that id only exists if an authenticated principal
+        # started the flow. This blocks the "anyone forges a sealed receipt with
+        # two curls" path — the real UI reaches this through the key-injecting
+        # Vercel proxy, so onboarding is unaffected; anonymous dev keeps working.
+        principal: TexPrincipal = Depends(RequireScope("discovery:read")),
     ) -> dict:
         broker = _broker(request)
         challenge = broker.request(
@@ -220,13 +228,39 @@ def build_conduit_router() -> APIRouter:
             consented_by=None,
         )
         broker.consent(callback)
-        broker.probe(connection_id)  # builds the live transport if a factory is wired
-        receipt = broker.seal(connection_id)
+        probed = broker.probe(connection_id)  # builds the live transport if a factory is wired
         grant = conn.grant
         assert grant is not None
 
+        # Verification gate: DO NOT seal a grant on the strength of a bare
+        # ``admin_consent=true`` query param. Seal only when the probe built a
+        # live, credentialed directory transport from the grant — i.e. Tex can
+        # actually reach the consented tenant with the granted read scopes. When
+        # no live transport exists (consent-only deployment, or a fabricated
+        # grant that cannot mint credentials), record the consent as UNVERIFIED
+        # and issue NO sealed receipt, so a forged callback can never surface as
+        # a sealed directory grant.
+        if getattr(probed, "transport", None) is None:
+            return _respond(request, {
+                "connected": False,
+                "verified": False,
+                "state": "consent_recorded_unverified",
+                "provider": DiscoverySource.MICROSOFT_GRAPH.value,
+                "tenant": consenting_tenant,
+                "sealed": False,
+                "connection_id": connection_id,
+                "detail": (
+                    "Consent was recorded but Tex could not establish a "
+                    "credentialed directory connection to verify it; no sealed "
+                    "receipt was issued."
+                ),
+            })
+
+        receipt = broker.seal(connection_id)
+
         return _respond(request, {
             "connected": True,
+            "verified": True,
             "provider": DiscoverySource.MICROSOFT_GRAPH.value,
             "tenant": consenting_tenant,
             "sealed": True,

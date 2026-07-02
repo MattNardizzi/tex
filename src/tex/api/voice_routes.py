@@ -349,6 +349,16 @@ def build_voice_router() -> APIRouter:
 
         async def _send_final() -> None:
             nonlocal final_sent
+            # Fabrication guard: if the only available backend does NOT recognize
+            # speech (the offline placeholder — reached when no ELEVENLABS/neural
+            # key is present) and we are production-like, emit an explicit no-ASR
+            # error instead of a canned transcript. Otherwise a one-env-var
+            # misconfig would make Tex confidently "hear" and answer a question
+            # the user never spoke. Dev/test keep the canned final for wire tests.
+            if not getattr(backend, "recognizes", True) and grant.is_production_like():
+                await websocket.send_json({"type": "error", "reason": "no-asr"})
+                final_sent = True
+                return
             # finish() may block on one recognition round-trip — keep the event
             # loop free (this socket is not the only thing this service does).
             final = await asyncio.to_thread(session.finish)

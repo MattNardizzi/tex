@@ -60,16 +60,43 @@ def test_chained_refs_carry_stored_hash_and_prior_witness(populated_state):
     assert any(r.prior_link_witness is not None for r in refs), "expected a chained link"
 
 
-def test_decision_aggregate_is_fleet_wide_and_says_so(populated_state):
-    """decision_store has no tenant column — the count must be honestly fleet-wide."""
+def test_decision_aggregate_is_tenant_scoped_private_plus_shared(populated_state):
+    """Decisions carry a tenant (Decision.tenant_id). The verdict count is:
+      * fleet-wide for the operator/default caller;
+      * private+shared for a specific tenant — it sees its own + the unstamped
+        "default" (shared operator/system) partition, but NOT another specific
+        tenant's decisions.
+    The seeded FORBID decision is unstamped ("default"); we add a globex FORBID to
+    prove a tenant-'acme' caller never counts another tenant's decision."""
+    from uuid import uuid4
+
+    from tex.domain.decision import Decision
+    from tex.domain.verdict import Verdict
+
     reg = _registry(populated_state)
-    value, refs = reg["human_decision.verdict_count"](tenant="acme", verdict="FORBID")
-    assert value["tenant_scope"] == "fleet"
-    assert value["tenant_filter_applied"] is False
-    assert "fleet-wide" in value["note"]
-    # The value is row-backed: count == number of refs, each a FORBID decision.
-    assert value["count"] == len(refs) == 1
-    assert all(r.field == "verdict" for r in refs)
+
+    def _forbid(tenant: str | None) -> Decision:
+        meta = {"tenant_id": tenant} if tenant else {}
+        return Decision(
+            request_id=uuid4(), verdict=Verdict.FORBID, confidence=0.9, final_score=0.8,
+            action_type="send_email", channel="email", environment="prod",
+            content_excerpt="x", content_sha256="a" * 64, policy_version="v1",
+            reasons=["blocked"], metadata=meta,
+        )
+
+    populated_state.decision_store.save(_forbid("globex"))  # another tenant's decision
+
+    # Operator / default view: fleet-wide → the seeded default forbid + globex's.
+    fleet, _ = reg["human_decision.verdict_count"](tenant="default", verdict="FORBID")
+    assert fleet["tenant_scope"] == "fleet"
+    assert fleet["tenant_filter_applied"] is False
+    assert fleet["count"] == 2
+
+    # tenant 'acme': scoped, sees the shared/default forbid but NOT globex's.
+    scoped, scoped_refs = reg["human_decision.verdict_count"](tenant="acme", verdict="FORBID")
+    assert scoped["tenant_scope"] == "acme"
+    assert scoped["tenant_filter_applied"] is True
+    assert scoped["count"] == len(scoped_refs) == 1
 
 
 def test_identity_list_includes_revoked_by_default_and_reports_it(populated_state):

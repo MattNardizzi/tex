@@ -157,7 +157,7 @@ def _resolve_decision_store(request: Any) -> Any | None:
 
 
 def _build_presence_abstain_decision(
-    transcript: str | None, reasons: list[dict[str, Any]]
+    transcript: str | None, reasons: list[dict[str, Any]], *, tenant: str | None = None
 ) -> Any | None:
     """Build the durable ``Decision`` that makes an answer-level presence ABSTAIN a
     SEALABLE /held card — WITHOUT fabricating a risk score.
@@ -209,6 +209,10 @@ def _build_presence_abstain_decision(
             metadata={
                 "dimension": "presence",
                 "presence_kind": "answer_abstain",
+                # Owning tenant so this held decision is filtered to its tenant on
+                # /held, /replay, and /decisions/{id}/seal (Decision.tenant_id reads
+                # this back). Absent/None ⇒ "default" (operator/unscoped view).
+                "tenant_id": tenant if (isinstance(tenant, str) and tenant.strip()) else "default",
                 # No decisive-step score exists → never feed the conformal floor.
                 "presence_calibration_eligible": False,
                 "abstained_claim_ids": claim_ids,
@@ -225,6 +229,7 @@ def raise_presence_hold(
     *,
     transcript: str | None = None,
     decision_store: Any = None,
+    tenant: str | None = None,
 ) -> Any | None:
     """Raise ONE ``dimension="presence"`` held decision for an answer that could
     not be grounded (the consequential, surfaceable event). Best-effort: never
@@ -247,7 +252,7 @@ def raise_presence_hold(
         # Producer: make the /held card a SEALABLE Decision when a store is wired.
         decision_id: str | None = None
         if decision_store is not None and hasattr(decision_store, "save"):
-            decision = _build_presence_abstain_decision(transcript, reasons)
+            decision = _build_presence_abstain_decision(transcript, reasons, tenant=tenant)
             if decision is not None:
                 try:
                     decision_store.save(decision)
@@ -267,6 +272,7 @@ def raise_presence_hold(
                 "abstained_claims": reasons,
             },
             decision_id=decision_id,  # stamped → /held card is sealable (None if no store)
+            tenant_id=(tenant if (isinstance(tenant, str) and tenant.strip()) else "default"),
         )
         held_sink.append(hold)
         return hold
@@ -360,6 +366,7 @@ def run_presence(
             detailed,
             transcript=transcript,
             decision_store=_resolve_decision_store(request),
+            tenant=tenant,
         )
 
     return envelope

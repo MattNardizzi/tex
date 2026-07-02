@@ -226,6 +226,32 @@ class EvaluationRequest(BaseModel):
             raise ValueError("requested_at must be timezone-aware")
         return value.astimezone(UTC)
 
+    @property
+    def tenant_id(self) -> str:
+        """
+        Owning tenant for this evaluation.
+
+        Resolution order:
+          1. ``metadata["tenant_id"]`` — the authenticated principal's tenant,
+             stamped by the API layer (``/evaluate`` and the guardrail-family
+             ``_to_evaluation_request``) from the verified API key. This is the
+             authoritative source and cannot be smuggled by the caller: the API
+             layer overwrites it from the principal, not the request body.
+          2. ``agent_identity.tenant_id`` — the runtime identity block's tenant
+             (already normalised casefold), when no principal tenant was stamped.
+          3. ``"default"`` — the historical single-partition behaviour.
+
+        The PDP stamps the resolved value onto the durable
+        ``Decision.metadata["tenant_id"]`` so every stored decision is filterable
+        to its owning tenant on replay / seal / evidence-bundle / presence reads.
+        """
+        meta_tenant = self.metadata.get("tenant_id")
+        if isinstance(meta_tenant, str) and meta_tenant.strip():
+            return meta_tenant.strip().casefold()
+        if self.agent_identity is not None:
+            return self.agent_identity.tenant_id
+        return "default"
+
 
 class EvaluationResponse(BaseModel):
     """

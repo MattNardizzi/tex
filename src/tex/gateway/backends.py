@@ -136,6 +136,13 @@ class OfflineSTT:
 
     name = "offline-placeholder(no-asr)"
     requires: tuple[str, ...] = ()
+    # This backend fabricates a canned final; it does NOT recognize speech. The
+    # live voice socket checks this flag and, in production, emits an explicit
+    # {"type":"error","reason":"no-asr"} instead of forwarding the fabricated
+    # transcript — so a missing ELEVENLABS_API_KEY can never make Tex "hear" and
+    # confidently answer a question the user never asked. Real recognizers omit
+    # the flag (treated as recognizes=True).
+    recognizes: bool = False
 
     def __init__(self, canned_transcript: str = "what is the evidence chain status") -> None:
         self._canned = canned_transcript

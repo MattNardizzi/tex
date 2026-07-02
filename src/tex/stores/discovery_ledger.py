@@ -78,7 +78,10 @@ class InMemoryDiscoveryLedger:
         """
 
         with self._lock:
-            sequence = len(self._entries)
+            # max+1, not len(): after a Postgres bootstrap with a gap (a row
+            # whose flush was lost to a crash), len() re-issues a sequence the
+            # table already holds and every append collides with the tail.
+            sequence = (self._entries[-1].sequence + 1) if self._entries else 0
             previous_hash = self._entries[-1].record_hash if self._entries else None
 
             payload = {

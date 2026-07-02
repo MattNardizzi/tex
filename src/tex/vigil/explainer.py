@@ -250,7 +250,9 @@ def _facts_for(request: Any, dimension: str, tenant: str | None) -> EvidenceFact
         return EvidenceFacts(dimension=dimension, headline="")
 
 
-def _decisions_by_verdict(request: Any, verdict_name: str, limit: int = 200) -> list[Any]:
+def _decisions_by_verdict(
+    request: Any, verdict_name: str, tenant: str | None = None, limit: int = 200
+) -> list[Any]:
     store = _state(request, "decision_store")
     if store is None:
         return []
@@ -258,7 +260,28 @@ def _decisions_by_verdict(request: Any, verdict_name: str, limit: int = 200) -> 
 
     target = getattr(Verdict, verdict_name)
     recent = store.list_recent(limit=limit)
-    return [d for d in recent if getattr(d, "verdict", None) == target]
+    # Tenant scope: None/"default" is the operator/fleet view (aggregate over
+    # every tenant — the deliberate operator behaviour); a specific tenant is
+    # scoped to its own decisions so a per-tenant caller's spoken counts
+    # ("N actions were forbidden") no longer include other tenants' activity.
+    wanted = None
+    if isinstance(tenant, str):
+        normalized = tenant.strip().casefold()
+        if normalized not in ("", "default"):
+            wanted = normalized
+
+    def _match(d: Any) -> bool:
+        if getattr(d, "verdict", None) != target:
+            return False
+        if wanted is None:
+            return True
+        # Private + shared: a specific tenant sees its own decisions and the
+        # unstamped/"default" (shared operator/system) partition, never another
+        # specific tenant's decisions.
+        d_tenant = (getattr(d, "tenant_id", "default") or "default").strip().casefold()
+        return d_tenant == wanted or d_tenant == "default"
+
+    return [d for d in recent if _match(d)]
 
 
 def _tally(items: list[str]) -> dict[str, int]:
@@ -283,7 +306,7 @@ def _anchor_decisions(decisions: list[Any], cap: int = 5) -> list[ProofRef]:
 
 
 def _facts_execution(request: Any, tenant: str | None) -> EvidenceFacts:
-    forbids = _decisions_by_verdict(request, "FORBID")
+    forbids = _decisions_by_verdict(request, "FORBID", tenant)
     by_action = _tally([str(getattr(d, "action_type", "")) for d in forbids])
     by_channel = _tally([str(getattr(d, "channel", "")) for d in forbids])
     return EvidenceFacts(
@@ -299,7 +322,7 @@ def _facts_execution(request: Any, tenant: str | None) -> EvidenceFacts:
 
 
 def _facts_human_decision(request: Any, tenant: str | None) -> EvidenceFacts:
-    abstains = _decisions_by_verdict(request, "ABSTAIN")
+    abstains = _decisions_by_verdict(request, "ABSTAIN", tenant)
     flags: list[str] = []
     for d in abstains:
         flags.extend(str(f) for f in (getattr(d, "uncertainty_flags", None) or []))

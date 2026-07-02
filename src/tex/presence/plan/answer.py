@@ -174,5 +174,6 @@ def answer_with_plan(
         raise_presence_hold(
             held_sink, (evaluation,), transcript=transcript,
             decision_store=_resolve_decision_store(request),
+            tenant=tenant,
         )
     return envelope

@@ -205,8 +205,31 @@ def _exec_action_count(state, request, *, tenant, **kwargs):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HUMAN_DECISION — decision_store (no tenant column → fleet-wide).
+# HUMAN_DECISION — decision_store (tenant carried on Decision.tenant_id).
 # ─────────────────────────────────────────────────────────────────────────────
+def _wanted_tenant(tenant) -> str | None:
+    """The tenant to filter decision reads to, or ``None`` for the operator/fleet
+    view. A ``None`` / ``"default"`` caller keeps the deliberate fleet-wide
+    aggregate (operator intelligence); a specific tenant is scoped to its own
+    decisions so a per-tenant key cannot read another tenant's decisions."""
+    if not isinstance(tenant, str):
+        return None
+    normalized = tenant.strip().casefold()
+    if normalized in ("", "default"):
+        return None
+    return normalized
+
+
+def _decision_matches_tenant(row, wanted: str | None) -> bool:
+    """Private + shared visibility: a specific tenant sees its OWN decisions and
+    the unstamped/"default" (shared operator/system) partition, but never another
+    specific tenant's decisions. ``wanted is None`` is the operator/fleet view."""
+    if wanted is None:
+        return True
+    row_tenant = (getattr(row, "tenant_id", "default") or "default").strip().casefold()
+    return row_tenant == wanted or row_tenant == "default"
+
+
 def _decision_get(state, request, *, tenant, **kwargs):
     store = _store(state, "decision_store")
     if store is None:
@@ -215,7 +238,9 @@ def _decision_get(state, request, *, tenant, **kwargs):
     if decision_id is None:
         return ({"found": False, "reason": "decision_id missing or not a UUID"}, ())
     row = store.get(decision_id)
-    if row is None:
+    # Tenant scope: a scoped caller may not read another tenant's decision by id —
+    # report it as not-found rather than leaking its content.
+    if row is None or not _decision_matches_tenant(row, _wanted_tenant(tenant)):
         return ({"found": False, "decision_id": str(decision_id)}, ())
     ref = digest_ref(record_id=row.decision_id, store="decision_store", payload=row)
     return ({"found": True, "decision": row.model_dump(mode="json")}, (ref,))
@@ -227,8 +252,11 @@ def _decision_recent(state, request, *, tenant, **kwargs):
         return _unavailable("decision_store")
     limit, clamped = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
     verdict = _arg(request, kwargs, "verdict")
+    wanted = _wanted_tenant(tenant)
     rows = store.list_recent(limit=limit)
     fetched = len(rows)  # pre-filter page size — completeness is about the SCAN, not the match
+    if wanted is not None:
+        rows = tuple(r for r in rows if _decision_matches_tenant(r, wanted))
     if verdict is not None:
         rows = tuple(r for r in rows if _verdict_str(r.verdict) == _verdict_str(verdict))
     refs = tuple(
@@ -239,9 +267,13 @@ def _decision_recent(state, request, *, tenant, **kwargs):
         "decisions": [r.model_dump(mode="json") for r in rows],
         "returned": len(rows),
         "verdict": verdict,
-        "tenant_scope": "fleet",
-        "tenant_filter_applied": False,
-        "note": "decision_store has no tenant column; result is fleet-wide",
+        "tenant_scope": wanted or "fleet",
+        "tenant_filter_applied": wanted is not None,
+        "note": (
+            f"scoped to tenant {wanted!r}"
+            if wanted is not None
+            else "operator/fleet view (no tenant scope requested)"
+        ),
         "limit_clamped_to": _MAX_ROWS if clamped else None,
         "read_complete": fetched < limit,
     }
@@ -254,7 +286,10 @@ def _decision_verdict_count(state, request, *, tenant, **kwargs):
         return _unavailable("decision_store")
     verdict = _arg(request, kwargs, "verdict")
     window = _clamp_int(_arg(request, kwargs, "window", _DEFAULT_WINDOW), 1, _MAX_ROWS, _DEFAULT_WINDOW)
+    wanted = _wanted_tenant(tenant)
     recent = store.list_recent(limit=window)
+    if wanted is not None:
+        recent = tuple(r for r in recent if _decision_matches_tenant(r, wanted))
     matched = [r for r in recent if verdict is None or _verdict_str(r.verdict) == _verdict_str(verdict)]
     refs = tuple(
         digest_ref(record_id=r.decision_id, store="decision_store", payload=r, field="verdict")
@@ -265,9 +300,13 @@ def _decision_verdict_count(state, request, *, tenant, **kwargs):
         "verdict": verdict,
         "window": window,
         "considered": len(recent),
-        "tenant_scope": "fleet",
-        "tenant_filter_applied": False,
-        "note": "decision_store has no tenant column; count is fleet-wide",
+        "tenant_scope": wanted or "fleet",
+        "tenant_filter_applied": wanted is not None,
+        "note": (
+            f"scoped to tenant {wanted!r}"
+            if wanted is not None
+            else "operator/fleet view (no tenant scope requested)"
+        ),
     }
     return value, refs
 

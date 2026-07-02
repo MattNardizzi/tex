@@ -38,7 +38,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from tex.api.auth import RequireScope, TexPrincipal
+from tex.api.auth import SCOPE_CROSS_TENANT, RequireScope, TexPrincipal
 from tex.discovery.ignition import humanize_count
 from tex.domain.agent import AgentLifecycleStatus
 from tex.provenance.models import ProvenanceEventKind
@@ -488,7 +488,17 @@ def build_discovery_surface_router() -> APIRouter:
         source = sink or (feed.held if feed is not None else None)
         if source is None:
             return {"held": [], "count": 0}
-        items = source.peek()
+        # Tenant scope: a scoped key sees ONLY its own tenant's held decisions
+        # (so it can neither read nor seal another tenant's holds via the
+        # returned decision_id). Anonymous/dev and cross-tenant-scoped keys get
+        # the fleet/operator view (filter_tenant=None → all). peek_for_tenant
+        # also treats "default" as the fleet view for back-compat.
+        if principal.is_anonymous or SCOPE_CROSS_TENANT in principal.scopes:
+            filter_tenant: str | None = None
+        else:
+            filter_tenant = principal.tenant
+        peek_scoped = getattr(source, "peek_for_tenant", None)
+        items = peek_scoped(filter_tenant) if callable(peek_scoped) else source.peek()
         return {
             "held": [h.to_jsonable() for h in items],
             "count": len(items),

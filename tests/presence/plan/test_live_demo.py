@@ -66,6 +66,11 @@ NOVEL = [
 def _ops(plan) -> str:
     if plan is None:
         return "(no plan → honest abstain)"
+    # The model may DELIBERATELY decline (PlanDecline: no-record / out-of-domain)
+    # for a given question — a legitimate, non-deterministic outcome of a live
+    # model call, not a plan with nodes.
+    if not hasattr(plan, "nodes"):
+        return f"(plan declined: {getattr(plan, 'reason', type(plan).__name__)})"
     return " → ".join(n.tool if n.node_type == "leaf" else n.kind.value for n in plan.nodes)
 
 

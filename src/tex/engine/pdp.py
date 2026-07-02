@@ -959,6 +959,12 @@ class PolicyDecisionPoint:
         artifacts available in PDPResult when needed in-process.
         """
         metadata = dict(request.metadata)
+        # Stamp the owning tenant from the VALIDATED request tenant (the DTO
+        # forces this to the authenticated principal's tenant — a caller cannot
+        # smuggle a foreign tenant through request.metadata). This is the value
+        # Decision.tenant_id reads back for every read-time tenant filter, and
+        # it survives restart inside the durable metadata JSONB.
+        metadata["tenant_id"] = request.tenant_id
         # Strip the optional contracts override out of the surfaced metadata
         # so it doesn't pollute the durable decision record. The override is
         # an internal hint consumed by the contract bridge, not a customer

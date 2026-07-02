@@ -228,6 +228,25 @@ class Decision(BaseModel):
         return self
 
     @property
+    def tenant_id(self) -> str:
+        """
+        Owning tenant for this decision.
+
+        Carried inside ``metadata["tenant_id"]`` (the one extensible field a
+        frozen, ``extra="forbid"`` Decision permits) rather than as a stored
+        column, so it round-trips through the existing durable ``metadata``
+        JSONB with no schema change. Absent ⇒ ``"default"`` (the historical
+        single-partition behaviour), so legacy rows read back safely. Read-time
+        tenant filters (seal / replay / evidence-bundle / presence read-tools)
+        compare against this; the value itself is stamped at decision creation
+        from the validated ``EvaluationRequest.tenant_id``.
+        """
+        value = self.metadata.get("tenant_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "default"
+
+    @property
     def is_permit(self) -> bool:
         return self.verdict.allows_release
 

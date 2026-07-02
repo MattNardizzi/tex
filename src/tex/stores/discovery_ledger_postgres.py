@@ -272,14 +272,7 @@ class PostgresDiscoveryLedger:
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s
                     )
-                    ON CONFLICT (sequence) DO UPDATE SET
-                        candidate          = EXCLUDED.candidate,
-                        outcome            = EXCLUDED.outcome,
-                        reconciliation_key = EXCLUDED.reconciliation_key,
-                        resulting_agent_id = EXCLUDED.resulting_agent_id,
-                        payload_sha256     = EXCLUDED.payload_sha256,
-                        previous_hash      = EXCLUDED.previous_hash,
-                        record_hash        = EXCLUDED.record_hash
+                    ON CONFLICT (sequence) DO NOTHING
                     """,
                     (
                         entry.sequence,
@@ -292,6 +285,15 @@ class PostgresDiscoveryLedger:
                         entry.record_hash,
                     ),
                 )
+                if cur.rowcount == 0:
+                    # A second live instance (deploy overlap) already persisted
+                    # this sequence. History is never rewritten: refuse, land in
+                    # pending_resync where the operator can see it, and re-link
+                    # the survivors with scripts/repair_discovery_ledger.py.
+                    raise RuntimeError(
+                        f"sequence {entry.sequence} already persisted by another "
+                        "writer; refusing to overwrite ledger history"
+                    )
             conn.commit()
 
 

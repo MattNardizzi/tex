@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause)
 //
 // tex_redirect.bpf.c — the kernel-floor PEP.
 //
@@ -60,7 +60,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
 
-char LICENSE[] SEC("license") = "Apache-2.0";
+char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 #define AF_INET  2
 #define AF_INET6 10

@@ -645,7 +645,17 @@ class GovernanceSnapshotStore:
         # list_recent returns reverse-chronological; reverse for chain
         # replay so we move oldest → newest.
         chain = list(reversed(records))
-        previous_hash: str | None = None
+        # Seed the replay from the window-first record's own stored link.
+        # Once the store holds more than ``limit`` records that record is
+        # NOT genesis — its predecessor lives outside the window — and a
+        # ``None`` seed would flag an intact chain as broken at index 0
+        # forever. Genesis still seeds ``None`` (its stored link IS None).
+        # Tamper-evidence holds: the seed feeds the recompute of the
+        # record's own snapshot_hash, so a forged link still breaks here,
+        # and a recomputed forgery breaks at its successor's link check.
+        previous_hash: str | None = (
+            chain[0].get("previous_snapshot_hash") if chain else None
+        )
         for idx, record in enumerate(chain):
             payload_for_hash = {
                 "snapshot_id": record["snapshot_id"],

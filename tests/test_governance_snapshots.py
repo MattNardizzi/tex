@@ -169,6 +169,33 @@ class TestSnapshotChain:
         assert result["intact"] is True
         assert result["checked"] == 0
 
+    def test_chain_intact_when_history_exceeds_verify_window(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        store = GovernanceSnapshotStore()
+        for i in range(5):
+            store.capture(governance_payload=_governance_payload(governed=i))
+        # Verify only the newest 3 of 5: the window's first record is
+        # mid-chain, so the replay must seed from its stored link, not
+        # None. A None seed walled prod from the moment the store
+        # crossed ``limit`` records — with a fully intact chain.
+        result = store.verify_chain(limit=3)
+        assert result["intact"] is True
+        assert result["checked"] == 3
+        assert result["break_at_index"] is None
+
+    def test_tamper_still_detected_mid_window(self, monkeypatch):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        store = GovernanceSnapshotStore()
+        for i in range(5):
+            store.capture(governance_payload=_governance_payload(governed=i))
+        # Tamper inside the verify window (not its first record) — the
+        # seeded replay must still catch it.
+        records_in_order = list(store._cache.values())
+        records_in_order[3]["governed"] = 9999
+        result = store.verify_chain(limit=3)
+        assert result["intact"] is False
+        assert result["break_at_index"] == 1
+
 
 class TestEvidenceBundle:
     def test_bundle_for_unknown_id_is_none(self, monkeypatch):

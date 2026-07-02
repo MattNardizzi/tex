@@ -83,3 +83,8 @@ UI_BACKEND_SYNC_BUILDLOG.md
 # B-series frontier loop contract + state (local only, public repo)
 B_SERIES_FRONTIER_LOOP.md
 B_SERIES_FRONTIER_BUILDLOG.md
+.vercel
+
+CLAUDE.md
+ROADMAP.md
+docs/internal/

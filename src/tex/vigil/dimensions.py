@@ -202,64 +202,96 @@ def _monitoring(request: Any, tenant: str | None) -> DimensionReading | None:
     )
 
 
+def _held_rows(request: Any, tenant: str | None) -> tuple[Any, ...]:
+    """
+    The live held queue for ``tenant`` — the HeldDecisionSink rows awaiting a
+    human seal. This is the single source of truth the resolvable cards,
+    GET /v1/surface/discovery/held, and POST /v1/ask all read, so the vigil
+    headline speaks the same number the operator can act on. Read defensively:
+    a missing sink yields no rows rather than an error.
+    """
+    sink = _state(request, "held_decision_sink")
+    if sink is None:
+        return ()
+    try:
+        return tuple(sink.peek_for_tenant(tenant))
+    except Exception:  # noqa: BLE001
+        try:
+            return tuple(sink.peek())
+        except Exception:  # noqa: BLE001
+            return ()
+
+
 def _execution(request: Any, tenant: str | None) -> list[DimensionReading]:
     """
-    Execution governance: the verdict mix in the recent window.
+    Execution governance: the verdict mix in the recent window, plus the
+    human-decision gate.
 
     Produces up to two readings:
-      * a surprise-ranked line for FORBID volume, and
-      * the human-decision *gate* (renamed third verdict): always spoken
-        when actions are waiting on a person, never surprise-ranked.
+      * a surprise-ranked line for FORBID volume (the recent decision
+        window), and
+      * the human-decision *gate* (the renamed third verdict): always
+        spoken when actions are truly waiting on a person, never
+        surprise-ranked.
+
+    The gate's count is the LIVE held queue — the same HeldDecisionSink the
+    resolvable cards, GET /v1/surface/discovery/held, and POST /v1/ask all
+    read — tenant-scoped. So the number on the glass is exactly what the
+    operator can act on now, never a historical ABSTAIN-ledger tally that
+    would overstate the work and never drain as the operator resolves it.
     """
-    store = _state(request, "decision_store")
-    if store is None:
-        return []
-    try:
-        from tex.domain.verdict import Verdict
-
-        recent = store.list_recent(limit=200)
-    except Exception:  # noqa: BLE001
-        return []
-    if not recent:
-        return []
-
-    forbids = [d for d in recent if getattr(d, "verdict", None) == Verdict.FORBID]
-    abstains = [d for d in recent if getattr(d, "verdict", None) == Verdict.ABSTAIN]
-
-    def proof_for(decisions: list[Any]) -> ProofRef | None:
-        if not decisions:
-            return None
-        d = decisions[0]
-        return ProofRef(
-            kind="decision",
-            id=str(getattr(d, "decision_id", "") or "") or None,
-            sha256=(getattr(d, "evidence_hash", None) or None),
-        )
-
     out: list[DimensionReading] = []
 
-    # FORBID volume — surprise-ranked observation.
-    out.append(
-        DimensionReading(
-            key="execution",
-            kind="gamma",
-            observation=(float(len(forbids)), 1.0),
-            history=[],
-            slots={"count": len(forbids)},
-            proof=proof_for(forbids),
-        )
-    )
+    # FORBID volume — surprise-ranked observation over the recent window.
+    store = _state(request, "decision_store")
+    if store is not None:
+        try:
+            from tex.domain.verdict import Verdict
 
-    # Human-decision gate — the third verdict. Not surprise-ranked.
-    if abstains:
+            recent = store.list_recent(limit=200)
+        except Exception:  # noqa: BLE001
+            recent = []
+        if recent:
+            forbids = [
+                d for d in recent if getattr(d, "verdict", None) == Verdict.FORBID
+            ]
+            first = forbids[0] if forbids else None
+            out.append(
+                DimensionReading(
+                    key="execution",
+                    kind="gamma",
+                    observation=(float(len(forbids)), 1.0),
+                    history=[],
+                    slots={"count": len(forbids)},
+                    proof=(
+                        ProofRef(
+                            kind="decision",
+                            id=str(getattr(first, "decision_id", "") or "") or None,
+                            sha256=(getattr(first, "evidence_hash", None) or None),
+                        )
+                        if first is not None
+                        else None
+                    ),
+                )
+            )
+
+    # Human-decision gate — count is the live held queue, tenant-scoped, so
+    # the headline equals the resolvable cards. Not surprise-ranked.
+    held = _held_rows(request, tenant)
+    if held:
+        first = held[0]
         out.append(
             DimensionReading(
                 key="human_decision",
                 kind="gamma",
-                observation=(float(len(abstains)), 1.0),
+                observation=(float(len(held)), 1.0),
                 history=[],
-                slots={"count": len(abstains)},
-                proof=proof_for(abstains),
+                slots={"count": len(held)},
+                proof=ProofRef(
+                    kind="decision",
+                    id=(getattr(first, "decision_id", None) or None),
+                    sha256=(getattr(first, "anchor_sha256", None) or None),
+                ),
                 is_human_gate=True,
             )
         )

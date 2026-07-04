@@ -92,6 +92,23 @@ def test_answer_level_abstain_raises_presence_hold(populated_state):
     assert held[0].kind == "presence_abstain"
 
 
+def test_answer_level_abstain_dedups_repeat_question(populated_state):
+    # The SAME unanswerable question asked repeatedly must not pile up identical
+    # review holds (the "broken record") — one open review per question. The learning
+    # signal is untouched: the first hold still carries its sealable Decision.
+    gate = PresenceTruthGate()
+    sink = HeldDecisionSink()
+    brain = _FakeBrain("nonsense", (PresenceClaim("meaning_of_life", "42", ClaimKind.AGGREGATE),))
+    for _ in range(3):
+        run_presence(
+            gate=gate, request=populated_state, tenant=None, brain=brain,
+            transcript="what is the meaning of life?", facts=None,
+            templated_abstain=ABSTAIN_LINE, telemetry=PresenceTelemetry(), held_sink=sink,
+        )
+    assert len(sink) == 1  # three asks of one question → a single review
+    assert sink.peek()[0].kind == "presence_abstain"
+
+
 def test_supported_answer_raises_no_hold(populated_state):
     gate = PresenceTruthGate()
     sink = HeldDecisionSink()

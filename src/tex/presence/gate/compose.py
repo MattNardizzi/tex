@@ -238,12 +238,33 @@ def raise_presence_hold(
     When ``decision_store`` is wired, ALSO persist an honest presence-origin ABSTAIN
     ``Decision`` (no fabricated risk score; see :func:`_build_presence_abstain_decision`)
     and stamp its ``decision_id`` onto the hold, so the /held card is SEALABLE
-    end-to-end (``POST /decisions/{id}/seal`` can resolve it). Without a store
-    (legacy/tests) the hold is appended with ``decision_id=None`` exactly as before."""
+    end-to-end (``POST /decisions/{id}/seal`` can resolve it) — this seal is the fuel
+    for the presence L1 calibration flywheel (routes.py). Without a store (legacy/tests)
+    the hold is appended with ``decision_id=None`` exactly as before.
+
+    DEDUP: at most one open review per distinct (question, tenant). Every ungroundable
+    ask would otherwise pile up an identical hold — the "broken record". The first one
+    already carries the sealable Decision, so the learning signal is fully intact and a
+    duplicate adds nothing; we return the existing hold instead of appending another.
+    This is a *review* the operator can resolve to teach Tex, not a governance action —
+    the vigil surfaces exclude it from the "waiting on your decision" count."""
     if held_sink is None or not hasattr(held_sink, "append"):
         return None
     try:
         from tex.provenance.feed import HeldDecision  # local import: keep gate decoupled
+
+        want_tenant = tenant if (isinstance(tenant, str) and tenant.strip()) else "default"
+
+        # Dedup: if this same question is already queued for review (unresolved), do
+        # not raise it again. Keeps the learning card to one-per-question, not one-per-ask.
+        if hasattr(held_sink, "peek"):
+            for item in held_sink.peek():
+                if (
+                    getattr(item, "kind", None) == "presence_abstain"
+                    and (getattr(item, "detail", None) or {}).get("transcript") == transcript
+                    and (getattr(item, "tenant_id", "default") or "default") == want_tenant
+                ):
+                    return item  # already under review — no duplicate
 
         abstained = [e for e in detailed if e.verdict.tier is PresenceTier.ABSTAIN]
         reasons = [{"claim_id": e.verdict.claim_id, "reason": e.verdict.reason,
@@ -265,14 +286,16 @@ def raise_presence_hold(
             agent_id=PRESENCE_HOLD_AGENT_ID,
             kind="presence_abstain",
             confidence=0.0,
-            note="presence could not ground the spoken answer; held for review",
+            # Honest as a learning review, not a governance verdict: Tex names what it
+            # could not answer and invites the human to teach it (resolving feeds L1).
+            note="I couldn't answer this from the records. Tell me if I should have — it's how I learn.",
             detail={
                 "dimension": "presence",  # the vigil provider reads dimension from here
                 "transcript": transcript,
                 "abstained_claims": reasons,
             },
             decision_id=decision_id,  # stamped → /held card is sealable (None if no store)
-            tenant_id=(tenant if (isinstance(tenant, str) and tenant.strip()) else "default"),
+            tenant_id=want_tenant,
         )
         held_sink.append(hold)
         return hold

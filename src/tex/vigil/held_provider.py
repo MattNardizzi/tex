@@ -59,6 +59,13 @@ class HeldDecisionVigilProvider:
 
         # Freshest first; respect tenant scoping when the item is tagged.
         for item in reversed(list(items)):
+            # Answer-abstain REVIEWS (kind="presence_abstain") are a learning surface
+            # the operator resolves in the context of their question — not something
+            # Tex breaks its at-rest silence to speak. They stay on /held (still
+            # sealable, so the calibration loop keeps its fuel); they just never become
+            # the at-rest vigil card.
+            if getattr(item, "kind", None) == "presence_abstain":
+                continue
             detail = getattr(item, "detail", {}) or {}
             item_tenant = detail.get("tenant_id")
             if (

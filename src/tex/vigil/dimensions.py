@@ -275,9 +275,15 @@ def _execution(request: Any, tenant: str | None) -> list[DimensionReading]:
                 )
             )
 
-    # Human-decision gate — count is the live held queue, tenant-scoped, so
-    # the headline equals the resolvable cards. Not surprise-ranked.
-    held = _held_rows(request, tenant)
+    # Human-decision gate — count the live held queue of genuine GOVERNANCE holds
+    # (discovery / dormancy / provenance / PDP), tenant-scoped. Answer-abstain REVIEWS
+    # (kind="presence_abstain") are a learning surface, NOT an action waiting on the
+    # operator, so they never inflate this count — but they remain sealable on /held,
+    # so the presence calibration loop keeps its fuel. Not surprise-ranked.
+    held = [
+        r for r in _held_rows(request, tenant)
+        if getattr(r, "kind", None) != "presence_abstain"
+    ]
     if held:
         first = held[0]
         out.append(

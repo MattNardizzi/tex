@@ -75,6 +75,12 @@ FORMS: dict[str, UtteranceForm] = {
         required_slots=("count",),
         speaks_when=_gt0,
     ),
+    "human_decision_single": UtteranceForm(
+        dimension="human_decision",
+        template="1 action is waiting on your decision.",
+        required_slots=("count",),
+        speaks_when=lambda s: float(s.get("count", 0) or 0) == 1,
+    ),
     "human_decision": UtteranceForm(
         dimension="human_decision",
         template="{count} actions are waiting on your decision.",
@@ -141,6 +147,12 @@ def select_form(dimension: str, slots: dict[str, Any]) -> UtteranceForm | None:
             return broken
         intact = FORMS["evidence_intact"]
         return intact if intact.speaks_when(slots) else None
+    if dimension == "human_decision":
+        single = FORMS["human_decision_single"]
+        if single.speaks_when(slots):
+            return single
+        agg = FORMS["human_decision"]
+        return agg if agg.speaks_when(slots) else None
     form = FORMS.get(dimension)
     if form is None:
         return None

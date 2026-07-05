@@ -20,7 +20,7 @@ at its own planted shadow. Degrades to an empty result on missing inputs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import os
 from typing import Mapping, Sequence
@@ -431,6 +431,12 @@ def run_planes(
     """
     env = dict(env) if env is not None else dict(os.environ)
     context = context or SenseContext()
+    # Thread the sweep's tenant into the sense context so shared-buffer planes
+    # (P11 governance stream) scope to THIS estate — one tenant's pushed or
+    # gate-recorded evidence never mints into another's. An explicit tenant on a
+    # caller-supplied context wins (a verifier probing a foreign cohort).
+    if context.tenant is None and tenant_id:
+        context = replace(context, tenant=tenant_id)
     withheld = tuple(dict.fromkeys(withheld_planes))  # de-dup, preserve order
 
     # ------------------------------------------------------------------

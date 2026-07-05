@@ -1480,6 +1480,12 @@ def create_app(
     app.include_router(build_agent_router())  # AGENT GOVERNANCE
     app.include_router(build_tenant_router())  # V11: TENANT BASELINE
     app.include_router(build_discovery_router())  # V13: DISCOVERY
+    # Remote evidence-push ingress: a cooperating vantage on an estate Tex
+    # cannot reach pushes gate-shaped / OTel-GenAI events here, feeding the SAME
+    # P11 buffer /v1/govern/decide does so pushed spans self-discover on the next
+    # sweep. Tenant is server-authoritative; buffer is single-worker (Dockerfile).
+    from tex.api.discovery_evidence_routes import build_discovery_evidence_router
+    app.include_router(build_discovery_evidence_router())
     # V15: governance history + drift + scheduler admin
     from tex.api.governance_history_routes import (
         build_drift_router,

@@ -123,6 +123,7 @@ class SieveDriver:
             context = SenseContext(
                 actions_dir=self.actions_dir,
                 workspace_dir=self.workspace_dir,
+                tenant=tenant,
             )
             return run_planes(
                 self.env,

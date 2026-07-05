@@ -42,11 +42,27 @@ class SenseContext:
                           (Occasion A). ``None`` if not applicable to the plane.
     - ``workspace_dir`` — root of the agents' real file side-effects
                           (Occasion B). ``None`` if not applicable.
+    - ``tenant``        — the tenant this sweep is scoped to. A plane fed by a
+                          SHARED in-process buffer (e.g. the P11 governance
+                          stream, which any tenant's gate calls AND the public
+                          evidence-push endpoint write into) uses this to emit
+                          only footprints attributable to THIS tenant. The
+                          scoping is LENIENT by design: an UNSTAMPED row (no
+                          tenant on the row) stays in every tenant's cohort, so
+                          cross-tenant isolation depends on every writer to the
+                          shared buffer stamping the tenant server-side — the
+                          sweep filter alone does not enforce it (both writers
+                          that touch the public surface, the gate and the
+                          evidence endpoint, do stamp). ``None`` means "unscoped"
+                          — every row is in cohort (the pre-tenant behavior, kept
+                          for planes that read a per-tenant source root and for
+                          tests).
     - ``observed_at_floor`` is reserved for streaming windows (Phase 6).
     """
 
     actions_dir: Path | None = None
     workspace_dir: Path | None = None
+    tenant: str | None = None
 
 
 @runtime_checkable

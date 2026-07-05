@@ -147,6 +147,10 @@ _BILLING_ALIASES: tuple[str, ...] = (
     "account",
 )
 _DECIDED_AT_ALIASES: tuple[str, ...] = ("decided_at", "ts", "timestamp", "time")
+#: The tenant an event is attributed to. The /v1/govern/decide route and the
+#: /v1/discovery/evidence push both stamp this; the sweep scopes to it so a
+#: shared buffer never leaks one tenant's agents into another's estate.
+_TENANT_ALIASES: tuple[str, ...] = ("tenant", "tenant_id")
 
 #: Token-volume aliases for the P0 token-conservation residual (N3).
 _BILLING_TOKENS_ALIASES: tuple[str, ...] = (
@@ -308,8 +312,12 @@ class GovernanceStreamSensor:
             return rows
         return rows
 
-    def _iter(self, context: SenseContext) -> Iterator[Incidence]:  # noqa: ARG002
+    def _iter(self, context: SenseContext) -> Iterator[Incidence]:
         rows = self._resolve_rows()
+        if not rows:
+            return
+
+        rows = self._scope_to_tenant(rows, context.tenant)
         if not rows:
             return
 
@@ -320,6 +328,33 @@ class GovernanceStreamSensor:
 
         if self._emit_coverage_health:
             yield from self._coverage_health_residuals(rows)
+
+    @staticmethod
+    def _scope_to_tenant(
+        rows: list[Mapping[str, object]], tenant: str | None
+    ) -> list[Mapping[str, object]]:
+        """Keep only rows this tenant's sweep may mint from.
+
+        The governance-stream buffer is SHARED across every caller — each
+        tenant's gate calls and every ``/v1/discovery/evidence`` push land in
+        the same in-process ring. When the sweep is tenant-scoped
+        (``context.tenant`` set) an event is in-cohort iff it is attributed to
+        that tenant. Lenient by design: a row with NO tenant stamp (a legacy or
+        internal source that predates attribution) stays in cohort, so this
+        never silently drops the pre-tenant behavior; only a row that DECLARES a
+        DIFFERENT tenant is excluded. Since both writers that touch the public
+        surface stamp the tenant server-side, a cross-tenant push can never mint
+        here. ``tenant is None`` (an unscoped sweep) keeps every row.
+        """
+        if tenant is None:
+            return rows
+        want = tenant.strip().casefold()
+        scoped: list[Mapping[str, object]] = []
+        for row in rows:
+            row_tenant = _as_str(_first(row, _TENANT_ALIASES))
+            if row_tenant is None or row_tenant.strip().casefold() == want:
+                scoped.append(row)
+        return scoped
 
     def _row_to_incidence(
         self, idx: int, row: Mapping[str, object]

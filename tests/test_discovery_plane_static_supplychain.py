@@ -245,3 +245,59 @@ def test_plane_activates_only_under_its_flag(tmp_path: Path) -> None:
     assert len(p8) == 1
     # Flag on but no TEX_SIEVE_P8_REPO → still senses nothing (never raises).
     assert list(p8[0].sense(SenseContext())) == []
+
+
+# ---------------------------------------------------------------------------
+# Manifest fallback handle — never a dotfile stem (the ".mcp" junk-name bug).
+# ---------------------------------------------------------------------------
+
+
+def test_nameless_dotfile_manifest_falls_back_to_owning_dir(tmp_path: Path) -> None:
+    """Regression (2026-07-05): a ``.mcp.json`` whose server name cannot be
+    parsed landed as an agent literally named ``".mcp"`` (the dotfile stem).
+    The fallback handle is the manifest's OWNING directory."""
+    plugin = tmp_path / "plugins" / "example-plugin"
+    plugin.mkdir(parents=True)
+    (plugin / ".mcp.json").write_text('{"mcpServers": {}}', encoding="utf-8")
+
+    sensor = StaticSupplyChainSensor(roots=[tmp_path])
+    incidences = list(sensor.sense(SenseContext()))
+    assert len(incidences) == 1
+    inc = incidences[0]
+    assert inc.footprint.key(FootprintField.AGENT_DEF_SYMBOL) == "example-plugin"
+    assert inc.footprint.key("agent_external_id") == "example-plugin"
+    assert inc.raw_evidence_ref.endswith("#example-plugin")
+
+
+def test_nameless_manifest_at_root_never_yields_a_dot_name(tmp_path: Path) -> None:
+    """A nameless manifest with NO owning directory inside the root falls back
+    to the root's own name (or the de-dotted stem) — never a leading-dot
+    handle."""
+    root = tmp_path / "myrepo"
+    root.mkdir()
+    (root / ".mcp.json").write_text("{}", encoding="utf-8")
+
+    sensor = StaticSupplyChainSensor(roots=[root])
+    incidences = list(sensor.sense(SenseContext()))
+    assert len(incidences) == 1
+    symbol = incidences[0].footprint.key(FootprintField.AGENT_DEF_SYMBOL)
+    assert symbol == "myrepo"
+    assert not symbol.startswith(".")
+
+
+def test_named_manifest_handles_are_unchanged(tmp_path: Path) -> None:
+    """The fallback NEVER overrides a declared name: ``mcpServers`` keys and
+    single-server ``name`` fields keep winning exactly as before."""
+    keyed = tmp_path / "bridges"
+    keyed.mkdir()
+    (keyed / ".mcp.json").write_text(
+        '{"mcpServers": {"telegram": {"command": "run"}}}', encoding="utf-8"
+    )
+    (tmp_path / "mcp.json").write_text('{"name": "ledger-mcp"}', encoding="utf-8")
+
+    sensor = StaticSupplyChainSensor(roots=[tmp_path])
+    symbols = {
+        i.footprint.key(FootprintField.AGENT_DEF_SYMBOL)
+        for i in sensor.sense(SenseContext())
+    }
+    assert symbols == {"telegram", "ledger-mcp"}

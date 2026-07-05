@@ -247,3 +247,49 @@ def test_prior_index_link_wins_over_the_bind() -> None:
 
     assert index.get_agent_id(adapter.reconciliation_key(entity, _TENANT)) == minted_id
     assert len(registry.list_all()) == 2  # the mint + the manual registration
+
+
+def test_resweep_reconciles_to_minted_row_without_index_memory() -> None:
+    """Regression (2026-07-05): a re-sweep re-minted rows a previous sweep
+    itself created. The row a sweep MINTS carries its boundary identity in
+    ``metadata["discovery_external_id"]``; the next sweep must bind to it —
+    within the tenant — even when the caller's index has no memory (a fresh,
+    un-bootstrapped index) AND an operator has since renamed the row.
+    N entities → N rows, forever."""
+    registry = InMemoryAgentRegistry()
+    ledger = InMemoryDiscoveryLedger()
+
+    first_sighting = SieveEntity(
+        merge_axis="discord", label="discord", fusion_confidence=0.9
+    )
+    adapter.project(
+        first_sighting, registry, ledger, ReconciliationIndex(), tenant=_TENANT
+    )
+    assert len(registry.list_all()) == 1
+    minted = registry.list_all()[0]
+    assert minted.metadata.get("discovery_external_id") == "sieve-discord"
+
+    # An operator renames the minted row: name drift breaks the name leg of
+    # the bind, so the minted identity in metadata must reconcile it alone.
+    registry.save(minted.model_copy(update={"name": "Discord Bridge (ops)"}))
+    assert len(registry.list_all()) == 1
+
+    # The next sweep re-resolves the same durable handle as a FRESH entity
+    # (new entity_id — resolve is stateless) and the caller supplies an index
+    # with no memory at all: still no second mint.
+    second_sighting = SieveEntity(
+        merge_axis="discord", label="discord", fusion_confidence=0.9
+    )
+    fresh_index = ReconciliationIndex()
+    adapter.project(second_sighting, registry, ledger, fresh_index, tenant=_TENANT)
+
+    agents = registry.list_all()
+    assert len(agents) == 1, "re-sweep must reconcile, never re-mint"
+    entries = ledger.list_all()
+    assert entries[-1].outcome.action is ReconciliationAction.NO_OP_KNOWN_UNCHANGED
+    assert any(
+        "bound_to_registered_agent" in f for f in entries[-1].outcome.findings
+    )
+    # And the fresh index learned the link, so the NEXT scan is an index hit.
+    key = adapter.reconciliation_key(second_sighting, _TENANT)
+    assert fresh_index.get_agent_id(key) == minted.agent_id

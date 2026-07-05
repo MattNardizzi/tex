@@ -48,6 +48,15 @@ def _truthy(value: str | None) -> bool:
     }
 
 
+#: The slice planes' §8 activation flags (roster: engine/sensors/registry.py).
+#: ``build_sieve_driver`` injects these onto its env snapshot when the matching
+#: dev-only root (``TEX_SIEVE_ACTIONS_DIR`` / ``TEX_SIEVE_WORKSPACE_DIR``)
+#: survived the production gate, so pointing SIEVE at an estate actually senses
+#: it without a second flag. An operator's explicit value is never overridden.
+_ACTIONS_TRAIL_FLAG = "TEX_SIEVE_ACTIONS_TRAIL"
+_FS_WRITE_FLAG = "TEX_SIEVE_FS_WRITE"
+
+
 @dataclass(frozen=True)
 class SieveDriver:
     """A thin, pre-built handle ignite calls to run the SIEVE engine.
@@ -118,6 +127,12 @@ def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | No
       production (no synthetic estate). The per-plane ``TEX_SIEVE_P*`` flags
       still gate which planes actually build a sensor, so an enabled master flag
       with no plane flags is a live-but-empty driver (still no-op in effect).
+    - A present (non-production) slice root implies its plane:
+      ``TEX_SIEVE_ACTIONS_DIR`` lights ``TEX_SIEVE_ACTIONS_TRAIL`` and
+      ``TEX_SIEVE_WORKSPACE_DIR`` lights ``TEX_SIEVE_FS_WRITE`` on the driver's
+      env snapshot, unless the operator set that flag explicitly (any explicit
+      value — including a falsey one — wins). In production the roots are
+      forced off first, so no flag is ever injected there.
 
     NEVER raises: any error constructing the driver degrades to ``None`` (legacy
     path only).
@@ -145,8 +160,25 @@ def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | No
             actions_dir = Path(a) if a else None
             workspace_dir = Path(w) if w else None
 
+        # A root that survived the production gate IS the operator's intent to
+        # sense that estate, so it lights the matching slice plane without a
+        # second flag: with the roots alone, ignite's roster run previously
+        # built NEITHER slice sensor and the coverage object omitted both
+        # planes. The registry stays purely flag-gated (§8); this seam just
+        # translates "root present" into the plane's own flag on the driver's
+        # env snapshot. An EXPLICIT operator value is never overridden — a
+        # deliberate ``TEX_SIEVE_ACTIONS_TRAIL=0`` keeps that plane off even
+        # with its root set. In production both roots are already forced off
+        # above, so nothing is injected there and the default-safe posture is
+        # byte-for-byte unchanged.
+        snapshot = dict(source)
+        if actions_dir is not None and not (snapshot.get(_ACTIONS_TRAIL_FLAG) or "").strip():
+            snapshot[_ACTIONS_TRAIL_FLAG] = "1"
+        if workspace_dir is not None and not (snapshot.get(_FS_WRITE_FLAG) or "").strip():
+            snapshot[_FS_WRITE_FLAG] = "1"
+
         return SieveDriver(
-            env=dict(source),
+            env=snapshot,
             actions_dir=actions_dir,
             workspace_dir=workspace_dir,
         )

@@ -365,6 +365,8 @@ to prod on Render) must NOT activate anything or crash ignite.
 | P13 signed-id | identity | OFF | `TEX_SIEVE_P13_SIGNED` | empty (calibration only) |
 | P14 honeytoken lattice | active | OFF | `TEX_SIEVE_P14_DECOY` | inert (no decoys planted) |
 | P0 coverage-health | governance-stream | OFF | `TEX_SIEVE_P0_COVERAGE` | reports "coverage unknown" |
+| Occasion A actions-trail (§10 slice) | governance-stream (runtime logs) | OFF | `TEX_SIEVE_ACTIONS_TRAIL` — auto-lit in dev when `TEX_SIEVE_ACTIONS_DIR` is set; an explicit value wins | empty (no root in SenseContext) |
+| Occasion B fs-write-scan (§10 slice) | endpoint (workspace ground truth) | OFF | `TEX_SIEVE_FS_WRITE` — auto-lit in dev when `TEX_SIEVE_WORKSPACE_DIR` is set; an explicit value wins | empty; both roots forced OFF in production |
 | SIEVE engine master | — | OFF | `TEX_SIEVE_ENABLED` | falls back to key-equality reconciliation |
 
 Gating rules (grounded in main.py wiring-seam): construction MUST NOT throw on missing creds (boot

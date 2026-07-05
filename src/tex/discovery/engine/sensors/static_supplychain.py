@@ -249,6 +249,29 @@ def _rel(root: Path, path: Path) -> str:
         return path.as_posix()
 
 
+def _manifest_fallback_handle(root: Path, path: Path) -> str:
+    """Agent handle for a manifest that declares no server name.
+
+    Never the raw stem of a dotfile — ``.mcp.json`` → ``".mcp"`` would mint an
+    agent literally named ``.mcp`` (a junk registry row the estate then
+    speaks). Prefer the nearest non-dot ancestor directory inside the scan
+    root — the plugin/package directory that OWNS the manifest
+    (``example-plugin`` for ``plugins/example-plugin/.mcp.json``; this also
+    steps past ``.well-known``); then the scan root's own name; last resort is
+    the de-dotted stem (``mcp``), which cannot start with a dot.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        parts = path.parts
+    for part in reversed(parts[:-1]):
+        if part and not part.startswith("."):
+            return part
+    if root.name and not root.name.startswith("."):
+        return root.name
+    return path.stem.lstrip(".") or path.name.lstrip(".") or "mcp-manifest"
+
+
 # ---------------------------------------------------------------------------
 # The sensor
 # ---------------------------------------------------------------------------
@@ -441,9 +464,10 @@ class StaticSupplyChainSensor:
         srv_name: str | None,
         tools: object,
     ) -> Incidence | None:
-        # The manifest's declared name is the agent handle; fall back to the file
-        # stem so a nameless manifest still yields a footprint (never dropped).
-        symbol = srv_name or path.stem
+        # The manifest's declared name is the agent handle; a nameless manifest
+        # still yields a footprint (never dropped), but the fallback handle is
+        # the manifest's OWNING directory, never a dotfile stem (".mcp").
+        symbol = srv_name or _manifest_fallback_handle(root, path)
         declared_tools = _canon_tools(tools)
         return self._emit(
             repo_path=_rel(root, path),

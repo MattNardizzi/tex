@@ -19,6 +19,12 @@ bearing obligations from the wiring brief:
     master flag on but no sources / no plane flags degrades to an empty, honest
     result, never an exception.
 
+(d) ROOTS LIGHT THE SLICE PLANES — pointing ``TEX_SIEVE_ACTIONS_DIR`` /
+    ``TEX_SIEVE_WORKSPACE_DIR`` at an estate (dev only) lights ACTIONS_TRAIL /
+    FS_WRITE without a second flag; an explicit flag value wins; production
+    injects nothing. Regression for the 2026-07-05 live gap where the roots
+    alone left both planes out of ignite's coverage object entirely.
+
 Run:
     cd /Users/matthewnardizzi/dev/tex-discovery && \
       PYTHONPATH=/Users/matthewnardizzi/dev/tex-discovery/src \
@@ -274,6 +280,148 @@ def test_build_active_sensors_with_uncredentialed_planes_never_raises():
 
 
 # ---------------------------------------------------------------------------
+# (d) ROOTS LIGHT THE SLICE PLANES — pointing SIEVE at an estate is the intent
+#     to sense it. Regression for the 2026-07-05 live gap: TEX_SIEVE_ENABLED +
+#     the two DIR roots (and NO per-plane flags) ran ignite with NEITHER
+#     ACTIONS_TRAIL nor FS_WRITE active, so the coverage object omitted both.
+# ---------------------------------------------------------------------------
+
+
+def test_flags_plus_roots_run_planes_senses_both_slice_planes(tmp_path):
+    """The roster path itself: with the two slice-plane flags set and the roots
+    threaded via the SenseContext (exactly what ``SieveDriver.run`` builds),
+    ``run_planes`` SENSES both planes — each appears in ``active_planes`` AND in
+    ``occasions`` (emitted >=1 incidence from the planted estate) and the two
+    occasions fuse to entities.
+
+    Pins the roster MEMBERSHIP of ACTIONS_TRAIL / FS_WRITE: removing either
+    from the registry (a capability subtraction) fails here first.
+    """
+    from tex.discovery.engine.models import PlaneId
+    from tex.discovery.engine.pipeline import run_planes
+    from tex.discovery.engine.sensors import SenseContext
+
+    actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
+    result = run_planes(
+        env={_ACTIONS_FLAG: "1", _FS_FLAG: "1"},
+        context=SenseContext(actions_dir=actions_dir, workspace_dir=workspace_dir),
+    )
+    assert PlaneId.ACTIONS_TRAIL in result.active_planes
+    assert PlaneId.FS_WRITE in result.active_planes
+    assert PlaneId.ACTIONS_TRAIL in result.occasions
+    assert PlaneId.FS_WRITE in result.occasions
+    assert len(result.entities) >= 1
+
+
+def test_roots_alone_light_both_slice_planes(tmp_path, monkeypatch):
+    """The live gap, exactly: master + the two DIR roots, NO per-plane flags.
+    The driver lights both slice planes from the roots, actually senses the
+    estate, and projects through the governance boundary."""
+    monkeypatch.setenv("TEX_APP_ENV", "development")
+    from tex.discovery.engine.models import PlaneId
+
+    actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
+    env = {
+        _MASTER: "1",
+        _ACTIONS_DIR_ENV: str(actions_dir),
+        _WORKSPACE_DIR_ENV: str(workspace_dir),
+    }
+    driver = build_sieve_driver(env)
+    assert isinstance(driver, SieveDriver)
+    # The roots implied the flags — the receipt surface reports both active.
+    assert _ACTIONS_FLAG in driver.active_plane_flags()
+    assert _FS_FLAG in driver.active_plane_flags()
+
+    registry = InMemoryAgentRegistry()
+    ledger = InMemoryDiscoveryLedger()
+    result = driver.run(registry, ledger)
+    assert result is not None
+    assert PlaneId.ACTIONS_TRAIL in result.occasions
+    assert PlaneId.FS_WRITE in result.occasions
+    assert result.projected >= 1
+    assert len(registry.list_all()) >= 1
+
+
+def test_roots_alone_ignite_coverage_names_both_planes(tmp_path, monkeypatch):
+    """The exact observable from the live repro: ignite's coverage object must
+    list both slice planes as FIRED (it previously omitted them entirely).
+    Drives the same seam ignite drives: ``driver.run`` → ``coverage.summarize``
+    (what ``_run_sieve`` → ``_sieve_coverage`` compose on the route)."""
+    monkeypatch.setenv("TEX_APP_ENV", "development")
+    actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
+    env = {
+        _MASTER: "1",
+        _ACTIONS_DIR_ENV: str(actions_dir),
+        _WORKSPACE_DIR_ENV: str(workspace_dir),
+    }
+    driver = build_sieve_driver(env)
+    registry = InMemoryAgentRegistry()
+    ledger = InMemoryDiscoveryLedger()
+    result = driver.run(registry, ledger)
+    assert result is not None
+
+    from tex.discovery.engine.coverage import summarize
+
+    cov = summarize(result, headline_count=len(registry.list_all()))
+    obj = cov.as_object()
+    fired = set(obj["fired"])
+    assert "activity logs" in fired
+    assert "file writes" in fired
+    blind = {b["plane"] for b in obj["blind"]}
+    assert "activity logs" not in blind
+    assert "file writes" not in blind
+
+
+def test_explicit_flag_value_beats_root_injection(tmp_path, monkeypatch):
+    """An operator's deliberate ``TEX_SIEVE_ACTIONS_TRAIL=0`` keeps that plane
+    OFF even with its root set; the other root still lights its own plane."""
+    monkeypatch.setenv("TEX_APP_ENV", "development")
+    from tex.discovery.engine.models import PlaneId
+
+    actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
+    env = {
+        _MASTER: "1",
+        _ACTIONS_FLAG: "0",  # deliberate OFF
+        _ACTIONS_DIR_ENV: str(actions_dir),
+        _WORKSPACE_DIR_ENV: str(workspace_dir),
+    }
+    driver = build_sieve_driver(env)
+    assert isinstance(driver, SieveDriver)
+    assert _ACTIONS_FLAG not in driver.active_plane_flags()
+    assert _FS_FLAG in driver.active_plane_flags()
+
+    result = driver.run(InMemoryAgentRegistry(), InMemoryDiscoveryLedger())
+    assert result is not None
+    assert PlaneId.ACTIONS_TRAIL not in result.active_planes
+    assert PlaneId.FS_WRITE in result.occasions
+
+
+def test_production_roots_never_inject_flags(tmp_path, monkeypatch):
+    """Production posture unchanged: the roots are forced off AND no slice-plane
+    flag is injected — a stray dev DIR var on a prod deploy changes nothing,
+    not even the coverage receipts."""
+    monkeypatch.setenv("TEX_APP_ENV", "production")
+    actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
+    env = {
+        _MASTER: "1",
+        _ACTIONS_DIR_ENV: str(actions_dir),
+        _WORKSPACE_DIR_ENV: str(workspace_dir),
+    }
+    driver = build_sieve_driver(env)
+    assert isinstance(driver, SieveDriver)
+    assert driver.actions_dir is None
+    assert driver.workspace_dir is None
+    assert _ACTIONS_FLAG not in driver.active_plane_flags()
+    assert _FS_FLAG not in driver.active_plane_flags()
+
+    registry = InMemoryAgentRegistry()
+    result = driver.run(registry, InMemoryDiscoveryLedger())
+    assert result is not None
+    assert result.projected == 0
+    assert len(registry.list_all()) == 0
+
+
+# ---------------------------------------------------------------------------
 # Defense-in-depth: a live-Entra construction failure must NEVER seed synthetic
 # agents on a real deploy (the except-branch mirrors the no-creds _demo_seed gate).
 # ---------------------------------------------------------------------------
@@ -316,3 +464,103 @@ def test_entra_live_failure_fallback_is_empty_in_production(monkeypatch):
     assert captured, "expected the except-branch to build a FixtureGraphTransport"
     assert all(pages == {} for pages in captured)
     assert conns  # the connector list is still assembled, just synthetic-free
+
+
+# ---------------------------------------------------------------------------
+# Re-sweep idempotency — N declared entities → N registry rows, forever.
+# Regression for the 2026-07-05 live double-count: ignite minted 5 declared
+# MCP-manifest entities and the standing watch's next SIEVE cycle minted the
+# SAME 5 again (10 rows for 5 entities).
+# ---------------------------------------------------------------------------
+
+
+def test_standing_resweep_is_idempotent_n_entities_n_rows(tmp_path, monkeypatch):
+    """A re-sweep over an UNCHANGED source reconciles every entity to the row
+    it minted last time — same rows, no re-mint — while a genuinely-NEW
+    declaration still lands as a new row (the capability mandate, never
+    removed)."""
+    monkeypatch.setenv("TEX_APP_ENV", "development")
+    repo = tmp_path / "estate"
+    plugin = repo / "plugins" / "example-plugin"
+    plugin.mkdir(parents=True)
+    # A nameless dotfile manifest (the ".mcp" junk-name repro) + a named one.
+    (plugin / ".mcp.json").write_text(json.dumps({"mcpServers": {}}))
+    (repo / "mcp.json").write_text(
+        json.dumps({"name": "discord", "tools": [{"name": "send_message"}]})
+    )
+
+    env = {_MASTER: "1", "TEX_SIEVE_P8_SUPPLY": "1", "TEX_SIEVE_P8_REPO": str(repo)}
+    driver = build_sieve_driver(env)
+    assert isinstance(driver, SieveDriver)
+    registry = InMemoryAgentRegistry()
+    ledger = InMemoryDiscoveryLedger()
+
+    first = driver.run(registry, ledger, tenant="tex-enterprise")
+    assert first is not None and first.projected >= 2
+    rows_after_first = {a.agent_id for a in registry.list_all()}
+    assert len(rows_after_first) >= 2
+    # The junk-name fallback is gone: the nameless manifest lands under its
+    # owning directory, never the dotfile stem.
+    names = {a.name for a in registry.list_all()}
+    assert "example-plugin" in names
+    assert ".mcp" not in names
+
+    # The standing watch's next cycle over the SAME source: no new rows.
+    second = driver.run(registry, ledger, tenant="tex-enterprise")
+    assert second is not None
+    assert {a.agent_id for a in registry.list_all()} == rows_after_first
+
+    # A genuinely-new declaration appears → exactly it mints, nothing else.
+    other = repo / "services" / "telegram-bridge"
+    other.mkdir(parents=True)
+    (other / "mcp.json").write_text(json.dumps({"name": "telegram"}))
+    third = driver.run(registry, ledger, tenant="tex-enterprise")
+    assert third is not None
+    rows_after_third = {a.agent_id for a in registry.list_all()}
+    assert rows_after_first < rows_after_third
+    assert len(rows_after_third) == len(rows_after_first) + 1
+
+
+def test_standing_watch_reruns_sieve_under_each_enrolled_tenant():
+    """THE live 2026-07-05 re-mint mechanism: ignite projected SIEVE under the
+    watched tenant (``tex-enterprise``) but the standing tick re-ran the
+    driver with NO tenant — the hardcoded ``default`` — where neither the
+    tenant-scoped reconciliation key nor the tenant-scoped bind could see
+    ignite's rows, so every cycle re-minted the same entities. The standing
+    re-run must project under the ENROLLED tenant(s); with nothing enrolled it
+    keeps the pre-enrollment default-estate behavior."""
+    from tex.discovery.scheduler import BackgroundScanScheduler
+
+    calls: list[str] = []
+
+    class _RecordingDriver:
+        def run(self, registry, ledger, *, index=None, tenant="default"):  # noqa: ANN001
+            calls.append(tenant)
+            return None
+
+    class _StubService:
+        def scan(self, **kwargs):  # noqa: ANN003 — legacy loop not under test
+            raise RuntimeError("stub: legacy connector scan not under test")
+
+    sched = BackgroundScanScheduler(
+        service=_StubService(), tenants=["tex-enterprise"]
+    )
+    sched.attach_sieve(
+        sieve_driver=_RecordingDriver(),
+        agent_registry=InMemoryAgentRegistry(),
+        discovery_ledger=InMemoryDiscoveryLedger(),
+    )
+    sched._run_one_cycle()
+    assert calls == ["tex-enterprise"]
+
+    # Capability preserved: an un-ignited estate (no enrolled tenants) still
+    # gets its standing re-run, under the default estate exactly as before.
+    calls.clear()
+    sched_default = BackgroundScanScheduler(service=_StubService(), tenants=[])
+    sched_default.attach_sieve(
+        sieve_driver=_RecordingDriver(),
+        agent_registry=InMemoryAgentRegistry(),
+        discovery_ledger=InMemoryDiscoveryLedger(),
+    )
+    sched_default._run_one_cycle()
+    assert calls == ["default"]

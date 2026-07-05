@@ -434,23 +434,48 @@ class BackgroundScanScheduler:
         # plane through the SAME registry + ledger governance boundary each tick,
         # so a shadow agent that only a SIEVE plane can see — and that appeared
         # AFTER ignition — is re-discovered on the watch, not only at /ignite.
-        # Global (once per cycle, like the dormancy sweep); never breaks the loop.
+        #
+        # The re-run is the CONTINUATION of ignite for each watched estate, so
+        # it projects under the SAME enrolled tenant(s) the legacy loop above
+        # scans — exactly the tenants /ignite minted under. The tenant is part
+        # of the reconciliation key AND the registered-agent bind is
+        # tenant-scoped, so a re-run under any OTHER tenant cannot see the rows
+        # ignite created and re-mints the same entities as new agents every
+        # cycle (the 2026-07-05 double-count: 5 declared MCP entities → 10
+        # rows). No enrolled tenants → the un-ignited "default" estate, the
+        # pre-enrollment behavior. Never breaks the loop.
         sieve_summary = None
         if (
             self._sieve_driver is not None
             and self._agent_registry is not None
             and self._discovery_ledger is not None
         ):
-            try:
-                result = self._sieve_driver.run(
-                    self._agent_registry, self._discovery_ledger
-                )
-                sieve_summary = {"projected": getattr(result, "projected", None)}
-            except Exception as exc:  # noqa: BLE001 — SIEVE never breaks the watch
-                _logger.warning(
-                    "BackgroundScanScheduler: SIEVE re-run failed: %s", exc
-                )
-                sieve_summary = {"error": str(exc)}
+            sieve_tenants = tenants or ["default"]
+            per_tenant_sieve: dict[str, dict] = {}
+            sieve_projected_total = 0
+            for tenant_id in sieve_tenants:
+                try:
+                    result = self._sieve_driver.run(
+                        self._agent_registry,
+                        self._discovery_ledger,
+                        tenant=tenant_id,
+                    )
+                    projected = getattr(result, "projected", None)
+                    per_tenant_sieve[tenant_id] = {"projected": projected}
+                    if isinstance(projected, int):
+                        sieve_projected_total += projected
+                except Exception as exc:  # noqa: BLE001 — SIEVE never breaks the watch
+                    _logger.warning(
+                        "BackgroundScanScheduler: SIEVE re-run failed for "
+                        "tenant=%s: %s",
+                        tenant_id,
+                        exc,
+                    )
+                    per_tenant_sieve[tenant_id] = {"error": str(exc)}
+            sieve_summary = {
+                "projected": sieve_projected_total,
+                "tenants": per_tenant_sieve,
+            }
 
         cycle_duration = time.time() - cycle_started
 

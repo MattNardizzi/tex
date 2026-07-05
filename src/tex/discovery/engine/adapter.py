@@ -25,7 +25,7 @@ entity across scans instead of churning it as "new" every window.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Mapping, Protocol
 from uuid import UUID
 
 from tex.discovery.engine.models import SieveEntity
@@ -154,10 +154,16 @@ def _bind_registered_agent(
     second ``sieve-*`` row and the estate double-counts (20 real agents spoken
     as "forty agents running").
 
-    Matching: exact ``external_agent_id``/``name`` equality within the tenant
-    wins; a casefolded match is the fallback (the reconciliation key itself
-    casefolds, so case drift between the observed id and the registered name
-    must not re-mint). No match → ``None`` → the caller mints, which is how a
+    Matching, within the tenant only: exact equality against the agent's
+    ``external_agent_id``, ``name``, or its stored MINTED identity —
+    ``metadata["discovery_external_id"]``, the boundary id ``project`` stamps
+    on every row it creates — wins; a casefolded match is the fallback (the
+    reconciliation key itself casefolds, so case drift between the observed id
+    and the registered name must not re-mint). The minted-identity leg is what
+    makes a RE-SWEEP reconcile to the very row a previous sweep minted, even
+    when the caller's index has no memory of it (a fresh, un-bootstrapped
+    index) or an operator has since renamed the row: N entities → N rows,
+    forever. No match → ``None`` → the caller mints, which is how a
     genuinely-unknown/shadow agent still lands as a NEW row (the capability
     this plane exists for — never removed, per the discovery mandate).
 
@@ -183,11 +189,18 @@ def _bind_registered_agent(
             agent_tenant = (getattr(agent, "tenant_id", "") or "").strip().casefold()
             if agent_tenant != tenant_cf:
                 continue
+            metadata = getattr(agent, "metadata", None)
+            minted_id = (
+                metadata.get("discovery_external_id")
+                if isinstance(metadata, Mapping)
+                else None
+            )
             ids = tuple(
                 v
                 for v in (
                     getattr(agent, "external_agent_id", None),
                     getattr(agent, "name", None),
+                    minted_id,
                 )
                 if isinstance(v, str) and v
             )
@@ -371,12 +384,16 @@ def project(
     2. Ask the index whether this entity is already linked (stable cross-scan
        lookup). A None means "not yet linked".
     3. NOT LINKED → bind before minting: an entity whose durable handle
-       (``merge_axis``/``label``/name) matches a REGISTERED agent's
-       ``external_agent_id`` or ``name`` within the tenant IS that agent — the
-       same binding ``StandingGovernance._resolve_agent`` applies to every
-       ``decide()`` call — so link the sieve key to the existing ``agent_id``
-       and mint nothing (the govstream double-count fix). Only an entity that
-       binds to NOTHING is genuinely new.
+       (``merge_axis``/``label``/name/boundary external id) matches a
+       REGISTERED agent's ``external_agent_id``, ``name``, or stored minted
+       identity (``metadata["discovery_external_id"]``) within the tenant IS
+       that agent — the same binding ``StandingGovernance._resolve_agent``
+       applies to every ``decide()`` call — so link the sieve key to the
+       existing ``agent_id`` and mint nothing (the govstream double-count
+       fix). The minted-identity leg makes a RE-SWEEP reconcile to the row a
+       previous sweep minted (idempotent sweeps: N entities → N rows forever),
+       even across an index with no memory or an operator rename. Only an
+       entity that binds to NOTHING is genuinely new.
     4. NEW → save a fresh ``AgentIdentity`` through ``registry.save`` (which
        passes through ``gate_controller_mutation``; a blocked save returns the
        existing/echoed identity — HONOR it, never crash), then ``index.link``
@@ -398,7 +415,9 @@ def project(
     extra_findings: tuple[str, ...] = ()
     if existing_agent_id is None:
         registered = _bind_registered_agent(
-            registry, tenant, (entity.merge_axis, entity.label, candidate.name)
+            registry,
+            tenant,
+            (entity.merge_axis, entity.label, candidate.name, candidate.external_id),
         )
         if registered is not None:
             bound_id = getattr(registered, "agent_id", None) or getattr(
@@ -409,7 +428,8 @@ def project(
                 index.link(key=key, agent_id=bound_id)
                 extra_findings = (
                     f"bound_to_registered_agent:{bound_id} "
-                    "(external-id/name match within tenant; no new row minted)",
+                    "(external-id/name/minted-identity match within tenant; "
+                    "no new row minted)",
                 )
     is_new = existing_agent_id is None
 

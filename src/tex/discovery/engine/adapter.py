@@ -67,9 +67,16 @@ _EXTERNAL_ID_PREFIX: str = "sieve-"
 
 
 class _Registry(Protocol):
-    """The subset of ``InMemoryAgentRegistry`` the adapter calls."""
+    """The subset of ``InMemoryAgentRegistry`` the adapter calls.
+
+    ``list_all`` powers the registered-agent bind (``_bind_registered_agent``);
+    a registry without it degrades to the mint path, never a crash.
+    """
 
     def save(self, agent):  # noqa: ANN001, ANN201 - AgentIdentity in/out
+        ...
+
+    def list_all(self):  # noqa: ANN201 - tuple[AgentIdentity, ...]
         ...
 
 
@@ -132,6 +139,65 @@ def reconciliation_key(entity: SieveEntity, tenant: str = SIEVE_TENANT) -> str:
     being watched so discovered agents land in the SAME tenant as the estate.
     """
     return f"{SIEVE_SOURCE}:{tenant}:{_external_id(entity).casefold()}"
+
+
+def _bind_registered_agent(
+    registry: _Registry, tenant: str, handles: tuple[str | None, ...]
+):  # noqa: ANN201 - AgentIdentity | None
+    """Find the already-registered agent this entity IS, or ``None``.
+
+    The govstream plane discovers an agent by the very identifier it GOVERNS
+    under: ``StandingGovernance._resolve_agent`` binds ``decide()`` calls to a
+    registered agent by ``external_agent_id`` OR ``name`` within the tenant, so
+    the output boundary must be at least that smart. Without this bind, a
+    registered agent that asks for one decision re-enters the registry as a
+    second ``sieve-*`` row and the estate double-counts (20 real agents spoken
+    as "forty agents running").
+
+    Matching: exact ``external_agent_id``/``name`` equality within the tenant
+    wins; a casefolded match is the fallback (the reconciliation key itself
+    casefolds, so case drift between the observed id and the registered name
+    must not re-mint). No match → ``None`` → the caller mints, which is how a
+    genuinely-unknown/shadow agent still lands as a NEW row (the capability
+    this plane exists for — never removed, per the discovery mandate).
+
+    Never raises: a registry without ``list_all`` or one that faults degrades
+    to ``None`` (the pre-bind mint behavior), so SIEVE keeps its
+    never-break-ignite contract.
+    """
+    wanted = tuple(h.strip() for h in handles if isinstance(h, str) and h.strip())
+    if not wanted:
+        return None
+    list_all = getattr(registry, "list_all", None)
+    if not callable(list_all):
+        return None
+    try:
+        agents = list_all()
+    except Exception:  # noqa: BLE001 — discovery never breaks on a faulting store
+        return None
+    tenant_cf = (tenant or "").strip().casefold()
+    wanted_cf = {h.casefold() for h in wanted}
+    fallback = None
+    for agent in agents:
+        try:
+            agent_tenant = (getattr(agent, "tenant_id", "") or "").strip().casefold()
+            if agent_tenant != tenant_cf:
+                continue
+            ids = tuple(
+                v
+                for v in (
+                    getattr(agent, "external_agent_id", None),
+                    getattr(agent, "name", None),
+                )
+                if isinstance(v, str) and v
+            )
+            if any(v in wanted for v in ids):
+                return agent
+            if fallback is None and any(v.casefold() in wanted_cf for v in ids):
+                fallback = agent
+        except Exception:  # noqa: BLE001 — one odd row never drops the bind
+            continue
+    return fallback
 
 
 def _risk_band(entity: SieveEntity) -> DiscoveryRiskBand:
@@ -220,12 +286,15 @@ def to_reconciliation_outcome(
     *,
     is_new: bool,
     resulting_agent_id: UUID | None = None,
+    extra_findings: tuple[str, ...] = (),
 ) -> ReconciliationOutcome:
     """Project to a ``ReconciliationOutcome`` for the discovery ledger.
 
     Carries ``fusion_confidence`` through, attaches the fusion receipt and any
     ``contradicting_pair`` as ``findings`` so the ledger is auditable, and tags
-    the resulting agent id when a registry write happened.
+    the resulting agent id when a registry write happened. ``extra_findings``
+    lets the projector append boundary-level facts (e.g. the registered-agent
+    bind) so the ledger row tells the whole story.
     """
     finding_kind, action = _finding_and_action(entity, is_new=is_new)
 
@@ -237,6 +306,7 @@ def to_reconciliation_outcome(
     if entity.attribution_conflict and entity.contradicting_pair is not None:
         a, b = entity.contradicting_pair
         findings.append(f"attribution_conflict:{a.value}|{b.value}")
+    findings.extend(extra_findings)
 
     return ReconciliationOutcome(
         candidate_id=candidate.candidate_id,
@@ -299,14 +369,23 @@ def project(
 
     1. Build the ``CandidateAgent`` and its stable reconciliation key.
     2. Ask the index whether this entity is already linked (stable cross-scan
-       lookup). A None means "new entity".
-    3. NEW → save a fresh ``AgentIdentity`` through ``registry.save`` (which
+       lookup). A None means "not yet linked".
+    3. NOT LINKED → bind before minting: an entity whose durable handle
+       (``merge_axis``/``label``/name) matches a REGISTERED agent's
+       ``external_agent_id`` or ``name`` within the tenant IS that agent — the
+       same binding ``StandingGovernance._resolve_agent`` applies to every
+       ``decide()`` call — so link the sieve key to the existing ``agent_id``
+       and mint nothing (the govstream double-count fix). Only an entity that
+       binds to NOTHING is genuinely new.
+    4. NEW → save a fresh ``AgentIdentity`` through ``registry.save`` (which
        passes through ``gate_controller_mutation``; a blocked save returns the
        existing/echoed identity — HONOR it, never crash), then ``index.link``
-       the stable key to the saved ``agent_id``.
-    4. KNOWN → no registry mutation in the slice (Phase 4 fills surface drift);
+       the stable key to the saved ``agent_id``. This is the shadow-agent
+       capability and it MUST survive: an unknown agent still lands as a new,
+       governable row.
+    5. KNOWN → no registry mutation in the slice (Phase 4 fills surface drift);
        reuse the linked agent_id.
-    5. Append ONE ledger row LAST, always — the durable, hash-chained record.
+    6. Append ONE ledger row LAST, always — the durable, hash-chained record.
 
     Returns ``None``; side effects are the registry + ledger writes. Honors the
     returned ``AgentIdentity`` from a gate-blocked save as a silent no-op so a
@@ -316,6 +395,22 @@ def project(
     key = reconciliation_key(entity, tenant)
 
     existing_agent_id = index.get_agent_id(key)
+    extra_findings: tuple[str, ...] = ()
+    if existing_agent_id is None:
+        registered = _bind_registered_agent(
+            registry, tenant, (entity.merge_axis, entity.label, candidate.name)
+        )
+        if registered is not None:
+            bound_id = getattr(registered, "agent_id", None) or getattr(
+                registered, "id", None
+            )
+            if bound_id is not None:
+                existing_agent_id = bound_id
+                index.link(key=key, agent_id=bound_id)
+                extra_findings = (
+                    f"bound_to_registered_agent:{bound_id} "
+                    "(external-id/name match within tenant; no new row minted)",
+                )
     is_new = existing_agent_id is None
 
     resulting_agent_id: UUID | None = existing_agent_id
@@ -333,6 +428,7 @@ def project(
         candidate,
         is_new=is_new,
         resulting_agent_id=resulting_agent_id,
+        extra_findings=extra_findings,
     )
 
     # LEDGER LAST — the durable hash-chained record, after the registry write.

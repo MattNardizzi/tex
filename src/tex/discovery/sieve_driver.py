@@ -6,14 +6,19 @@ This module is the one place the greenfield SIEVE engine
 ``tex.main`` can ask for an optional SIEVE driver without importing the engine
 eagerly or growing more wiring inline.
 
-The two HARD SAFETY RULES (ARCHITECTURE.md §8) are enforced here:
+The HARD RULES (ARCHITECTURE.md §8) enforced here:
 
-1. **Flag-gated OFF by default.** ``build_sieve_driver(env)`` returns ``None``
-   unless ``TEX_SIEVE_ENABLED`` is truthy. With the master flag unset the live
-   path is byte-for-byte the legacy path — no driver is attached, ignite never
-   touches SIEVE, and boot is identical to today. Even with the master flag on,
-   each plane stays inert until its own ``TEX_SIEVE_P*`` flag is set (the
-   registry's ``build_active_sensors`` is itself flag-gated per plane).
+1. **Begin ignites the ENTIRE discovery layer.** ``build_sieve_driver(env)``
+   returns a live driver by default, with the full-sweep switch
+   (``TEX_SIEVE_ALL``) lit on its env snapshot — every roster plane arms on
+   every sweep, and a plane is dark only when its vantage genuinely does not
+   exist (no source, no credential), never because a flag was unset. An
+   EXPLICIT operator value always wins: ``TEX_SIEVE_ENABLED=0`` removes the
+   driver entirely (legacy path, byte-for-byte), an explicit ``TEX_SIEVE_ALL``
+   value is honored as-is, and an explicit falsey per-plane flag opts that one
+   plane out even under the full sweep. Genuinely-intrusive sub-actions (decoy
+   planting, active MCP probing) stay behind their OWN sub-flags, which the
+   sweep never sets — full sweep means passive sensing on every plane.
 
 2. **Never raise on construction or run.** Building the driver and running a
    scan are both wrapped so a missing source / credential / sensor degrades to
@@ -23,8 +28,10 @@ The two HARD SAFETY RULES (ARCHITECTURE.md §8) are enforced here:
 
 Production posture: in ``is_production_env()`` the synthetic/demo estate roots
 (the slice's planted actions/workspace dirs) are forced OFF, so SIEVE surfaces
-only real, flag-enabled planes — exactly mirroring how
-``_build_discovery_connectors`` refuses synthetic agents in production.
+only real planes — exactly mirroring how ``_build_discovery_connectors``
+refuses synthetic agents in production. The full sweep itself runs in
+production too: real planes with real vantage light up for any tenant that
+presses Begin.
 """
 
 from __future__ import annotations
@@ -48,6 +55,17 @@ def _truthy(value: str | None) -> bool:
     }
 
 
+def _explicitly_falsey(value: str | None) -> bool:
+    """A deliberate operator opt-out — the only thing that turns SIEVE off."""
+    return isinstance(value, str) and value.strip().casefold() in {
+        "0",
+        "false",
+        "no",
+        "off",
+        "disabled",
+    }
+
+
 #: The slice planes' §8 activation flags (roster: engine/sensors/registry.py).
 #: ``build_sieve_driver`` injects these onto its env snapshot when the matching
 #: dev-only root (``TEX_SIEVE_ACTIONS_DIR`` / ``TEX_SIEVE_WORKSPACE_DIR``)
@@ -56,15 +74,20 @@ def _truthy(value: str | None) -> bool:
 _ACTIONS_TRAIL_FLAG = "TEX_SIEVE_ACTIONS_TRAIL"
 _FS_WRITE_FLAG = "TEX_SIEVE_FS_WRITE"
 
+#: The full-sweep switch (registry.py `_ALL_FLAG`): lit on the driver's env
+#: snapshot by default so a single press of Begin arms the whole roster.
+_ALL_FLAG = "TEX_SIEVE_ALL"
+
 
 @dataclass(frozen=True)
 class SieveDriver:
     """A thin, pre-built handle ignite calls to run the SIEVE engine.
 
-    Constructed ONLY when ``TEX_SIEVE_ENABLED`` is on. Holds the env snapshot
-    (so per-plane flags + source paths are read consistently) and the
-    sense-context roots for the slice planes. ``run(registry, ledger)`` drives
-    ``pipeline.run_planes`` over the flag-enabled plane roster, projecting every
+    Constructed by default (only an explicit ``TEX_SIEVE_ENABLED=0`` opt-out
+    removes it). Holds the env snapshot (so the full-sweep switch, per-plane
+    opt-outs and source paths are read consistently) and the sense-context
+    roots for the slice planes. ``run(registry, ledger)`` drives
+    ``pipeline.run_planes`` over the armed plane roster, projecting every
     resolved entity through the existing registry/ledger governance boundary.
 
     The driver NEVER raises: a missing source, an empty roster, or any internal
@@ -115,18 +138,22 @@ class SieveDriver:
 
 
 def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | None:
-    """Build the optional SIEVE driver — or ``None`` when the master flag is off.
+    """Build the SIEVE driver — live, full-sweep, by default.
 
-    Default-safe contract:
+    Contract (Begin ignites the entire discovery layer):
 
-    - ``TEX_SIEVE_ENABLED`` unset/false  → returns ``None``. The caller attaches
-      nothing; the live discovery path is identical to today. This is the
-      common case a merge-to-main / prod deploy stays on.
-    - ``TEX_SIEVE_ENABLED`` truthy        → returns a ``SieveDriver`` whose
-      sense-context roots are read from the env (slice planes) and forced OFF in
-      production (no synthetic estate). The per-plane ``TEX_SIEVE_P*`` flags
-      still gate which planes actually build a sensor, so an enabled master flag
-      with no plane flags is a live-but-empty driver (still no-op in effect).
+    - Default (``TEX_SIEVE_ENABLED`` unset or any non-falsey value) → returns a
+      ``SieveDriver`` with the full-sweep switch (``TEX_SIEVE_ALL``) lit on its
+      env snapshot, so EVERY roster plane arms on every sweep. A plane with no
+      vantage (missing source/credential) degrades to its inert sensor and is
+      spoken as a dark plane — dark means "no vantage here yet", never "a flag
+      was unset".
+    - ``TEX_SIEVE_ENABLED`` explicitly falsey (``0``/``false``/``no``/``off``/
+      ``disabled``) → returns ``None``; the live discovery path is
+      byte-for-byte the legacy path. The ONLY way SIEVE stays out of ignite.
+    - An explicit ``TEX_SIEVE_ALL`` value is honored as-is (never overridden),
+      and an explicitly-falsey per-plane flag opts that single plane out even
+      under the full sweep (see ``build_active_sensors``).
     - A present (non-production) slice root implies its plane:
       ``TEX_SIEVE_ACTIONS_DIR`` lights ``TEX_SIEVE_ACTIONS_TRAIL`` and
       ``TEX_SIEVE_WORKSPACE_DIR`` lights ``TEX_SIEVE_FS_WRITE`` on the driver's
@@ -138,7 +165,7 @@ def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | No
     path only).
     """
     source = env if env is not None else os.environ
-    if not _truthy(source.get("TEX_SIEVE_ENABLED")):
+    if _explicitly_falsey(source.get("TEX_SIEVE_ENABLED")):
         return None
 
     try:
@@ -176,6 +203,12 @@ def build_sieve_driver(env: Mapping[str, str] | None = None) -> SieveDriver | No
             snapshot[_ACTIONS_TRAIL_FLAG] = "1"
         if workspace_dir is not None and not (snapshot.get(_FS_WRITE_FLAG) or "").strip():
             snapshot[_FS_WRITE_FLAG] = "1"
+
+        # Begin ignites the ENTIRE discovery layer: the full-sweep switch is the
+        # default, so every roster plane arms and a plane is dark only for lack
+        # of vantage. An explicit operator value (on OR off) is never overridden.
+        if not (snapshot.get(_ALL_FLAG) or "").strip():
+            snapshot[_ALL_FLAG] = "1"
 
         return SieveDriver(
             env=snapshot,

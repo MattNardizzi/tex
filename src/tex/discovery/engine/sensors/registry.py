@@ -378,12 +378,20 @@ _ROSTER: dict[PlaneId, PlaneRegistration] = {
 
 
 _TRUTHY = frozenset({"1", "true", "yes", "on", "enabled"})
+_FALSEY = frozenset({"0", "false", "no", "off", "disabled"})
 
 
 def _is_enabled(env: Mapping[str, str], flag: str) -> bool:
     """A flag is enabled iff present with a recognized truthy value."""
     val = env.get(flag)
     return isinstance(val, str) and val.strip().casefold() in _TRUTHY
+
+
+def _is_disabled(env: Mapping[str, str], flag: str) -> bool:
+    """An EXPLICIT per-plane opt-out — the only thing that darkens a plane
+    under the full sweep (``TEX_SIEVE_ALL``). Absence is not an opt-out."""
+    val = env.get(flag)
+    return isinstance(val, str) and val.strip().casefold() in _FALSEY
 
 
 #: The full-sweep master switch. When truthy, EVERY roster plane is built (each
@@ -434,10 +442,17 @@ def active_plane_flags(env: Mapping[str, str]) -> tuple[str, ...]:
     """The env flags that are enabled in ``env`` (sorted, for receipts/tests).
 
     With the full-sweep switch (``TEX_SIEVE_ALL``) on, every roster plane is
-    active, so all roster flags are reported.
+    active — except planes the operator EXPLICITLY opted out with a falsey
+    per-plane value — so the reported flags mirror what actually armed.
     """
     if _run_all(env):
-        return tuple(sorted(reg.env_flag for reg in _ROSTER.values()))
+        return tuple(
+            sorted(
+                reg.env_flag
+                for reg in _ROSTER.values()
+                if not _is_disabled(env, reg.env_flag)
+            )
+        )
     return tuple(
         sorted(reg.env_flag for reg in _ROSTER.values() if _is_enabled(env, reg.env_flag))
     )
@@ -458,7 +473,11 @@ def build_active_sensors(env: Mapping[str, str]) -> list[EngineSensor]:
     sensors: list[EngineSensor] = []
     run_all = _run_all(env)
     for reg in _ROSTER.values():
-        if run_all or _is_enabled(env, reg.env_flag):
+        if run_all:
+            # Full sweep: every plane arms unless EXPLICITLY opted out.
+            if not _is_disabled(env, reg.env_flag):
+                sensors.append(reg.factory(env))
+        elif _is_enabled(env, reg.env_flag):
             sensors.append(reg.factory(env))
     return sensors
 

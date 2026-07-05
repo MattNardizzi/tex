@@ -182,9 +182,9 @@ class BackgroundScanScheduler:
         tick re-runs SIEVE each cycle — the same engine + governance boundary
         ``/ignite`` uses (api/discovery_surface_routes.py).
 
-        ADDITIVE and default-safe: ``sieve_driver`` is ``None`` unless
-        ``TEX_SIEVE_ENABLED`` is set, so with no flags this is a no-op and the
-        standing loop is byte-for-byte unchanged. Idempotent; safe to call
+        ADDITIVE: ``sieve_driver`` is live (full sweep) by default; it is
+        ``None`` only under an explicit ``TEX_SIEVE_ENABLED=0`` opt-out, which
+        keeps the standing loop byte-for-byte legacy. Idempotent; safe to call
         before ``start()``.
         """
         self._sieve_driver = sieve_driver
@@ -428,10 +428,10 @@ class BackgroundScanScheduler:
 
         # ── SIEVE standing re-run — ADDITIVE, default-safe ────────────────────
         # The standing watch re-runs the SIEVE engine each cycle (not only the
-        # legacy connector scan above). With ``TEX_SIEVE_ENABLED`` unset the
-        # driver is None and this is a pure no-op, so the tick is byte-for-byte
-        # unchanged at default. When present, SIEVE re-projects every flag-enabled
-        # plane through the SAME registry + ledger governance boundary each tick,
+        # legacy connector scan above). The driver is live (full sweep) by
+        # default; only an explicit ``TEX_SIEVE_ENABLED=0`` leaves it None and
+        # keeps the tick byte-for-byte legacy. When present, SIEVE re-projects
+        # every armed plane through the SAME registry + ledger boundary each tick,
         # so a shadow agent that only a SIEVE plane can see — and that appeared
         # AFTER ignition — is re-discovered on the watch, not only at /ignite.
         #

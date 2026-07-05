@@ -332,11 +332,11 @@ class _RecordingSieveDriver:
     ``projected`` count — the duck-typed surface the scheduler reads."""
 
     def __init__(self, projected: int = 1) -> None:
-        self.runs: list[tuple[object, object]] = []
+        self.runs: list[tuple[object, object, str]] = []
         self._projected = projected
 
-    def run(self, registry, ledger):
-        self.runs.append((registry, ledger))
+    def run(self, registry, ledger, *, tenant="default"):
+        self.runs.append((registry, ledger, tenant))
 
         class _R:
             projected = self._projected
@@ -366,11 +366,16 @@ class TestStandingLoopReRunsSieve:
 
         summary = sched.trigger_now()
 
-        # SIEVE ran exactly once this cycle, handed the SAME registry + ledger.
+        # SIEVE ran exactly once this cycle, handed the SAME registry + ledger,
+        # threading the ENROLLED tenant (the ignite continuation — a re-run
+        # under any other tenant would re-mint the same entities as new rows).
         assert len(driver.runs) == 1
-        assert driver.runs[0] == (registry, ledger)
-        # ...and the cycle records what SIEVE projected.
-        assert summary["sieve"] == {"projected": 2}
+        assert driver.runs[0] == (registry, ledger, "tenant-a")
+        # ...and the cycle records what SIEVE projected, per tenant.
+        assert summary["sieve"] == {
+            "projected": 2,
+            "tenants": {"tenant-a": {"projected": 2}},
+        }
 
         # A second tick re-runs it — the gap this closes is "only at /ignite".
         sched.trigger_now()
@@ -392,7 +397,7 @@ class TestStandingLoopReRunsSieve:
         records the error, it does not take down the dormancy/scan cycle."""
 
         class _BoomDriver:
-            def run(self, registry, ledger):
+            def run(self, registry, ledger, *, tenant="default"):
                 raise RuntimeError("plane exploded")
 
         sched = BackgroundScanScheduler(
@@ -406,4 +411,4 @@ class TestStandingLoopReRunsSieve:
             discovery_ledger=object(),
         )
         summary = sched.trigger_now()  # must not raise
-        assert "error" in summary["sieve"]
+        assert "error" in summary["sieve"]["tenants"]["tenant-a"]

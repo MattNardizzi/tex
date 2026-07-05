@@ -1722,14 +1722,14 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     app.state.discovery_ledger = runtime.discovery_ledger
     app.state.discovery_service = runtime.discovery_service
 
-    # SIEVE engine — the greenfield discovery engine, wired ADDITIVELY and
-    # DEFAULT-SAFE alongside the legacy connector path. ``build_sieve_driver``
-    # returns ``None`` unless ``TEX_SIEVE_ENABLED`` is set (the master flag),
-    # so with no flags the live path is byte-for-byte the legacy path and
-    # nothing is attached. When the master flag is on, the driver runs only the
-    # planes whose own ``TEX_SIEVE_P*`` flag is set, each degrading to empty on
-    # missing creds/sources; in production the synthetic slice estate is forced
-    # off. Construction never raises — a failure leaves ``sieve_driver`` None.
+    # SIEVE engine — the greenfield discovery engine, wired ADDITIVELY
+    # alongside the legacy connector path. ``build_sieve_driver`` is LIVE by
+    # default with the full sweep lit (every roster plane arms; a plane is dark
+    # only for lack of vantage, each sensor degrading to empty on missing
+    # creds/sources). An explicit ``TEX_SIEVE_ENABLED=0`` opts the whole engine
+    # out (legacy path, byte-for-byte); in production the synthetic slice
+    # estate is forced off. Construction never raises — a failure leaves
+    # ``sieve_driver`` None.
     try:
         from tex.discovery.sieve_driver import build_sieve_driver
 
@@ -1777,9 +1777,9 @@ def _attach_runtime_to_app(app: FastAPI, runtime: TexRuntime) -> None:
     # driver + shared registry + discovery ledger that ``/ignite`` uses, so the
     # periodic tick re-runs SIEVE — not only the legacy connector scan. All
     # three are on ``app.state`` by now (agent_registry, discovery_ledger,
-    # sieve_driver set above). Default-safe: ``sieve_driver`` is ``None`` unless
-    # ``TEX_SIEVE_ENABLED`` is set, so this is a no-op at default and the
-    # standing loop stays byte-for-byte unchanged.
+    # sieve_driver set above). ``sieve_driver`` is live (full sweep) by
+    # default; only an explicit ``TEX_SIEVE_ENABLED=0`` leaves it ``None`` and
+    # keeps the standing loop byte-for-byte legacy.
     try:
         if runtime.scan_scheduler is not None:
             runtime.scan_scheduler.attach_sieve(

@@ -341,12 +341,21 @@ project(entity: SieveEntity):
 
 ---
 
-## 8. The full PLANE roster + flag-gating / default-safe posture
+## 8. The full PLANE roster + full-sweep-by-default posture
 
 The 14-plane breadth target (RESEARCH_LOG §1), including the FLOOR planes the brief requires
 (identity, network-egress, kernel/eBPF, managed control planes, SaaS/automation, governance-stream).
-**Every new plane ships flag-gated OFF / default-safe** — the merge to `main` (auto-deploys tex-web
-to prod on Render) must NOT activate anything or crash ignite.
+**Begin ignites the ENTIRE discovery layer**: `build_sieve_driver` is live by default and lights the
+full-sweep switch (`TEX_SIEVE_ALL`) on its env snapshot, so every roster plane arms on every sweep —
+in dev AND production. A plane is dark only when its vantage genuinely does not exist (no source, no
+credential — the sensor degrades to inert and coverage speaks it as a dark plane), never because a
+flag was unset. Explicit operator values always win: `TEX_SIEVE_ENABLED=0` removes the driver
+entirely, an explicit `TEX_SIEVE_ALL` value is honored as-is, and an explicitly-falsey per-plane flag
+opts that single plane out under the full sweep. The per-plane activation flags below remain the
+opt-out/opt-in vocabulary; they are no longer required to arm a plane. Genuinely-intrusive
+sub-actions (P14 decoy planting, P10 active probing) keep their OWN sub-flags, which the sweep never
+sets — full sweep means passive sensing on every plane. The merge to `main` (auto-deploys tex-web to
+prod on Render) must still never crash ignite: every sensor degrades to EMPTY, never raises.
 
 | Plane | FLOOR category | Default | Activation flag | Default-safe degrade |
 |-------|----------------|---------|-----------------|----------------------|
@@ -367,7 +376,7 @@ to prod on Render) must NOT activate anything or crash ignite.
 | P0 coverage-health | governance-stream | OFF | `TEX_SIEVE_P0_COVERAGE` | reports "coverage unknown" |
 | Occasion A actions-trail (§10 slice) | governance-stream (runtime logs) | OFF | `TEX_SIEVE_ACTIONS_TRAIL` — auto-lit in dev when `TEX_SIEVE_ACTIONS_DIR` is set; an explicit value wins | empty (no root in SenseContext) |
 | Occasion B fs-write-scan (§10 slice) | endpoint (workspace ground truth) | OFF | `TEX_SIEVE_FS_WRITE` — auto-lit in dev when `TEX_SIEVE_WORKSPACE_DIR` is set; an explicit value wins | empty; both roots forced OFF in production |
-| SIEVE engine master | — | OFF | `TEX_SIEVE_ENABLED` | falls back to key-equality reconciliation |
+| SIEVE engine master | — | **ON (full sweep)** | `TEX_SIEVE_ENABLED` — explicit `0` opts out; `TEX_SIEVE_ALL` injected unless explicitly set | falls back to key-equality reconciliation |
 
 Gating rules (grounded in main.py wiring-seam): construction MUST NOT throw on missing creds (boot
 list built eagerly before lifespan); each sensor's `scan` MUST degrade to EMPTY, not raise (like
@@ -451,7 +460,8 @@ being double-counted.
 - It does not treat any single plane as identity (every plane is an anonymity-set-weighted edge).
 - It does not claim totality — the headline is always a lower bound + CI + named blind spots.
 - It does not fake-find the zero-signal class — those are NAMED in the register (`docs/internal/BLIND_SPOT_REGISTER.md`).
-- It does not auto-activate on merge — every plane is flag-gated OFF / default-safe (§8).
+- Intrusive sub-actions never auto-activate — the full sweep arms passive sensing only; decoy
+  planting and active probing stay behind their own sub-flags (§8).
 - It does not rebuild the governance boundary — it reuses registry/ledger/PDP exactly (§7).
 
 ---

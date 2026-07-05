@@ -38,7 +38,7 @@ import json
 from pathlib import Path
 
 from tex.discovery.engine import adapter  # noqa: F401 — binds SieveEntity output stubs
-from tex.discovery.engine.sensors.registry import build_active_sensors
+from tex.discovery.engine.sensors.registry import build_active_sensors, roster_plane_ids
 from tex.discovery.sieve_driver import SieveDriver, build_sieve_driver
 from tex.stores.agent_registry import InMemoryAgentRegistry
 from tex.stores.discovery_ledger import InMemoryDiscoveryLedger
@@ -81,17 +81,43 @@ def _plant_two_occasion_estate(root: Path) -> tuple[Path, Path]:
 
 
 # ---------------------------------------------------------------------------
-# (a) DORMANT BY DEFAULT — no flags → no driver, legacy path unchanged.
+# (a) LIVE BY DEFAULT — Begin ignites the entire discovery layer; only an
+#     EXPLICIT operator opt-out (master or per-plane) turns anything off.
 # ---------------------------------------------------------------------------
 
 
-def test_no_flags_yields_no_driver():
-    """With no env flags, ``build_sieve_driver`` is a pure no-op (returns None)."""
-    assert build_sieve_driver({}) is None
-    # Also robust to unrelated env present but the master flag absent / falsey.
-    assert build_sieve_driver({"TEX_APP_ENV": "development"}) is None
+def test_default_is_live_full_sweep():
+    """With no env flags, ``build_sieve_driver`` returns a LIVE driver with the
+    full-sweep switch lit — every roster plane arms; a plane is dark only when
+    its vantage is genuinely missing, never because a flag was unset."""
+    driver = build_sieve_driver({})
+    assert isinstance(driver, SieveDriver)
+    assert driver.env.get("TEX_SIEVE_ALL") == "1"
+    # The full roster arms (flags reported for receipts).
+    assert len(driver.active_plane_flags()) == len(roster_plane_ids())
+    # An EXPLICIT full-sweep value is honored as-is, never overridden.
+    explicit = build_sieve_driver({"TEX_SIEVE_ALL": "0"})
+    assert isinstance(explicit, SieveDriver)
+    assert explicit.env.get("TEX_SIEVE_ALL") == "0"
+
+
+def test_explicit_master_opt_out_yields_no_driver():
+    """Only a DELIBERATE falsey master flag removes the driver — the legacy
+    path, byte-for-byte. Unset is not an opt-out."""
     assert build_sieve_driver({_MASTER: "0"}) is None
     assert build_sieve_driver({_MASTER: "false"}) is None
+    assert build_sieve_driver({_MASTER: "off"}) is None
+    assert isinstance(build_sieve_driver({"TEX_APP_ENV": "development"}), SieveDriver)
+
+
+def test_explicit_per_plane_opt_out_darkens_that_plane_only():
+    """Under the full sweep an explicitly-falsey per-plane flag opts that ONE
+    plane out; every other plane stays armed."""
+    driver = build_sieve_driver({_ACTIONS_FLAG: "0"})
+    assert isinstance(driver, SieveDriver)
+    flags = driver.active_plane_flags()
+    assert _ACTIONS_FLAG not in flags
+    assert len(flags) == len(roster_plane_ids()) - 1
 
 
 def test_no_flags_build_active_sensors_is_empty():
@@ -120,13 +146,17 @@ def test_build_discovery_connectors_unchanged_without_flags(monkeypatch):
     monkeypatch.setenv(_MASTER, "1")
     after = [type(c).__name__ for c in _build_discovery_connectors()]
     assert before == after
-    # And the driver the flag would build is a no-op against the registry/ledger.
-    assert build_sieve_driver({}) is None
+    # The live-by-default driver is a SIBLING too — its existence never touches
+    # the legacy connector list.
+    assert isinstance(build_sieve_driver({}), SieveDriver)
 
 
 def test_dormant_driver_run_is_inert_when_master_off():
-    """No driver → no projection. Simulate the ignite guard's None-check."""
-    driver = build_sieve_driver({_ACTIONS_FLAG: "1"})  # plane flag but NO master
+    """No driver → no projection. Simulate the ignite guard's None-check.
+
+    An EXPLICIT master opt-out wins over everything else — even an explicit
+    plane flag — and ignite skips SIEVE entirely."""
+    driver = build_sieve_driver({_ACTIONS_FLAG: "1", _MASTER: "0"})
     assert driver is None  # ignite would skip SIEVE entirely
 
 
@@ -396,10 +426,11 @@ def test_explicit_flag_value_beats_root_injection(tmp_path, monkeypatch):
     assert PlaneId.FS_WRITE in result.occasions
 
 
-def test_production_roots_never_inject_flags(tmp_path, monkeypatch):
-    """Production posture unchanged: the roots are forced off AND no slice-plane
-    flag is injected — a stray dev DIR var on a prod deploy changes nothing,
-    not even the coverage receipts."""
+def test_production_roots_never_sense_synthetic_estate(tmp_path, monkeypatch):
+    """Production posture: the synthetic roots are forced off, so even under the
+    full sweep (slice planes ARMED) their sensors have no vantage and a stray
+    dev DIR var on a prod deploy surfaces NOTHING — no minted entities, no
+    projection from the planted estate."""
     monkeypatch.setenv("TEX_APP_ENV", "production")
     actions_dir, workspace_dir = _plant_two_occasion_estate(tmp_path)
     env = {
@@ -411,8 +442,6 @@ def test_production_roots_never_inject_flags(tmp_path, monkeypatch):
     assert isinstance(driver, SieveDriver)
     assert driver.actions_dir is None
     assert driver.workspace_dir is None
-    assert _ACTIONS_FLAG not in driver.active_plane_flags()
-    assert _FS_FLAG not in driver.active_plane_flags()
 
     registry = InMemoryAgentRegistry()
     result = driver.run(registry, InMemoryDiscoveryLedger())

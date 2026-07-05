@@ -75,6 +75,11 @@ from dataclasses import dataclass
 from typing import Mapping, Sequence
 from uuid import UUID, uuid4
 
+try:  # numpy is a declared dependency; degrade to the pure-python path without it
+    import numpy as _np
+except Exception:  # noqa: BLE001 — the splitter must import everywhere
+    _np = None  # type: ignore[assignment]
+
 from tex.discovery.engine.models import (
     AgentHumanLabel,
     AgentHumanVerdict,
@@ -335,7 +340,18 @@ def _gaussian_mixture_bic(
         labels = [0] * n
     else:
         labels = _agglomerate(dist, k)
+    return _bic_for_labels(dist, k, labels)
 
+
+def _bic_for_labels(
+    dist: list[list[float]], k: int, labels: list[int]
+) -> tuple[float, list[int]]:
+    """The BIC scoring half of ``_gaussian_mixture_bic`` for a given labelling.
+
+    Split out so the k-sweep can score every k from ONE agglomeration ladder
+    instead of re-clustering per candidate k. Scoring is unchanged.
+    """
+    n = len(dist)
     # Per-component residual variance from each point's distance to its medoid.
     # Medoid of a cluster = the member minimizing total intra-cluster distance.
     clusters: dict[int, list[int]] = {}
@@ -374,28 +390,89 @@ def _agglomerate(dist: list[list[float]], k: int) -> list[int]:
     clusters remain. Deterministic (ties broken by index) so the splitter is
     reproducible and receipt-stable.
     """
+    return _agglomeration_ladder(dist, k, k)[k]
+
+
+def _agglomeration_ladder(
+    dist: list[list[float]], k_lo: int, k_hi: int
+) -> dict[int, list[int]]:
+    """One agglomeration pass, recording the labelling at every k in [k_lo, k_hi].
+
+    The merge sequence of complete-linkage agglomeration does not depend on the
+    stopping k — running to ``k`` and running to ``k-1`` share their entire merge
+    prefix — so the BIC sweep can score every candidate k from ONE pass instead
+    of re-deriving the prefix per k (which made ignite's shared-credential
+    resolve O(k·n⁴) and stalled Begin for tens of seconds on a real estate).
+
+    Inter-cluster distances are maintained by the Lance–Williams complete-linkage
+    update d(x, i∪j) = max(d(x,i), d(x,j)), which yields exactly the same linkage
+    values as recomputing max-over-pairs, so the merge order — smallest linkage
+    first, ties broken by ascending pair order — and therefore every labelling is
+    identical to the naive pass, just not recomputed 150M generator steps at a
+    time. numpy carries the matrix when available; the pure-python fallback keeps
+    the same update and tie-break semantics.
+    """
     n = len(dist)
-    clusters: list[list[int]] = [[i] for i in range(n)]
+    k_lo = max(1, min(k_lo, n))
+    k_hi = min(k_hi, n)
+    out: dict[int, list[int]] = {}
 
-    def linkage(ca: list[int], cb: list[int]) -> float:
-        return max(dist[x][y] for x in ca for y in cb)
+    # members[slot] = original point indices merged into that slot; alive slots
+    # in ascending order mirror the naive implementation's list order, so the
+    # final label numbering is identical.
+    members: list[list[int]] = [[i] for i in range(n)]
+    alive: list[int] = list(range(n))
 
-    while len(clusters) > k:
+    def snapshot() -> list[int]:
+        labels = [0] * n
+        for lab, slot in enumerate(alive):
+            for m in members[slot]:
+                labels[m] = lab
+        return labels
+
+    if k_lo <= n <= k_hi:
+        out[n] = snapshot()
+
+    if _np is not None:
+        d = _np.asarray(dist, dtype=_np.float64).copy()
+        _np.fill_diagonal(d, _np.inf)
+        # Row-major argmin over the symmetric matrix finds the smallest linkage
+        # at its (i<j) position first — the naive loop's exact tie-breaking.
+        while len(alive) > k_lo:
+            flat = int(_np.argmin(d))
+            i, j = divmod(flat, n)
+            members[i].extend(members[j])
+            alive.remove(j)
+            row = _np.maximum(d[i], d[j])
+            row[i] = _np.inf
+            d[i, :] = row
+            d[:, i] = row
+            d[j, :] = _np.inf
+            d[:, j] = _np.inf
+            if k_lo <= len(alive) <= k_hi:
+                out[len(alive)] = snapshot()
+        return out
+
+    # Pure-python fallback: same Lance–Williams update on a dict-of-rows.
+    link: list[list[float]] = [list(row) for row in dist]
+    while len(alive) > k_lo:
         best = (math.inf, -1, -1)
-        for i in range(len(clusters)):
-            for j in range(i + 1, len(clusters)):
-                d = linkage(clusters[i], clusters[j])
-                if d < best[0]:
-                    best = (d, i, j)
+        for ai in range(len(alive)):
+            for aj in range(ai + 1, len(alive)):
+                si, sj = alive[ai], alive[aj]
+                dv = link[si][sj]
+                if dv < best[0]:
+                    best = (dv, si, sj)
         _, i, j = best
-        clusters[i].extend(clusters[j])
-        del clusters[j]
-
-    labels = [0] * n
-    for lab, members in enumerate(clusters):
-        for m in members:
-            labels[m] = lab
-    return labels
+        members[i].extend(members[j])
+        alive.remove(j)
+        for x in alive:
+            if x != i:
+                merged = max(link[i][x], link[j][x])
+                link[i][x] = link[x][i] = merged
+        if k_lo <= len(alive) <= k_hi:
+            out[len(alive)] = snapshot()
+    return out
 
 
 def _mixture_evalue(dist: list[list[float]], labels: list[int]) -> float:
@@ -629,11 +706,15 @@ def resolve_shared_credential(
                 d = _grammar_distance(features[i], features[j])
                 gdist[i][j] = gdist[j][i] = d
 
-        # 1. BIC sweep for k = 1..min(K_MAX, n) on the grammar distance.
+        # 1. BIC sweep for k = 1..min(K_MAX, n) on the grammar distance. ONE
+        #    agglomeration ladder yields the labelling for every candidate k
+        #    (identical labels to clustering per-k; see _agglomeration_ladder).
         k_max = min(_K_MAX, n)
+        ladder = _agglomeration_ladder(gdist, 2, k_max) if k_max >= 2 else {}
         bic_by_k: dict[int, tuple[float, list[int]]] = {}
         for k in range(1, k_max + 1):
-            bic_by_k[k] = _gaussian_mixture_bic(gdist, k)
+            labels_k = [0] * n if k <= 1 else ladder[k]
+            bic_by_k[k] = _bic_for_labels(gdist, k, labels_k)
 
         bic_single = bic_by_k[1][0]
 

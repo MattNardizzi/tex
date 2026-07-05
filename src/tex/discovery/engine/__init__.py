@@ -6,10 +6,11 @@ OWN data model (``models``), the SENSE/FUSE/ESTIMATE pipeline stages, and the
 one-way OUTPUT ADAPTER into the existing ``agent_registry`` / ``discovery_ledger``
 so ``StandingGovernance.decide`` governs every resolved entity.
 
-Everything is flag-gated behind ``TEX_SIEVE_ENABLED`` (default OFF). The slice
-is exercised by direct unit/integration tests and is NOT yet wired into
-``_build_discovery_connectors`` — a merge to main must not activate anything or
-crash boot. See ARCHITECTURE.md §8, §10.
+The engine runs LIVE by default with the full sweep lit (every roster plane
+arms; only an explicit ``TEX_SIEVE_ENABLED=0`` opts out — see sieve_driver).
+The slice is exercised by direct unit/integration tests and is NOT wired into
+``_build_discovery_connectors`` — a merge to main must never crash boot. See
+ARCHITECTURE.md §8, §10.
 
 The data-model contract (``models``) is always importable regardless of the
 flag; the flag only governs whether the engine runs inside the live service.

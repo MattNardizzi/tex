@@ -491,6 +491,10 @@ class StandingGovernance:
         tid = (tenant or "").strip().casefold()
         channel = channel or self._default_channel
         environment = environment or self._default_environment
+        # The agent label the kernel forbid-set binds to (str(agent_id) when a PEP
+        # passes one, else the external id). Carried into the floor FORBID seal so a
+        # receipt names the SAME agent the in-kernel deny map does.
+        agent_ref = agent_external_id or (str(agent_id) if agent_id is not None else None)
 
         # ---- Tier 1: structural floor (inline, microseconds, fail-closed) ----
 
@@ -507,6 +511,7 @@ class StandingGovernance:
                 environment=environment,
                 recipient=recipient,
                 tenant=tid,
+                agent_external_id=agent_ref,
             )
 
         if not self._is_governable(agent):
@@ -863,6 +868,7 @@ class StandingGovernance:
         environment: str | None = None,
         recipient: str | None = None,
         tenant: str | None = None,
+        agent_external_id: str | None = None,
     ) -> DecisionOutcome:
         # When a ledger is wired (TEX_SEAL_DECISIONS=1) seal this deterministic
         # floor FORBID as one offline-verifiable SealedFact(ENFORCEMENT) and stamp
@@ -880,6 +886,7 @@ class StandingGovernance:
             recipient=recipient,
             tenant=tenant,
             agent_id=agent_id,
+            agent_external_id=agent_external_id,
         )
         return DecisionOutcome(
             verdict=Verdict.FORBID,
@@ -985,6 +992,7 @@ class StandingGovernance:
         recipient: str | None,
         tenant: str | None,
         agent_id: UUID | None,
+        agent_external_id: str | None = None,
     ) -> tuple[UUID | None, str | None]:
         """Seal one deterministic-floor ruling and return ``(decision_id,
         evidence_hash)`` to stamp onto the outcome.
@@ -1016,7 +1024,7 @@ class StandingGovernance:
                 environment=environment,
                 recipient=recipient,
                 tenant=tenant,
-                agent_id=str(agent_id) if agent_id is not None else None,
+                agent_id=str(agent_id) if agent_id is not None else agent_external_id,
                 decision_id=str(decision_id),
             )
         except Exception:  # noqa: BLE001 — sealing must never break the ruling

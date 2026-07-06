@@ -155,6 +155,50 @@ class HeldDecisionSink:
             self._items.clear()
             return items
 
+    def resolve_decision(self, decision_id: str, *, tenant: str | None = None) -> int:
+        """
+        Drop the held item(s) a human just sealed for ``decision_id``.
+
+        A held decision is not resolved when the seal row is written — it is
+        resolved when this queue stops speaking it. The seal handler calls this
+        the instant a named human act seals the decision, so the sealed hold
+        drops out of ``/held`` and stops counting in the vigil headline (both
+        read this same sink). Matching is by the durable ``decision_id`` the
+        hold was stamped with, scoped to ``tenant`` so a seal can never reach
+        across into another tenant's queue.
+
+        Idempotent by construction: sealing twice, or sealing a decision that
+        never had a sink entry (a hold with no stamped id, or one already
+        drained), removes nothing and simply returns 0 — it never raises.
+        Returns the number of held items removed.
+        """
+        wanted_id = (decision_id or "").strip()
+        if not wanted_id:
+            return 0
+        wanted_tenant = (
+            None if tenant is None else tenant.strip().casefold()
+        )
+        # A None/"default"/"" tenant is the operator/fleet scope — it may resolve
+        # any tenant's matching hold (mirrors peek_for_tenant's omniscient default);
+        # a specific tenant may only resolve its own.
+        fleet_scope = wanted_tenant in (None, "", "default")
+        with self._lock:
+            kept: list[HeldDecision] = []
+            removed = 0
+            for item in self._items:
+                if item.decision_id != wanted_id:
+                    kept.append(item)
+                    continue
+                if not fleet_scope:
+                    item_tenant = (item.tenant_id or "default").strip().casefold()
+                    if item_tenant != wanted_tenant:
+                        kept.append(item)
+                        continue
+                removed += 1
+            if removed:
+                self._items = kept
+            return removed
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._items)

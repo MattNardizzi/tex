@@ -108,6 +108,19 @@ class SystemDriftSnapshotDTO(BaseModel):
 
 class SystemChainDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    # HONEST SCOPE: unlike governance/last_scan/connectors/drift, this
+    # block is NOT scoped to the principal's tenant — and cannot be. The
+    # discovery ledger and the governance-snapshot store are single
+    # append-only hash chains shared by every tenant; chain integrity is
+    # a property of the whole chain, not of any one tenant's slice (you
+    # cannot filter a hash chain by tenant without breaking the very
+    # linkage the boolean attests to). That is also the right answer for
+    # the surface: "can Tex still prove what it sealed?" is a system-wide
+    # truth, not a per-tenant one (see the Vigil hook — a broken chain is
+    # what flips EVERY tenant's surface into the faltering state). So we
+    # label the block ``scope="global"`` rather than imply it belongs to
+    # the requesting tenant. Additive + backward-compatible.
+    scope: str = "global"
     discovery_ledger_length: int = 0
     discovery_chain_intact: bool = True
     snapshot_chain_intact: bool = True
@@ -184,7 +197,10 @@ def build_system_state_router() -> APIRouter:
         version_block = SystemVersionDTO(service=APP_TITLE, version=APP_VERSION)
 
         # ---- governance --------------------------------------------------
-        governance = _governance_block(request)
+        # Scoped to the principal's tenant (see _governance_block): the
+        # aggregate here must never sum another estate's rows under this
+        # tenant's label.
+        governance = _governance_block(request, principal)
 
         # ---- last scan ---------------------------------------------------
         last_scan = _last_scan_block(request, effective_tenant)
@@ -221,8 +237,12 @@ def build_system_state_router() -> APIRouter:
 # ---------------------------------------------------------------------------
 
 
-def _governance_block(request: Request) -> SystemGovernanceDTO:
+def _governance_block(
+    request: Request, principal: TexPrincipal,
+) -> SystemGovernanceDTO:
     try:
+        import hashlib
+
         from tex.api.agent_routes import (
             _build_governance,
             _resolve_discovery_ledger,
@@ -237,21 +257,74 @@ def _governance_block(request: Request) -> SystemGovernanceDTO:
             action_ledger=action_ledger,
             discovery_ledger=discovery_ledger,
         )
-        counts = gov.counts
-        total = counts.total_agents
-        governed_pct = (
-            round(100.0 * counts.governed / total, 2) if total else 0.0
-        )
+
+        # ``_build_governance`` walks the FULL registry + discovery ledger
+        # with no tenant filter — the aggregate it returns is estate-wide.
+        # Returning that under a tenant's label is the leak: a tenant-A key
+        # would read tenant-B's governed/ungoverned counts as its own.
+        #
+        # So we recompute the aggregate over ONLY the rows belonging to the
+        # principal's tenant, mirroring the exact post-filter the
+        # ``GET /v1/agents/governance`` route applies (agent_routes.py
+        # ``governance_state``): filter ``gov.agents`` by casefolded
+        # tenant_id, then re-derive the counts + coverage root from that
+        # filtered set so the aggregate stays consistent with what the
+        # principal is actually allowed to see. Operator-grade principals
+        # (anonymous / default-tenant / admin:cross_tenant) keep the full
+        # estate view, same as everywhere else.
+        from tex.api.auth import SCOPE_CROSS_TENANT
+
+        if (
+            principal.is_anonymous
+            or SCOPE_CROSS_TENANT in principal.scopes
+            or principal.tenant == "default"
+        ):
+            rows = list(gov.agents)
+            coverage_root = gov.coverage_root_sha256 or ""
+        else:
+            target = principal.tenant.casefold()
+            rows = [
+                row for row in gov.agents
+                if (row.tenant_id or "").casefold() == target
+            ]
+            # Re-derive the coverage root over the filtered rows so the
+            # published hash binds exactly the tenant's own set — never a
+            # root computed over agents this tenant cannot see. Same
+            # ``agent_id|reconciliation_key|state`` line shape and sort
+            # order as ``_build_governance``.
+            coverage_lines = sorted(
+                f"{row.agent_id or ''}|{row.reconciliation_key or ''}"
+                f"|{row.governance_state}"
+                for row in rows
+            )
+            coverage_root = hashlib.sha256(
+                "\n".join(coverage_lines).encode("utf-8")
+            ).hexdigest()
+
+        from collections import Counter
+
+        states = Counter(row.governance_state for row in rows)
+        high_risk_rows = [
+            row for row in rows
+            if isinstance(row.risk_band, str)
+            and row.risk_band.upper() in {"HIGH", "CRITICAL"}
+        ]
+        total = len(rows)
+        governed = states.get("GOVERNED", 0)
+        governed_pct = round(100.0 * governed / total, 2) if total else 0.0
         return SystemGovernanceDTO(
             total_agents=total,
-            governed=counts.governed,
-            ungoverned=counts.ungoverned,
-            partial=counts.partial,
-            unknown=counts.unknown,
+            governed=governed,
+            ungoverned=states.get("UNGOVERNED", 0),
+            partial=states.get("PARTIAL", 0),
+            unknown=states.get("UNKNOWN", 0),
             governed_pct=governed_pct,
-            high_risk_total=counts.high_risk_total,
-            high_risk_ungoverned=counts.high_risk_ungoverned,
-            coverage_root_sha256=gov.coverage_root_sha256 or "",
+            high_risk_total=len(high_risk_rows),
+            high_risk_ungoverned=sum(
+                1 for row in high_risk_rows
+                if row.governance_state == "UNGOVERNED"
+            ),
+            coverage_root_sha256=coverage_root,
         )
     except Exception:  # noqa: BLE001
         return SystemGovernanceDTO()

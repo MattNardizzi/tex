@@ -259,12 +259,20 @@ def build_discovery_surface_router() -> APIRouter:
             # sweep and re-speaks the honest coverage every press — an active
             # discover+announce button for live iteration. The one-time ignition
             # state is preserved (already_ignited stays true).
+            #
+            # Order is load-bearing, exactly as in the first-ignite branch below:
+            # SWEEP FIRST, then count. The sweep writes newly discovered agents
+            # synchronously into THIS SAME registry, so a count taken before it
+            # would speak the pre-sweep number while the estate already holds the
+            # fresh agents — the "press Begin twice to see the real count" lie.
+            # Counting after the sweep makes the very first press speak live truth.
+            sieve_result = _run_sieve(request, registry, tenant)
             count = _estate_count(registry, tenant)
             words = humanize_count(count)
             agents = "agent" if count == 1 else "agents"
-            clause, coverage_object = _sieve_coverage(
-                _run_sieve(request, registry, tenant), count
-            )
+            # Coverage is normalized to this post-sweep headline count, so the
+            # clause stays coherent with the number the line just spoke.
+            clause, coverage_object = _sieve_coverage(sieve_result, count)
             # Re-seal on change so a repeatable Begin keeps the sealed plane facts
             # current for anything the re-sweep surfaced (gated, bounded, no-op at
             # default).

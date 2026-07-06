@@ -532,6 +532,76 @@ class TestListLeak:
             # important assertion is no 5xx and no leak.
             assert r.json()["total"] == 0
 
+    def test_system_state_governance_filtered_to_principal_tenant(self):
+        # The tenant-truth gap: GET /v1/system/state built its governance
+        # aggregate from the FULL registry with no tenant filter, then
+        # returned it under the key's tenant label — so a tenant-A key
+        # would read tenant-B's rows summed into its own counts. Two
+        # agents in two tenants; the tenant-A key must see total_agents=1.
+        with env_set(
+            TEX_API_KEYS=(
+                "adminkey:internal:agent:write+agent:read+admin:cross_tenant,"
+                "acmekey:tenant_acme:agent:read+agent:write"
+            ),
+            TEX_REQUIRE_AUTH="1",
+        ):
+            app = _build_app()
+            client = TestClient(app)
+
+            client.post(
+                "/v1/agents",
+                json=_agent_payload("tenant_acme", name="ss-acme"),
+                headers={"Authorization": "Bearer adminkey"},
+            )
+            client.post(
+                "/v1/agents",
+                json=_agent_payload("tenant_globex", name="ss-globex"),
+                headers={"Authorization": "Bearer adminkey"},
+            )
+
+            # Admin (cross-tenant) sees the whole estate: both agents.
+            admin_state = client.get(
+                "/v1/system/state",
+                headers={"Authorization": "Bearer adminkey"},
+            )
+            assert admin_state.status_code == 200, admin_state.text
+            assert admin_state.json()["governance"]["total_agents"] == 2
+
+            # Tenant-A key must NOT see tenant_globex's row in its
+            # governance aggregate.
+            r = client.get(
+                "/v1/system/state",
+                headers={"Authorization": "Bearer acmekey"},
+            )
+            assert r.status_code == 200, r.text
+            gov = r.json()["governance"]
+            assert gov["total_agents"] == 1, (
+                f"system_state governance leaked another tenant's rows: "
+                f"total_agents={gov['total_agents']} (expected 1)"
+            )
+            # The response is labelled with the principal's tenant, and
+            # the aggregate under that label now covers ONLY that tenant.
+            assert r.json()["tenant_id"] == "tenant_acme"
+
+    def test_system_state_chain_block_is_honestly_labelled_global(self):
+        # The chain block CANNOT be tenant-scoped — the discovery ledger
+        # and snapshot store are single shared hash chains. So instead of
+        # implying tenant scope, the block declares scope="global". This
+        # asserts the honest label is present and correct for a
+        # tenant-scoped principal.
+        with env_set(
+            TEX_API_KEYS="acmekey:tenant_acme:agent:read",
+            TEX_REQUIRE_AUTH="1",
+        ):
+            app = _build_app()
+            client = TestClient(app)
+            r = client.get(
+                "/v1/system/state",
+                headers={"Authorization": "Bearer acmekey"},
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["chain"]["scope"] == "global"
+
 
 # =========================================================================== #
 # Pattern 4 — c2pa opt-in guard                                                 #

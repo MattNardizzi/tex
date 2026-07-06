@@ -239,3 +239,102 @@ def test_seal_endpoint_end_to_end():
         f"/decisions/{decision_id}/seal",
         json={"verdict": "maybe", "resolved_by": "x"},
     ).status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# 5. Sealing resolves the held queue (the sealed hold stops re-surfacing)
+# --------------------------------------------------------------------------- #
+
+
+def _held(decision_id: str, *, tenant: str = "default"):
+    from tex.provenance.feed import HeldDecision
+
+    return HeldDecision(
+        agent_id=uuid4(),
+        kind="pdp_abstain",
+        confidence=0.5,
+        note="needs a human",
+        decision_id=decision_id,
+        tenant_id=tenant,
+    )
+
+
+def test_resolve_decision_drops_matching_held_and_is_idempotent():
+    from tex.provenance.feed import HeldDecisionSink
+
+    sink = HeldDecisionSink()
+    did = str(uuid4())
+    other = str(uuid4())
+    sink.append(_held(did))
+    sink.append(_held(other))
+
+    # First seal drops exactly the one matching hold...
+    assert sink.resolve_decision(did) == 1
+    remaining = {h.decision_id for h in sink.peek()}
+    assert remaining == {other}
+
+    # ...sealing the same id again removes nothing (idempotent, no error)...
+    assert sink.resolve_decision(did) == 0
+    # ...and an id that never had a sink entry is a no-op, not a raise.
+    assert sink.resolve_decision(str(uuid4())) == 0
+    # An empty / missing id is a safe no-op too.
+    assert sink.resolve_decision("") == 0
+
+
+def test_resolve_decision_is_tenant_scoped():
+    from tex.provenance.feed import HeldDecisionSink
+
+    sink = HeldDecisionSink()
+    did = str(uuid4())
+    sink.append(_held(did, tenant="acme"))
+
+    # A different tenant cannot resolve acme's hold...
+    assert sink.resolve_decision(did, tenant="globex") == 0
+    assert len(sink) == 1
+    # ...acme resolves its own...
+    assert sink.resolve_decision(did, tenant="acme") == 1
+    assert len(sink) == 0
+
+    # The operator/fleet scope (None / "default") may resolve any tenant's hold.
+    sink.append(_held(did, tenant="acme"))
+    assert sink.resolve_decision(did, tenant=None) == 1
+    assert len(sink) == 0
+
+
+def test_seal_endpoint_removes_the_hold_from_the_live_sink():
+    from fastapi.testclient import TestClient
+
+    from tex.main import create_app
+
+    app = create_app()
+    client = TestClient(app)
+
+    ev = client.post(
+        "/evaluate",
+        json={
+            "request_id": str(uuid4()),
+            "action_type": "send_email",
+            "content": "Following up on our meeting.",
+            "channel": "email",
+            "environment": "production",
+            "recipient": "buyer@target.example",
+        },
+    )
+    assert ev.status_code == 200
+    decision_id = ev.json()["decision_id"]
+
+    # Put a real held row for this decision into the live sink the vigil
+    # headline and /held both read.
+    sink = app.state.held_decision_sink
+    sink.append(_held(decision_id))
+    assert any(h.decision_id == decision_id for h in sink.peek())
+
+    sealed = client.post(
+        f"/decisions/{decision_id}/seal",
+        json={"verdict": "approved", "resolved_by": "operator@example.com"},
+    )
+    assert sealed.status_code == 201
+
+    # The sealed hold no longer re-surfaces: /held drops it and the headline
+    # stops counting it (both read this sink).
+    assert not any(h.decision_id == decision_id for h in sink.peek())

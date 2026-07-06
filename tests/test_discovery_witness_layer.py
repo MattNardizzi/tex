@@ -533,6 +533,56 @@ def test_surface_ignite_repeatable_mode_respeaks(monkeypatch):
     assert "running" in body2["spoken"]
 
 
+def test_surface_ignite_repeatable_counts_agents_from_this_press_sweep(monkeypatch):
+    # Regression: a repeatable Begin must speak the count AFTER its own sweep, not
+    # before it. The sweep writes newly discovered agents synchronously into the
+    # SAME registry the count reads, so counting first would speak the pre-sweep
+    # number and force "press Begin twice to see the real count." One press must
+    # tell the truth. A fake driver whose run() saves a fresh ACTIVE agent stands
+    # in for the real sweep's synchronous registry write — deterministic, no flags.
+    from fastapi.testclient import TestClient
+
+    from tex.api.discovery_surface_routes import _estate_count
+    from tex.domain.agent import AgentIdentity
+    from tex.main import create_app
+
+    app = create_app()
+    client = TestClient(app)
+    registry = app.state.agent_registry
+
+    # Open the door once (fires ignition); note the count the estate holds now.
+    assert client.post("/v1/surface/discovery/ignite").json()["already_ignited"] is False
+    settled = _estate_count(registry, "default")
+
+    # This press's sweep discovers exactly one brand-new agent, mid-handler.
+    discovered = AgentIdentity(name="swept-in-01", owner="ops", tenant_id="default")
+
+    class _OneShotDriver:
+        def __init__(self) -> None:
+            self._fired = False
+
+        def run(self, reg, ledger, *, tenant="default"):  # noqa: ANN001
+            # Idempotent across presses: only the first press discovers it, so the
+            # assertion pins "this press's own sweep counts" without drift.
+            if not self._fired and tenant == "default":
+                reg.save(discovered)
+                self._fired = True
+            return None  # no PlanesResult → coverage clause is a no-op, count is bare
+
+    app.state.sieve_driver = _OneShotDriver()
+
+    monkeypatch.setenv("TEX_BEGIN_REPEATABLE", "1")
+    body = client.post("/v1/surface/discovery/ignite").json()
+
+    # The FIRST repeatable press already reports the agent its own sweep surfaced.
+    assert body["already_ignited"] is True
+    assert body["count"] == settled + 1
+    # And the spoken line carries that same post-sweep number, not the stale one.
+    from tex.discovery.ignition import humanize_count
+
+    assert humanize_count(settled + 1).casefold() in body["spoken"].casefold()
+
+
 def test_surface_count_is_pull_only_and_spoken():
     client = _client()
     r = client.get("/v1/surface/discovery/count")

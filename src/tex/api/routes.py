@@ -368,6 +368,22 @@ def seal_human_resolution(
             detail=str(exc),
         ) from exc
 
+    # The seal row is written — now stop the queue from speaking this hold. The
+    # signed evidence is the durable truth; the HeldDecisionSink is the live
+    # "still waiting on a human" queue that /held and the vigil headline both
+    # read. Until we drop the resolved entry here, a sealed hold re-surfaces on
+    # /held and keeps inflating the headline forever. Resolve it tenant-scoped
+    # (the authenticated principal's tenant is the only tenant a Decision knows),
+    # best-effort and idempotent: a missing sink, an id that never had a sink
+    # entry, or a second seal removes nothing and never sinks the human's act.
+    try:
+        held_sink = getattr(request.app.state, "held_decision_sink", None)
+        resolver = getattr(held_sink, "resolve_decision", None)
+        if callable(resolver):
+            resolver(str(decision_id), tenant=principal.tenant)
+    except Exception:  # noqa: BLE001 — the queue drop must never sink a sealed act
+        pass
+
     import json as _json
 
     payload = _json.loads(record.payload_json)

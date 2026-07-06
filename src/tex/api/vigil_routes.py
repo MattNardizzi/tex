@@ -345,9 +345,11 @@ def build_vigil_router() -> APIRouter:
         same-origin proxy untouched; the WebSocket stays only for the truly
         bidirectional recognizer). The stream emits the same VigilResponse the
         poll returns, as ``event: vigil`` frames with a monotonic ``id:`` for
-        resume, plus periodic ``: heartbeat`` comments so intermediaries keep
-        the connection warm. The frontend renders on change; silence between
-        frames is the calm, not a gap."""
+        resume, plus periodic ``event: pulse`` frames that keep intermediaries
+        warm AND give the client a visible proof-of-life. The frontend renders
+        on change; between frames the pulse says "alive, unchanged" — so the
+        client can go honestly silent when the pulse stops, instead of
+        repeating stale truth."""
         import asyncio
         import json
 
@@ -361,7 +363,7 @@ def build_vigil_router() -> APIRouter:
 
         async def event_source():
             seq = 0
-            last_payload: str | None = None
+            last_truth: str | None = None
             # Emit immediately so a fresh subscriber gets the current truth.
             while True:
                 if await request.is_disconnected():
@@ -379,17 +381,37 @@ def build_vigil_router() -> APIRouter:
                         _build_vigil_response, request, effective_tenant
                     )
                     payload = resp.model_dump_json()
+                    # Change-detection must ignore generated_at: the stamp is
+                    # new every cycle, so comparing raw payloads re-emitted an
+                    # unchanged vigil as a "new" frame every PERIOD_S (and the
+                    # pulse branch below was dead code). Truth is what the
+                    # frame SAYS, not when it was stamped.
+                    truth = resp.model_dump()
+                    truth.pop("generated_at", None)
+                    truth_key = json.dumps(truth, sort_keys=True, default=str)
                 except Exception:  # noqa: BLE001 — never crash the stream
                     payload = None
+                    truth_key = None
 
-                if payload is not None and payload != last_payload:
+                if payload is not None and truth_key != last_truth:
                     seq += 1
-                    last_payload = payload
+                    last_truth = truth_key
                     yield f"id: {seq}\nevent: vigil\ndata: {payload}\n\n"
+                elif payload is not None:
+                    # Pulse frame: the backend just RECOMPUTED the vigil and
+                    # affirms it is unchanged. Visible to the EventSource
+                    # consumer (a `: comment` would be swallowed), it is the
+                    # client's proof-of-life — the license to keep rendering
+                    # the truth already on the glass.
+                    yield "event: pulse\ndata: {}\n\n"
                 else:
-                    # Comment frame: keeps proxies from idling the socket out;
-                    # invisible to EventSource consumers.
-                    yield ": heartbeat\n\n"
+                    # Compute FAILED. Keep the socket warm for intermediaries,
+                    # but with an invisible comment — no pulse. A backend that
+                    # cannot stand behind the truth does not renew the client's
+                    # license to keep speaking it; if this persists past the
+                    # client's staleness bound, the surface goes honestly
+                    # silent instead of narrating an estate nobody can see.
+                    yield ": alive, truth unavailable\n\n"
 
                 # Sleep in heartbeat-sized slices up to one push period.
                 slept = 0.0
@@ -399,7 +421,11 @@ def build_vigil_router() -> APIRouter:
                     await asyncio.sleep(min(HEARTBEAT_S, PERIOD_S - slept))
                     slept += HEARTBEAT_S
                     if slept < PERIOD_S:
-                        yield ": heartbeat\n\n"
+                        # Mid-sleep keepalive: socket warmth only. It carries
+                        # no fresh affirmation of the truth (no recompute has
+                        # run), so it must not be a pulse — only the cycle
+                        # above may renew the client's license to speak.
+                        yield ": keepalive\n\n"
 
         return StreamingResponse(
             event_source(),

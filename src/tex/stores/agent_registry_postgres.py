@@ -9,6 +9,27 @@ is a synchronous write-through cache:
   writes  → in-memory THEN synchronous Postgres flush (one round trip)
   startup → bootstrap from Postgres into in-memory
 
+The cache is authoritative for reads, but it must not go STALE without
+bound. This store is the source of the marquee "N agents" count the UI
+speaks; that count may only reflect live truth. A write-through cache is
+correct against in-process writes (they land in memory and in Postgres
+in the same call), but it is blind to out-of-band DB mutation — a direct
+purge, a repair script, or a second writer/replica. Those leave the cache
+speaking ghosts with no time bound: this genuinely happened, when 134 rows
+were purged in prod and the live site kept saying "one hundred fourteen
+agents" until the Render service restarted.
+
+The fix is a freshness bound, not a smaller cache: on a read, if the last
+bootstrap/re-sync is older than TEX_REGISTRY_RESYNC_S (default 120s; 0
+disables), re-bootstrap from Postgres before serving — at most once per
+window, under the same lock every write takes. Reads inside the window are
+exactly as cheap as before (one monotonic-clock compare). A DB blip during
+a re-sync keeps the current cache and retries next window; it never blanks
+the registry or crashes a read. Write-through is preserved exactly: the
+re-bootstrap runs under _lock so no in-process write can interleave, and
+any not-yet-persisted write (a pending_resync entry) is re-applied on top
+of the fresh snapshot so a just-written row can never be lost to a re-sync.
+
 The choice is deliberate. The rest of Tex's runtime is synchronous —
 the PDP, the agent suite, the evaluate-action command, the evidence
 recorder. Converting all of that to async to satisfy a discovery-layer
@@ -41,6 +62,7 @@ import json
 import logging
 import os
 import threading
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -66,6 +88,16 @@ from tex.stores.agent_registry import (
 _logger = logging.getLogger(__name__)
 
 DATABASE_URL_ENV = "DATABASE_URL"
+
+# Freshness bound for the read cache. After this many seconds without a
+# re-sync, the next read re-bootstraps from Postgres before serving so an
+# out-of-band DB mutation (purge, repair script, second writer) becomes
+# visible within one window instead of never. 0 disables re-sync (reads
+# always serve the boot snapshot — the pre-fix behaviour, kept as an
+# explicit opt-out for single-writer deployments that never mutate the DB
+# out of band).
+RESYNC_INTERVAL_ENV = "TEX_REGISTRY_RESYNC_S"
+_DEFAULT_RESYNC_INTERVAL_S = 120.0
 
 
 SCHEMA_SQL = """
@@ -142,6 +174,8 @@ class PostgresAgentRegistry:
         "_pending_resync",
         "_audit_context",
         "_last_hash_by_agent",
+        "_resync_interval_s",
+        "_last_sync_monotonic",
     )
 
     def __init__(
@@ -149,12 +183,23 @@ class PostgresAgentRegistry:
         *,
         dsn: str | None = None,
         bootstrap: bool = True,
+        resync_interval_s: float | None = None,
     ) -> None:
         self._lock = threading.RLock()
         self._cache = InMemoryAgentRegistry()
         self._dsn = dsn or os.environ.get(DATABASE_URL_ENV, "").strip()
         self._disabled = not bool(self._dsn)
         self._pending_resync: list[tuple[AgentIdentity, dict]] = []
+        # Freshness bound. Resolved once at construction; the explicit
+        # arg wins over the env var (tests set it directly). A monotonic
+        # clock is used so a wall-clock jump can't stall or spuriously
+        # trip a re-sync.
+        self._resync_interval_s = (
+            resync_interval_s
+            if resync_interval_s is not None
+            else _resolve_resync_interval()
+        )
+        self._last_sync_monotonic = time.monotonic()
         self._audit_context: dict[str, Any] = {
             "policy_version": None,
             "snapshot_id": None,
@@ -254,33 +299,45 @@ class PostgresAgentRegistry:
             return updated
 
     # ------------------------------------------------------------------ reads
-    # (delegated; reads never touch Postgres)
+    # Reads serve the in-memory cache. Before serving they check the
+    # freshness bound (_maybe_resync): inside the TTL window that is a
+    # single monotonic-clock compare — exactly as cheap as before — and
+    # only when the window has elapsed does one read pay a Postgres
+    # round trip to re-sync the cache. See _maybe_resync for the merge.
 
     def get(self, agent_id: UUID) -> AgentIdentity | None:
+        self._maybe_resync()
         return self._cache.get(agent_id)
 
     def require(self, agent_id: UUID) -> AgentIdentity:
+        self._maybe_resync()
         return self._cache.require(agent_id)
 
     def require_evaluable(self, agent_id: UUID) -> AgentIdentity:
+        self._maybe_resync()
         return self._cache.require_evaluable(agent_id)
 
     def history(self, agent_id: UUID) -> tuple[AgentIdentity, ...]:
+        self._maybe_resync()
         return self._cache.history(agent_id)
 
     def list_all(self) -> tuple[AgentIdentity, ...]:
+        self._maybe_resync()
         return self._cache.list_all()
 
     def list_by_status(
         self,
         status: AgentLifecycleStatus,
     ) -> tuple[AgentIdentity, ...]:
+        self._maybe_resync()
         return self._cache.list_by_status(status)
 
     def __len__(self) -> int:
+        self._maybe_resync()
         return len(self._cache)
 
     def __contains__(self, item: object) -> bool:
+        self._maybe_resync()
         return item in self._cache
 
     # ------------------------------------------------------------------ admin
@@ -392,6 +449,85 @@ class PostgresAgentRegistry:
             with conn.cursor() as cur:
                 cur.execute(SCHEMA_SQL)
 
+    def _maybe_resync(self) -> None:
+        """
+        Re-bootstrap the cache from Postgres if the freshness window has
+        elapsed. Called on every read; the common case is the fast path.
+
+        Fast path (inside the window, or disabled): a single monotonic
+        compare with no lock and no I/O — reads within the TTL stay
+        exactly as cheap as a pure in-memory registry.
+
+        Slow path (window elapsed): take _lock — the same lock every
+        write takes, so no in-process write can interleave the re-sync —
+        and re-bootstrap. Crucially we stamp _last_sync_monotonic even
+        when the DB read FAILS: a reachability blip must keep serving the
+        current cache and simply try again NEXT window, never hammer
+        Postgres on every read and never blank the registry. The
+        window is advanced regardless so at most one re-sync attempt
+        happens per window.
+
+        Write-through safety: _bootstrap_from_postgres replaces the cache
+        wholesale with the DB snapshot, so a write that landed in memory
+        but not yet in Postgres (a _pending_resync entry, e.g. after a DB
+        blip) would be lost. We re-apply those pending writes on top of
+        the fresh snapshot before releasing the lock, so a just-written
+        row always survives a concurrent re-bootstrap.
+        """
+        if self._disabled or self._resync_interval_s <= 0:
+            return
+        # Unlocked read of the clock + interval is fine: both are only
+        # ever advanced under _lock, and a racing read that also decides
+        # to re-sync is serialized by the lock below (and re-checks the
+        # window there, so only one actually pays the round trip).
+        if (time.monotonic() - self._last_sync_monotonic) < self._resync_interval_s:
+            return
+        with self._lock:
+            # Re-check under the lock: another read may have just
+            # re-synced while we waited, in which case we are fresh.
+            if (time.monotonic() - self._last_sync_monotonic) < self._resync_interval_s:
+                return
+            # Advance the window up front so a failed attempt does not
+            # re-fire on the very next read.
+            self._last_sync_monotonic = time.monotonic()
+            try:
+                self._bootstrap_from_postgres()
+                self._reapply_pending_writes()
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning(
+                    "PostgresAgentRegistry: re-sync failed (%s); keeping "
+                    "current cache, will retry next window.",
+                    exc,
+                )
+
+    def _reapply_pending_writes(self) -> None:
+        """
+        Re-assert any in-process writes that have not yet reached Postgres
+        on top of a freshly bootstrapped cache. Without this a re-sync
+        could roll back a just-written row that failed to flush. Must be
+        called under _lock (the caller holds it).
+        """
+        if not self._pending_resync:
+            return
+        with self._cache._lock:  # pylint: disable=protected-access
+            for entry, audit in self._pending_resync:
+                history = self._cache._history.setdefault(entry.agent_id, [])  # noqa: SLF001
+                # Replace an equal-revision row from the DB snapshot, or
+                # append if the snapshot doesn't have this revision.
+                for i, existing in enumerate(history):
+                    if existing.revision == entry.revision:
+                        history[i] = entry
+                        break
+                else:
+                    history.append(entry)
+                    history.sort(key=lambda a: a.revision)
+                self._cache._by_id[entry.agent_id] = history[-1]  # noqa: SLF001
+                # The re-bootstrap reset the chain head to the DB's view,
+                # which doesn't yet know this un-flushed write. Restore
+                # the pending write's record_hash as the head so the next
+                # save chains from it, not from a stale predecessor.
+                self._last_hash_by_agent[entry.agent_id] = audit["record_hash"]
+
     def _bootstrap_from_postgres(self) -> None:
         """
         Load every current revision plus full revision history into the
@@ -430,11 +566,24 @@ class PostgresAgentRegistry:
             if record_hash:
                 latest_hash[agent.agent_id] = record_hash
 
+        # REPLACE the cache wholesale rather than merge into it. On first
+        # boot the cache is empty so this is identical to a merge; on a
+        # re-sync it is what makes an out-of-band PURGE visible — an agent
+        # that no longer has any row in Postgres must vanish from the
+        # cache, otherwise the marquee count keeps speaking ghosts (this
+        # is exactly the "134 purged, still says 114" bug). Building the
+        # new dicts first and swapping them in under the lock keeps the
+        # cache internally consistent for any read that races the swap.
+        new_by_id: dict[UUID, AgentIdentity] = {}
+        new_history: dict[UUID, list[AgentIdentity]] = {}
+        for agent_id, revisions in loaded.items():
+            revisions.sort(key=lambda a: a.revision)
+            new_history[agent_id] = list(revisions)
+            new_by_id[agent_id] = revisions[-1]
+
         with self._cache._lock:  # pylint: disable=protected-access
-            for agent_id, revisions in loaded.items():
-                revisions.sort(key=lambda a: a.revision)
-                self._cache._history[agent_id] = list(revisions)  # noqa: SLF001
-                self._cache._by_id[agent_id] = revisions[-1]  # noqa: SLF001
+            self._cache._by_id = new_by_id  # noqa: SLF001
+            self._cache._history = new_history  # noqa: SLF001
 
         # Restore the per-agent hash chain head so future saves chain
         # correctly across the restart boundary.
@@ -616,6 +765,30 @@ class PostgresAgentRegistry:
             registered_at=_ensure_aware(registered_at),
             updated_at=_ensure_aware(updated_at),
         )
+
+
+def _resolve_resync_interval() -> float:
+    """
+    Read the read-cache freshness bound from the environment. Falls back
+    to the default on unset/blank/garbage so a bad env var can never
+    disable the bound silently — a non-numeric value keeps the safe
+    default rather than turning re-sync off.
+    """
+    raw = os.environ.get(RESYNC_INTERVAL_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_RESYNC_INTERVAL_S
+    try:
+        value = float(raw)
+    except ValueError:
+        _logger.warning(
+            "PostgresAgentRegistry: %s=%r is not a number; using default %ss.",
+            RESYNC_INTERVAL_ENV,
+            raw,
+            _DEFAULT_RESYNC_INTERVAL_S,
+        )
+        return _DEFAULT_RESYNC_INTERVAL_S
+    # Negative is meaningless; treat it as "disabled" like 0.
+    return max(value, 0.0)
 
 
 def _ensure_aware(value: datetime) -> datetime:

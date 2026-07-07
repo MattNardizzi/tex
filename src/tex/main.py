@@ -1486,6 +1486,13 @@ def create_app(
     # sweep. Tenant is server-authoritative; buffer is single-worker (Dockerfile).
     from tex.api.discovery_evidence_routes import build_discovery_evidence_router
     app.include_router(build_discovery_evidence_router())
+    # FLUID TRUTH: /v1/answer — the span-gated fluent answer pipeline. The
+    # model (when present) writes the music, never the digits: exhibits are
+    # tool-computed, every span is byte-verified against them, and absence of
+    # evidence speaks as a first-class ABSTAIN. Additive and self-contained
+    # (tex.answers.*); the legacy /v1/ask path is untouched.
+    from tex.api.answer_routes import build_answer_router
+    app.include_router(build_answer_router())
     # V15: governance history + drift + scheduler admin
     from tex.api.governance_history_routes import (
         build_drift_router,

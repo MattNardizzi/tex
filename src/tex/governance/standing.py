@@ -592,6 +592,7 @@ class StandingGovernance:
             environment=environment,
             recipient=recipient,
             session_id=session_id,
+            agent_external_id=agent_external_id,
         )
         # Piggyback the agent's permitted tool subset on a RELEASED outcome so a
         # remote PEP can drive its emission gate off this same decision (race-free:
@@ -735,10 +736,20 @@ class StandingGovernance:
         environment: str,
         recipient: str | None,
         session_id: str | None,
+        agent_external_id: str | None = None,
     ) -> DecisionOutcome:
         from tex.domain.evaluation import EvaluationRequest
 
         agent_uuid = self._agent_uuid(agent)
+        # The acting agent's READABLE identity rides the request metadata, so
+        # the PDP's summary lands it in Decision.metadata["agent"] — the key
+        # the answer pipeline's exhibits read. Without it a list answer can
+        # only say "an unnamed agent": the store otherwise keeps just the
+        # UUID, buried in pdp.request. Caller's external id first (the name
+        # the estate knows), the registry's name as fallback.
+        spoken_agent = (agent_external_id or "").strip() or (
+            str(getattr(agent, "name", "") or "").strip() or None
+        )
         try:
             request = EvaluationRequest(
                 request_id=uuid4(),
@@ -749,6 +760,7 @@ class StandingGovernance:
                 recipient=recipient,
                 agent_id=agent_uuid,
                 session_id=session_id,
+                metadata=({"agent": spoken_agent} if spoken_agent else {}),
             )
             result = self._evaluate.execute(request)
         except Exception:  # noqa: BLE001 — fail closed on any engine error

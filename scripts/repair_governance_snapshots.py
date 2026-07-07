@@ -35,13 +35,15 @@ would chain off a hash that no longer exists (re-breaking the tail).
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import sys
 
 import psycopg
 
-from tex.stores.governance_snapshots import GovernanceSnapshotStore, _stable_json
+from tex.stores.governance_snapshots import (
+    GovernanceSnapshotStore,
+    _compute_snapshot_hash,
+)
 
 # Arbitrary-but-stable advisory key so two repairs can't interleave.
 # Distinct from the discovery-ledger repair's key.
@@ -69,33 +71,6 @@ _UPDATE = """
 """
 
 
-def _payload_for_hash(record: dict, previous_hash: str | None) -> dict:
-    """The exact dict verify_chain hashes — keep in lockstep with the store."""
-    return {
-        "snapshot_id": record["snapshot_id"],
-        "captured_at": record["captured_at"],
-        "counts": {
-            "total_agents": record["total_agents"],
-            "governed": record["governed"],
-            "ungoverned": record["ungoverned"],
-            "partial": record["partial"],
-            "unknown": record["unknown"],
-            "high_risk_total": record["high_risk_total"],
-            "high_risk_ungoverned": record["high_risk_ungoverned"],
-            "governed_with_forbids": record["governed_with_forbids"],
-        },
-        "coverage_root_sha256": record["coverage_root_sha256"],
-        "label": record.get("label"),
-        "previous_snapshot_hash": previous_hash,
-        "scan_run_id": record.get("scan_run_id"),
-        "ledger_seq_start": record.get("ledger_seq_start"),
-        "ledger_seq_end": record.get("ledger_seq_end"),
-        "registry_state_hash": record.get("registry_state_hash"),
-        "policy_version": record.get("policy_version"),
-        "tenant_id": record.get("tenant_id"),
-    }
-
-
 def _load_chain(cur) -> list[dict]:
     cur.execute(_SELECT)
     return [GovernanceSnapshotStore._row_to_record(row) for row in cur.fetchall()]
@@ -112,9 +87,8 @@ def _plan(chain: list[dict]) -> list[tuple[str, str | None, str]]:
         # refuse rather than guess.
         raise SystemExit("first snapshot's previous_snapshot_hash is not NULL — refusing to replay a partial chain")
     for record in chain:
-        expected = hashlib.sha256(
-            _stable_json(_payload_for_hash(record, previous_hash)).encode("utf-8")
-        ).hexdigest()
+        # The store's own canonicalization — imported, not re-implemented.
+        expected = _compute_snapshot_hash(record, previous_hash)
         stored_hash = record.get("snapshot_hash") or ""
         stored_prev = record.get("previous_snapshot_hash")
         if stored_hash != expected or stored_prev != previous_hash:

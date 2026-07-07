@@ -18,6 +18,17 @@ hourly governance snapshots out of the box.
 Snapshots persist to Postgres when ``DATABASE_URL`` is set, falling
 back to in-memory otherwise — same pattern as the registry and
 ledger.
+
+Zero-downtime deploys briefly run TWO web instances, and each holds
+the chain tip in per-process memory — so a plain INSERT would let both
+chain a child off the same parent and fork the persisted history
+(prod, 2026-07-06; repaired by scripts/repair_governance_snapshots.py).
+Postgres now enforces the chain shape itself (one child per parent,
+one genesis — partial unique indexes), so the second writer's INSERT
+refuses instead of forking; the store then re-links onto the true tip
+and retries once, or parks the capture in ``pending_resync`` and says
+so loudly. History is never rewritten; a capture is never silently
+dropped.
 """
 
 from __future__ import annotations
@@ -88,10 +99,35 @@ ALTER TABLE tex_governance_snapshots
     ADD COLUMN IF NOT EXISTS policy_version         TEXT;
 ALTER TABLE tex_governance_snapshots
     ADD COLUMN IF NOT EXISTS tenant_id              TEXT;
+-- Legacy tables predate the sequence column the tip/repair ordering uses.
+ALTER TABLE tex_governance_snapshots
+    ADD COLUMN IF NOT EXISTS sequence               BIGSERIAL UNIQUE;
 
 CREATE INDEX IF NOT EXISTS tex_governance_snapshots_scanrun_idx
     ON tex_governance_snapshots (scan_run_id) WHERE scan_run_id IS NOT NULL;
 """
+
+# Chain-fork guards. Two live instances (deploy overlap) can both try to
+# chain a child off the same parent; these make Postgres the arbiter so
+# the second INSERT reports zero rows instead of forking the history.
+# Created separately from SCHEMA_SQL: if a table still holds an
+# unrepaired fork the CREATE fails, and that must degrade to
+# "guard off + loud log", never to "store falls back to in-memory".
+CHAIN_GUARD_INDEXES_SQL = (
+    # One persisted child per parent.
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS tex_governance_snapshots_parent_uidx
+        ON tex_governance_snapshots (previous_snapshot_hash)
+     WHERE previous_snapshot_hash IS NOT NULL
+    """,
+    # At most one genesis row (two empty-DB processes racing would
+    # otherwise fork at the root, which the parent guard can't see).
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS tex_governance_snapshots_genesis_uidx
+        ON tex_governance_snapshots ((previous_snapshot_hash IS NULL))
+     WHERE previous_snapshot_hash IS NULL
+    """,
+)
 
 
 class GovernanceSnapshotStore:
@@ -111,6 +147,7 @@ class GovernanceSnapshotStore:
         "_disabled",
         "_cache_limit",
         "_last_chain_hash",
+        "_pending_resync",
     )
 
     def __init__(
@@ -128,6 +165,9 @@ class GovernanceSnapshotStore:
         self._disabled = not bool(self._dsn)
         self._cache_limit = cache_limit
         self._last_chain_hash: str | None = None
+        # Captures Postgres refused or couldn't take — never silently
+        # dropped; retried via replay_pending().
+        self._pending_resync: list[dict] = []
 
         if self._disabled:
             _logger.warning(
@@ -181,6 +221,12 @@ class GovernanceSnapshotStore:
         ``snapshot_hash`` in ``previous_snapshot_hash``. That chain
         is verifiable end-to-end via ``verify_chain()``.
 
+        If another live instance persisted a child for the same parent
+        first (deploy overlap), the insert refuses and this record is
+        re-linked onto the true Postgres tip before being persisted —
+        the returned record reflects the re-linked (persisted) chain
+        position, not the stale in-memory tip.
+
         V16: scan-run binding (optional). When ``scan_run_id`` is
         supplied, the snapshot is recorded against the exact discovery
         scan that produced the registry state. ``ledger_seq_start``,
@@ -211,28 +257,6 @@ class GovernanceSnapshotStore:
         with self._lock:
             previous_hash = self._last_chain_hash
 
-            # Binding metadata is part of the chain hash so a
-            # tampered or swapped scan_run_id is detectable on replay.
-            payload_for_hash = {
-                "snapshot_id": str(snapshot_id),
-                "captured_at": captured_at.isoformat(),
-                "counts": dict(counts),
-                "coverage_root_sha256": governance_payload.get(
-                    "coverage_root_sha256", ""
-                ),
-                "label": label,
-                "previous_snapshot_hash": previous_hash,
-                "scan_run_id": scan_run_id,
-                "ledger_seq_start": ledger_seq_start,
-                "ledger_seq_end": ledger_seq_end,
-                "registry_state_hash": registry_state_hash,
-                "policy_version": policy_version,
-                "tenant_id": tenant_id,
-            }
-            snapshot_hash = hashlib.sha256(
-                _stable_json(payload_for_hash).encode("utf-8")
-            ).hexdigest()
-
             record = {
                 "snapshot_id": str(snapshot_id),
                 "captured_at": captured_at.isoformat(),
@@ -252,7 +276,7 @@ class GovernanceSnapshotStore:
                 ),
                 "payload": governance_payload,
                 "label": label,
-                "snapshot_hash": snapshot_hash,
+                "snapshot_hash": "",
                 "previous_snapshot_hash": previous_hash,
                 "critical_ungoverned": critical_ungoverned,
                 "governed_pct": _pct(counts.get("governed", 0), counts.get("total_agents", 0)),
@@ -265,21 +289,17 @@ class GovernanceSnapshotStore:
                 "policy_version": policy_version,
                 "tenant_id": tenant_id,
             }
+            # One canonicalization for capture, verify_chain(), and the
+            # repair script — binding metadata is inside the hash so a
+            # tampered or swapped scan_run_id is detectable on replay.
+            record["snapshot_hash"] = _compute_snapshot_hash(record, previous_hash)
 
             self._cache[snapshot_id] = record
-            self._last_chain_hash = snapshot_hash
+            self._last_chain_hash = record["snapshot_hash"]
             while len(self._cache) > self._cache_limit:
                 self._cache.popitem(last=False)
             if not self._disabled:
-                try:
-                    self._flush_capture(record)
-                except Exception as exc:  # noqa: BLE001
-                    _logger.error(
-                        "GovernanceSnapshotStore: write failed for "
-                        "snapshot_id=%s: %s",
-                        snapshot_id,
-                        exc,
-                    )
+                self._persist_with_refusal(record)
 
         return record
 
@@ -461,6 +481,48 @@ class GovernanceSnapshotStore:
     def is_durable(self) -> bool:
         return not self._disabled
 
+    @property
+    def pending_resync_count(self) -> int:
+        with self._lock:
+            return len(self._pending_resync)
+
+    def replay_pending(self) -> int:
+        """
+        Retry parked captures against Postgres. Outage-parked records
+        fill their hole byte-identically. A record whose parent has
+        since been claimed by another writer refuses again and stays
+        parked — loudly — because inserting it anywhere else would
+        rewrite history; that case is operator territory
+        (scripts/repair_governance_snapshots.py).
+        """
+        with self._lock:
+            if self._disabled or not self._pending_resync:
+                return 0
+            successful = 0
+            still_pending: list[dict] = []
+            for record in self._pending_resync:
+                try:
+                    if self._flush_capture(record):
+                        successful += 1
+                        continue
+                    _logger.error(
+                        "GovernanceSnapshotStore: replay refused for "
+                        "snapshot_id=%s — its parent already has a persisted "
+                        "child. Keeping it parked; run "
+                        "scripts/repair_governance_snapshots.py.",
+                        record["snapshot_id"],
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "GovernanceSnapshotStore: replay still failing for "
+                        "snapshot_id=%s: %s",
+                        record["snapshot_id"],
+                        exc,
+                    )
+                still_pending.append(record)
+            self._pending_resync = still_pending
+            return successful
+
     def __len__(self) -> int:
         with self._lock:
             return len(self._cache)
@@ -471,6 +533,20 @@ class GovernanceSnapshotStore:
         with psycopg.connect(self._dsn, autocommit=True) as conn:
             with conn.cursor() as cur:
                 cur.execute(SCHEMA_SQL)
+                for guard_sql in CHAIN_GUARD_INDEXES_SQL:
+                    # autocommit: a failed CREATE doesn't poison the rest.
+                    try:
+                        cur.execute(guard_sql)
+                    except Exception as exc:  # noqa: BLE001
+                        _logger.error(
+                            "GovernanceSnapshotStore: could not create chain "
+                            "guard index — the persisted history likely still "
+                            "contains a fork. Run "
+                            "scripts/repair_governance_snapshots.py, then "
+                            "restart. Durability stays ON; the fork guard is "
+                            "OFF until the index exists: %s",
+                            exc,
+                        )
 
     def _load_recent_into_cache(self) -> None:
         records = self._load_from_postgres(limit=self._cache_limit)
@@ -499,7 +575,7 @@ class GovernanceSnapshotStore:
                            scan_run_id, ledger_seq_start, ledger_seq_end,
                            registry_state_hash, policy_version, tenant_id
                       FROM tex_governance_snapshots
-                     ORDER BY captured_at DESC
+                     ORDER BY captured_at DESC, sequence DESC
                      LIMIT %s
                     """,
                     (limit,),
@@ -528,7 +604,114 @@ class GovernanceSnapshotStore:
                 row = cur.fetchone()
         return self._row_to_record(row) if row else None
 
-    def _flush_capture(self, record: dict) -> None:
+    def _persist_with_refusal(self, record: dict) -> None:
+        """
+        Persist one capture without ever forking the persisted chain.
+
+        Fast path: the INSERT lands, done. Refusal path: another live
+        instance (deploy overlap) already persisted a child for this
+        record's parent, so the guard indexes made our INSERT a no-op —
+        re-read the true tip from Postgres, re-link this record onto it
+        (its hash changes; it was never persisted, so nothing is
+        rewritten), and retry once. A second refusal parks the record
+        in ``_pending_resync`` — loudly, never silently dropped — and
+        re-seeds ``_last_chain_hash`` from Postgres so the NEXT capture
+        chains off persisted reality instead of the parked record.
+        Outage path (INSERT raised): park the record unchanged and keep
+        the in-memory tip advanced; ``replay_pending()`` later fills
+        the persisted hole with the byte-identical record.
+
+        Runs under ``self._lock`` (called from ``capture``).
+        """
+        try:
+            if self._flush_capture(record):
+                return
+        except Exception as exc:  # noqa: BLE001
+            self._park(record, why=f"write failed: {exc}")
+            return
+
+        # Refused: our parent already has a persisted child. Never fork,
+        # never overwrite — adopt the true tip and retry once.
+        try:
+            true_tip = self._read_db_tip()
+        except Exception as exc:  # noqa: BLE001
+            self._park(record, why=f"insert refused, and the tip re-read failed: {exc}")
+            return
+
+        _logger.warning(
+            "GovernanceSnapshotStore: chain-fork refused for snapshot_id=%s — "
+            "parent %s already has a persisted child (second writer during a "
+            "deploy overlap). Re-linking onto true tip %s and retrying once. "
+            "History was not rewritten.",
+            record["snapshot_id"],
+            _short_hash(record.get("previous_snapshot_hash")),
+            _short_hash(true_tip),
+        )
+        self._relink_record(record, true_tip)
+
+        try:
+            if self._flush_capture(record):
+                return
+        except Exception as exc:  # noqa: BLE001
+            self._park(record, why=f"re-linked write failed: {exc}")
+            return
+
+        # Refused twice: another writer claimed the re-read tip as well.
+        self._park(
+            record,
+            why="refused twice — another writer also claimed the re-read tip",
+        )
+        try:
+            self._last_chain_hash = self._read_db_tip()
+        except Exception:  # noqa: BLE001
+            # Postgres just answered the retry, so this is unlikely. Fall
+            # back to the tip we know is persisted rather than leaving the
+            # tip pointing at the parked (unpersisted) record.
+            self._last_chain_hash = true_tip
+
+    def _park(self, record: dict, *, why: str) -> None:
+        self._pending_resync.append(record)
+        _logger.error(
+            "GovernanceSnapshotStore: capture %s NOT persisted (%s). Parked "
+            "as pending_resync[%d] — never silently dropped. replay_pending() "
+            "retries it; if its parent was claimed by another writer, run "
+            "scripts/repair_governance_snapshots.py.",
+            record["snapshot_id"],
+            why,
+            len(self._pending_resync) - 1,
+        )
+
+    def _relink_record(self, record: dict, true_tip: str | None) -> None:
+        # The record was never persisted, so re-linking rewrites nothing.
+        # The cache and the capture() caller share this dict by reference —
+        # both see the persisted truth.
+        record["previous_snapshot_hash"] = true_tip
+        record["snapshot_hash"] = _compute_snapshot_hash(record, true_tip)
+        self._last_chain_hash = record["snapshot_hash"]
+
+    def _read_db_tip(self) -> str | None:
+        """The persisted chain tip (newest row's snapshot_hash), or None."""
+        with psycopg.connect(self._dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT snapshot_hash
+                      FROM tex_governance_snapshots
+                     ORDER BY captured_at DESC, sequence DESC
+                     LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+        return (row[0] or None) if row else None
+
+    def _flush_capture(self, record: dict) -> bool:
+        """
+        INSERT one snapshot row. Returns True when the row landed, False
+        when Postgres refused it (a unique guard — parent already has a
+        child, second genesis, or duplicate snapshot_id). No conflict
+        target on purpose: any unique violation refuses the row rather
+        than erroring, and the caller runs the refusal protocol.
+        """
         with psycopg.connect(self._dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -547,6 +730,7 @@ class GovernanceSnapshotStore:
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s
                     )
+                    ON CONFLICT DO NOTHING
                     """,
                     (
                         record["snapshot_id"],
@@ -573,7 +757,9 @@ class GovernanceSnapshotStore:
                         record.get("tenant_id"),
                     ),
                 )
+                inserted = cur.rowcount == 1
             conn.commit()
+        return inserted
 
     @staticmethod
     def _row_to_record(row: tuple) -> dict:
@@ -657,32 +843,7 @@ class GovernanceSnapshotStore:
             chain[0].get("previous_snapshot_hash") if chain else None
         )
         for idx, record in enumerate(chain):
-            payload_for_hash = {
-                "snapshot_id": record["snapshot_id"],
-                "captured_at": record["captured_at"],
-                "counts": {
-                    "total_agents": record["total_agents"],
-                    "governed": record["governed"],
-                    "ungoverned": record["ungoverned"],
-                    "partial": record["partial"],
-                    "unknown": record["unknown"],
-                    "high_risk_total": record["high_risk_total"],
-                    "high_risk_ungoverned": record["high_risk_ungoverned"],
-                    "governed_with_forbids": record["governed_with_forbids"],
-                },
-                "coverage_root_sha256": record["coverage_root_sha256"],
-                "label": record.get("label"),
-                "previous_snapshot_hash": previous_hash,
-                "scan_run_id": record.get("scan_run_id"),
-                "ledger_seq_start": record.get("ledger_seq_start"),
-                "ledger_seq_end": record.get("ledger_seq_end"),
-                "registry_state_hash": record.get("registry_state_hash"),
-                "policy_version": record.get("policy_version"),
-                "tenant_id": record.get("tenant_id"),
-            }
-            expected = hashlib.sha256(
-                _stable_json(payload_for_hash).encode("utf-8")
-            ).hexdigest()
+            expected = _compute_snapshot_hash(record, previous_hash)
             stored = record.get("snapshot_hash") or ""
             if stored != expected:
                 return {
@@ -701,6 +862,47 @@ class GovernanceSnapshotStore:
                 }
             previous_hash = stored
         return {"intact": True, "checked": len(chain), "break_at_index": None}
+
+
+def _chain_payload_for_hash(record: dict, previous_hash: str | None) -> dict:
+    """
+    The canonical payload a snapshot's chain hash covers. ``capture()``,
+    ``verify_chain()``, and scripts/repair_governance_snapshots.py all
+    hash exactly this dict — one canonicalization, zero drift.
+    """
+    return {
+        "snapshot_id": record["snapshot_id"],
+        "captured_at": record["captured_at"],
+        "counts": {
+            "total_agents": record["total_agents"],
+            "governed": record["governed"],
+            "ungoverned": record["ungoverned"],
+            "partial": record["partial"],
+            "unknown": record["unknown"],
+            "high_risk_total": record["high_risk_total"],
+            "high_risk_ungoverned": record["high_risk_ungoverned"],
+            "governed_with_forbids": record["governed_with_forbids"],
+        },
+        "coverage_root_sha256": record["coverage_root_sha256"],
+        "label": record.get("label"),
+        "previous_snapshot_hash": previous_hash,
+        "scan_run_id": record.get("scan_run_id"),
+        "ledger_seq_start": record.get("ledger_seq_start"),
+        "ledger_seq_end": record.get("ledger_seq_end"),
+        "registry_state_hash": record.get("registry_state_hash"),
+        "policy_version": record.get("policy_version"),
+        "tenant_id": record.get("tenant_id"),
+    }
+
+
+def _compute_snapshot_hash(record: dict, previous_hash: str | None) -> str:
+    return hashlib.sha256(
+        _stable_json(_chain_payload_for_hash(record, previous_hash)).encode("utf-8")
+    ).hexdigest()
+
+
+def _short_hash(value: str | None) -> str:
+    return (value or "GENESIS")[:16]
 
 
 def _ensure_aware(value: datetime) -> datetime:

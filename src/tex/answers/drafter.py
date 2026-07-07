@@ -374,6 +374,9 @@ _PROMPT_HEADER = (
     "- Use ONLY the handles listed below; each {handle} in a template must appear "
     "in that span's slots.\n"
     "- 'No' as a determiner is allowed for a zero result; spelled numbers are not.\n"
+    "- Never restate a FACT in the prose — no verdicts, agent names, action "
+    "types, dates, or outcomes in your own words. The {handle} slots carry "
+    "every fact; your words are only the calm connective frame around them.\n"
     "- Keep it plain and calm. One clause per exhibit.\n"
     "Return ONLY the JSON, nothing else."
 )

@@ -179,8 +179,17 @@ def _resolve_window(
         # Everything the store holds — honestly labeled, no bounds.
         return None, None, "in total"
 
-    # "recent" and any other label carry no computed bound here; the label rides
-    # into provenance and the store's own recency ordering does the rest.
+    if label == "recent":
+        # "recently" must MEAN recently. Unbounded, this window spoke the
+        # store's whole history as "recent" — a true number at a dishonest
+        # altitude (the live-probe finding: 86 all-time holds spoken as
+        # "held for you recently"). Seven local days is the bound; "in
+        # total" remains the honest word for everything.
+        start_local = now_local - timedelta(days=7)
+        return start_local.astimezone(UTC), None, window_label
+
+    # Any other label carries no computed bound here; the label rides into
+    # provenance and the store's own recency ordering does the rest.
     return None, None, window_label
 
 
@@ -394,10 +403,14 @@ def list_decisions(
 
 def get_decision_record(
     store: Any,
-    decision_id: str | UUID,
+    decision_id: str | UUID | None,
     tenant: str | None,
 ) -> dict[str, Any]:
     """Pull one decision as a ``record`` Exhibit — the "show me the evidence" ask.
+
+    ``decision_id`` of ``None`` means "the latest one": the most recent
+    tenant-visible row ("show me the last recorded"). Same exhibit shape, same
+    isolation, same honest KeyError when the tenant has no rows at all.
 
     ``value`` is an ordered list of ``[field, value]`` pairs (the contract types
     an exhibit value as int | str | list, never a bare dict) carrying the
@@ -413,10 +426,18 @@ def get_decision_record(
     tenant = _require_tenant(tenant)
     wanted_fold = tenant.casefold()
 
-    uid = decision_id if isinstance(decision_id, UUID) else UUID(str(decision_id))
-    decision = store.get(uid) if hasattr(store, "get") else None
-    if decision is None or not _tenant_visible(decision, wanted_fold):
-        raise KeyError(f"decision not found for tenant: {decision_id}")
+    if decision_id is None:
+        # Newest-first is _matching_rows' contract; no verdict, no window —
+        # "the last recorded" means the last, whatever it was.
+        rows = _matching_rows(store, wanted_fold, None, None, None)
+        decision = rows[0] if rows else None
+        if decision is None:
+            raise KeyError(f"no decisions recorded for tenant: {tenant}")
+    else:
+        uid = decision_id if isinstance(decision_id, UUID) else UUID(str(decision_id))
+        decision = store.get(uid) if hasattr(store, "get") else None
+        if decision is None or not _tenant_visible(decision, wanted_fold):
+            raise KeyError(f"decision not found for tenant: {decision_id}")
 
     anchor = _anchor_for(decision)
     # The Exhibit contract types ``value`` as int | str | list — never a bare

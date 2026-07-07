@@ -65,12 +65,21 @@ ABSTAIN_LINE = "I can't say — I don't have a sealed way to answer that yet."
 
 class AnswerRequestDTO(BaseModel):
     """The question and an optional tenant override. Tenant boxing then
-    reconciles this override against the caller's key (see /v1/vigil)."""
+    reconciles this override against the caller's key (see /v1/vigil).
+
+    ``prior_question`` / ``prior_answer`` carry the operator's previous
+    exchange so the LLM router can resolve follow-ups ("what about
+    yesterday?"). Optional and ignored on the keyless deterministic path —
+    the regex parse reads only the question, exactly as before. The 4000
+    cap mirrors the legacy /v1/ask context contract (texApi.js slices to
+    the same bound)."""
 
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=2000)
     tenant_id: str | None = Field(default=None, max_length=200)
+    prior_question: str | None = Field(default=None, max_length=4000)
+    prior_answer: str | None = Field(default=None, max_length=4000)
 
 
 # --------------------------------------------------------------------------- #
@@ -362,7 +371,53 @@ def _overall_tier(spans: list[Span]) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def build_answer_router() -> APIRouter:
+def _intent_from_route(
+    routed: dict[str, Any] | None, question: str
+) -> _Intent | None:
+    """Translate the LLM router's decision into a deterministic ``_Intent``.
+
+    The seam already re-validated against its enum vocabularies; this maps
+    that vocabulary onto the pipeline's own and applies two laws:
+
+    * ``tool == "none"`` returns None — the model found no sealed button, so
+      the regex parse gets its say before Tex abstains. The LLM path is a
+      strict SUPERSET of the deterministic one, never a subtraction.
+    * ``window == "unsupported"`` is DECISIVE — the model heard a temporal
+      phrase no window can compute ("last week", "since March"). Honest law:
+      abstain rather than answer a true number at the wrong altitude.
+
+    ``decision_id`` stays regex-extracted (``_UUID_RE``): exact identifiers
+    are the one thing pattern-matching does better than a model, and it makes
+    a hallucinated id structurally impossible. A ``record`` routing without
+    an id means "the latest one" — the exhibit layer resolves it.
+    """
+    if routed is None:
+        return None
+    tool = routed["tool"]
+    if tool == "none":
+        return None
+    if routed["window"] == "unsupported":
+        return _Intent("unsupported_window", None, None, None)
+    verdict = None if routed["verdict"] == "ANY" else routed["verdict"]
+    if tool in ("agents_count", "agents_list"):
+        # The roster reads the registry; a verdict has no meaning there.
+        return _Intent(tool, None, routed["window"], None)
+    decision_id = None
+    if tool == "record":
+        uuid_match = _UUID_RE.search(question)
+        decision_id = uuid_match.group(1) if uuid_match else None
+    return _Intent(tool, verdict, routed["window"], decision_id)
+
+
+def build_answer_router(llm_seam: Any | None = None) -> APIRouter:
+    """Build the /v1/answer router.
+
+    ``llm_seam`` (keyword, default None) is an
+    :class:`tex.answers.router_llm.AnswerLLM` — or any duck-typed object with
+    ``.route(question, prior_question, prior_answer)`` and ``.draft(prompt)``.
+    None is the keyless v1 posture, byte-identical to before the seam existed:
+    regex routing, deterministic drafter floor.
+    """
     router = APIRouter(prefix="/v1", tags=["answer"])
 
     @router.get("/answer/ping", summary="Liveness for the answer surface")
@@ -385,7 +440,20 @@ def build_answer_router() -> APIRouter:
         effective = _resolve_effective_tenant(principal, body.tenant_id)
         tenant = effective if effective is not None else "default"
 
-        intent = _parse_intent(body.question)
+        # UNDERSTANDING: the LLM router reads the question (and the prior
+        # exchange, so follow-ups resolve) and picks the sealed tool. Routing
+        # is an upgrade, never a dependency — seam absent, model silent, or
+        # "none" all fall back to the deterministic regex parse, so the
+        # keyless posture stays byte-identical and an outage cannot mute Tex.
+        # The model chooses WHICH button; it still cannot author a value.
+        intent: _Intent | None = None
+        if llm_seam is not None:
+            routed = llm_seam.route(
+                body.question, body.prior_question, body.prior_answer
+            )
+            intent = _intent_from_route(routed, body.question)
+        if intent is None:
+            intent = _parse_intent(body.question)
         if intent.kind == "unsupported":
             return _abstain_response(tenant, body.question, "unsupported_intent")
         if intent.kind == "unsupported_window":
@@ -417,8 +485,17 @@ def build_answer_router() -> APIRouter:
         except Exception:  # noqa: BLE001 — a malformed exhibit is not speakable
             return _abstain_response(tenant, body.question, "exhibit_error")
 
-        # The model drafts digit-free skeletons from REDACTED exhibits (v1:
-        # llm=None -> the deterministic floor). It never sees a value.
+        # DRAFTING STAYS DETERMINISTIC — BY DESIGN, for truth-safety. The
+        # byte-verify gate confirms only that the digit SLOTS fill the same
+        # way; it does NOT check the prose FRAME around them. An LLM allowed
+        # to author that frame could write a fabricated verdict, window, or
+        # agent name into the prose and the gate would seal it — the digit is
+        # real, the words lie (agent names are redacted before the drafter,
+        # so any name it inlines is pure hallucination). So the model ROUTES
+        # (above) but the deterministic floor writes the words: it phrases
+        # ONLY from each exhibit's own sealed query fields, so the prose
+        # cannot contradict the record. Re-enabling an LLM drafter requires a
+        # real entailment guard first (see router_llm's module docstring).
         proposals = drafter.draft(body.question, exhibit_dicts, llm=None)
 
         spans: list[Span] = []

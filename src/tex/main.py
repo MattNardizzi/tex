@@ -1491,8 +1491,15 @@ def create_app(
     # tool-computed, every span is byte-verified against them, and absence of
     # evidence speaks as a first-class ABSTAIN. Additive and self-contained
     # (tex.answers.*); the legacy /v1/ask path is untouched.
+    # The LLM seam (ANTHROPIC_API_KEY + opt-out TEX_ANSWER_LLM=0) lets Claude
+    # ROUTE questions to the sealed tools (understanding, not values). Drafting
+    # stays the deterministic floor by design — the gate byte-verifies digits,
+    # not prose, so an LLM-authored frame could seal a fabricated verdict/name
+    # (see router_llm). Fail-open — keyless or broken, the seam is None and the
+    # deterministic regex/floor posture carries the surface byte-identically.
+    from tex.answers.router_llm import build_seam_from_env
     from tex.api.answer_routes import build_answer_router
-    app.include_router(build_answer_router())
+    app.include_router(build_answer_router(llm_seam=build_seam_from_env()))
     # V15: governance history + drift + scheduler admin
     from tex.api.governance_history_routes import (
         build_drift_router,

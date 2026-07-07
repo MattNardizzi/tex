@@ -94,6 +94,23 @@ _VERDICT_PATTERNS: tuple[tuple[str, str], ...] = (
 # lives in one place (the exhibit layer), never re-derived from prose.
 _TODAY_RE = re.compile(r"\btoday\b", re.IGNORECASE)
 _THIS_WEEK_RE = re.compile(r"\bthis week\b", re.IGNORECASE)
+_YESTERDAY_RE = re.compile(r"\byesterday\b", re.IGNORECASE)
+_THIS_MONTH_RE = re.compile(r"\bthis month\b", re.IGNORECASE)
+_TOTAL_RE = re.compile(r"\b(in total|total|all time|all-time|overall|ever)\b", re.IGNORECASE)
+# Temporal phrases Tex CANNOT window yet. A question that names one must
+# ABSTAIN, never answer a different window than it was asked — a true number
+# at the wrong altitude is the exact sin this pipeline exists to kill.
+_UNSUPPORTED_WINDOW_RE = re.compile(
+    r"\b(last\s+(night|week|month|year)|"
+    r"(in|since|during)\s+(january|february|march|april|may|june|july|august|"
+    r"september|october|november|december|19\d\d|20\d\d))\b",
+    re.IGNORECASE,
+)
+# The agents-roster ask — who Tex governs, not what it decided. Only fires
+# when the question carries NO verdict word: "which agents did you forbid"
+# is a decisions ask that happens to say agents.
+_AGENTS_RE = re.compile(r"\bagents?\b", re.IGNORECASE)
+_NAME_RE = re.compile(r"\bname\b", re.IGNORECASE)
 
 # Ask vocabulary. A question is answerable only if it asks to COUNT, to LIST,
 # or to fetch one RECORD. No recognizable ask → ABSTAIN (unsupported_intent),
@@ -139,8 +156,14 @@ class _Intent:
 def _parse_window(question: str) -> str:
     if _TODAY_RE.search(question):
         return "today"
+    if _YESTERDAY_RE.search(question):
+        return "yesterday"
     if _THIS_WEEK_RE.search(question):
         return "this week"
+    if _THIS_MONTH_RE.search(question):
+        return "this month"
+    if _TOTAL_RE.search(question):
+        return "in total"
     return "recent"
 
 
@@ -157,6 +180,22 @@ def _parse_intent(question: str) -> _Intent:
     concrete decision id, because a named row is the most specific ask."""
     window = _parse_window(question)
     verdict = _parse_verdict(question)
+
+    # A temporal phrase Tex can't window yet → honest abstain. Only fires when
+    # no supported window matched, so "last year vs today" still answers today.
+    if window == "recent" and _UNSUPPORTED_WINDOW_RE.search(question):
+        return _Intent("unsupported_window", None, None, None)
+
+    # The roster ask: agents named, no verdict word, WITH a count/list/name
+    # framing. A verdict word makes it a decisions ask ("which agents did you
+    # forbid"); a mention without a provable framing ("who owns the most
+    # agents") falls through to unsupported — answering the roster count to an
+    # ownership question would be a true number at the wrong altitude.
+    if verdict is None and _AGENTS_RE.search(question):
+        if _LIST_RE.search(question) or _NAME_RE.search(question):
+            return _Intent("agents_list", None, None, None)
+        if _COUNT_RE.search(question):
+            return _Intent("agents_count", None, None, None)
 
     uuid_match = _UUID_RE.search(question)
     if uuid_match is not None and _RECORD_RE.search(question):
@@ -271,6 +310,17 @@ def _gather_exhibit_dicts(
     contract) — the caller catches it and abstains rather than speaking a guess.
     A count over an empty match still returns an exhibit (``value=0``), so a
     measured zero seals as a truth."""
+    if intent.kind in ("agents_count", "agents_list"):
+        # The roster buttons read the agent REGISTRY, not the decision store —
+        # who is governed, not what was decided. No registry wired → empty →
+        # the caller abstains (no_scoped_tool) rather than guessing.
+        registry = getattr(request.app.state, "agent_registry", None)
+        if registry is None:
+            return []
+        if intent.kind == "agents_list":
+            return [exhibits.list_agents(registry, tenant)]
+        return [exhibits.count_agents(registry, tenant)]
+
     store = getattr(request.app.state, "decision_store", None)
     if store is None:
         return []
@@ -338,6 +388,11 @@ def build_answer_router() -> APIRouter:
         intent = _parse_intent(body.question)
         if intent.kind == "unsupported":
             return _abstain_response(tenant, body.question, "unsupported_intent")
+        if intent.kind == "unsupported_window":
+            # Tex heard a time window it cannot compute yet. Answering the
+            # nearest window it DOES know would be a true number at the wrong
+            # altitude — so it says it can't say.
+            return _abstain_response(tenant, body.question, "unsupported_window")
 
         # Measure the store. A record miss raises KeyError from the exhibit
         # layer — that is an honest "no sealed way to answer", not a crash and

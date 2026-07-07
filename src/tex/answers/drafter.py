@@ -176,7 +176,10 @@ _PLAIN_COUNT_VERB = "recorded"
 # window_label → trailing time prose. ``None`` yields no time clause at all.
 _WINDOW_CLAUSE = {
     "today": " today",
+    "yesterday": " yesterday",
     "this week": " this week",
+    "this month": " this month",
+    "in total": " in total",
     "recent": " recently",
 }
 
@@ -227,6 +230,24 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
     noun = _count_noun(exhibit)
     clause = _window_clause(exhibit)
 
+    # The roster count speaks in the estate's own register — "agents are
+    # running", the same words Begin uses — never a decision verb.
+    if noun == "agents" and _query_field(exhibit, "verdict") is None:
+        if _query_field(exhibit, "is_zero") is True:
+            return {
+                "template": "No agents are running.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        if _query_field(exhibit, "is_one") is True:
+            return {
+                "template": f"{{{handle}}} agent is running.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        return {
+            "template": f"{{{handle}}} agents are running.",
+            "slots": [{"handle": handle, "rendering": "spoken"}],
+        }
+
     if _query_field(exhibit, "is_zero") is True:
         verdict = _query_field(exhibit, "verdict")
         # Zero-count prose: "No actions were forbidden today." The slot still
@@ -238,6 +259,18 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
             template = f"No {noun} were {_PLAIN_COUNT_VERB}{clause}."
         return {
             "template": template,
+            "slots": [{"handle": handle, "rendering": "spoken"}],
+        }
+
+    if _query_field(exhibit, "is_one") is True:
+        # Singular grammar: "one decision was forbidden", never "one decisions
+        # were". Plurality arrives as a redaction-safe hint (is_one); the
+        # quantity itself still speaks only through the slot.
+        verdict = _query_field(exhibit, "verdict")
+        singular = noun[:-1] if noun.endswith("s") else noun
+        verb = _VERDICT_PHRASE.get(verdict, _PLAIN_COUNT_VERB)
+        return {
+            "template": f"{{{handle}}} {singular} was {verb}{clause}.",
             "slots": [{"handle": handle, "rendering": "spoken"}],
         }
 

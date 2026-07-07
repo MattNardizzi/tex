@@ -381,3 +381,135 @@ def test_record_answer_speaks_a_clean_sentence() -> None:
     # The exhibit still carries the full record + real anchor for the PROOF chip.
     exhibit = body["exhibits"][0]
     assert exhibit["anchor_sha256"] == d.content_sha256
+
+
+# --------------------------------------------------------------------------- #
+# Window vocabulary v2: yesterday / in total / unsupported windows, and the
+# agents-roster buttons. Each new button gets the same law as the originals:
+# true numbers at the asked altitude, or an honest abstain — never the nearest
+# window Tex happens to know.
+# --------------------------------------------------------------------------- #
+
+from tex.domain.agent import AgentIdentity  # noqa: E402
+from tex.stores.agent_registry import InMemoryAgentRegistry  # noqa: E402
+
+
+def test_yesterday_window_is_bounded() -> None:
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    # One forbid right now (today), one 26h ago (yesterday, most zones).
+    store.save(_decision(verdict=Verdict.FORBID, tenant="acme", decided_at=now))
+    store.save(
+        _decision(
+            verdict=Verdict.FORBID, tenant="acme", decided_at=now - timedelta(hours=30)
+        )
+    )
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "how many forbid actions yesterday"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["overall_tier"] == "SEALED"
+    assert body["exhibits"][0]["query"]["window_label"] == "yesterday"
+    # Bounded window: today's forbid must NOT be counted.
+    assert body["exhibits"][0]["value"] <= 1
+    assert "yesterday" in body["spoken_text"]
+
+
+def test_total_window_counts_everything_and_says_so() -> None:
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    for age_days in (0, 3, 40):
+        store.save(
+            _decision(
+                verdict=Verdict.FORBID,
+                tenant="acme",
+                decided_at=now - timedelta(days=age_days),
+            )
+        )
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "how many forbid actions total"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["exhibits"][0]["value"] == 3
+    assert "in total" in body["spoken_text"]
+    assert "recently" not in body["spoken_text"]
+
+
+def test_unsupported_window_abstains_never_misaims() -> None:
+    store = InMemoryDecisionStore()
+    store.save(_decision(verdict=Verdict.FORBID, tenant="acme", decided_at=_now_utc()))
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "how many forbid actions last week"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # A true number at the wrong altitude is the sin — Tex abstains instead.
+    assert body["overall_tier"] == "ABSTAIN"
+    assert body["abstain_reason"] == "unsupported_window"
+    assert body["spoken_text"] == ABSTAIN_LINE
+
+
+def _registry_with(names_and_status) -> InMemoryAgentRegistry:
+    reg = InMemoryAgentRegistry()
+    for name, status, tenant in names_and_status:
+        ident = AgentIdentity(
+            name=name, owner="ops", tenant_id=tenant, lifecycle_status=status
+        )
+        reg.save(ident)
+    return reg
+
+
+def _client_with_registry(store, registry, principal) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_answer_router())
+    app.state.decision_store = store
+    app.state.agent_registry = registry
+    app.dependency_overrides[authenticate_request] = lambda: principal
+    return TestClient(app)
+
+
+def test_agents_roster_is_named_and_scoped() -> None:
+    from tex.domain.agent import AgentLifecycleStatus
+
+    reg = _registry_with(
+        [
+            ("GridArb", AgentLifecycleStatus.ACTIVE, "acme"),
+            ("ForgeMaster", AgentLifecycleStatus.ACTIVE, "acme"),
+            ("SleeperCell", AgentLifecycleStatus.SLEEPING, "acme"),
+            ("ForeignBot", AgentLifecycleStatus.ACTIVE, "globex"),
+        ]
+    )
+    client = _client_with_registry(InMemoryDecisionStore(), reg, _scoped("acme"))
+
+    r = client.post("/v1/answer", json={"question": "name a few of the agents i have"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["overall_tier"] == "SEALED"
+    assert "GridArb" in body["spoken_text"] and "ForgeMaster" in body["spoken_text"]
+    # Sleeping and foreign-tenant agents never speak.
+    assert "SleeperCell" not in body["spoken_text"]
+    assert "ForeignBot" not in body["spoken_text"]
+
+    r2 = client.post("/v1/answer", json={"question": "how many agents do i have"})
+    body2 = r2.json()
+    assert body2["exhibits"][0]["value"] == 2
+    assert body2["spoken_text"] == "two agents are running."
+
+
+def test_agents_ask_without_registry_abstains() -> None:
+    client = _client(InMemoryDecisionStore(), _scoped("acme"))  # no registry on state
+    r = client.post("/v1/answer", json={"question": "how many agents"})
+    body = r.json()
+    assert body["overall_tier"] == "ABSTAIN"
+
+
+def test_agents_mention_without_provable_framing_abstains() -> None:
+    from tex.domain.agent import AgentLifecycleStatus
+
+    reg = _registry_with([("GridArb", AgentLifecycleStatus.ACTIVE, "acme")])
+    client = _client_with_registry(InMemoryDecisionStore(), reg, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "who owns the most agents"})
+    body = r.json()
+    # Ownership is not in the vocabulary — the roster count would be a true
+    # number answering a different question. Abstain.
+    assert body["overall_tier"] == "ABSTAIN"
+    assert body["abstain_reason"] == "unsupported_intent"

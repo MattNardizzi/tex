@@ -165,6 +165,20 @@ def _resolve_window(
         monday = midnight - timedelta(days=midnight.weekday())
         return monday.astimezone(UTC), None, window_label
 
+    if label == "yesterday":
+        # The one BOUNDED window: local midnight-to-midnight, half-open.
+        midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_local = midnight - timedelta(days=1)
+        return start_local.astimezone(UTC), midnight.astimezone(UTC), window_label
+
+    if label in ("this month", "month"):
+        first = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return first.astimezone(UTC), None, window_label
+
+    if label in ("in total", "total", "all time", "ever"):
+        # Everything the store holds — honestly labeled, no bounds.
+        return None, None, "in total"
+
     # "recent" and any other label carry no computed bound here; the label rides
     # into provenance and the store's own recency ordering does the rest.
     return None, None, window_label
@@ -301,6 +315,7 @@ def count_decisions(
             # drafter can choose the calm "No ..." phrasing without ever
             # seeing a quantity.
             "is_zero": n == 0,
+            "is_one": n == 1,
         },
         "anchor_sha256": None,
         "computed_at": datetime.now(UTC).isoformat(),
@@ -466,3 +481,97 @@ def _agent_of(row: Any) -> str | None:
             if isinstance(candidate, str) and candidate.strip():
                 return candidate.strip()
     return None
+
+
+# --------------------------------------------------------------------------- #
+# The AGENTS roster buttons — who Tex governs, not what it decided.
+#
+# Semantics mirror the spoken Begin count (discovery_surface_routes'
+# _estate_count) EXACTLY: registry.list_all(), exact-case tenant match,
+# excluding SLEEPING/REVOKED — so "how many agents" and the count Tex spoke
+# at ignition can never disagree. Kept in lockstep by the shared test
+# below rather than an api-layer import (stores must not import routes).
+# --------------------------------------------------------------------------- #
+
+_AGENT_NOT_RUNNING = frozenset({"SLEEPING", "REVOKED"})
+
+
+def _running_agents(registry: Any, tenant: str) -> list[Any]:
+    rows = []
+    for a in registry.list_all():
+        if getattr(a, "tenant_id", None) != tenant:
+            continue
+        status = getattr(a, "lifecycle_status", None)
+        name = getattr(status, "name", None) or str(status or "")
+        if name.upper() in _AGENT_NOT_RUNNING:
+            continue
+        rows.append(a)
+    return rows
+
+
+def count_agents(registry: Any, tenant: str | None) -> dict[str, Any]:
+    """How many agents Tex is governing right now — the estate headcount.
+
+    A zero is a sealed truth (an honestly empty estate), never an error.
+    """
+    tenant = _require_tenant(tenant)
+    n = len(_running_agents(registry, tenant))
+    return {
+        "handle": "e1",
+        "kind": "count",
+        "value": n,
+        "spoken": humanize_count(n),
+        "unit": "agents",
+        "query": {
+            "tool": "count_agents",
+            "tenant": tenant,
+            "verdict": None,
+            "since": None,
+            "until": None,
+            "window_label": None,
+            "is_zero": n == 0,
+            "is_one": n == 1,
+        },
+        "anchor_sha256": None,
+        "computed_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def list_agents(registry: Any, tenant: str | None, limit: int = 10) -> dict[str, Any]:
+    """Name the governed agents — the roster, spoken as names.
+
+    ``value`` rows carry {agent, status}; ``spoken`` reuses the deterministic
+    names summary (up to three named, humanized remainder) so a roster of any
+    size stays speech, never a serialized structure.
+    """
+    tenant = _require_tenant(tenant)
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    running = _running_agents(registry, tenant)[:limit]
+    value = [
+        {
+            "agent": str(getattr(a, "name", "") or "") or None,
+            "status": (
+                getattr(getattr(a, "lifecycle_status", None), "name", None)
+                or str(getattr(a, "lifecycle_status", "") or "")
+            ),
+        }
+        for a in running
+    ]
+    return {
+        "handle": "e1",
+        "kind": "list",
+        "value": value,
+        "spoken": _spoken_row_names(value),
+        "unit": "agents",
+        "query": {
+            "tool": "list_agents",
+            "tenant": tenant,
+            "verdict": None,
+            "since": None,
+            "until": None,
+            "window_label": None,
+        },
+        "anchor_sha256": None,
+        "computed_at": datetime.now(UTC).isoformat(),
+    }

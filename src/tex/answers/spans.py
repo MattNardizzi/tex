@@ -53,6 +53,10 @@ class ExhibitQuery(BaseModel):
     # zero count deserves the calm "No ..." phrasing — so the tool layer
     # discloses zero-ness here, in provenance, where no quantity can leak.
     is_zero: bool = Field(default=False)
+    # And singular-ness, for grammar: "one decision was", never "one
+    # decisions were". Discloses plurality only — the quantity itself still
+    # arrives exclusively through the slot.
+    is_one: bool = Field(default=False)
 
 
 class Exhibit(BaseModel):

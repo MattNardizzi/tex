@@ -501,7 +501,7 @@ def _client():
     return TestClient(create_app())
 
 
-def test_surface_ignite_speaks_once_then_pull_only():
+def test_surface_ignite_respeaks_on_every_press():
     client = _client()
     # First ignition speaks exactly one line.
     r1 = client.post("/v1/surface/discovery/ignite")
@@ -511,29 +511,29 @@ def test_surface_ignite_speaks_once_then_pull_only():
     assert body1["spoken"] is not None
     assert "I'll begin" in body1["spoken"]
 
-    # Second ignition does NOT re-declare — the door has opened.
+    # Second ignition re-runs the sweep and RE-SPEAKS a real count — Begin is an
+    # active, repeatable discover+announce button. The one-time door still only
+    # opens once, so already_ignited stays true.
     r2 = client.post("/v1/surface/discovery/ignite")
     body2 = r2.json()
     assert body2["already_ignited"] is True
-    assert body2["spoken"] is None
+    assert body2["spoken"] is not None
 
 
-def test_surface_ignite_repeatable_mode_respeaks(monkeypatch):
-    # Opt-in repeatable mode (TEX_BEGIN_REPEATABLE): the one-time door still only
-    # opens once (already_ignited stays true), but Begin re-runs discovery and
-    # RE-SPEAKS the count + honest coverage on every press — an active
-    # discover+announce button for live iteration.
+def test_surface_ignite_respeaks_count_and_coverage():
+    # Begin always re-runs discovery and RE-SPEAKS the count + honest coverage on
+    # every press after the first — an active discover+announce button. The
+    # one-time door still only opens once (already_ignited stays true).
     client = _client()
     assert client.post("/v1/surface/discovery/ignite").json()["already_ignited"] is False
 
-    monkeypatch.setenv("TEX_BEGIN_REPEATABLE", "1")
     body2 = client.post("/v1/surface/discovery/ignite").json()
     assert body2["already_ignited"] is True
     assert body2["spoken"] is not None
     assert "running" in body2["spoken"]
 
 
-def test_surface_ignite_repeatable_counts_agents_from_this_press_sweep(monkeypatch):
+def test_surface_ignite_repeatable_counts_agents_from_this_press_sweep():
     # Regression: a repeatable Begin must speak the count AFTER its own sweep, not
     # before it. The sweep writes newly discovered agents synchronously into the
     # SAME registry the count reads, so counting first would speak the pre-sweep
@@ -571,7 +571,6 @@ def test_surface_ignite_repeatable_counts_agents_from_this_press_sweep(monkeypat
 
     app.state.sieve_driver = _OneShotDriver()
 
-    monkeypatch.setenv("TEX_BEGIN_REPEATABLE", "1")
     body = client.post("/v1/surface/discovery/ignite").json()
 
     # The FIRST repeatable press already reports the agent its own sweep surfaced.

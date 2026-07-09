@@ -153,19 +153,6 @@ def _seal_planes_on_change(request: Request, tenant: str) -> None:
         pass
 
 
-def _begin_repeatable() -> bool:
-    """Whether Begin re-runs the sweep + re-speaks coverage on every press.
-
-    Default OFF — the presence doctrine is "speaks once, then pull-only". Set
-    ``TEX_BEGIN_REPEATABLE`` truthy to make Begin an active, repeatable
-    discover+announce button (live iteration / testing); unset to restore the
-    one-time ceremony with no code change.
-    """
-    return os.environ.get("TEX_BEGIN_REPEATABLE", "").strip().casefold() in {
-        "1", "true", "yes", "on", "enabled",
-    }
-
-
 # Agents that are "running" in the estate for the spoken count: everything
 # discovered and present, excluding the ones Tex put to sleep (the dormant
 # doctrine forbids speaking about them) and the terminally revoked. A
@@ -245,20 +232,10 @@ def build_discovery_surface_router() -> APIRouter:
         tenant = _resolve_tenant(principal, tenant_id)
 
         if ignition.has_fired(tenant):
-            if not _begin_repeatable():
-                # Presence doctrine (default): the door opened once — pull-only
-                # from here, never re-declare. Restored by leaving
-                # TEX_BEGIN_REPEATABLE unset.
-                return {
-                    "spoken": None,
-                    "object": None,
-                    "already_ignited": True,
-                    "ignited_at": ignition.fired_at(tenant).isoformat(),
-                }
-            # Repeatable mode (TEX_BEGIN_REPEATABLE): Begin re-runs the full SIEVE
-            # sweep and re-speaks the honest coverage every press — an active
-            # discover+announce button for live iteration. The one-time ignition
-            # state is preserved (already_ignited stays true).
+            # An already-fired Begin ALWAYS re-runs the full SIEVE sweep and
+            # re-speaks the honest coverage every press — Begin is an active
+            # discover+announce button, never a silent no-op. The one-time
+            # ignition state is preserved (already_ignited stays true).
             #
             # Order is load-bearing, exactly as in the first-ignite branch below:
             # SWEEP FIRST, then count. The sweep writes newly discovered agents

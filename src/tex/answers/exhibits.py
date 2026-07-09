@@ -50,12 +50,22 @@ __all__ = [
     "count_decisions",
     "list_decisions",
     "get_decision_record",
+    "count_held_waiting",
+    "list_held_waiting",
     "ANSWER_TZ_ENV",
     "DEFAULT_ANSWER_TZ",
 ]
 
 ANSWER_TZ_ENV = "TEX_ANSWER_TZ"
 DEFAULT_ANSWER_TZ = "America/New_York"
+
+# The "still waiting on a human" window and caps. Waiting is a present-tense
+# ask ("what needs me right now"), so it is bounded to the same seven local
+# days "recent" means elsewhere; the list names a capped set for the ear and
+# carries a larger rows payload for the eye.
+_HELD_WAITING_SPOKEN_CAP = 10
+_HELD_WAITING_ROWS_CAP = 25
+_CONTENT_EXCERPT_MAX = 280
 
 # The caller may say "HELD" for an awaiting-human decision; the store seals that
 # as ABSTAIN. Everything else maps to itself. ``None`` means "all verdicts".
@@ -405,12 +415,21 @@ def get_decision_record(
     store: Any,
     decision_id: str | UUID | None,
     tenant: str | None,
+    verdict: str | Verdict | None = None,
 ) -> dict[str, Any]:
     """Pull one decision as a ``record`` Exhibit — the "show me the evidence" ask.
 
     ``decision_id`` of ``None`` means "the latest one": the most recent
     tenant-visible row ("show me the last recorded"). Same exhibit shape, same
     isolation, same honest KeyError when the tenant has no rows at all.
+
+    ``verdict`` (``FORBID``/``PERMIT``/``HELD``/``ABSTAIN`` or ``None`` for any)
+    constrains WHICH record answers: a held-qualified "last/latest" ask ("the
+    last HELD action") passes ``verdict="HELD"`` so the latest ABSTAIN — never a
+    PERMIT — is returned. This is the FLOOR guarantee: the verdict filter lives
+    here, so even a router that dropped the held qualifier can never seal a
+    PERMIT for a held question. A verdict-qualified id that names a row of a
+    different verdict is an honest KeyError, not a mismatched record.
 
     ``value`` is an ordered list of ``[field, value]`` pairs (the contract types
     an exhibit value as int | str | list, never a bare dict) carrying the
@@ -425,11 +444,13 @@ def get_decision_record(
     """
     tenant = _require_tenant(tenant)
     wanted_fold = tenant.casefold()
+    resolved_verdict = _normalize_verdict(verdict)
 
     if decision_id is None:
-        # Newest-first is _matching_rows' contract; no verdict, no window —
-        # "the last recorded" means the last, whatever it was.
-        rows = _matching_rows(store, wanted_fold, None, None, None)
+        # Newest-first is _matching_rows' contract. "The last recorded" means
+        # the last, whatever it was — unless a verdict qualifier narrows it
+        # ("the last HELD action" ⇒ the newest ABSTAIN, never a PERMIT).
+        rows = _matching_rows(store, wanted_fold, resolved_verdict, None, None)
         decision = rows[0] if rows else None
         if decision is None:
             raise KeyError(f"no decisions recorded for tenant: {tenant}")
@@ -438,6 +459,10 @@ def get_decision_record(
         decision = store.get(uid) if hasattr(store, "get") else None
         if decision is None or not _tenant_visible(decision, wanted_fold):
             raise KeyError(f"decision not found for tenant: {decision_id}")
+        # A verdict-qualified id must name a row of that verdict — otherwise it
+        # is honestly "not found" rather than a record of the wrong kind.
+        if resolved_verdict is not None and getattr(decision, "verdict", None) != resolved_verdict:
+            raise KeyError(f"decision {decision_id} does not match requested verdict")
 
     anchor = _anchor_for(decision)
     # The Exhibit contract types ``value`` as int | str | list — never a bare
@@ -475,6 +500,181 @@ def get_decision_record(
             "window_label": None,
         },
         "anchor_sha256": anchor,
+        "computed_at": datetime.now(UTC).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────── the "waiting on a human" tools
+def _resolved_ids(resolutions: Any, candidate_ids: list[str]) -> set[str]:
+    """The subset of ``candidate_ids`` a human has already resolved.
+
+    ``resolutions`` may be an ``EvidenceRecorder``-like object (its
+    ``resolved_decision_ids(candidate_ids)`` batch lookup), a plain callable
+    ``(ids) -> iterable``, or a concrete set/collection of resolved ids.
+    ``None`` (the keyless dev posture, no recorder wired) means nothing is
+    known-resolved.
+
+    Fail-OPEN by design: an unreadable resolution source yields the empty set,
+    so a genuinely-waiting hold is never HIDDEN by a transient read fault — it
+    can only be over-surfaced (a resolved hold shown once more), which an
+    operator double-checks rather than misses.
+    """
+    if resolutions is None:
+        return set()
+    method = getattr(resolutions, "resolved_decision_ids", None)
+    if callable(method):
+        try:
+            return {str(x) for x in method(candidate_ids)}
+        except Exception:  # noqa: BLE001 — resolution is an upgrade, never a dependency
+            return set()
+    if callable(resolutions):
+        try:
+            return {str(x) for x in resolutions(candidate_ids)}
+        except Exception:  # noqa: BLE001
+            return set()
+    try:
+        return {str(x) for x in resolutions}
+    except TypeError:
+        return set()
+
+
+def _held_waiting(
+    store: Any, tenant: str, resolutions: Any
+) -> tuple[list[Any], datetime | None]:
+    """The holds genuinely waiting on a human right now, newest first.
+
+    "Waiting" = verdict ABSTAIN (the store's held), tenant-visible, decided
+    within the last seven local days, AND with NO human-resolution record
+    sealed against the decision_id (the batch lookup). Returns the surviving
+    rows and the UTC lower bound (for the exhibit's provenance).
+    """
+    since_utc, _, _ = _resolve_window("recent", None, None)  # seven local days
+    wanted_fold = tenant.casefold()
+    rows = _matching_rows(store, wanted_fold, Verdict.ABSTAIN, since_utc, None)
+    candidate_ids = [str(getattr(r, "decision_id", "")) for r in rows]
+    resolved = _resolved_ids(resolutions, candidate_ids)
+    waiting = [r for r in rows if str(getattr(r, "decision_id", "")) not in resolved]
+    return waiting, since_utc
+
+
+def _held_waiting_row(decision: Any) -> dict[str, Any]:
+    """One hold's eye-payload for the act-able queue: id, actor, action, a
+    bounded content excerpt, and the decision time. Never spoken."""
+    excerpt = getattr(decision, "content_excerpt", None)
+    if isinstance(excerpt, str):
+        excerpt = excerpt[:_CONTENT_EXCERPT_MAX]
+    else:
+        excerpt = None
+    return {
+        "decision_id": str(getattr(decision, "decision_id", "")),
+        "agent": _agent_of(decision),
+        "action_type": getattr(decision, "action_type", None),
+        "content_excerpt": excerpt,
+        "at": _iso(getattr(decision, "decided_at", None)),
+    }
+
+
+def count_held_waiting(
+    store: Any,
+    tenant: str | None,
+    resolutions: Any = None,
+) -> dict[str, Any]:
+    """How many held decisions are STILL waiting on a human right now.
+
+    Distinct from ``count_decisions(verdict="HELD")``, which is the HISTORICAL
+    tally of everything held in a window — resolved or not, presence
+    self-abstains included. This is the "need my attention" count: only the
+    unresolved ABSTAINs of the last seven local days (see :func:`_held_waiting`).
+    A zero is a sealed truth — an empty waiting queue — never an error.
+
+    ``resolutions`` is the resolved-id source (an ``EvidenceRecorder``, a
+    callable, or a set of ids); ``None`` treats nothing as resolved.
+    """
+    tenant = _require_tenant(tenant)
+    waiting, since_utc = _held_waiting(store, tenant, resolutions)
+    n = len(waiting)
+
+    return {
+        "handle": "e1",
+        "kind": "count",
+        "value": n,
+        "spoken": humanize_count(n),
+        "unit": "decisions",
+        "query": {
+            # The tool name is the drafter's cue to speak the present, unresolved
+            # register ("waiting for your attention") rather than the historical
+            # "held ... recently" prose a windowed held count uses.
+            "tool": "count_held_waiting",
+            "tenant": tenant,
+            # The honest sealed verdict these rows carry.
+            "verdict": Verdict.ABSTAIN.value,
+            "since": _iso(since_utc),
+            "until": None,
+            "window_label": None,
+            "is_zero": n == 0,
+            "is_one": n == 1,
+        },
+        "anchor_sha256": None,
+        "computed_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def list_held_waiting(
+    store: Any,
+    tenant: str | None,
+    resolutions: Any = None,
+    limit: int = _HELD_WAITING_SPOKEN_CAP,
+) -> dict[str, Any]:
+    """Name the held decisions STILL waiting on a human right now.
+
+    Same "waiting" definition as :func:`count_held_waiting`. The exhibit's
+    ``spoken`` names up to three agents plus a humanized remainder over the FULL
+    waiting set (so the ear is never misled about how many need attention);
+    ``value`` caps the spoken tier at ``limit`` (ten). The exhibit ADDITIONALLY
+    carries ``rows`` — up to twenty-five ``{decision_id, agent, action_type,
+    content_excerpt, at}`` payloads, newest first — the exact act-able queue the
+    UI walks beside the voice.
+    """
+    tenant = _require_tenant(tenant)
+    if limit < 0:
+        raise ValueError("limit must be non-negative")
+    waiting, since_utc = _held_waiting(store, tenant, resolutions)
+    total = len(waiting)
+
+    spoken_selection = waiting[:limit]
+    value = [
+        {
+            "decision_id": str(getattr(r, "decision_id", "")),
+            "agent": _agent_of(r),
+            "verdict": _verdict_str(r),
+            "at": _iso(getattr(r, "decided_at", None)),
+        }
+        for r in spoken_selection
+    ]
+    # The ear hears the true remainder — names computed over EVERY waiting hold,
+    # not just the capped spoken tier, so "and N more" can never undercount how
+    # many still need a human.
+    spoken = _spoken_row_names([{"agent": _agent_of(r)} for r in waiting])
+    rows = [_held_waiting_row(r) for r in waiting[:_HELD_WAITING_ROWS_CAP]]
+
+    return {
+        "handle": "e1",
+        "kind": "list",
+        "value": value,
+        "spoken": spoken,
+        "rows": rows,
+        "unit": "decisions",
+        "query": {
+            "tool": "list_held_waiting",
+            "tenant": tenant,
+            "verdict": Verdict.ABSTAIN.value,
+            "since": _iso(since_utc),
+            "until": None,
+            "window_label": None,
+            "is_zero": total == 0,
+            "is_one": total == 1,
+        },
+        "anchor_sha256": None,
         "computed_at": datetime.now(UTC).isoformat(),
     }
 

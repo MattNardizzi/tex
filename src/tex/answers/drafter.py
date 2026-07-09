@@ -173,6 +173,12 @@ _VERDICT_PHRASE = {
 # Fallback when a count exhibit names no verdict — an untyped tally of decisions.
 _PLAIN_COUNT_VERB = "recorded"
 
+# The "still waiting on a human" tools speak in the present, unresolved register
+# — "waiting for your attention" — never the historical "held ... recently" of a
+# windowed held tally. Keyed on the exhibit's own ``query.tool``.
+_HELD_WAITING_COUNT_TOOL = "count_held_waiting"
+_HELD_WAITING_LIST_TOOL = "list_held_waiting"
+
 # window_label → trailing time prose. ``None`` yields no time clause at all.
 _WINDOW_CLAUSE = {
     "today": " today",
@@ -227,6 +233,26 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
     its absence the drafter phrases for the general case and lets the gate seal
     whatever digit it recomputes — including zero, rendered through the slot."""
     handle = exhibit["handle"]
+
+    # The "need my attention" count speaks the present, unresolved register.
+    # Zero is a calm empty queue; the slot still authors the quantity (even
+    # when it is nothing) so the gate stays the author of every number.
+    if _query_field(exhibit, "tool") == _HELD_WAITING_COUNT_TOOL:
+        if _query_field(exhibit, "is_zero") is True:
+            return {
+                "template": "No decisions are waiting for your attention.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        if _query_field(exhibit, "is_one") is True:
+            return {
+                "template": f"{{{handle}}} decision is waiting for your attention.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        return {
+            "template": f"{{{handle}}} decisions are waiting for your attention.",
+            "slots": [{"handle": handle, "rendering": "spoken"}],
+        }
+
     noun = _count_noun(exhibit)
     clause = _window_clause(exhibit)
 
@@ -291,6 +317,29 @@ def _floor_list_span(exhibit: dict[str, Any]) -> DrafterProposal:
     value would serialize brackets and timestamps into speech, and the gate
     kills it."""
     handle = exhibit["handle"]
+
+    # The "still waiting on a human" list speaks the present register and offers
+    # to walk the queue — the honest remainder already rides inside the
+    # exhibit's spoken names ("and N more"). Zero is a calm empty queue.
+    if _query_field(exhibit, "tool") == _HELD_WAITING_LIST_TOOL:
+        if _query_field(exhibit, "is_zero") is True:
+            return {
+                "template": "No decisions are waiting for your attention.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        if _query_field(exhibit, "is_one") is True:
+            return {
+                "template": f"Waiting for your attention: {{{handle}}}.",
+                "slots": [{"handle": handle, "rendering": "spoken"}],
+            }
+        return {
+            "template": (
+                f"Waiting for your attention: {{{handle}}}. "
+                "I can walk you through them."
+            ),
+            "slots": [{"handle": handle, "rendering": "spoken"}],
+        }
+
     noun = exhibit.get("unit") or "agents"
     clause = _window_clause(exhibit)
     template = f"The {noun}{clause}: {{{handle}}}."
@@ -350,8 +399,10 @@ def _floor(exhibits: list[dict[str, Any]]) -> list[DrafterProposal]:
 # Redaction — the structural guarantee.
 # ---------------------------------------------------------------------------
 
-# Fields the model is never shown. It cannot leak a digit it never saw.
-_REDACTED_FIELDS = ("value", "spoken", "anchor_sha256")
+# Fields the model is never shown. It cannot leak a digit it never saw — and it
+# never sees the ``rows`` act-able queue either (agent names, content excerpts),
+# so a future LLM drafter can never inline a hold's private facts into prose.
+_REDACTED_FIELDS = ("value", "spoken", "anchor_sha256", "rows")
 
 
 def _redact(exhibit: dict[str, Any]) -> dict[str, Any]:

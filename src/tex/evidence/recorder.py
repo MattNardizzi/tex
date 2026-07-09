@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -608,6 +609,51 @@ class EvidenceRecorder:
                     continue
             results.append(record)
         return tuple(results)
+
+    def resolved_decision_ids(
+        self, candidate_ids: Iterable[Any] | None = None
+    ) -> set[str]:
+        """
+        The batch "which of these holds already carry a human seal?" lookup.
+
+        Returns the subset of ``decision_id``s that have at least one
+        ``human_resolution`` evidence record — the read behind the
+        "still waiting on a human" answer, which excludes any hold an operator
+        has already approved / held / refused.
+
+        A read-only, single-pass scan of the JSONL chain (the source of truth),
+        the same idiom as ``read_contract_violations``. When ``candidate_ids``
+        is given only those ids are considered (and an empty iterable
+        short-circuits to an empty result — no scan); when ``None`` every
+        resolved decision id in the chain is returned. For high-cadence
+        workloads layer a Postgres ``EvidenceMirror`` and query that instead;
+        the JSONL chain stays the source of truth.
+        """
+        wanted: set[str] | None = None
+        if candidate_ids is not None:
+            wanted = {str(c) for c in candidate_ids}
+            if not wanted:
+                return set()
+
+        resolved: set[str] = set()
+        for record in self.read_all():
+            if record.record_type != "human_resolution":
+                continue
+            decision_id = getattr(record, "decision_id", None)
+            did = str(decision_id) if decision_id is not None else ""
+            if not did:
+                # Defensive: fall back to the payload's own decision_id if the
+                # envelope column is unset for any reason.
+                try:
+                    did = str(self.decode_payload(record).get("decision_id") or "")
+                except ValueError:
+                    did = ""
+            if not did:
+                continue
+            if wanted is not None and did not in wanted:
+                continue
+            resolved.add(did)
+        return resolved
 
     def decode_payload(self, record: EvidenceRecord) -> dict[str, Any]:
         """

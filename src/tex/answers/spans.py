@@ -79,6 +79,13 @@ class Exhibit(BaseModel):
     query: ExhibitQuery
     anchor_sha256: str | None = Field(default=None, max_length=64)
     computed_at: str = Field(min_length=1, max_length=64)
+    # The act-able queue beside the voice. Only a "waiting on a human" list
+    # exhibit carries it: the exact set spoken, newest first, as
+    # ``{decision_id, agent, action_type, content_excerpt, at}`` rows the UI
+    # walks. Never a slot value (the gate never renders from it) and never
+    # shown to the drafter (redacted) — it rides through to the JSON response
+    # only. ``None`` for every other exhibit kind.
+    rows: list[dict[str, Any]] | None = Field(default=None)
 
 
 class Slot(BaseModel):

@@ -16,8 +16,10 @@ import pytest
 
 from tex.answers.exhibits import (
     count_decisions,
+    count_held_waiting,
     get_decision_record,
     list_decisions,
+    list_held_waiting,
 )
 from tex.domain.decision import Decision
 from tex.domain.verdict import Verdict
@@ -298,6 +300,176 @@ def test_get_record_cross_tenant_is_not_found(store):
         get_decision_record(store, d.decision_id, "acme")
 
 
+# ─────────────────────────────── held-waiting: only the UNRESOLVED holds, now
+class _FakeResolutions:
+    """Duck-types the recorder's batch lookup: resolved_decision_ids(ids)."""
+
+    def __init__(self, resolved) -> None:
+        self._resolved = {str(x) for x in resolved}
+        self.seen: list[str] | None = None
+
+    def resolved_decision_ids(self, candidate_ids=None) -> set[str]:
+        self.seen = None if candidate_ids is None else [str(c) for c in candidate_ids]
+        if candidate_ids is None:
+            return set(self._resolved)
+        return {str(c) for c in candidate_ids if str(c) in self._resolved}
+
+
+def test_waiting_excludes_resolved_includes_unresolved(store):
+    a1 = _decision(verdict=Verdict.ABSTAIN, seed="w1")
+    a2 = _decision(verdict=Verdict.ABSTAIN, seed="w2")
+    a3 = _decision(verdict=Verdict.ABSTAIN, seed="w3")
+    for d in (a1, a2, a3):
+        store.save(d)
+
+    resolutions = _FakeResolutions([a2.decision_id])  # a2 already resolved
+    ex = count_held_waiting(store, "acme", resolutions)
+
+    assert ex["kind"] == "count"
+    assert ex["value"] == 2  # a1 + a3 waiting; a2 excluded
+    assert ex["query"]["tool"] == "count_held_waiting"
+    assert ex["query"]["verdict"] == "ABSTAIN"
+    assert ex["anchor_sha256"] is None
+    # A real BATCH lookup: the resolver was handed exactly the candidate ids.
+    assert set(resolutions.seen) == {
+        str(a1.decision_id),
+        str(a2.decision_id),
+        str(a3.decision_id),
+    }
+
+
+def test_waiting_counts_only_abstain(store):
+    store.save(_decision(verdict=Verdict.ABSTAIN, seed="w1"))
+    store.save(_decision(verdict=Verdict.PERMIT, seed="p1"))
+    store.save(_decision(verdict=Verdict.FORBID, seed="f1"))
+    # No resolution source wired → nothing known-resolved → all ABSTAINs wait.
+    assert count_held_waiting(store, "acme", None)["value"] == 1
+
+
+def test_waiting_window_bounded_to_seven_days(store):
+    now = datetime.now(UTC)
+    store.save(
+        _decision(verdict=Verdict.ABSTAIN, decided_at=now - timedelta(days=2), seed="fresh")
+    )
+    store.save(
+        _decision(verdict=Verdict.ABSTAIN, decided_at=now - timedelta(days=30), seed="stale")
+    )
+    ex = count_held_waiting(store, "acme", None)
+    assert ex["value"] == 1  # the 30-day-old hold is outside the waiting window
+    assert ex["query"]["since"] is not None
+
+
+def test_waiting_zero_is_sealed(store):
+    ex = count_held_waiting(store, "acme", None)
+    assert ex["value"] == 0
+    assert ex["spoken"] == "zero"
+    assert ex["query"]["is_zero"] is True
+
+
+def test_waiting_isolated_by_tenant(store):
+    store.save(_decision(verdict=Verdict.ABSTAIN, tenant="acme", seed="a1"))
+    store.save(_decision(verdict=Verdict.ABSTAIN, tenant="globex", seed="g1"))
+    assert count_held_waiting(store, "acme", None)["value"] == 1
+    assert count_held_waiting(store, "globex", None)["value"] == 1
+
+
+def test_list_waiting_rows_payload_shape(store):
+    d = _decision(verdict=Verdict.ABSTAIN, agent="atlas-pay", seed="w1")
+    store.save(d)
+    ex = list_held_waiting(store, "acme", None)
+
+    assert ex["kind"] == "list"
+    assert ex["query"]["tool"] == "list_held_waiting"
+    assert len(ex["rows"]) == 1
+    row = ex["rows"][0]
+    assert set(row.keys()) == {
+        "decision_id",
+        "agent",
+        "action_type",
+        "content_excerpt",
+        "at",
+    }
+    assert row["decision_id"] == str(d.decision_id)
+    assert row["agent"] == "atlas-pay"
+    assert row["action_type"] == "send_email"
+    assert row["content_excerpt"] == "hello"  # from the fixture, truncated to 280
+    assert row["at"] is not None
+    # The ear hears a name, never a serialized structure.
+    assert "atlas-pay" in ex["spoken"]
+    assert "[" not in ex["spoken"] and "{" not in ex["spoken"]
+
+
+def test_list_waiting_caps_spoken_and_rows_but_counts_true_remainder(store):
+    for i in range(30):
+        store.save(_decision(verdict=Verdict.ABSTAIN, agent=f"bot-{i}", seed=f"w{i}"))
+    ex = list_held_waiting(store, "acme", None)
+
+    assert len(ex["rows"]) == 25  # rows payload capped at twenty-five
+    assert len(ex["value"]) == 10  # spoken tier capped at ten
+    # The ear is told the TRUE remainder (thirty minus three named), never the
+    # capped tier's remainder — honesty about how many still need a human.
+    assert "twenty-seven more" in ex["spoken"]
+
+
+def test_list_waiting_excludes_resolved_from_rows(store):
+    keep = _decision(verdict=Verdict.ABSTAIN, agent="keep", seed="k1")
+    drop = _decision(verdict=Verdict.ABSTAIN, agent="drop", seed="d1")
+    store.save(keep)
+    store.save(drop)
+    # A plain SET of resolved ids is one accepted resolution-source shape.
+    ex = list_held_waiting(store, "acme", {str(drop.decision_id)})
+    ids = {r["decision_id"] for r in ex["rows"]}
+    assert str(keep.decision_id) in ids
+    assert str(drop.decision_id) not in ids
+
+
+def test_list_waiting_empty_is_sealed_zero(store):
+    ex = list_held_waiting(store, "acme", None)
+    assert ex["value"] == []
+    assert ex["rows"] == []
+    assert ex["query"]["is_zero"] is True
+
+
+def test_resolution_read_fault_fails_open_shows_all(store):
+    """An unreadable resolution source must never HIDE a waiting hold — it
+    over-surfaces (fails open) rather than silencing one that needs a human."""
+
+    def _boom(_ids):
+        raise RuntimeError("resolution store down")
+
+    store.save(_decision(verdict=Verdict.ABSTAIN, seed="w1"))
+    assert count_held_waiting(store, "acme", _boom)["value"] == 1
+
+
+# ───────────────────────────────── held-qualified record filters to ABSTAIN
+def test_get_record_held_verdict_filters_to_abstain(store):
+    now = datetime.now(UTC)
+    held = _decision(verdict=Verdict.ABSTAIN, decided_at=now - timedelta(hours=2), seed="h1")
+    permit = _decision(verdict=Verdict.PERMIT, decided_at=now, seed="p1")
+    store.save(held)
+    store.save(permit)
+
+    # No verdict → the newest row, which is the PERMIT.
+    assert dict(get_decision_record(store, None, "acme")["value"])["verdict"] == "PERMIT"
+    # HELD verdict → the latest ABSTAIN, never the newer PERMIT.
+    rec = dict(get_decision_record(store, None, "acme", verdict="HELD")["value"])
+    assert rec["verdict"] == "ABSTAIN"
+    assert rec["decision_id"] == str(held.decision_id)
+
+
+def test_get_record_held_verdict_empty_raises(store):
+    store.save(_decision(verdict=Verdict.PERMIT, seed="p1"))
+    with pytest.raises(KeyError):
+        get_decision_record(store, None, "acme", verdict="HELD")
+
+
+def test_get_record_verdict_mismatch_on_explicit_id_raises(store):
+    d = _decision(verdict=Verdict.PERMIT, seed="p1")
+    store.save(d)
+    with pytest.raises(KeyError):
+        get_decision_record(store, d.decision_id, "acme", verdict="HELD")
+
+
 # ───────────────────────────────────────── exhibit dict validates the contract
 def test_exhibit_dict_validates_against_span_model(store):
     """The dict a primitive returns must construct the peer builder's pydantic
@@ -305,9 +477,12 @@ def test_exhibit_dict_validates_against_span_model(store):
     from tex.answers.spans import Exhibit
 
     store.save(_decision(verdict=Verdict.FORBID, seed="v1"))
+    store.save(_decision(verdict=Verdict.ABSTAIN, seed="v3"))
     for ex in (
         count_decisions(store, "acme", verdict="FORBID", window_label="today"),
         list_decisions(store, "acme"),
+        count_held_waiting(store, "acme", None),
+        list_held_waiting(store, "acme", None),  # carries the extra rows payload
     ):
         Exhibit(**ex)  # raises on any contract drift
 

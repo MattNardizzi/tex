@@ -142,10 +142,42 @@ _UUID_RE = re.compile(
 )
 _RECORD_RE = re.compile(r"\b(record|details of|decision id|decision record)\b", re.IGNORECASE)
 
+# The "needs a human NOW" cues — a present, unresolved hold, distinct from a
+# historical windowed tally. When one of these rides a held (or decision-noun)
+# question, the answer routes to the WAITING tools, which exclude holds a human
+# has already resolved and Tex's own settled abstains. "held today"/"this week"
+# (a history window) is exempt — that is a past-tense tally, not a live queue.
+_ATTENTION_CUE_RE = re.compile(
+    r"\b("
+    r"right now|"
+    r"need(?:s|ing)?\s+(?:my|your|human)?\s*attention|"
+    r"require(?:s|d|ing)?\s+(?:my|your|human)?\s*attention|"
+    r"await|awaiting|waiting|"
+    r"still\s+(?:held|holding|waiting|pending|open|unresolved)|"
+    r"outstanding|unresolved|open|pending"
+    r")\b",
+    re.IGNORECASE,
+)
+# A decision-ish noun, so a bare cue ("anything outstanding") on an unrelated
+# question does not hijack the waiting tools. A HELD verdict already supplies
+# the governance context on its own.
+_DECISION_NOUN_RE = re.compile(
+    r"\b(decision|decisions|action|actions|hold|holds|approval|approvals|"
+    r"request|requests|item|items)\b",
+    re.IGNORECASE,
+)
+# Past-tense / windowed labels: a held question pinned to one of these is a
+# HISTORICAL tally and stays on the existing count/list tools, untouched.
+_HISTORY_WINDOWS = frozenset(
+    {"today", "yesterday", "this week", "this month", "in total"}
+)
+
 
 class _Intent:
     """Parsed, deterministic reading of the question. ``kind`` is one of
-    ``count`` | ``list`` | ``record`` | ``unsupported``."""
+    ``count`` | ``list`` | ``record`` | ``held_waiting_count`` |
+    ``held_waiting_list`` | ``agents_count`` | ``agents_list`` |
+    ``unsupported`` | ``unsupported_window``."""
 
     __slots__ = ("kind", "verdict", "window_label", "decision_id")
 
@@ -227,6 +259,36 @@ def _parse_intent(question: str) -> _Intent:
     return _Intent("unsupported", None, None, None)
 
 
+def _normalize_waiting(intent: _Intent, question: str) -> _Intent:
+    """FLOOR enforcement for the "still waiting on a human" asks.
+
+    A held count/list carrying a present/attention cue ("right now", "need my
+    attention", "outstanding", "unresolved", "still held") — and NOT pinned to a
+    past window ("held today", "held this week") — is the "what needs me now"
+    question. It routes to the waiting tools, which exclude already-resolved
+    holds and Tex's own settled abstains. Past-tense/windowed held questions are
+    left exactly as-is.
+
+    This runs on the FINAL intent (regex OR LLM route), so a router that picked
+    plain count/list — dropping the "right now" qualifier — can never speak
+    resolved holds as "waiting". Idempotent: a held_waiting_* intent (or any
+    non-count/list kind) passes through unchanged."""
+    if intent.kind not in ("count", "list"):
+        return intent
+    if intent.verdict not in (None, "HELD"):
+        return intent
+    if intent.window_label in _HISTORY_WINDOWS:
+        return intent
+    if not _ATTENTION_CUE_RE.search(question):
+        return intent
+    # A cue alone can't hijack an unrelated question: absent a HELD verdict, the
+    # question must name a decision-ish noun to be a governance ask.
+    if intent.verdict != "HELD" and not _DECISION_NOUN_RE.search(question):
+        return intent
+    kind = "held_waiting_list" if intent.kind == "list" else "held_waiting_count"
+    return _Intent(kind, "HELD", None, None)
+
+
 # --------------------------------------------------------------------------- #
 # Assembly helpers                                                            #
 # --------------------------------------------------------------------------- #
@@ -304,7 +366,7 @@ def _proposal_to_span(proposal: dict[str, Any], answer_exhibits: list[Exhibit]) 
 
 
 def _gather_exhibit_dicts(
-    request: Request, intent: _Intent, tenant: str
+    request: Request, intent: _Intent, tenant: str, question: str
 ) -> list[dict[str, Any]]:
     """Ask the exhibit primitives to measure the store for this intent.
 
@@ -334,10 +396,27 @@ def _gather_exhibit_dicts(
     if store is None:
         return []
 
+    if intent.kind in ("held_waiting_count", "held_waiting_list"):
+        # The waiting tools also read the evidence recorder — the batch "which
+        # of these holds already carry a human seal?" lookup. No recorder wired
+        # (keyless dev) → nothing known-resolved → every unresolved ABSTAIN in
+        # the window surfaces, which is the honest floor.
+        resolutions = getattr(request.app.state, "evidence_recorder", None)
+        if intent.kind == "held_waiting_list":
+            return [exhibits.list_held_waiting(store, tenant, resolutions)]
+        return [exhibits.count_held_waiting(store, tenant, resolutions)]
+
     if intent.kind == "record":
-        # get_decision_record(store, decision_id, tenant) — raises KeyError when
-        # the row is absent or outside the tenant's visibility.
-        record = exhibits.get_decision_record(store, intent.decision_id, tenant)
+        # FLOOR enforcement of the held qualifier: a "last/latest" record ask
+        # carrying a held word ("the last HELD action") filters to ABSTAIN, so a
+        # router miss can never return a PERMIT for a held question. The verdict
+        # is re-derived from the QUESTION here, independent of the router, and
+        # applied in the exhibit floor. get_decision_record raises KeyError when
+        # the row is absent, outside the tenant, or of the wrong verdict.
+        record_verdict = "HELD" if _parse_verdict(question) == "HELD" else None
+        record = exhibits.get_decision_record(
+            store, intent.decision_id, tenant, verdict=record_verdict
+        )
         return [record]
 
     if intent.kind == "list":
@@ -396,6 +475,12 @@ def _intent_from_route(
     tool = routed["tool"]
     if tool == "none":
         return None
+    if tool in ("held_waiting_count", "held_waiting_list"):
+        # Waiting is always present-now, held-only: the router's window and
+        # verdict are irrelevant (the floor computes the seven-day present
+        # window and the ABSTAIN filter). Checked BEFORE the unsupported-window
+        # rule so a stray window can never mute a "what needs me now" ask.
+        return _Intent(tool, "HELD", None, None)
     if routed["window"] == "unsupported":
         return _Intent("unsupported_window", None, None, None)
     verdict = None if routed["verdict"] == "ANY" else routed["verdict"]
@@ -454,6 +539,10 @@ def build_answer_router(llm_seam: Any | None = None) -> APIRouter:
             intent = _intent_from_route(routed, body.question)
         if intent is None:
             intent = _parse_intent(body.question)
+        # FLOOR: a held count/list carrying a "right now / needs attention" cue
+        # becomes the waiting tools, which exclude already-resolved holds — even
+        # when the router (or regex) picked a plain held count/list.
+        intent = _normalize_waiting(intent, body.question)
         if intent.kind == "unsupported":
             return _abstain_response(tenant, body.question, "unsupported_intent")
         if intent.kind == "unsupported_window":
@@ -466,7 +555,7 @@ def build_answer_router(llm_seam: Any | None = None) -> APIRouter:
         # layer — that is an honest "no sealed way to answer", not a crash and
         # never a guessed record. Any other exhibit-layer failure abstains too.
         try:
-            exhibit_dicts = _gather_exhibit_dicts(request, intent, tenant)
+            exhibit_dicts = _gather_exhibit_dicts(request, intent, tenant, body.question)
         except KeyError:
             return _abstain_response(tenant, body.question, "no_scoped_tool")
         except Exception:  # noqa: BLE001 — an unmeasurable store yields ABSTAIN

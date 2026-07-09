@@ -65,7 +65,16 @@ _OFF_VALUES = {"0", "off", "false", "no"}
 # deterministic pipeline already implements. Adding a value here without a
 # matching sealed tool would let the router promise a button that does not
 # exist; the answer route validates against these sets again on receipt.
-ROUTE_TOOLS = ("count", "list", "record", "agents_count", "agents_list", "none")
+ROUTE_TOOLS = (
+    "count",
+    "list",
+    "record",
+    "held_waiting_count",
+    "held_waiting_list",
+    "agents_count",
+    "agents_list",
+    "none",
+)
 ROUTE_VERDICTS = ("FORBID", "PERMIT", "HELD", "ANY")
 ROUTE_WINDOWS = (
     "today",
@@ -99,10 +108,17 @@ _ROUTE_SYSTEM = (
     "you never answer it yourself and never invent values.\n"
     "\n"
     "Tools:\n"
-    "- count: how many decisions matched a verdict and a time window.\n"
+    "- count: how many decisions matched a verdict and a time window "
+    "(a HISTORICAL tally over a window — 'held today', 'forbidden this week').\n"
     "- list: list matching decisions (by agent name).\n"
     "- record: one decision's full record — a specific decision id, or the "
     "latest / most recent / last decision.\n"
+    "- held_waiting_count: how many held decisions are STILL waiting on a human "
+    "RIGHT NOW — unresolved holds needing attention. Use for 'right now', "
+    "'need my attention', 'still held', 'outstanding', 'unresolved', 'open "
+    "holds', 'what needs me'. NOT for a past window ('held today').\n"
+    "- held_waiting_list: name the held decisions STILL waiting on a human "
+    "right now (same 'needs attention now' sense as held_waiting_count).\n"
     "- agents_count: how many agents are running.\n"
     "- agents_list: name the agents.\n"
     "- none: no tool answers this question.\n"
@@ -117,6 +133,12 @@ _ROUTE_SYSTEM = (
     "Rules:\n"
     "- Never stretch a tool to avoid none. If the question is not about the "
     "decisions, the agents, or their counts/lists/records, return none.\n"
+    "- 'Right now / need my attention / still held / outstanding / unresolved' "
+    "held questions are held_waiting_count or held_waiting_list, NOT count/list "
+    "with HELD — those waiting tools exclude holds a human already resolved. A "
+    "past-tense or windowed held question ('held today', 'held this week') "
+    "stays count/list with verdict HELD. For the waiting tools verdict and "
+    "window are ignored (always the present, unresolved holds).\n"
     "- When a PRIOR exchange is given, resolve follow-ups against it: 'what "
     "about yesterday' keeps the prior tool and verdict and changes the window; "
     "'and permitted?' keeps the tool and window and changes the verdict; "

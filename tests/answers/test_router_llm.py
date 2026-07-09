@@ -300,6 +300,58 @@ def test_record_id_is_regex_extracted_never_model_authored() -> None:
     assert latest.kind == "record" and latest.decision_id is None
 
 
+def test_held_waiting_tools_map_and_ignore_window_and_verdict() -> None:
+    # The router can name the waiting tools directly; the mapping forces the
+    # present, held-only reading and drops any stray window/verdict.
+    for tool in ("held_waiting_count", "held_waiting_list"):
+        intent = _intent_from_route(
+            {"tool": tool, "verdict": "ANY", "window": "recent"}, "what needs me now"
+        )
+        assert intent.kind == tool
+        assert intent.verdict == "HELD"
+        assert intent.window_label is None
+    # A stray 'unsupported' window can never mute a "what needs me now" ask —
+    # the waiting mapping is checked before the unsupported-window rule.
+    intent = _intent_from_route(
+        {"tool": "held_waiting_count", "verdict": "ANY", "window": "unsupported"}, "q"
+    )
+    assert intent.kind == "held_waiting_count"
+
+
+def test_held_qualified_last_record_never_returns_permit() -> None:
+    # THE BUG: the router routes "last held action" to record + ANY (the held
+    # qualifier dropped). The FLOOR must still filter to ABSTAIN so a PERMIT can
+    # never be sealed for a held question — enforced in the exhibit floor, not
+    # the router prompt.
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    held = _decision(
+        verdict=Verdict.ABSTAIN,
+        tenant="acme",
+        decided_at=now - timedelta(hours=2),
+        action_type="wire_transfer",
+    )
+    permit = _decision(
+        verdict=Verdict.PERMIT, tenant="acme", decided_at=now, action_type="file_write"
+    )
+    store.save(held)
+    store.save(permit)
+
+    seam = _FakeSeam({"tool": "record", "verdict": "ANY", "window": "recent"})
+    client = _seam_client(store, _scoped("acme"), seam)
+    r = client.post("/v1/answer", json={"question": "what was the last held action?"})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    exhibit = body["exhibits"][0]
+    assert exhibit["kind"] == "record"
+    pairs = dict(exhibit["value"])
+    # The newest ABSTAIN, never the newer PERMIT.
+    assert pairs["verdict"] == "ABSTAIN"
+    assert pairs["decision_id"] == str(held.decision_id)
+    assert "PERMIT" not in body["spoken_text"]
+
+
 # --------------------------------------------------------------------------- #
 # Route-level assembly with an injected seam                                  #
 # --------------------------------------------------------------------------- #

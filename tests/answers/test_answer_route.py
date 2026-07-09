@@ -513,3 +513,110 @@ def test_agents_mention_without_provable_framing_abstains() -> None:
     # number answering a different question. Abstain.
     assert body["overall_tier"] == "ABSTAIN"
     assert body["abstain_reason"] == "unsupported_intent"
+
+
+# --------------------------------------------------------------------------- #
+# The unresolved-held truth path: "needs my attention RIGHT NOW" counts only    #
+# the holds still waiting on a human — resolved holds and Tex's settled          #
+# abstains are excluded — and is distinct from a HISTORICAL held tally.          #
+# --------------------------------------------------------------------------- #
+
+from tex.api.answer_routes import _normalize_waiting, _parse_intent  # noqa: E402
+from tex.evidence.recorder import EvidenceRecorder  # noqa: E402
+
+
+def _client_with_recorder(store, recorder, principal) -> TestClient:
+    app = FastAPI()
+    app.include_router(build_answer_router())
+    app.state.decision_store = store
+    app.state.evidence_recorder = recorder
+    app.dependency_overrides[authenticate_request] = lambda: principal
+    return TestClient(app)
+
+
+def test_needs_attention_routes_to_waiting_and_excludes_resolved(tmp_path) -> None:
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    held = [
+        _decision(verdict=Verdict.ABSTAIN, tenant="acme", decided_at=now) for _ in range(3)
+    ]
+    for d in held:
+        store.save(d)
+    recorder = EvidenceRecorder(tmp_path / "evidence.jsonl")
+    # A named human act resolves ONE of the three holds — it must stop counting.
+    recorder.record_human_resolution(held[0], verdict="approved", resolved_by="ops@acme")
+
+    client = _client_with_recorder(store, recorder, _scoped("acme"))
+    r = client.post(
+        "/v1/answer",
+        json={
+            "question": "are there any held decisions right now that need my attention?"
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["overall_tier"] == "SEALED"
+    exhibit = body["exhibits"][0]
+    assert exhibit["query"]["tool"] == "count_held_waiting"
+    assert exhibit["value"] == 2  # three held minus the one resolved
+    assert "two" in body["spoken_text"]
+    assert "waiting for your attention" in body["spoken_text"]
+
+
+def test_needs_attention_list_carries_walkable_rows(tmp_path) -> None:
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    for _ in range(2):
+        store.save(_decision(verdict=Verdict.ABSTAIN, tenant="acme", decided_at=now))
+    recorder = EvidenceRecorder(tmp_path / "e.jsonl")
+    client = _client_with_recorder(store, recorder, _scoped("acme"))
+    r = client.post(
+        "/v1/answer",
+        json={"question": "show me the holds still waiting on me right now"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["overall_tier"] == "SEALED"
+    exhibit = body["exhibits"][0]
+    assert exhibit["query"]["tool"] == "list_held_waiting"
+    # The act-able queue rides through to the JSON response, beside the voice.
+    assert len(exhibit["rows"]) == 2
+    assert set(exhibit["rows"][0].keys()) == {
+        "decision_id",
+        "agent",
+        "action_type",
+        "content_excerpt",
+        "at",
+    }
+    assert "Waiting for your attention" in body["spoken_text"]
+    _assert_speakable(body["spoken_text"])
+
+
+def test_held_today_stays_a_historical_tally_not_waiting() -> None:
+    store = InMemoryDecisionStore()
+    store.save(_decision(verdict=Verdict.ABSTAIN, tenant="acme", decided_at=_now_utc()))
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "how many did you hold today?"})
+    assert r.status_code == 200, r.text
+    exhibit = r.json()["exhibits"][0]
+    # A past-tense, windowed held question stays on the historical count tool.
+    assert exhibit["query"]["tool"] == "count_decisions"
+    assert exhibit["query"]["window_label"] == "today"
+
+
+def test_normalize_waiting_rewrites_attention_cue_held() -> None:
+    q = "are there any held decisions right now that need my attention?"
+    assert _normalize_waiting(_parse_intent(q), q).kind == "held_waiting_count"
+    q2 = "list the decisions still waiting on a human"
+    assert _normalize_waiting(_parse_intent(q2), q2).kind == "held_waiting_list"
+
+
+def test_normalize_waiting_leaves_history_and_other_verdicts_alone() -> None:
+    hist = "how many did you hold this week?"
+    got = _normalize_waiting(_parse_intent(hist), hist)
+    assert got.kind == "count" and got.window_label == "this week"
+
+    # A FORBID question with a cue must not be hijacked into the held queue.
+    forbid = "how many did you forbid right now?"
+    got2 = _normalize_waiting(_parse_intent(forbid), forbid)
+    assert got2.kind == "count" and got2.verdict == "FORBID"

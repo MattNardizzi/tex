@@ -96,15 +96,20 @@ def _resolve_tenant_from_payload(payload_json: str) -> str:
 
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
-        tenant = metadata.get("tenant")
-        if isinstance(tenant, str) and tenant.strip():
-            return tenant.strip()
-        # Some pipelines stuff tenant under request.tenant
-        request_meta = metadata.get("request")
-        if isinstance(request_meta, dict):
-            tenant = request_meta.get("tenant")
+        # The API stamps the owning tenant as metadata["tenant_id"] (the same key
+        # Decision.tenant_id reads back); older payloads used the legacy "tenant"
+        # key. Prefer the current key, fall back to the legacy one.
+        for key in ("tenant_id", "tenant"):
+            tenant = metadata.get(key)
             if isinstance(tenant, str) and tenant.strip():
                 return tenant.strip()
+        # Some pipelines stuff tenant under request.tenant_id / request.tenant
+        request_meta = metadata.get("request")
+        if isinstance(request_meta, dict):
+            for key in ("tenant_id", "tenant"):
+                tenant = request_meta.get(key)
+                if isinstance(tenant, str) and tenant.strip():
+                    return tenant.strip()
 
     return "default"
 

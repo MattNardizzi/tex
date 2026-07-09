@@ -54,9 +54,14 @@ CREATE INDEX IF NOT EXISTS idx_tex_precedents_tenant
 
 
 def _resolve_tenant(decision: Decision) -> str:
-    tenant = decision.metadata.get("tenant") if decision.metadata else None
-    if isinstance(tenant, str) and tenant.strip():
-        return tenant.strip()
+    # The API stamps the owning tenant as metadata["tenant_id"] (the same key
+    # Decision.tenant_id reads back); older rows used the legacy "tenant" key.
+    # Prefer the current key, fall back to the legacy one, then "default".
+    meta = decision.metadata or {}
+    for key in ("tenant_id", "tenant"):
+        tenant = meta.get(key)
+        if isinstance(tenant, str) and tenant.strip():
+            return tenant.strip()
     return "default"
 
 

@@ -838,10 +838,16 @@ class StandingGovernance:
                     "dimension": "execution",
                     "decision_id": str(decision_id) if decision_id else None,
                     "evidence_hash": evidence_hash,
+                    # The held row carries who was acting and a bounded look at
+                    # what they asked to do, so the surface can name the actor
+                    # and show the ask without re-opening the case file.
+                    "agent_name": spoken_agent,
+                    "content_excerpt": (content or "")[:280],
                 },
                 hold=hold,
                 decision_id=(str(decision_id) if decision_id else None),
                 anchor_sha256=evidence_hash,
+                tenant_id=tenant,
             )
             return DecisionOutcome(
                 verdict=Verdict.ABSTAIN,
@@ -963,6 +969,7 @@ class StandingGovernance:
                 "dimension": "execution",
                 "reason": reason_code,
             },
+            tenant_id=tenant,
         )
         # Seal the deterministic floor ABSTAIN as one offline-verifiable
         # SealedFact(ENFORCEMENT) when a ledger is wired, and stamp the minted
@@ -1057,6 +1064,7 @@ class StandingGovernance:
         hold: dict[str, Any] | None = None,
         decision_id: str | None = None,
         anchor_sha256: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         if self._held is None or agent_id is None:
             return
@@ -1073,6 +1081,7 @@ class StandingGovernance:
                     hold=hold,
                     decision_id=decision_id,
                     anchor_sha256=anchor_sha256,
+                    tenant_id=tenant_id or "default",
                 )
             )
         except Exception:  # noqa: BLE001 — surfacing a hold must never break the ruling

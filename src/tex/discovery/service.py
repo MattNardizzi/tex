@@ -659,6 +659,7 @@ class DiscoveryService:
                         "owner": candidate.owner_hint,
                         "name": candidate.name,
                     },
+                    tenant_id=candidate.tenant_id or "default",
                 )
             )
         except Exception:  # noqa: BLE001

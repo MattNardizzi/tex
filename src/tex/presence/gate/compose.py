@@ -209,6 +209,10 @@ def _build_presence_abstain_decision(
             metadata={
                 "dimension": "presence",
                 "presence_kind": "answer_abstain",
+                # Tex's own presence abstains are named, so the answer layer's
+                # _agent_of (answers/exhibits.py) reads a real actor off the
+                # ``agent`` key rather than falling back to "an unnamed agent".
+                "agent": "Tex",
                 # Owning tenant so this held decision is filtered to its tenant on
                 # /held, /replay, and /decisions/{id}/seal (Decision.tenant_id reads
                 # this back). Absent/None ⇒ "default" (operator/unscoped view).

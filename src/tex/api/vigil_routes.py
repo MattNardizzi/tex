@@ -93,7 +93,10 @@ class HumanDecisionDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str | None = None
     sentence: str
-    detail: str | None = None
+    # A plain string (legacy note) OR a dict carrying WHO/WHAT — the same
+    # agent_name / content_excerpt / action_type fields every other hold
+    # surface reads — so the live card names the actor and shows the ask.
+    detail: str | dict[str, Any] | None = None
     dimension: str = "execution"
     surprise: float = Field(ge=0.0, default=0.0)
     agent: str | None = None

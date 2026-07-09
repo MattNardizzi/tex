@@ -83,7 +83,13 @@ class HeldDecisionVigilProvider:
     def _to_payload(item: Any) -> dict[str, Any]:
         hold = getattr(item, "hold", None)
         detail = getattr(item, "detail", {}) or {}
-        agent = detail.get("agent") or _short_agent(getattr(item, "agent_id", None))
+        # WHO: the readable actor the governance path stamps (agent_name),
+        # then any legacy "agent" tag, then the raw id — never invented.
+        agent = (
+            detail.get("agent_name")
+            or detail.get("agent")
+            or _short_agent(getattr(item, "agent_id", None))
+        )
 
         # Prefer the Hold's own spoken surface when present (Layer-4 origin);
         # otherwise fall back to the held decision's note (provenance origin).
@@ -96,10 +102,32 @@ class HeldDecisionVigilProvider:
             )
             hold_detail = detail.get("detail")
 
+        # WHO & WHAT ride the payload detail as a dict — the same agent_name /
+        # content_excerpt / action_type fields the /held rows and the answer's
+        # list_held_waiting rows carry — so the LIVE card presents a hold the
+        # same way every other surface does. A hold without the enrichment
+        # keeps its plain string detail exactly as before.
+        enrich: dict[str, str] = {}
+        for key in ("agent_name", "content_excerpt", "action_type"):
+            value = detail.get(key)
+            if isinstance(value, str) and value.strip():
+                enrich[key] = value.strip()
+        payload_detail: Any = hold_detail or detail.get("note")
+        if enrich:
+            if isinstance(payload_detail, dict):
+                payload_detail = {**payload_detail, **enrich}
+            else:
+                note = (
+                    payload_detail.strip()
+                    if isinstance(payload_detail, str) and payload_detail.strip()
+                    else None
+                )
+                payload_detail = {**enrich, **({"note": note} if note else {})}
+
         return {
             "id": getattr(item, "decision_id", None) or detail.get("decision_id"),
             "sentence": sentence,
-            "detail": hold_detail or detail.get("note"),
+            "detail": payload_detail,
             "dimension": detail.get("dimension", _DEFAULT_DIMENSION),
             "surprise": float(detail.get("surprise", 0.0) or 0.0),
             "agent": agent,

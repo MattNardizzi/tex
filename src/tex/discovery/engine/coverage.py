@@ -119,6 +119,9 @@ def summarize(result: Any, headline_count: int | None = None) -> Coverage:
     # The spoken clause — actionable honesty, never a totality claim. Enumerate
     # where agents were found (if any plane fired) and the planes still dark + the
     # vantage that would open the biggest one. Stays coherent with the headline.
+    # A dark plane is SPOKEN as "waiting on a source": dark means "no vantage
+    # here yet" (sieve_driver contract), never "swept and found nothing" — and
+    # never a blind spot Tex missed.
     effective = headline_count if headline_count is not None else count
     parts: list[str] = []
     if fired:
@@ -126,7 +129,7 @@ def summarize(result: Any, headline_count: int | None = None) -> Coverage:
     if blind_planes:
         n = len(blind_planes)
         subj = f"{_words(n)} planes are" if n != 1 else "one plane is"
-        parts.append(f"{subj} still dark — I'll begin")
+        parts.append(f"{subj} waiting on a source — I'll begin")
     if parts:
         clause = ". ".join(p[0].upper() + p[1:] for p in parts) + "."
     elif effective > 0:

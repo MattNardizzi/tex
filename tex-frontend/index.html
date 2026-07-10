@@ -204,6 +204,14 @@
     opacity:0;pointer-events:none;transition:opacity var(--d-rise) ease;
   }
   .hero-see.show{opacity:1;pointer-events:auto;}
+  /* The venue dateline — tucked under "see it", quieter than it, never a rival. */
+  .hero-venue{
+    margin-top:clamp(-1.4rem,-2vh,-0.7rem);
+    font-family:var(--mono);font-weight:400;font-size:10.5px;letter-spacing:.22em;text-indent:.22em;text-transform:uppercase;
+    color:var(--ink-mute);
+    opacity:0;transition:opacity var(--d-rise) ease;
+  }
+  .hero-venue.show{opacity:.75;}
   .hero-see:hover{color:var(--ink-soft);}
   .hero-see .arr{font-size:.95em;opacity:.7;}
 
@@ -370,7 +378,6 @@
   .foot-brand .n{font-size:17px;font-weight:400;letter-spacing:-.01em;color:var(--ink);}
   .foot-brand .b{font-family:var(--sans);font-size:11px;color:var(--ink-mute);}
   .foot-mark{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--ink-mute);}
-  .foot-venue{font-family:var(--sans);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);}
 
   /* ===========================================================
      Reduced motion — the lines are content, not decoration. Show
@@ -423,6 +430,7 @@
         <p class="name-line" id="nameLine">I am Tex.</p>
         <h2 class="head-line" id="headLine">I decide what your agents may do.<br>You will not supervise me.</h2>
         <a class="hero-see" id="heroSee" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="See it — the film (opens in a new tab)">see it<span class="arr" aria-hidden="true">↗</span></a>
+        <p class="hero-venue" id="heroVenue">Presenting at DEF CON 34 · AI Village</p>
       </div>
     </div>
 
@@ -523,7 +531,6 @@
 
   <footer class="foot">
     <span class="foot-brand"><span class="n">Tex</span><span class="b">by VortexBlack</span></span>
-    <span class="foot-venue">Presenting at DEF CON 34 · AI Village</span>
     <span class="foot-mark">vortexblack.ai</span>
   </footer>
 
@@ -550,6 +557,7 @@
   const headLine = $("headLine");
   const cue = $("cue");
   const heroSee = $("heroSee");
+  const heroVenue = $("heroVenue");
 
   /* ---- The turn. Plays once. Click / Space jumps to the resting state.
      The market's noise is carried by the words now, not by a wall — so the
@@ -561,7 +569,7 @@
     [coldLine, ...vlines].forEach(hide); hide(vcoda);
     coldLine.style.display = "none";                        // skip = the turn is over: remove the spent layers at once
     verdict.style.display = "none";
-    show(nameLine); show(headLine); show(heroSee);
+    show(nameLine); show(headLine); show(heroSee); show(heroVenue);
     body.classList.add("chrome-in");
     show(cue);
   }
@@ -591,7 +599,7 @@
     show(headLine);
     await sleep(600);
     body.classList.add("chrome-in");
-    show(cue); show(heroSee);
+    show(cue); show(heroSee); show(heroVenue);
   }
 
   // Skip to rest on a click in the hero, or Space/Enter — before it finishes.

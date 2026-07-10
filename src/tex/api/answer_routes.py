@@ -124,9 +124,17 @@ _NAME_RE = re.compile(r"\bname\b", re.IGNORECASE)
 # Ask vocabulary. A question is answerable only if it asks to COUNT, to LIST,
 # or to fetch one RECORD. No recognizable ask → ABSTAIN (unsupported_intent),
 # rather than inventing a query.
+# "sealed"/"seal" count as ask words, NOT verdict words: every decision row is
+# a sealed chain row, so "what has been sealed today" is the untyped decisions
+# tally (the drafter's plain-count verb is "sealed" for the same reason).
+# Mapping it to a verdict instead would filter the count and answer a narrower
+# question than asked. In the vocabulary it keeps the keyless floor able to
+# route the operator's own word — the LLM seam stays an upgrade, never the
+# only path. List framing still wins ("show what was sealed") because
+# _parse_intent checks _LIST_RE first.
 _COUNT_RE = re.compile(
     r"\b(how many|how much|count|number of|total|tally|were there|are there|"
-    r"how often)\b",
+    r"how often|sealed|seal)\b",
     re.IGNORECASE,
 )
 _LIST_RE = re.compile(

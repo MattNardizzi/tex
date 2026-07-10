@@ -137,8 +137,11 @@ def test_floor_abstain_maps_to_held():
 def test_floor_no_verdict_no_window():
     ex = _count_exhibit(verdict=None, window_label=None)
     spans = draft("count", [ex], llm=None)
-    # Untyped tally, no time clause.
-    assert spans[0]["template"] == "{e1} actions recorded."
+    # Untyped tally, no time clause. Every counted decision is a sealed chain
+    # row, so the honest verb is "sealed", never the softer "recorded".
+    assert spans[0]["template"] == "{e1} actions sealed."
+    # And the quantity reaches the surface as a raw DIGIT, not a spelled word.
+    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "raw"}]
     _assert_no_digits_or_numberwords(spans)
 
 
@@ -148,8 +151,9 @@ def test_floor_zero_forbid_today():
     # Zero is a sealed truth — calm 'No ...' prose, not an apology, not ABSTAIN.
     assert spans[0]["template"] == "No actions were forbidden today."
     _assert_no_digits_or_numberwords(spans)
-    # The slot still rides along so the gate authors the (zero) quantity.
-    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "spoken"}]
+    # The slot still rides along so the gate authors the (zero) quantity — and a
+    # count renders machine-exact (raw digits), never a spelled word.
+    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "raw"}]
 
 
 def test_floor_zero_permit_week():
@@ -161,7 +165,7 @@ def test_floor_zero_permit_week():
 def test_floor_zero_untyped():
     ex = _count_exhibit(verdict=None, window_label=None, is_zero=True)
     spans = draft("count", [ex], llm=None)
-    assert spans[0]["template"] == "No actions were recorded."
+    assert spans[0]["template"] == "No actions were sealed."
 
 
 def test_floor_list_names_never_inlined():
@@ -191,6 +195,44 @@ def test_floor_custom_unit():
     ex = _count_exhibit(verdict="FORBID", window_label="today", unit="transfers")
     spans = draft("transfers", [ex], llm=None)
     assert spans[0]["template"] == "{e1} transfers were forbidden today."
+
+
+# ---------------------------------------------------------------------------
+# Machine-exact display (Bug A) + sealed diction (Bug B) — the ITEM 7 pins.
+# ---------------------------------------------------------------------------
+
+
+def test_floor_count_slot_renders_raw_digits():
+    """A count's quantity reaches the surface as a raw DIGIT slot, never the
+    humanized 'spoken' word — the display law is machine-exact."""
+    ex = _count_exhibit(verdict="FORBID", window_label="today")
+    spans = draft("how many forbidden today", [ex], llm=None)
+    assert spans[0]["template"] == "{e1} actions were forbidden today."
+    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "raw"}]
+
+
+def test_floor_untyped_today_says_sealed_with_digit_slot():
+    """The exact live-observed scenario: an untyped 'today' decision tally.
+
+    Bug B — the verb echoes the sealed concept ('sealed'), never 'recorded'.
+    Bug A — the count fills through a raw (digit) slot, so the rendered sentence
+    is '492 decisions sealed today.', never 'four hundred ninety-two ...'.
+    """
+    ex = _count_exhibit(verdict=None, window_label="today", unit="decisions")
+    spans = draft("what has been sealed today", [ex], llm=None)
+    assert spans[0]["template"] == "{e1} decisions sealed today."
+    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "raw"}]
+    assert "recorded" not in spans[0]["template"]
+    _assert_no_digits_or_numberwords(spans)  # the frame is still digit-free
+
+
+def test_floor_list_slot_stays_spoken():
+    """Lists are NOT flipped to raw — a structured value has no honest raw voice
+    (the gate kills a raw slot over one), so list names keep the deterministic
+    'spoken' rendering while only COUNT quantities become digits."""
+    ex = _list_exhibit(window_label="today")
+    spans = draft("which agents today", [ex], llm=None)
+    assert spans[0]["slots"] == [{"handle": "e1", "rendering": "spoken"}]
 
 
 # ---------------------------------------------------------------------------

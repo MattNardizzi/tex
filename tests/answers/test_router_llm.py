@@ -377,8 +377,9 @@ def test_seam_routes_a_phrasing_the_regexes_miss() -> None:
     assert body["exhibits"][0]["value"] == 3
     # The DETERMINISTIC FLOOR authored the prose (the seam has no drafter) —
     # phrasing that is exhibit-consistent by construction, verb from the
-    # exhibit's own verdict.
-    assert "three" in body["spoken_text"]
+    # exhibit's own verdict. The count renders machine-exact (digits), not words.
+    assert "3" in body["spoken_text"]
+    assert "three" not in body["spoken_text"]
     assert "forbidden" in body["spoken_text"]
 
 
@@ -409,7 +410,9 @@ def test_quiet_seam_falls_back_to_the_regex_parse() -> None:
 
     assert r.status_code == 200
     assert r.json()["overall_tier"] == "SEALED"
-    assert "one" in r.json()["spoken_text"]
+    # Machine-exact display: the singular count is the digit "1", not "one".
+    assert "1" in r.json()["spoken_text"]
+    assert "one" not in r.json()["spoken_text"]
 
 
 def test_none_tool_still_answers_what_regexes_can() -> None:

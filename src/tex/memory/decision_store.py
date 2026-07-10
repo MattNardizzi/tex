@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
@@ -279,27 +280,53 @@ class DurableDecisionStore:
             raise
 
     def _hydrate_cache(self) -> None:
+        # Server-side (named) cursors, streamed in small batches: decision rows
+        # average ~9 KB (JSONB scores/findings/retrieval_context), so 5000 rows
+        # is ~43 MB — one single-shot SELECT of that payload blows through the
+        # 15s statement_timeout (connection.py) and the except below silently
+        # started every boot with an EMPTY cache (holds "vanished" after a
+        # deploy). With a named cursor each FETCH is its own statement, so the
+        # timeout caps a 500-row batch (~4 MB), never the whole transfer.
+        started = time.monotonic()
         try:
             with connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        _SELECT_RECENT_SQL,
-                        (self._tenant_id,),
-                    )
-                    rows = cur.fetchall()
+                # connect() is autocommit (per-write idiom); DECLARE CURSOR
+                # needs a transaction block, so open one for the read.
+                with conn.transaction():
+                    with conn.cursor(name="tex_hydrate_recent") as cur:
+                        cur.itersize = 500
+                        cur.execute(
+                            _SELECT_RECENT_SQL,
+                            (self._tenant_id,),
+                        )
+                        # Iterate, don't fetchall(): iteration FETCHes
+                        # itersize-row batches (each its own statement under
+                        # the timeout); fetchall() on a named cursor is one
+                        # FETCH ALL — the exact single-shot this fix removes.
+                        rows = list(cur)
                     # Held floor: recent-window ABSTAINs beyond the recency
                     # cap, so a waiting hold survives a deploy on /held and
                     # stays sealable (see _SELECT_WAITING_ABSTAIN_SQL).
-                    cur.execute(
-                        _SELECT_WAITING_ABSTAIN_SQL,
-                        (self._tenant_id,),
-                    )
-                    abstain_rows = cur.fetchall()
+                    with conn.cursor(name="tex_hydrate_held_floor") as cur:
+                        cur.itersize = 500
+                        cur.execute(
+                            _SELECT_WAITING_ABSTAIN_SQL,
+                            (self._tenant_id,),
+                        )
+                        abstain_rows = list(cur)
         except Exception:
             _logger.exception(
                 "DurableDecisionStore: hydrate failed — cache will start empty"
             )
             return
+        _logger.info(
+            "DurableDecisionStore: hydrated %d recent + %d held-floor rows "
+            "for tenant %s in %.2fs",
+            len(rows),
+            len(abstain_rows),
+            self._tenant_id,
+            time.monotonic() - started,
+        )
 
         # Merge, dedup by decision_id (column 0), keep newest-first order so
         # the reversed() below preserves oldest-first save order overall.

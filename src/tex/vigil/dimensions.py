@@ -275,14 +275,31 @@ def _execution(request: Any, tenant: str | None) -> list[DimensionReading]:
                 )
             )
 
-    # Human-decision gate — count the live held queue of genuine GOVERNANCE holds
-    # (discovery / dormancy / provenance / PDP), tenant-scoped. Answer-abstain REVIEWS
-    # (kind="presence_abstain") are a learning surface, NOT an action waiting on the
-    # operator, so they never inflate this count — but they remain sealable on /held,
-    # so the presence calibration loop keeps its fuel. Not surprise-ranked.
+    # Human-decision gate — count the held queue of genuine GOVERNANCE holds
+    # (discovery / dormancy / provenance / PDP), tenant-scoped. The count is the
+    # DURABLE waiting floor (the decision store's still-unsealed ABSTAINs) UNIONED
+    # with the live sink, so "N held decisions waiting" is true the instant after
+    # a deploy — the sink is per-process and starts empty, but the durable rows
+    # survive. The live sink is kept as the fast-path (and still drives the at-rest
+    # vigil pop elsewhere). Answer-abstain REVIEWS (kind="presence_abstain") are a
+    # learning surface, NOT an action waiting on the operator, so they never inflate
+    # this count on EITHER wire (the sink tags them; the durable mapper tags a
+    # presence-origin ABSTAIN the same way) — but they remain sealable on /held, so
+    # the presence calibration loop keeps its fuel. Not surprise-ranked.
+    sink_items = _held_rows(request, tenant)
+    recorder = _state(request, "evidence_recorder")
+    try:
+        from tex.answers import held_surface
+
+        union = held_surface.union_held(store, tenant or "default", recorder, sink_items)
+    except Exception:  # noqa: BLE001 — the durable floor never breaks the vigil cycle
+        union = [
+            it.to_jsonable() if hasattr(it, "to_jsonable") else it
+            for it in sink_items
+        ]
     held = [
-        r for r in _held_rows(request, tenant)
-        if getattr(r, "kind", None) != "presence_abstain"
+        it for it in union
+        if (it.get("kind") if isinstance(it, dict) else None) != "presence_abstain"
     ]
     if held:
         first = held[0]
@@ -295,8 +312,8 @@ def _execution(request: Any, tenant: str | None) -> list[DimensionReading]:
                 slots={"count": len(held)},
                 proof=ProofRef(
                     kind="decision",
-                    id=(getattr(first, "decision_id", None) or None),
-                    sha256=(getattr(first, "anchor_sha256", None) or None),
+                    id=(first.get("decision_id") or None),
+                    sha256=(first.get("anchor_sha256") or None),
                 ),
                 is_human_gate=True,
             )

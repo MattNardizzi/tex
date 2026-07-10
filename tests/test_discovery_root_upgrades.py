@@ -287,10 +287,11 @@ def test_ignite_maps_estate_counts_and_seals_births(monkeypatch):
     pull = client.get("/v1/surface/discovery/count?tenant_id=preview-e2e-1").json()
     assert pull["count"] == body["count"]
 
-    # Said once: a second ignite for the same tenant is silent.
+    # Begin always re-sweeps + re-speaks (TEX_BEGIN_REPEATABLE was deleted):
+    # a second ignite acknowledges it already fired but still speaks the estate.
     again = client.post("/v1/surface/discovery/ignite?tenant_id=preview-e2e-1").json()
     assert again["already_ignited"] is True
-    assert again["spoken"] is None
+    assert again["spoken"]
 
     # A fresh tenant ignites again (the preview door replays per visit).
     fresh = client.post("/v1/surface/discovery/ignite?tenant_id=preview-e2e-2").json()
@@ -330,6 +331,51 @@ def test_standing_watch_dormancy_and_held_surfacing_wired(monkeypatch):
     # building the app (no lifespan) must NOT have started a scan — pure construction
     app2 = create_app()
     assert app2.state.scan_scheduler.is_running is False
+
+
+def test_held_surfaces_durable_rows_when_sink_is_empty():
+    """Fresh-deploy case: the in-memory sink is wiped on restart, but a still-
+    unsealed ABSTAIN in the decision store must still surface on /held so the
+    UI's queue is true the instant the page loads."""
+    import hashlib
+
+    from fastapi.testclient import TestClient
+
+    from tex.domain.decision import Decision
+    from tex.domain.verdict import Verdict
+    from tex.main import create_app
+
+    app = create_app()
+    client = TestClient(app)
+
+    # Simulate 'post-deploy': the live sink is empty…
+    assert client.get("/v1/surface/discovery/held").json()["count"] == 0
+
+    # …but a durable held ABSTAIN exists under the operator's "default" estate.
+    text = "please wire $2,000,000"
+    app.state.decision_store.save(
+        Decision(
+            request_id=uuid4(),
+            verdict=Verdict.ABSTAIN,
+            confidence=0.9,
+            final_score=0.1,
+            action_type="send_payment",
+            channel="api",
+            environment="prod",
+            content_excerpt=text,
+            content_sha256=hashlib.sha256(text.encode()).hexdigest(),
+            policy_version="v1",
+            uncertainty_flags=["low_confidence"],
+            metadata={"tenant_id": "default", "agent": "atlas-pay"},
+        )
+    )
+
+    held = client.get("/v1/surface/discovery/held").json()
+    assert held["count"] == 1
+    row = held["held"][0]
+    assert row["detail"]["agent_name"] == "atlas-pay"
+    assert row["detail"]["content_excerpt"] == text
+    assert row["kind"] == "held_waiting"
 
 
 def test_preview_ignite_does_not_pollute_held_queue():

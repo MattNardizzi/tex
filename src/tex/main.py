@@ -64,7 +64,7 @@ from tex.discovery.connectors import (
 # import them at the call site if/when an event source is fed to them, rather
 # than carrying a misleading module-level import that implies they run.
 from tex.discovery.dormancy import DormancyController  # discovery: dormant-agent doctrine
-from tex.discovery.ignition import IgnitionRegistry  # discovery: count-once
+from tex.discovery.ignition import build_ignition_registry  # discovery: count-once
 from tex.discovery.service import DiscoveryService
 from tex.domain.evaluation import EvaluationRequest
 from tex.domain.policy import PolicySnapshot
@@ -776,7 +776,11 @@ def build_runtime(
     )
 
     # Count-once ignition flag (§1): "Run discovery" said once per tenant.
-    ignition_registry = IgnitionRegistry()
+    # Durable in prod (Postgres-backed) so the opening ceremony is skipped on
+    # every visit after the first-ever Begin, even across a deploy that wipes
+    # per-process memory; pure in-memory otherwise. Chooses Postgres on the same
+    # signal the agent_registry does — DATABASE_URL present.
+    ignition_registry = build_ignition_registry(durable=database_configured)
 
     # ---- V16 control-loop closure ---------------------------------
     # The scheduler can auto-capture a governance snapshot at the

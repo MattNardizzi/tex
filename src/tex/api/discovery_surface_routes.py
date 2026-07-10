@@ -468,11 +468,12 @@ def build_discovery_surface_router() -> APIRouter:
         request: Request,
         principal: TexPrincipal = Depends(RequireScope("decision:read")),
     ) -> dict[str, Any]:
+        from tex.answers import held_surface
+
         feed = getattr(request.app.state, "provenance_feed", None)
         sink = getattr(request.app.state, "held_decision_sink", None)
         source = sink or (feed.held if feed is not None else None)
-        if source is None:
-            return {"held": [], "count": 0}
+
         # Tenant scope: a scoped key sees ONLY its own tenant's held decisions
         # (so it can neither read nor seal another tenant's holds via the
         # returned decision_id). Anonymous/dev and cross-tenant-scoped keys get
@@ -482,10 +483,30 @@ def build_discovery_surface_router() -> APIRouter:
             filter_tenant: str | None = None
         else:
             filter_tenant = principal.tenant
-        peek_scoped = getattr(source, "peek_for_tenant", None)
-        items = peek_scoped(filter_tenant) if callable(peek_scoped) else source.peek()
+
+        # LIVE fast-path: the in-memory sink (the live pop wire). May be empty
+        # right after a deploy — that is exactly why the durable floor exists.
+        sink_items: list[Any] = []
+        if source is not None:
+            peek_scoped = getattr(source, "peek_for_tenant", None)
+            sink_items = list(
+                peek_scoped(filter_tenant) if callable(peek_scoped) else source.peek()
+            )
+
+        # DURABLE floor: the decision store's still-waiting ABSTAIN rows (minus
+        # human-sealed ids via the evidence recorder), so /held is true the
+        # instant the page loads after a deploy. exhibits requires a concrete
+        # tenant; the fleet/operator view (filter_tenant is None) reads the
+        # "default" partition — which is exactly this single-tenant deployment's
+        # estate. A true multi-tenant fleet-all durable view is not expressible
+        # through exhibits' private+shared visibility, so it is scoped to
+        # "default" here and the sink still carries any other tenant's LIVE holds.
+        store = getattr(request.app.state, "decision_store", None)
+        resolutions = getattr(request.app.state, "evidence_recorder", None)
+        durable_tenant = filter_tenant or "default"
+        items = held_surface.union_held(store, durable_tenant, resolutions, sink_items)
         return {
-            "held": [h.to_jsonable() for h in items],
+            "held": items,
             "count": len(items),
         }
 

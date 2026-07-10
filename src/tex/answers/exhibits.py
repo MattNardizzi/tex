@@ -52,6 +52,7 @@ __all__ = [
     "get_decision_record",
     "count_held_waiting",
     "list_held_waiting",
+    "held_waiting_rows",
     "ANSWER_TZ_ENV",
     "DEFAULT_ANSWER_TZ",
 ]
@@ -572,6 +573,25 @@ def _held_waiting_row(decision: Any) -> dict[str, Any]:
         "content_excerpt": excerpt,
         "at": _iso(getattr(decision, "decided_at", None)),
     }
+
+
+def held_waiting_rows(
+    store: Any,
+    tenant: str | None,
+    resolutions: Any = None,
+) -> list[Any]:
+    """The raw Decision rows STILL waiting on a human right now, newest first.
+
+    This is the SINGLE shared query behind every "waiting on a human" surface:
+    ``count_held_waiting`` / ``list_held_waiting`` (the answer wire) measure it,
+    and the restart-proof REST surfaces (``GET /held``, the vigil headline) map
+    it — so the three hold wires can never disagree about what is waiting.
+    Definition (see :func:`_held_waiting`): verdict ABSTAIN, tenant-visible,
+    decided within the last seven local days, minus any human-sealed ids.
+    """
+    tenant = _require_tenant(tenant)
+    waiting, _ = _held_waiting(store, tenant, resolutions)
+    return waiting
 
 
 def count_held_waiting(

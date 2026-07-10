@@ -287,13 +287,36 @@ class DurableDecisionStore:
                         (self._tenant_id,),
                     )
                     rows = cur.fetchall()
+                    # Held floor: recent-window ABSTAINs beyond the recency
+                    # cap, so a waiting hold survives a deploy on /held and
+                    # stays sealable (see _SELECT_WAITING_ABSTAIN_SQL).
+                    cur.execute(
+                        _SELECT_WAITING_ABSTAIN_SQL,
+                        (self._tenant_id,),
+                    )
+                    abstain_rows = cur.fetchall()
         except Exception:
             _logger.exception(
                 "DurableDecisionStore: hydrate failed — cache will start empty"
             )
             return
 
-        for row in reversed(rows):  # oldest first so save-order is preserved
+        # Merge, dedup by decision_id (column 0), keep newest-first order so
+        # the reversed() below preserves oldest-first save order overall.
+        seen: set[str] = set()
+        merged: list[tuple[Any, ...]] = []
+        for row in sorted(
+            list(rows) + list(abstain_rows),
+            key=lambda r: r[-1],  # decided_at
+            reverse=True,
+        ):
+            key = str(row[0])
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(row)
+
+        for row in reversed(merged):  # oldest first so save-order is preserved
             try:
                 decision = _row_to_decision(row)
             except Exception:
@@ -403,6 +426,32 @@ FROM tex_decisions
 WHERE tenant_id = %s
 ORDER BY decided_at DESC
 LIMIT 5000
+"""
+
+# The restart-proof held floor: EVERY still-recent ABSTAIN (the 7-day
+# "waiting on a human" window the exhibits layer reads) hydrates regardless
+# of the recency cap above. On a busy estate the newest 5000 rows can span
+# under an hour, and a hold that fell off that page would vanish from /held
+# AND become unsealable (store.get -> 404) after a deploy — exactly when
+# "restart-proof" matters. ABSTAINs are a small share of traffic, so this
+# adds little memory; the LIMIT is a runaway backstop, not a working bound.
+_SELECT_WAITING_ABSTAIN_SQL = """
+SELECT
+    decision_id, request_id,
+    action_type, channel, environment, recipient,
+    verdict, confidence, final_score,
+    content_excerpt, content_sha256,
+    policy_id, policy_version,
+    scores, findings, reasons, uncertainty_flags, asi_findings,
+    retrieval_context, metadata,
+    determinism_fingerprint, evidence_hash, latency,
+    decided_at
+FROM tex_decisions
+WHERE tenant_id = %s
+  AND verdict = 'ABSTAIN'
+  AND decided_at >= now() - interval '7 days'
+ORDER BY decided_at DESC
+LIMIT 20000
 """
 
 

@@ -245,6 +245,66 @@ def test_ignition_fires_once_per_tenant():
     assert reg.has_fired("acme") is False
 
 
+class _FakeIgnitionStore:
+    """In-memory stand-in for the Postgres tex_ignition table. Duck-types the
+    IgnitionStore protocol so a deploy (new process) can be simulated as a new
+    IgnitionRegistry constructed over the SAME durable rows — no live Postgres."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, datetime] = {}
+
+    def load(self) -> dict[str, datetime]:
+        return dict(self.rows)
+
+    def mark(self, tenant: str, fired_at: datetime) -> None:
+        # First-Begin wins (mirrors ON CONFLICT DO NOTHING / keeps-first-time).
+        self.rows.setdefault(tenant, fired_at)
+
+    def clear(self, tenant: str) -> None:
+        self.rows.pop(tenant, None)
+
+
+def test_ignition_durable_survives_a_new_registry_over_same_store():
+    """Deploy-survival: a fresh registry built over the same durable store sees
+    the earlier Begin as already fired — the opening ceremony is skipped."""
+    store = _FakeIgnitionStore()
+
+    reg = IgnitionRegistry(store=store)
+    assert reg.has_fired("acme") is False
+    fired = reg.fire("acme")
+    assert store.rows["acme"] == fired  # wrote through to the durable backing
+
+    # Simulate a deploy: brand-new process → brand-new registry, same store.
+    reborn = IgnitionRegistry(store=store)
+    assert reborn.has_fired("acme") is True
+    assert reborn.fired_at("acme") == fired  # the original fire time survived
+
+    # reset clears the durable row too, so the day-one door re-stages across boots.
+    reborn.reset("acme")
+    assert "acme" not in store.rows
+    assert IgnitionRegistry(store=store).has_fired("acme") is False
+
+
+def test_ignition_durable_load_failure_degrades_to_in_memory():
+    """A durable-store fault at boot never crashes ignition — it degrades to the
+    honest in-memory posture (re-show the once-only door) rather than raising."""
+
+    class _BrokenStore:
+        def load(self):
+            raise RuntimeError("db down")
+
+        def mark(self, tenant, fired_at):
+            raise RuntimeError("db down")
+
+        def clear(self, tenant):
+            raise RuntimeError("db down")
+
+    reg = IgnitionRegistry(store=_BrokenStore())
+    assert reg.has_fired("acme") is False
+    reg.fire("acme")  # mark raises internally, swallowed; memory flag still set
+    assert reg.has_fired("acme") is True
+
+
 # =========================================================================== #4 dormancy
 def _agent(tenant="acme", *, name="bot", status=AgentLifecycleStatus.ACTIVE, registered_days_ago=0):
     return AgentIdentity(

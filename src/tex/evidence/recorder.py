@@ -62,6 +62,7 @@ class EvidenceRecorder:
         "_c2pa_emitter",
         "_manifest_mirror",
         "_chain_signer",
+        "_resolved_ids_cache",
     )
 
     def __init__(
@@ -91,6 +92,14 @@ class EvidenceRecorder:
         # tests) pass neither argument and observe no change.
         self._c2pa_emitter = c2pa_emitter
         self._manifest_mirror = manifest_mirror
+        # Incremental resolved-ids index: which decision_ids carry >= 1
+        # human_resolution record. Built lazily by ONE lightweight pass over
+        # the chain, then kept current by _append — so the high-cadence
+        # "still waiting on a human" surfaces (vigil headline, /held) do an
+        # O(1) set lookup instead of re-scanning the whole JSONL per cycle.
+        # None = not built yet. The JSONL stays the source of truth; this is
+        # only a read index over it (single-writer per deployment).
+        self._resolved_ids_cache: set[str] | None = None
 
     @property
     def path(self) -> Path:
@@ -621,13 +630,20 @@ class EvidenceRecorder:
         "still waiting on a human" answer, which excludes any hold an operator
         has already approved / held / refused.
 
-        A read-only, single-pass scan of the JSONL chain (the source of truth),
-        the same idiom as ``read_contract_violations``. When ``candidate_ids``
-        is given only those ids are considered (and an empty iterable
-        short-circuits to an empty result — no scan); when ``None`` every
-        resolved decision id in the chain is returned. For high-cadence
-        workloads layer a Postgres ``EvidenceMirror`` and query that instead;
-        the JSONL chain stays the source of truth.
+        Served from an incremental in-memory index: ONE lightweight pass over
+        the JSONL chain builds it lazily, and every ``human_resolution`` append
+        updates it in place — so this call is O(candidates) after the first
+        read, never a re-scan. The vigil headline and ``GET /held`` sit on the
+        10-second live cycle, which is exactly the "high-cadence workload" the
+        old scan-per-call idiom could not carry (it also serialized against the
+        write path on the recorder lock). When ``candidate_ids`` is given only
+        those ids are considered (and an empty iterable short-circuits — no
+        read at all); when ``None`` every resolved decision id is returned.
+
+        Fail-open on a malformed line (it is skipped, never raised): a hole in
+        the index can only OVER-surface a hold (a resolved one shown again),
+        never hide a waiting one. Chain verification still catches corruption
+        through ``read_all``, which keeps its strict behavior.
         """
         wanted: set[str] | None = None
         if candidate_ids is not None:
@@ -635,24 +651,48 @@ class EvidenceRecorder:
             if not wanted:
                 return set()
 
+        with self._lock:
+            resolved = self._ensure_resolved_ids_cache()
+            if wanted is None:
+                return set(resolved)
+            return {did for did in wanted if did in resolved}
+
+    def _ensure_resolved_ids_cache(self) -> set[str]:
+        """Builds (once) the resolved-ids index with a raw single pass.
+
+        Caller must hold ``self._lock``. Parses each line as plain JSON and
+        reads only the envelope's ``record_type`` / ``decision_id`` (with a
+        defensive fallback to the payload's own ``decision_id``) — no pydantic
+        validation, no payload decode for the 99% of lines that are not
+        resolutions — so the one-time build stays cheap even on a long chain.
+        """
+        if self._resolved_ids_cache is not None:
+            return self._resolved_ids_cache
+
         resolved: set[str] = set()
-        for record in self.read_all():
-            if record.record_type != "human_resolution":
-                continue
-            decision_id = getattr(record, "decision_id", None)
-            did = str(decision_id) if decision_id is not None else ""
-            if not did:
-                # Defensive: fall back to the payload's own decision_id if the
-                # envelope column is unset for any reason.
-                try:
-                    did = str(self.decode_payload(record).get("decision_id") or "")
-                except ValueError:
-                    did = ""
-            if not did:
-                continue
-            if wanted is not None and did not in wanted:
-                continue
-            resolved.add(did)
+        if self._path.exists():
+            with self._path.open("r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        envelope = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue  # fail-open: over-surface, never hide
+                    if envelope.get("record_type") != "human_resolution":
+                        continue
+                    did = str(envelope.get("decision_id") or "")
+                    if not did:
+                        try:
+                            payload = json.loads(envelope.get("payload_json") or "{}")
+                            did = str(payload.get("decision_id") or "")
+                        except json.JSONDecodeError:
+                            did = ""
+                    if did:
+                        resolved.add(did)
+
+        self._resolved_ids_cache = resolved
         return resolved
 
     def decode_payload(self, record: EvidenceRecord) -> dict[str, Any]:
@@ -715,6 +755,15 @@ class EvidenceRecorder:
                 handle.write("\n")
 
             self._last_record_hash = record.record_hash
+
+            # Keep the resolved-ids index current (only if already built —
+            # an unbuilt index will include this row on its lazy first pass).
+            if (
+                self._resolved_ids_cache is not None
+                and record_type == "human_resolution"
+                and decision_id is not None
+            ):
+                self._resolved_ids_cache.add(str(decision_id))
 
             # Best-effort mirror. A mirror failure must never block or
             # corrupt the JSONL chain, which is the source of truth.

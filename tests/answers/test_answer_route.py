@@ -151,9 +151,11 @@ def test_forbid_today_seals_a_single_span() -> None:
     assert exhibit["query"]["verdict"] == "FORBID"
     assert exhibit["query"]["window_label"] == "today"
 
-    # The spoken text carries the number-word, never a digit, and is the span
-    # concatenation.
-    assert "three" in body["spoken_text"]
+    # The display carries the machine-exact DIGIT, never a spelled-out word,
+    # and is the span concatenation. (The humanized "three" still rides on the
+    # exhibit's own ``spoken`` field for a voice/TTS path.)
+    assert body["spoken_text"] == "3 decisions were forbidden today."
+    assert "three" not in body["spoken_text"]
     assert body["spoken_text"] == " ".join(s["text"] for s in body["spans"])
 
 
@@ -183,7 +185,9 @@ def test_held_recent_maps_to_abstain_verdict_and_seals() -> None:
     assert exhibit["spoken"] == "two"
     # The query discloses the honest sealed verdict the HELD word normalized to.
     assert exhibit["query"]["verdict"] == "ABSTAIN"
-    assert "two" in body["spoken_text"]
+    # Machine-exact display: the digit, never the spelled-out "two".
+    assert "2" in body["spoken_text"]
+    assert "two" not in body["spoken_text"]
 
 
 # --------------------------------------------------------------------------- #
@@ -212,6 +216,44 @@ def test_zero_count_is_sealed_not_abstain() -> None:
     # phrasing the is_zero provenance flag unlocks — never the ABSTAIN line.
     assert body["spoken_text"] != ABSTAIN_LINE
     assert body["spoken_text"] == "No decisions were forbidden today."
+
+
+# --------------------------------------------------------------------------- #
+# ITEM 7: machine-exact digits on the surface + sealed diction                #
+# --------------------------------------------------------------------------- #
+
+
+def test_untyped_today_count_is_digits_and_says_sealed() -> None:
+    """End-to-end reproduction of the live defect — an untyped 'today' decision
+    tally. The on-screen answer must carry DIGITS (Bug A) and echo the asked
+    'sealed' concept, never the softer 'recorded' (Bug B)."""
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    for _ in range(4):
+        store.save(_decision(verdict=Verdict.PERMIT, tenant="acme", decided_at=now))
+    for _ in range(2):
+        store.save(_decision(verdict=Verdict.FORBID, tenant="acme", decided_at=now))
+
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "how many decisions today?"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["overall_tier"] == "SEALED"
+    # Bug A — machine-exact digits on the surface, never the spelled-out form
+    # ("four hundred ninety-two ...") the live site showed.
+    assert body["spoken_text"] == "6 decisions sealed today."
+    assert "six" not in body["spoken_text"].lower()
+    # Bug B — the untyped decision tally says "sealed" (every counted decision
+    # is a sealed chain row), never "recorded".
+    assert "sealed" in body["spoken_text"]
+    assert "recorded" not in body["spoken_text"]
+    # The humanized word form survives for a voice/TTS path — on the exhibit.
+    exhibit = body["exhibits"][0]
+    assert exhibit["value"] == 6
+    assert exhibit["spoken"] == "six"
+    assert exhibit["query"]["verdict"] is None
+    assert exhibit["query"]["window_label"] == "today"
 
 
 # --------------------------------------------------------------------------- #
@@ -492,7 +534,8 @@ def test_agents_roster_is_named_and_scoped() -> None:
     r2 = client.post("/v1/answer", json={"question": "how many agents do i have"})
     body2 = r2.json()
     assert body2["exhibits"][0]["value"] == 2
-    assert body2["spoken_text"] == "two agents are running."
+    # Machine-exact display: the roster count is a digit, not "two".
+    assert body2["spoken_text"] == "2 agents are running."
 
 
 def test_agents_ask_without_registry_abstains() -> None:
@@ -559,7 +602,9 @@ def test_needs_attention_routes_to_waiting_and_excludes_resolved(tmp_path) -> No
     exhibit = body["exhibits"][0]
     assert exhibit["query"]["tool"] == "count_held_waiting"
     assert exhibit["value"] == 2  # three held minus the one resolved
-    assert "two" in body["spoken_text"]
+    # Machine-exact display: the digit, never the spelled-out "two".
+    assert "2" in body["spoken_text"]
+    assert "two" not in body["spoken_text"]
     assert "waiting for your attention" in body["spoken_text"]
 
 

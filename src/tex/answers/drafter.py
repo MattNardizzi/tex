@@ -171,7 +171,22 @@ _VERDICT_PHRASE = {
 }
 
 # Fallback when a count exhibit names no verdict — an untyped tally of decisions.
-_PLAIN_COUNT_VERB = "recorded"
+# Every decision Tex records is written into the tamper-evident chain, so the
+# honest verb for that tally is "sealed": the count of decisions IS the count of
+# sealed rows (``count_decisions`` measures exactly that). This also makes the
+# draft echo the operator's own word when they ask "what has been sealed today" —
+# a truth instrument must not answer "sealed" with the softer "recorded", because
+# that synonym slip reads as evasion.
+_PLAIN_COUNT_VERB = "sealed"
+
+# How a count's quantity reaches the sentence. The display law is MACHINE-EXACT,
+# so a count renders as DIGITS ("492 decisions sealed today.") through the slot's
+# "raw" rendering over the exhibit's integer value — never spelled out. The
+# humanized word form still rides on each exhibit's own ``spoken`` field
+# (untouched), so a voice/TTS path keeps a for-the-ear rendering, and a TTS engine
+# voices "492" correctly regardless. LISTS and RECORDS keep "spoken": a structured
+# value has no honest raw voice (a raw slot over one dies at the gate).
+_COUNT_SLOT_RENDERING = "raw"
 
 # The "still waiting on a human" tools speak in the present, unresolved register
 # — "waiting for your attention" — never the historical "held ... recently" of a
@@ -233,6 +248,7 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
     its absence the drafter phrases for the general case and lets the gate seal
     whatever digit it recomputes — including zero, rendered through the slot."""
     handle = exhibit["handle"]
+    count_slots = [{"handle": handle, "rendering": _COUNT_SLOT_RENDERING}]
 
     # The "need my attention" count speaks the present, unresolved register.
     # Zero is a calm empty queue; the slot still authors the quantity (even
@@ -241,16 +257,16 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
         if _query_field(exhibit, "is_zero") is True:
             return {
                 "template": "No decisions are waiting for your attention.",
-                "slots": [{"handle": handle, "rendering": "spoken"}],
+                "slots": count_slots,
             }
         if _query_field(exhibit, "is_one") is True:
             return {
                 "template": f"{{{handle}}} decision is waiting for your attention.",
-                "slots": [{"handle": handle, "rendering": "spoken"}],
+                "slots": count_slots,
             }
         return {
             "template": f"{{{handle}}} decisions are waiting for your attention.",
-            "slots": [{"handle": handle, "rendering": "spoken"}],
+            "slots": count_slots,
         }
 
     noun = _count_noun(exhibit)
@@ -262,16 +278,16 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
         if _query_field(exhibit, "is_zero") is True:
             return {
                 "template": "No agents are running.",
-                "slots": [{"handle": handle, "rendering": "spoken"}],
+                "slots": count_slots,
             }
         if _query_field(exhibit, "is_one") is True:
             return {
                 "template": f"{{{handle}}} agent is running.",
-                "slots": [{"handle": handle, "rendering": "spoken"}],
+                "slots": count_slots,
             }
         return {
             "template": f"{{{handle}}} agents are running.",
-            "slots": [{"handle": handle, "rendering": "spoken"}],
+            "slots": count_slots,
         }
 
     if _query_field(exhibit, "is_zero") is True:
@@ -285,7 +301,7 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
             template = f"No {noun} were {_PLAIN_COUNT_VERB}{clause}."
         return {
             "template": template,
-            "slots": [{"handle": handle, "rendering": "spoken"}],
+            "slots": count_slots,
         }
 
     if _query_field(exhibit, "is_one") is True:
@@ -297,14 +313,14 @@ def _floor_count_span(exhibit: dict[str, Any]) -> DrafterProposal:
         verb = _VERDICT_PHRASE.get(verdict, _PLAIN_COUNT_VERB)
         return {
             "template": f"{{{handle}}} {singular} was {verb}{clause}.",
-            "slots": [{"handle": handle, "rendering": "spoken"}],
+            "slots": count_slots,
         }
 
     predicate = _count_predicate(exhibit)
     template = f"{{{handle}}} {noun} {predicate}{clause}."
     return {
         "template": template,
-        "slots": [{"handle": handle, "rendering": "spoken"}],
+        "slots": count_slots,
     }
 
 

@@ -116,6 +116,22 @@
     pointer-events:none;
   }
   body.chrome-in .chrome{opacity:1;transform:none;pointer-events:auto;}
+  /* The venue — permanent top-center chrome, up before the header itself:
+     visible through the turn and every scroll position. Never interactive. */
+  #venueTop{
+    position:fixed;top:33px;left:50%;transform:translateX(-50%);z-index:39;
+    font-family:var(--mono);font-size:10px;letter-spacing:.3em;text-indent:.3em;text-transform:uppercase;
+    white-space:nowrap;color:var(--ink-mute);
+    pointer-events:none;
+  }
+  @media (max-width:900px){
+    #venueTop{font-size:9px;letter-spacing:.22em;text-indent:.22em;}
+  }
+  @media (max-width:700px){
+    /* Phones: the brand and Begin own the top row — the venue takes its own
+       quiet row just beneath, still pinned through the whole visit. */
+    #venueTop{top:58px;font-size:8.5px;letter-spacing:.2em;text-indent:.2em;}
+  }
   .brand{display:flex;align-items:baseline;gap:.5ch;font-family:var(--serif);}
   .brand-name{font-size:20px;font-weight:400;letter-spacing:-.01em;color:var(--ink);}
   .brand-by{font-family:var(--sans);font-size:11px;font-weight:400;letter-spacing:.02em;color:var(--ink-mute);}
@@ -407,6 +423,8 @@
     </a>
     <button class="chrome-act" type="button" data-begin>Begin</button>
   </header>
+
+  <div id="venueTop">Presenting at DEF CON 34 · Las Vegas · Aug 2026</div>
 
   <!-- ============ HERO — the turn ============ -->
   <section class="hero" id="hero" aria-label="Tex">

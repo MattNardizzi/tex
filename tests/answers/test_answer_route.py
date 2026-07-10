@@ -256,6 +256,52 @@ def test_untyped_today_count_is_digits_and_says_sealed() -> None:
     assert exhibit["query"]["window_label"] == "today"
 
 
+def test_sealed_word_routes_on_the_keyless_floor() -> None:
+    """ITEM 7 follow-through: "sealed"/"seal" is deterministic count
+    vocabulary. This app wires NO llm seam (bare ``build_answer_router()``),
+    so "what has been sealed today" must reach ``count_decisions`` through the
+    regex parse alone — the LLM router stays an upgrade, never the only path
+    to the operator's own word."""
+    store = InMemoryDecisionStore()
+    now = _now_utc()
+    for _ in range(2):
+        store.save(_decision(verdict=Verdict.PERMIT, tenant="acme", decided_at=now))
+    # An ABSTAIN (held) row is a sealed chain row too — the untyped tally
+    # counts it; "sealed" must never smuggle in a verdict filter.
+    store.save(_decision(verdict=Verdict.ABSTAIN, tenant="acme", decided_at=now))
+
+    client = _client(store, _scoped("acme"))
+    r = client.post("/v1/answer", json={"question": "what has been sealed today"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["overall_tier"] == "SEALED"
+    assert body["abstain_reason"] is None
+    assert body["spoken_text"] == "3 decisions sealed today."
+    exhibit = body["exhibits"][0]
+    assert exhibit["value"] == 3
+    assert exhibit["query"]["tool"] == "count_decisions"
+    assert exhibit["query"]["verdict"] is None
+    assert exhibit["query"]["window_label"] == "today"
+
+
+def test_parse_intent_seal_vocabulary_pins() -> None:
+    """Parser-level contract for the new words: untyped count, window from the
+    question, list framing still outranking, word boundaries holding."""
+    got = _parse_intent("what has been sealed today")
+    assert (got.kind, got.verdict, got.window_label) == ("count", None, "today")
+
+    # The bare verb form routes too.
+    got2 = _parse_intent("what did you seal this week?")
+    assert (got2.kind, got2.verdict, got2.window_label) == ("count", None, "this week")
+
+    # List framing wins over the count word — _parse_intent checks lists first.
+    assert _parse_intent("show me what was sealed today").kind == "list"
+
+    # Word boundaries hold: "unsealed" is not the seal vocabulary.
+    assert _parse_intent("was anything unsealed today").kind == "unsupported"
+
+
 # --------------------------------------------------------------------------- #
 # Unsupported intent abstains                                                 #
 # --------------------------------------------------------------------------- #

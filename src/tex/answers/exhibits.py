@@ -29,6 +29,14 @@ Doctrine sealed into this file:
   ``content_sha256`` — the same per-row anchor the presence gate binds
   (``ref_for_decision``). An aggregate (count / list) carries no anchor: a
   count is meaning, not a single graspable record.
+- Counts and rows derive from the DURABLE store. When the store offers a
+  durable read (``count_matching`` / ``find_matching`` on the Postgres-backed
+  ``DurableDecisionStore``), exhibits measure Postgres directly — a deploy
+  restarts the process and empties the in-memory hot cache, and a spoken tally
+  must never reset with it. An unreadable durable source fails OPEN to the
+  in-process cache scan (the pre-durable behavior), so a read fault can only
+  shallow an answer to what the process already holds — it never errors a
+  count and never hides a held row.
 """
 
 from __future__ import annotations
@@ -224,20 +232,64 @@ def _in_window(
     return True
 
 
+def _durable_rows(
+    store: Any,
+    wanted_fold: str,
+    resolved_verdict: Verdict | None,
+    since_utc: datetime | None,
+    until_utc: datetime | None,
+    limit: int | None,
+) -> list[Any] | None:
+    """Rows straight from the store's durable (deploy-surviving) read, when it
+    offers one. ``None`` means "no durable read here" — the store has no
+    ``find_matching`` (the in-memory dev/test posture), it reports itself
+    non-durable, or the read faulted — and the caller falls back to the
+    in-process cache scan. Fail-open: a durable fault can only shallow an
+    answer to what the process already holds, never error or hide it.
+    """
+    finder = getattr(store, "find_matching", None)
+    if not callable(finder):
+        return None
+    try:
+        rows = finder(
+            tenant_visible_to=wanted_fold,
+            verdict=resolved_verdict,
+            since=since_utc,
+            until=until_utc,
+            limit=limit,
+        )
+    except Exception:  # noqa: BLE001 — the durable read is an upgrade, never a dependency
+        return None
+    if rows is None:
+        return None
+    return list(rows)
+
+
 def _matching_rows(
     store: Any,
     wanted_fold: str,
     resolved_verdict: Verdict | None,
     since_utc: datetime | None,
     until_utc: datetime | None,
+    limit: int | None = None,
 ) -> list[Any]:
     """The tenant-visible, verdict-filtered, window-filtered rows, newest first.
 
-    Reads the whole store and filters here rather than through ``store.find``,
-    because ``find`` cannot express the tenant-visibility or time-window
-    predicates. ``list_all`` returns save order; we reverse for newest-first,
-    the same operationally-useful default the store's own ``find`` uses.
+    Durable-first: a store exposing ``find_matching`` (the Postgres-backed
+    ``DurableDecisionStore``) is measured at its durable layer, so the rows —
+    and every count, list, and held/waiting queue built on them — survive a
+    deploy. Otherwise (or when the durable read faults) this reads the whole
+    store and filters here rather than through ``store.find``, because ``find``
+    cannot express the tenant-visibility or time-window predicates.
+    ``list_all`` returns save order; we reverse for newest-first, the same
+    operationally-useful default the store's own ``find`` uses.
     """
+    durable = _durable_rows(
+        store, wanted_fold, resolved_verdict, since_utc, until_utc, limit
+    )
+    if durable is not None:
+        return durable
+
     if hasattr(store, "list_all"):
         rows: Iterable[Any] = store.list_all()
     elif hasattr(store, "find"):
@@ -255,7 +307,37 @@ def _matching_rows(
         if not _in_window(row, since_utc, until_utc):
             continue
         matched.append(row)
-    return matched
+    return matched if limit is None else matched[:limit]
+
+
+def _count_rows(
+    store: Any,
+    wanted_fold: str,
+    resolved_verdict: Verdict | None,
+    since_utc: datetime | None,
+    until_utc: datetime | None,
+) -> int:
+    """The count behind a count exhibit — durable-first, like the rows.
+
+    A store exposing ``count_matching`` tallies in Postgres (``COUNT(*)``,
+    no row transfer), so the number is both deploy-surviving AND true beyond
+    the hot cache's bounded page. ``None`` or a fault falls back to counting
+    the cache scan — the pre-durable behavior, never an error.
+    """
+    counter = getattr(store, "count_matching", None)
+    if callable(counter):
+        try:
+            n = counter(
+                tenant_visible_to=wanted_fold,
+                verdict=resolved_verdict,
+                since=since_utc,
+                until=until_utc,
+            )
+        except Exception:  # noqa: BLE001 — the durable read is an upgrade, never a dependency
+            n = None
+        if n is not None:
+            return int(n)
+    return len(_matching_rows(store, wanted_fold, resolved_verdict, since_utc, until_utc))
 
 
 def _anchor_for(decision: Any) -> str | None:
@@ -318,8 +400,7 @@ def count_decisions(
     since_utc, until_utc, resolved_label = _resolve_window(window_label, since, until)
     wanted_fold = tenant.casefold()
 
-    rows = _matching_rows(store, wanted_fold, resolved_verdict, since_utc, until_utc)
-    n = len(rows)
+    n = _count_rows(store, wanted_fold, resolved_verdict, since_utc, until_utc)
 
     return {
         "handle": "e1",
@@ -385,7 +466,9 @@ def list_decisions(
     if limit < 0:
         raise ValueError("limit must be non-negative")
 
-    rows = _matching_rows(store, wanted_fold, resolved_verdict, since_utc, until_utc)
+    rows = _matching_rows(
+        store, wanted_fold, resolved_verdict, since_utc, until_utc, limit=limit
+    )
     selected = rows[:limit]
 
     value = [
@@ -451,7 +534,7 @@ def get_decision_record(
         # Newest-first is _matching_rows' contract. "The last recorded" means
         # the last, whatever it was — unless a verdict qualifier narrows it
         # ("the last HELD action" ⇒ the newest ABSTAIN, never a PERMIT).
-        rows = _matching_rows(store, wanted_fold, resolved_verdict, None, None)
+        rows = _matching_rows(store, wanted_fold, resolved_verdict, None, None, limit=1)
         decision = rows[0] if rows else None
         if decision is None:
             raise KeyError(f"no decisions recorded for tenant: {tenant}")

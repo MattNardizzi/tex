@@ -231,6 +231,106 @@ class DurableDecisionStore:
             limit=limit,
         )
 
+    # ---- durable read path (Postgres, deploy-surviving) ----------------
+    #
+    # The cache above is a bounded hot page (recent 5000 + the held floor)
+    # that dies with the process on every deploy. Anything SPOKEN as a
+    # tally or a queue must not: the answer wire's exhibits call these two
+    # methods first and only fall back to a cache scan when they return
+    # ``None``. Predicates mirror the exhibits layer exactly — tenant
+    # visibility on ``Decision.tenant_id`` (the metadata field, blank ⇒
+    # "default"), the shared "default" partition, half-open [since, until)
+    # on ``decided_at``.
+
+    def count_matching(
+        self,
+        *,
+        tenant_visible_to: str,
+        verdict: Verdict | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> int | None:
+        """Count matching rows straight from Postgres — the tally that
+        survives a deploy. Returns ``None`` (never raises) when the store
+        is not durable or the read fails, so the caller can fall back to
+        the in-process cache scan instead of erroring an answer.
+        """
+        if not self._postgres_enabled:
+            return None
+        where, params = _matching_where(
+            self._tenant_id, tenant_visible_to, verdict, since, until
+        )
+        try:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT COUNT(*) FROM tex_decisions WHERE {where}",  # noqa: S608 — clauses are static, values bound
+                        params,
+                    )
+                    row = cur.fetchone()
+        except Exception:
+            _logger.exception(
+                "DurableDecisionStore: durable count failed — caller "
+                "falls back to the in-process cache scan"
+            )
+            return None
+        return int(row[0]) if row else 0
+
+    def find_matching(
+        self,
+        *,
+        tenant_visible_to: str,
+        verdict: Verdict | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int | None = None,
+    ) -> tuple[Decision, ...] | None:
+        """Matching rows straight from Postgres, newest first — the queue
+        that survives a deploy (the held/waiting wires read this). Returns
+        ``None`` (never raises) when the store is not durable or the read
+        fails; a malformed row is skipped, never fabricated. ``limit`` is
+        capped by the same runaway backstop as the held-floor hydrate.
+        """
+        if not self._postgres_enabled:
+            return None
+        where, params = _matching_where(
+            self._tenant_id, tenant_visible_to, verdict, since, until
+        )
+        capped = (
+            _FIND_MATCHING_BACKSTOP
+            if limit is None
+            else max(0, min(limit, _FIND_MATCHING_BACKSTOP))
+        )
+        try:
+            with connect() as conn:
+                # Named cursor in a transaction, same as the hydrate: each
+                # FETCH is its own statement under statement_timeout, so a
+                # large payload can never blow the single-shot budget.
+                with conn.transaction():
+                    with conn.cursor(name="tex_find_matching") as cur:
+                        cur.itersize = 500
+                        cur.execute(
+                            f"SELECT {_DECISION_COLUMNS} FROM tex_decisions "  # noqa: S608
+                            f"WHERE {where} ORDER BY decided_at DESC LIMIT %s",
+                            (*params, capped),
+                        )
+                        raw = list(cur)
+        except Exception:
+            _logger.exception(
+                "DurableDecisionStore: durable find failed — caller "
+                "falls back to the in-process cache scan"
+            )
+            return None
+        decisions: list[Decision] = []
+        for row in raw:
+            try:
+                decisions.append(_row_to_decision(row))
+            except Exception:
+                _logger.exception(
+                    "DurableDecisionStore: skipping malformed row in find_matching"
+                )
+        return tuple(decisions)
+
     def __len__(self) -> int:
         return len(self._cache)
 
@@ -446,10 +546,9 @@ ON CONFLICT (decision_id) DO UPDATE SET
     latency             = EXCLUDED.latency
 """
 
-# Hydrate the most recent N decisions on startup. The hot cache is
-# bounded so we don't pull a 10M-row table into memory on every boot.
-_SELECT_RECENT_SQL = """
-SELECT
+# The one column order every row-returning SELECT here uses — it must stay
+# aligned with ``_row_to_decision``'s unpacking below.
+_DECISION_COLUMNS = """
     decision_id, request_id,
     action_type, channel, environment, recipient,
     verdict, confidence, final_score,
@@ -459,6 +558,54 @@ SELECT
     retrieval_context, metadata,
     determinism_fingerprint, evidence_hash, latency,
     decided_at
+"""
+
+# SQL mirror of ``Decision.tenant_id`` (domain/decision.py): the owning tenant
+# rides in metadata JSONB; a missing/blank value reads as the shared "default"
+# partition, exactly as the Python property resolves it.
+_VISIBLE_TENANT_EXPR = (
+    "lower(coalesce(nullif(trim(metadata->>'tenant_id'), ''), 'default'))"
+)
+
+# Runaway backstop for ``find_matching`` — same bound, same rationale as the
+# held-floor hydrate below: a working set never approaches it.
+_FIND_MATCHING_BACKSTOP = 20000
+
+
+def _matching_where(
+    store_tenant: str,
+    tenant_visible_to: str,
+    verdict: Verdict | None,
+    since: datetime | None,
+    until: datetime | None,
+) -> tuple[str, tuple[Any, ...]]:
+    """WHERE clause + bound params for the durable read path, mirroring the
+    exhibits-layer predicates: this store's partition column, the private+
+    shared tenant-visibility rule on ``Decision.tenant_id`` (metadata), an
+    optional verdict, and the half-open ``[since, until)`` window on
+    ``decided_at``.
+    """
+    clauses = [
+        "tenant_id = %s",
+        f"{_VISIBLE_TENANT_EXPR} IN (%s, 'default')",
+    ]
+    params: list[Any] = [store_tenant, str(tenant_visible_to).strip().casefold()]
+    if verdict is not None:
+        clauses.append("verdict = %s")
+        params.append(verdict.value)
+    if since is not None:
+        clauses.append("decided_at >= %s")
+        params.append(since)
+    if until is not None:
+        clauses.append("decided_at < %s")
+        params.append(until)
+    return " AND ".join(clauses), tuple(params)
+
+
+# Hydrate the most recent N decisions on startup. The hot cache is
+# bounded so we don't pull a 10M-row table into memory on every boot.
+_SELECT_RECENT_SQL = f"""
+SELECT {_DECISION_COLUMNS}
 FROM tex_decisions
 WHERE tenant_id = %s
 ORDER BY decided_at DESC
@@ -472,17 +619,8 @@ LIMIT 5000
 # AND become unsealable (store.get -> 404) after a deploy — exactly when
 # "restart-proof" matters. ABSTAINs are a small share of traffic, so this
 # adds little memory; the LIMIT is a runaway backstop, not a working bound.
-_SELECT_WAITING_ABSTAIN_SQL = """
-SELECT
-    decision_id, request_id,
-    action_type, channel, environment, recipient,
-    verdict, confidence, final_score,
-    content_excerpt, content_sha256,
-    policy_id, policy_version,
-    scores, findings, reasons, uncertainty_flags, asi_findings,
-    retrieval_context, metadata,
-    determinism_fingerprint, evidence_hash, latency,
-    decided_at
+_SELECT_WAITING_ABSTAIN_SQL = f"""
+SELECT {_DECISION_COLUMNS}
 FROM tex_decisions
 WHERE tenant_id = %s
   AND verdict = 'ABSTAIN'

@@ -354,3 +354,7 @@ class DecisionInputStore:
     @property
     def is_durable(self) -> bool:
         return self._postgres_enabled
+
+    def mark_degraded(self) -> None:
+        """Flip to cache-only mode — see DurableDecisionStore.mark_degraded."""
+        self._postgres_enabled = False

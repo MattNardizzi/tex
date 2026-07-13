@@ -36,11 +36,16 @@ Spec invariants this module enforces
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
+
+import psycopg
 
 from tex.domain.decision import Decision
 from tex.domain.evidence import EvidenceRecord
@@ -60,6 +65,23 @@ from tex.memory.verification_store import (
 )
 
 _logger = logging.getLogger(__name__)
+
+# TEX_REQUIRE_DURABLE=1 restores strict write-through: a Postgres failure
+# during decision persistence raises (and the PDP fails closed) instead of
+# degrading to in-memory persistence. Default is to degrade — fail-closed is
+# for adjudication errors, not audit-persistence errors; a dead database
+# must never convert every verdict into FORBID (prod incident 2026-07-13).
+_REQUIRE_DURABLE_ENV = "TEX_REQUIRE_DURABLE"
+
+# Once degraded, remind operators at most this often that decisions are
+# still buffered in-memory only. Entry into degraded mode always logs;
+# this bounds the per-call repetition.
+_DEGRADED_REMINDER_INTERVAL_S = 300.0
+
+
+def _require_durable() -> bool:
+    raw = os.environ.get(_REQUIRE_DURABLE_ENV, "")
+    return raw.strip().lower() in {"1", "true", "yes"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +134,14 @@ class MemorySystem:
     evidence_mirror: DurableEvidenceStore = field(init=False)
     recorder: EvidenceRecorder = field(init=False)
 
+    # Degraded-mode state — set when DATABASE_URL is configured but the
+    # database is unreachable (detected at boot or on a per-call error).
+    _degraded: bool = field(init=False, default=False)
+    _degraded_log_at: float = field(init=False, default=0.0)
+    _degraded_lock: threading.Lock = field(
+        init=False, default_factory=threading.Lock
+    )
+
     def __post_init__(self) -> None:
         # Apply migrations exactly once on first construction. Each
         # store would do it on its own anyway, but doing it here
@@ -132,6 +162,20 @@ class MemorySystem:
         self.verifications = VerificationStore(tenant_id=self.tenant_id)
         self.evidence_mirror = DurableEvidenceStore(tenant_id=self.tenant_id)
         self.recorder = EvidenceRecorder(self.evidence_path)
+
+        # Boot-time degraded detection (prod incident 2026-07-13): when
+        # DATABASE_URL is configured but the decision store came up
+        # cache-only (its own schema bootstrap already retried and failed),
+        # the database is unreachable. record_decision_with_policy must not
+        # keep opening per-call transactions against it — each attempt
+        # costs a connect timeout, and the raise converts every verdict
+        # into the PDP's FORBID floor.
+        if (
+            database_url() is not None
+            and not self.decisions.is_durable
+            and not _require_durable()
+        ):
+            self._enter_degraded_mode(None)
 
     # ---- core write paths --------------------------------------------
 
@@ -220,10 +264,15 @@ class MemorySystem:
               produce a partial graph.
 
         Failure semantics:
-          * Postgres tx fails → raises; nothing is written; cache is not
-            updated for the decision/input/policy (save_in_tx mutates the
-            caches inside the tx, but the tx rollback means callers will
-            see stale entries until the next save). Tests assert this.
+          * Postgres tx fails with a database error (dead/unreachable DB,
+            missing schema) → DEGRADED mode: the write falls back to the
+            in-memory cache path below, one loud rate-limited error is
+            logged, and the memory layer stays cache-only until restart.
+            Governance keeps adjudicating — fail-closed applies to
+            adjudication errors, not audit-persistence errors (prod
+            incident 2026-07-13). Set TEX_REQUIRE_DURABLE=1 to restore
+            strict write-through: the tx failure raises and nothing is
+            written. Non-database exceptions always raise.
           * JSONL append fails → raises; Postgres has the decision but
             no evidence chain entry. The mirror has nothing. The next
             evaluation will continue the chain from the last good record.
@@ -241,9 +290,35 @@ class MemorySystem:
             raise TypeError("full_input must be a dict")
 
         # 1+2+3 — single Postgres transaction when durable.
-        if database_url() is None:
-            # Pure in-memory mode. Order matters: decision first so
-            # input.link_to_decision sees a valid id, then policy.
+        durable = database_url() is not None and not self._degraded
+        if durable:
+            try:
+                with connect_tx() as conn:
+                    with conn.cursor() as cur:
+                        self.decisions.save_in_tx(decision, cur)
+                        self.inputs.save_in_tx(
+                            request_id=decision.request_id,
+                            full_input=full_input,
+                            decision_id=decision.decision_id,
+                            cursor=cur,
+                        )
+                        self.policies.save_in_tx(policy, cur)
+            except psycopg.Error as exc:
+                # Audit-persistence failure, not an adjudication failure.
+                # Fail-closed belongs to the PDP; a dead database must not
+                # convert every verdict into FORBID (prod 2026-07-13).
+                if _require_durable():
+                    raise
+                self._enter_degraded_mode(exc)
+                durable = False
+
+        if not durable:
+            # Pure in-memory mode (DATABASE_URL unset) or degraded mode
+            # (Postgres configured but unreachable — stores are cache-only
+            # by the time we get here). Order matters: decision first so
+            # input.link_to_decision sees a valid id, then policy. This is
+            # the same write shape the legacy EvaluateActionCommand path
+            # uses when memory_system is None.
             self.decisions.save(decision)
             self.inputs.save(
                 request_id=decision.request_id,
@@ -251,17 +326,7 @@ class MemorySystem:
                 decision_id=decision.decision_id,
             )
             self.policies.save(policy)
-        else:
-            with connect_tx() as conn:
-                with conn.cursor() as cur:
-                    self.decisions.save_in_tx(decision, cur)
-                    self.inputs.save_in_tx(
-                        request_id=decision.request_id,
-                        full_input=full_input,
-                        decision_id=decision.decision_id,
-                        cursor=cur,
-                    )
-                    self.policies.save_in_tx(policy, cur)
+            self._note_degraded_write()
 
         # 4. JSONL chain (post-commit; the recorder is the source of
         #    truth for evidence). Failure here surfaces to the caller.
@@ -269,13 +334,78 @@ class MemorySystem:
             decision, metadata=evidence_metadata
         )
 
-        # 5. Postgres mirror of the chain. Idempotent on record_hash.
-        self.evidence_mirror.mirror_record(
-            evidence,
-            kind="decision",
-            aggregate_id=decision.decision_id,
-        )
+        # 5. Postgres mirror of the chain. Idempotent on record_hash. The
+        #    JSONL above is authoritative; a mirror that cannot reach
+        #    Postgres degrades exactly like the transaction does.
+        try:
+            self.evidence_mirror.mirror_record(
+                evidence,
+                kind="decision",
+                aggregate_id=decision.decision_id,
+            )
+        except psycopg.Error as exc:
+            if _require_durable():
+                raise
+            self._enter_degraded_mode(exc)
         return evidence
+
+    # ---- degraded mode (Postgres configured but unreachable) -----------
+
+    @property
+    def degraded(self) -> bool:
+        """True when Postgres was configured but became unreachable."""
+        return self._degraded
+
+    def _enter_degraded_mode(self, exc: Exception | None) -> None:
+        """
+        Flip the whole memory layer to cache-only persistence.
+
+        One-way for the life of the process, mirroring the stores' own
+        boot-time fallback — a restart re-probes durability (the deploy
+        runbook already restarts the service once the database returns).
+        Adjudication keeps running; ``health()`` reports durable=False
+        the moment this fires.
+        """
+        with self._degraded_lock:
+            if self._degraded:
+                return
+            self._degraded = True
+            self._degraded_log_at = time.monotonic()
+        for store in (
+            self.decisions,
+            self.inputs,
+            self.policies,
+            self.permits,
+            self.verifications,
+            self.evidence_mirror,
+        ):
+            store.mark_degraded()
+        _logger.error(
+            "MemorySystem DEGRADED: Postgres is unreachable — decision "
+            "persistence fell back to in-memory. Governance keeps "
+            "adjudicating; decisions recorded from now on WILL NOT survive "
+            "a restart until the database returns and the service is "
+            "restarted. Set %s=1 to fail closed instead. "
+            "(event=memory_degraded tenant=%s)",
+            _REQUIRE_DURABLE_ENV,
+            self.tenant_id,
+            exc_info=exc,
+        )
+
+    def _note_degraded_write(self) -> None:
+        """Rate-limited reminder that writes are still in-memory only."""
+        if not self._degraded:
+            return
+        now = time.monotonic()
+        with self._degraded_lock:
+            if now - self._degraded_log_at < _DEGRADED_REMINDER_INTERVAL_S:
+                return
+            self._degraded_log_at = now
+        _logger.error(
+            "MemorySystem still DEGRADED: decisions are being persisted "
+            "in-memory only (event=memory_degraded_write tenant=%s)",
+            self.tenant_id,
+        )
 
     def link_permit_to_decision(
         self,

@@ -76,6 +76,7 @@ FORBID.
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -85,6 +86,8 @@ from uuid import UUID, uuid4
 from tex.domain.verdict import Verdict
 from tex.provenance.floor_seal import seal_floor_decision
 from tex.selfgov.governor import describe_standing_activate, gate_controller_mutation
+
+_logger = logging.getLogger(__name__)
 
 __all__ = [
     "DecisionOutcome",
@@ -764,6 +767,21 @@ class StandingGovernance:
             )
             result = self._evaluate.execute(request)
         except Exception:  # noqa: BLE001 — fail closed on any engine error
+            # The floor outcome carries no traceback, so this log line is
+            # the ONLY record of WHY deep adjudication failed — without it
+            # a dead dependency reads as a policy ruling (2026-07-13: a
+            # dead Postgres FORBID-ed every decide for 9+ hours, silently).
+            _logger.error(
+                "Deep adjudication raised; failing closed to FORBID "
+                "(scope=deep_error action_type=%s channel=%s environment=%s "
+                "tenant=%s agent=%s)",
+                action_type,
+                channel,
+                environment,
+                tenant,
+                spoken_agent or agent_uuid,
+                exc_info=True,
+            )
             return self._forbid_floor(
                 agent_uuid,
                 "Deep adjudication raised; failing closed.",

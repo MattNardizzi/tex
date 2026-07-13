@@ -254,6 +254,16 @@ class DurableDecisionStore:
         """True iff writes are being persisted to Postgres."""
         return self._postgres_enabled
 
+    def mark_degraded(self) -> None:
+        """Flip to cache-only mode because Postgres became unreachable.
+
+        One-way for the life of the process — a restart re-probes
+        durability. Called by MemorySystem when a runtime write hits a
+        connection error, so later calls stop dialing a dead database
+        (each dial costs a connect timeout on the decide hot path).
+        """
+        self._postgres_enabled = False
+
     @property
     def cache_version(self) -> int:
         """

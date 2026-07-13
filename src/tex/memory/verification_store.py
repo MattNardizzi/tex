@@ -209,6 +209,10 @@ class VerificationStore:
     def is_durable(self) -> bool:
         return self._postgres_enabled
 
+    def mark_degraded(self) -> None:
+        """Flip to cache-only mode — see DurableDecisionStore.mark_degraded."""
+        self._postgres_enabled = False
+
 
 _SELECT_SQL = """
 SELECT verification_id, permit_id, tenant_id,

@@ -13,6 +13,10 @@ Tex makes asks you to trust a hardware vendor (Intel/AMD/NVIDIA TEE) or a
 blockchain — only math you can re-run offline. **Try to break it:**
 [CHALLENGE.md](CHALLENGE.md).
 
+▶ **90-second demo:** [demo.tex.systems](https://demo.tex.systems) — a FORBID
+landing as a kernel `EPERM`, and the sealed receipt that ruled it. Reproduce
+it yourself in [REPRODUCE.md](REPRODUCE.md).
+
 ## Sixty seconds to your first verdict
 
 No server, no database, no API key:
@@ -72,6 +76,45 @@ floor — a recognizer with a CRITICAL finding forces FORBID regardless of what
 any model thinks. Scores can only lower a verdict toward caution, never raise
 one; the floor cannot be fired by a probabilistic score. (Those two invariants
 are pinned by `tests/test_structural_floor.py` and `tests/test_crc_gate.py`.)
+
+## The kernel says no: `rm` returns `EPERM`
+
+A FORBID is not a log line. On a Linux host running the kernel leg, the same
+signed verdict that seals into the offline-verifiable receipt also feeds an
+in-kernel `(cgroup, inode)` deny map, and the kernel's BPF-LSM
+Mandatory-Access-Control hooks return `-EPERM` *before* the effect commits:
+
+```console
+$ echo $$ | sudo tee /sys/fs/cgroup/texdemo/cgroup.procs   # this shell is now the governed agent
+$ cat /tmp/tex_e2e/payroll.db                              # reading: allowed
+ACCT  NAME      SALARY
+0001  A. Ghost  $180,000
+$ rm /tmp/tex_e2e/payroll.db                               # destroying: denied by the kernel
+rm: cannot remove '/tmp/tex_e2e/payroll.db': Operation not permitted
+$ ls /tmp/tex_e2e/payroll.db                               # intact
+/tmp/tex_e2e/payroll.db
+```
+
+The forbidden inode becomes immutable, undeletable, and inexecutable — but
+still readable — for the enrolled agent. The hooks match the
+**kernel-resolved inode**, so TOCTOU path swaps, hardlink/symlink/
+`/proc/self/fd` tricks, `renameat2(RENAME_EXCHANGE)`, `io_uring` ops, and
+raw syscalls that bypass libc are caught at the same choke point. The
+enforcer verifies an HMAC-signed verdict set before warming the map, so a
+compromised agent cannot forge or strip a FORBID.
+
+Scope, stated plainly: this holds against **L3 — a fully compromised agent
+userspace in the enrolled cgroup**. It does **not** defend L4 — a rooted
+host or a compromised kernel; root owns the kernel and can detach the
+programs. The full threat model, the residual-bypass ledger (including the
+one honest residual within L3), and the ~22–27µs kill switch are documented
+in [pep/kernel/localpep/README.md](pep/kernel/localpep/README.md).
+
+Run it yourself: [REPRODUCE.md](REPRODUCE.md) — exact manual steps,
+**~30–35 minutes including VM provision** (macOS works via the committed
+Lima template; a scripted one-command demo is coming). This leg governs the
+agent-fleet host and needs `bpf` in the kernel's LSM list; the decide+prove
+plane above runs anywhere.
 
 ## Verify Tex without trusting Tex
 
@@ -149,6 +192,9 @@ running this repository does not ship. The current truth:
 - Hash-chained evidence records for every decision, replayable in place.
 - Sealed decision bundles that verify offline, where byte-flips and
   re-signed forgeries are both caught (the latter by the key pin).
+- On a Linux host with the BPF LSM active: a resource-attributable FORBID
+  lands as a kernel `-EPERM` (delete / truncate / write-open / rename /
+  exec) for the enrolled agent's cgroup — [REPRODUCE.md](REPRODUCE.md).
 
 **Not claimed yet, in plain words:**
 
@@ -177,3 +223,14 @@ running this repository does not ship. The current truth:
 - The generated system map: `TEX_SYSTEM.md`.
 - Tests: `PYTHONPATH=src python -m pytest` (the package has no install
   metadata yet, so plain `pytest` will not collect).
+
+## Talk to me
+
+- **See it live:** 20 minutes, my machine, against a policy *you* pick — the
+  kernel stop and the sealed receipt it leaves behind. Open an
+  [issue](https://github.com/MattNardizzi/tex/issues) or email the address
+  on my GitHub profile.
+- **Design partners:** a small number of teams running agents in production,
+  with a written go-paid date. Same channels.
+- **Break it:** [CHALLENGE.md](CHALLENGE.md) — the target is a kernel deny
+  plus a receipt chain you verify offline.

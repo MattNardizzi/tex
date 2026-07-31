@@ -10,7 +10,7 @@ Covers
   governance log records a positive ``is_legal=true`` assessment.
 * Step 4 illegal-transition FORBID: engine returns FORBID with rationale
   naming the (from_state, triggered_by) pair.
-* Subagent inheritance: a subagent of a suspended
+* Subagent inheritance per arxiv 2605.08460: a subagent of a suspended
   parent is evaluated under ``suspended`` even when its direct state is
   ``active``.
 * Fail-closed semantics: oracle errors return FORBID, never PERMIT.
@@ -20,6 +20,10 @@ Covers
 
 References
 ----------
+- arxiv 2601.11369 (Bracale Syrnikov et al., Jan 2026), §4.2 — LTS
+  framing of the institutional regime
+- arxiv 2605.08460 (Cai/Zhang/Hei, May 8 2026) — subagent-spawn
+  inheritance threat model
 - FRONTIER_DELTA_thread_2.md
 """
 
@@ -129,7 +133,8 @@ def _manifest_dict_with_action_triggers() -> dict[str, Any]:
     Edge 2: fined --agent_invokes_tool--> fined    (illegal: sanctioned
                                                     with fine_tier1 — the
                                                     oracle returns
-                                                    (False, "fine_tier1"))
+                                                    (False, "fine_tier1")
+                                                    per §6.2.1)
     Edge 3: suspended --agent_invokes_tool--> suspended (no edge declared
                                                          → no_edge → FORBID
                                                          "transition not legal")
@@ -309,7 +314,7 @@ class TestStep4LegalTransition:
         # PQ algorithm identifier should be one of the selection-chain
         # outcomes from ``tex.pqcrypto.algorithm_agility``. The default
         # selector prefers BLAKE3+ML-DSA-65 (algorithm-agile signing
-        # context binding) when available, and falls
+        # context binding, arxiv 2605.06788) when available, and falls
         # back through ML-DSA-65 native → hybrid ML-DSA-65 + Ed25519
         # → classical ECDSA-P256 as the algorithm-agility ladder
         # degrades.
@@ -397,7 +402,7 @@ class TestStep4IllegalTransitionForbid:
 
 
 class TestSubagentInheritance:
-    """Subagent of suspended parent inherits suspension."""
+    """arxiv 2605.08460 — subagent of suspended parent inherits suspension."""
 
     def test_subagent_of_suspended_parent_is_blocked(
         self,

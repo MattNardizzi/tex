@@ -7664,7 +7664,7 @@
     "tex.c2pa.evidence_emission",
     "tex.c2pa.manifest",
     "tex.c2pa.ocsp",
-    "tex.c2pa.spec_gap_defenses",
+    "tex.c2pa.sherman_2026_defenses",
     "tex.c2pa.signer",
     "tex.c2pa.timestamp",
     "tex.c2pa.verifier",
@@ -7696,7 +7696,7 @@
     "tex.c2pa.evidence_emission",
     "tex.c2pa.manifest",
     "tex.c2pa.ocsp",
-    "tex.c2pa.spec_gap_defenses",
+    "tex.c2pa.sherman_2026_defenses",
     "tex.c2pa.signer",
     "tex.c2pa.timestamp",
     "tex.c2pa.verifier",
@@ -9117,8 +9117,8 @@
     "classical-signature (ECDSA/Ed25519, pyca)"
    ]
   },
-  "tex.c2pa.spec_gap_defenses": {
-   "path": "src/tex/c2pa/spec_gap_defenses.py",
+  "tex.c2pa.sherman_2026_defenses": {
+   "path": "src/tex/c2pa/sherman_2026_defenses.py",
    "loc": 335,
    "tier": {
     "REAL": 2,
@@ -9130,16 +9130,16 @@
    "layer": "Evidence / Crypto",
    "wiring": "WIRED",
    "classes": [
-    "SpecGapAttackClass",
-    "SpecGapDefense",
-    "SpecGapDefensePosture"
+    "ShermanAttackClass",
+    "ShermanDefense",
+    "ShermanDefensePosture"
    ],
    "functions": [
     {
      "name": "_build_defense_table",
      "kind": "THIN",
      "calls": [
-      "SpecGapDefense"
+      "ShermanDefense"
      ],
      "raises": []
     },
@@ -9147,8 +9147,8 @@
      "name": "assess_current_posture",
      "kind": "REAL",
      "calls": [
-      "SpecGapDefense",
-      "SpecGapDefensePosture",
+      "ShermanDefense",
+      "ShermanDefensePosture",
       "_all_modules_importable",
       "_build_defense_table",
       "all",
@@ -68832,7 +68832,7 @@
     "tex.c2pa.evidence_emission",
     "tex.c2pa.manifest",
     "tex.c2pa.ocsp",
-    "tex.c2pa.spec_gap_defenses",
+    "tex.c2pa.sherman_2026_defenses",
     "tex.c2pa.signer",
     "tex.c2pa.timestamp",
     "tex.c2pa.verifier",

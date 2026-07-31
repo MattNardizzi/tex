@@ -3,6 +3,8 @@ STPA hazard model.
 
 References
 ----------
+- Doshi, Hong, Xu, Kang, Kapravelos, Kaestner. "Towards Verifiably Safe
+  Tool Use for LLM Agents." ICSE-NIER 2026 (arXiv:2601.08012, Jan 2026).
 - Leveson & Thomas. "STPA Handbook." MIT, 2018.
 
 Standard STPA artifacts (Leveson handbook):
@@ -14,21 +16,21 @@ Standard STPA artifacts (Leveson handbook):
   UnsafeControlAction — a control action that, in a context, leads to a hazard
   LossScenario       — a specific causal chain producing a loss
 
-LLM-agent extensions
---------------------
-Tex extends classical STPA for LLM-agent workflows:
+Doshi-2026 extensions
+---------------------
+The ICSE-NIER 2026 paper extends classical STPA for LLM-agent workflows:
 
   Stakeholder       — direct or indirect party whose values define losses
   Requirement (REQ) — abstract system goal derived from an unsafe behavior
   Specification (SPEC) — formal version of a REQ as an enforceable
                          IFC / temporal constraint
   EnforcementTier   — Blocklist / Mustlist / Allowlist / Confirmation
-                      (four-tier enforcement structure)
+                      (paper Section 4.2, four-tier structure)
   MCPLabel          — capability-enhanced MCP labels: capabilities,
-                      confidentiality, trust level
+                      confidentiality, trust level (paper Section 4.3)
 
 Tex's existing scaffolding pre-commits the Loss/Hazard/UCA/LossScenario
-shapes; we honor those signatures and add the LLM-agent extensions as
+shapes; we honor those signatures and add the Doshi-2026 extensions as
 new dataclasses. The manifest YAML loader (in this module) consumes
 all of them in one document.
 
@@ -40,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-# Four-tier enforcement structure for LLM-agent tool governance.
+# Four-tier enforcement structure from Doshi-2026 §4.2.
 EnforcementTier = Literal["blocklist", "mustlist", "allowlist", "confirmation"]
 
 # UCA guide-words from Leveson handbook §2.3.
@@ -76,8 +78,8 @@ class SafetyConstraint:
 
     Per Leveson handbook §2.2: constraints are "system-level predicates
     derived by inverting hazards; their enforcement prevents a system
-    from entering hazardous states." These translate into the REQs /
-    SPECs that drive the four-tier enforcement.
+    from entering hazardous states." Doshi-2026 §4.2 calls these the
+    REQs / SPECs that translate into the four-tier enforcement.
     """
 
     constraint_id: str
@@ -108,7 +110,7 @@ class LossScenario:
 
 
 # ---------------------------------------------------------------------------
-# LLM-agent extensions
+# Doshi-2026 extensions
 # ---------------------------------------------------------------------------
 
 
@@ -127,9 +129,10 @@ class Requirement:
     """
     An abstract system goal derived from an unsafe system behavior.
 
-    Stakeholder values are inverted into potential losses, and the
-    corresponding safety and security requirements define the agent's
-    expected behavior.
+    Per Doshi-2026 §4.1: "we derive a set of values they expect from the
+    system, and then invert these values into potential losses ...
+    deriving corresponding safety and security requirements that define
+    the agent's expected behavior."
     """
 
     requirement_id: str
@@ -142,9 +145,10 @@ class Specification:
     """
     A formal, enforceable version of a requirement.
 
-    To provide formal guarantees, requirements must be transformed
-    into symbolic specifications. Each spec declares which Tex
-    enforcement module(s) realize it and at which enforcement tier.
+    Per Doshi-2026 §4.2: "to provide formal guarantees, [requirements]
+    must be transformed into symbolic specifications." Each spec
+    declares which Tex enforcement module(s) realize it and at which
+    enforcement tier.
     """
 
     spec_id: str
@@ -159,10 +163,10 @@ class MCPLabel:
     """
     A structured label attached to an MCP tool declaration.
 
-    Every MCP server SHOULD provide three labels per tool method:
-    ``capabilities``, ``confidentiality``, and ``trust``. The
-    framework supports arbitrary additional keys; these three are the
-    minimum for the four-tier enforcement to work.
+    Per Doshi-2026 §4.3, every MCP server SHOULD provide three labels
+    per tool method: ``capabilities``, ``confidentiality``, and
+    ``trust``. The framework supports arbitrary additional keys; these
+    three are the minimum for the four-tier enforcement to work.
     """
 
     tool_name: str

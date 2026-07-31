@@ -4,7 +4,7 @@ Tests for Thread 5 — C2PA Content Credentials → Evidence Emission.
 Covers:
 - ``build_signed_manifest_with_cosign`` end-to-end roundtrip.
 - ``verify_evidence_cosign`` against well-formed and tampered inputs.
-- Each of the five attack-defense flags from Tex's C2PA attack matrix.
+- Each of the five attack-defense flags from arxiv 2604.24890.
 - Backwards compatibility: vanilla ``verify_manifest`` still passes
   on a cosigned manifest (cosign is an extension assertion, the outer
   signature covers it).
@@ -211,9 +211,9 @@ class TestEvidenceCosignAssertionBuilder:
         assert a.data["$schema"] == TEX_EVIDENCE_COSIGN_SCHEMA_V1
         assert a.data["algorithm"] == "ed25519"
         assert a.data["bound_timestamp"] == "2026-05-18T00:00:00+00:00"
-        # defends_against reference must be carried verbatim — auditors
-        # rely on the attack-matrix reference being present.
-        assert a.data["defends_against"]["reference"] == "tex:c2pa-attack-matrix"
+        # defends_against bibliography must be carried verbatim — auditors
+        # rely on the paper reference being present.
+        assert a.data["defends_against"]["paper"] == "arxiv:2604.24890"
         assert set(a.data["defends_against"]["attacks"]) == set(ALL_ATTACKS)
 
     def test_builder_rejects_short_sha(self, standard_retention_anchor):
@@ -722,5 +722,5 @@ class TestDefendsAgainstBibliography:
             revocation_proof=standard_revocation_proof,
         )
         cosign = get_cosign_assertion(signed)
-        assert cosign["defends_against"]["reference"] == "tex:c2pa-attack-matrix"
+        assert cosign["defends_against"]["paper"] == "arxiv:2604.24890"
         assert set(cosign["defends_against"]["attacks"]) == set(ALL_ATTACKS)

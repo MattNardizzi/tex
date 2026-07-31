@@ -221,7 +221,7 @@ Confirmed by reading. The package contains genuine logic end-to-end; the only "T
 - **Information-flow control** (delegated to `governance/.../ifc`): Bell-LaPadula confidentiality join + Biba integrity meet, FIDES dual-axis lattice, NeuroTaint cross-session taint, CA-CI six-tuple contextual integrity, Rule-of-Two trifecta.
 - **Datalog reference monitor**: PCAS toxic-flow policy with stratified negation (`pcas_specialist.py:58-104`, delegated to `pcas/monitor.py`).
 - **Capability-based dual-LLM interpreter**: CaMeL (DeepMind arXiv:2503.18813) capability tracking with fail-closed halts (`camel/interpreter.py`).
-- **Influence-provenance graph + counterfactual attribution**: ARGUS — real IPG with `justified_by` edge BFS and counterfactual redaction.
+- **Influence-provenance graph + counterfactual attribution**: ARGUS (arXiv:2605.03378) — real IPG with `justified_by` edge BFS and counterfactual redaction.
 - **Formal verification**: MCPShield labeled-transition-system property checking (`runtime/mcpshield/verifier.py`).
 - **Cross-specialist corroboration fusion**: defense-in-depth weighting with frontier multipliers and named pairwise bonuses (`fusion.py`).
 - **Design patterns**: Protocol-based judge contract (structural typing, `base.py:227`); pluggable backend Protocols for model-side defenses; lazy/conditional dispatch; fail-closed everywhere; frozen Pydantic value objects; per-event-loop semaphore; bounded LRU side-channel cache.

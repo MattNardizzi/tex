@@ -5,9 +5,9 @@ SecAlign (arxiv 2410.05451, Chen-Mittal et al., Oct 2024) fine-tunes
 a language model with a preference-optimization objective (DPO-style)
 that teaches the model to *prefer* responses ignoring injected
 instructions. Reported ASR drops from ~70% (baseline) to ~1% on
-AgentDojo's Banking suite. ASTRA (arxiv 2507.07417) shows adaptive
-attackers can still defeat
-SecAlign with sufficient optimization budget, so it is *not* a
+AgentDojo's Banking suite. ASTRA (arxiv 2507.07417) and PISmith
+(arxiv 2603.13026) show adaptive attackers can still defeat
+SecAlign at 21-70% ASR with optimization budget, so it is *not* a
 finished story; it pairs cleanly with structural defenses like Tex's
 PDP.
 

@@ -7,18 +7,20 @@ ecosystem state at timestamp T, applies a counterfactual perturbation
 steps in Koopman-lifted latent space, and reports the resulting
 fused systemic-risk trajectory with conformal coverage guarantees.
 
-Components
+References
 ----------
-- Koopman lifting with conformal coverage guarantees → ``_koopman.py``.
-  Also used for early warning + minimal counterfactual intervention
-  in multi-agent simulations.
-- SCCAL: semantic-geometric co-evolutionary cascade auditing
-  → ``_sccal.py``.
-- Anytime-valid conformal risk control → ``_conformal.py``.
-- Design stance: the right place for the digital twin is at the
-  *governance layer*, not inside the agent — agents can't be relied
-  on to invoke simulation themselves. This is precisely what
-  Thread 9 ships.
+- arxiv 2601.01076 (Nath/Yin/Chou, PMLR 2026): Koopman lifting with
+  conformal coverage guarantees. → ``_koopman.py``.
+- arxiv 2605.01803 (Leon, May 2026): Koopman early-warning
+  + minimal counterfactual intervention in multi-agent simulations.
+- arxiv 2603.13325 (SCCAL, ICLR 2026 Workshop): semantic-geometric
+  co-evolutionary cascade auditing. → ``_sccal.py``.
+- arxiv 2602.04364 (Anytime-Valid Conformal Risk Control, Feb 2026).
+  → ``_conformal.py``.
+- arxiv 2601.03905 (Jan 2026): documents that LLM agents *rarely*
+  invoke simulation (< 1%) and degrade when forced to; the right
+  place for the digital twin is at the *governance layer*, not the
+  agent. This is precisely what Thread 9 ships.
 
 Used for
 --------
@@ -33,8 +35,8 @@ Honest scope
 ``simulate_forward`` returns a *governance-grade* trajectory — a
 short-horizon, conformal-covered, Koopman-lifted forecast of the
 fused systemic axis. It is NOT a high-fidelity LLM-driven market
-simulator (an LLM call per agent per step would be a year of
-engineering for the agent-governance use case).
+simulator (SR-DTMA / GeomHerd run an LLM call per trader per step;
+that's a year of engineering for the agent-governance use case).
 
 Per-tenant Koopman operators are fit from observed ecosystem state
 transitions in the temporal KG. With < ``MIN_TRAINING_N`` observed
@@ -79,9 +81,9 @@ from tex.systemic.trajectory import (
 )
 
 
-# Default trajectory horizon. A 10-50 step window is the design range
-# for epidemic-class early warnings; 16 is the headroom choice for
-# the 10 ms p99 budget.
+# Default trajectory horizon. Per arxiv 2605.01803 §3.2 a 10-50 step
+# window captures epidemic-class early warnings; 16 is the headroom
+# choice for the 10 ms p99 budget.
 DEFAULT_HORIZON: int = 16
 MAX_HORIZON: int = 64
 

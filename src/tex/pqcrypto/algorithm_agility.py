@@ -12,7 +12,7 @@ time with no call-site changes.
 Thread 10 update (May 18, 2026)
 -------------------------------
 Adds the full FIPS 205 family (SLH-DSA-128s / 128f / 192s / 256s), the
-threshold ML-DSA path (Mithril, ePrint 2026/013; the TALUS-TEE shape),
+threshold ML-DSA path (Mithril, ePrint 2026/013; TALUS, arxiv 2603.22109),
 and the composite ML-DSA path (draft-ietf-lamps-pq-composite-sigs-18).
 Together these close every NIST-standardised PQ signature scheme plus
 the most credible non-FIPS hedges that competitors (Microsoft Agent

@@ -10,7 +10,8 @@ Two primitives:
 
 Both are pure-read; neither mutates the underlying graph.
 
-Reference: Zep/Graphiti property-graph queries.
+Reference: Zep/Graphiti property-graph queries; arxiv 2602.05665 (Graph-based
+Agent Memory: Taxonomy).
 
 Priority: P0.
 """
@@ -116,7 +117,7 @@ class GraphQuery:
         Return the upstream causal ancestor events of ``event_id``.
 
         TODO(P0): walk upstream pointers up to ``depth``  [done]
-        TODO(P1): causal weight scoring via tex.causal.chief.
+        TODO(P1): causal weight scoring per CHIEF (arxiv 2602.23701).
 
         Reference: Zep/Graphiti event-lineage walks; future tie-in to
                    tex.causal.chief.

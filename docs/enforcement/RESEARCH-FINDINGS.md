@@ -31,7 +31,7 @@ space is real, but **narrowing fast and contested** — the window is closing, n
   Sources: `github.com/luckyPipewrench/pipelock`, `pipelab.org/learn/action-receipt-spec`.
 
 **2. Prove / audit only (no enforcement):**
-- **Sello** — receiver-attested COSE/Ed25519 receipts in a witness-cosigned
+- **Sello** (`arXiv 2606.04193`) — receiver-attested COSE/Ed25519 receipts in a witness-cosigned
   Merkle transparency log; offline-verifiable; signs *after* acting; zero adoption.
 - **AIVS** (`draft-stone-aivs-00`) — portable Ed25519+SHA-256 hash-chain proof bundles;
   retrospective only; RFC-3161 left optional.
@@ -47,7 +47,7 @@ space is real, but **narrowing fast and contested** — the window is closing, n
   *before* execution. But: no implementation; receipts use the gateway's **local clock**
   (no mandatory external anchor; SCITT only optional — and the SCITT-makes-it-verifiable claim
   was **refuted** 1-2) and are signed with the **gateway's** key (agent identity is a field, not attested).
-- **PCAA** ("Proof-Carrying Agent Actions") — names the paradigm but
+- **PCAA** (`arXiv 2606.04104`, "Proof-Carrying Agent Actions") — names the paradigm but
   self-disclaims the crypto fusion: "not a replacement runtime," partial enforcement, proof
   layer is accountability artifacts not cryptographic attestation.
 

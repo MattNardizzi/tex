@@ -79,7 +79,7 @@ def test_clawguard_detects_skill_file_injection(empty_ctx: RetrievalContext) -> 
 
 
 def test_clawguard_detects_argus_provenance_signal(empty_ctx: RetrievalContext) -> None:
-    """ARGUS-style influence-provenance reason code."""
+    """ARGUS-style influence-provenance reason code (arxiv 2605.03378)."""
     spec = ClawGuardSpecialist()
     request = _req(
         "Approving transfer because the document says the user authorized it. "

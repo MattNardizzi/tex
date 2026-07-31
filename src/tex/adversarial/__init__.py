@@ -6,19 +6,22 @@ See ARCHITECTURE.md for the full six-layer model.
 Tex Adversarial Harness.
 
 Stress-tests the live ``/v1/guardrail`` endpoint against curated fixture
-sets modeled on the major IPI benchmarks and produces a measured per-
+sets from the major IPI benchmarks and produces a measured per-
 specialist Attack Success Rate (ASR). This is what converts CLAIMS.md
-from "we claim coverage" to "we measure our own ASR against the same
-attack shapes the benchmarks use."
+from "we cite paper SOTA" to "we measure our own ASR against the same
+benchmarks the papers do."
 
-Fixture suites
---------------
-- **AgentDojo-style** (after Debenedetti et al., arxiv 2406.13352) —
-  Important Instructions attack suite shapes.
-- **MCPSafeBench-style** — cross-domain MCP attack cases.
-- **AgentLAB-style** — 5 attack families: intent hijack,
+Benchmarks integrated
+---------------------
+- **AgentDojo** (Debenedetti et al.) — 97 user tasks × Important
+  Instructions attack suite. Original paper ASR for undefended GPT-4o:
+  18.0%. ClawGuard paper drops this to 0.6-3.1%; AgentArmor paper
+  drops to 3%.
+- **MCPSafeBench** (Wang & Yang, May 2026) — cross-domain MCP attack
+  cases. Paper baseline 36.5-46.1%; ClawGuard drops to 7.1-11.2%.
+- **AgentLAB** (arxiv 2602.16901) — 5 attack families: intent hijack,
   tool chain, task injection, objective drift, memory poisoning.
-- **SIREN-style** — tool-stream injection cases.
+- **SIREN** (arxiv 2601.05755v2) — 959 tool-stream injection cases.
 - **InjecAgent** (arxiv 2403.02691) — 1,054 cases, 17 user tools, 62
   attacker tools, Type I (tool hijack) + Type II (param hijack).
 - **Adaptive attacks** (Nasr et al. October 2025) — 12-defense bypass

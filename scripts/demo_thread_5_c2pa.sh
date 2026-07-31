@@ -12,12 +12,12 @@
 #      in-memory mirror.
 #   4. Hits POST /v1/c2pa/verify with the manifest and asset bytes.
 #   5. Prints the structured verification result so an auditor can
-#      see all five attack-defense flags from Tex's C2PA attack matrix.
+#      see all five attack-defense flags from arxiv 2604.24890.
 #
 # Bleeding-edge claim wired in by this demo:
 #   - C2PA 2.4 (current spec, January 2026 release)
 #   - ML-DSA-65 / Ed25519 cosign via tex.pqcrypto.algorithm_agility
-#   - Tex C2PA attack-matrix six attack defenses
+#   - arxiv 2604.24890 (Apr 27 2026, NSA/UMBC) six attack defenses
 #   - EU AI Act Article 50(2) machine-readable mark
 #   - draft-ietf-cose-dilithium-11 algorithm-agility
 #
@@ -119,8 +119,8 @@ body = (
     "Hi Sara,\n\n"
     "Tex just shipped a wedge: we're now the only agent-governance "
     "platform whose evidence carries a C2PA 2.4 Content Credential by "
-    "default, and the only one that closes the six C2PA validator "
-    "attack classes tracked in Tex's own threat matrix.\n\n"
+    "default, and the only one that closes the six attack classes the NSA "
+    "paper from late April found in the C2PA spec.\n\n"
     "Want a 20-minute walkthrough Wednesday?\n\n"
     "— Matthew\n"
 ).encode("utf-8")
@@ -195,7 +195,7 @@ echo "  outer_signature_valid:           true"
 echo "  cosign_present:                  true"
 echo "  cosign_valid:                    true"
 echo "  attack_defenses[*].defended:     all true"
-echo "  paper_reference:                 tex:c2pa-attack-matrix"
+echo "  paper_reference:                 arxiv:2604.24890"
 echo
 echo "Tex is the only agent-governance platform shipping this surface."
 echo "Microsoft Agent Governance Toolkit (Apr 2 2026), Zenity, Noma,"

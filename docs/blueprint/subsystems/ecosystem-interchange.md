@@ -61,7 +61,7 @@ All three are frozen, `extra="forbid"` Pydantic models.
 - `EcosystemState` (`state.py:20`) is a **read-only projection** of the temporal KG at timestamp T: active agent/tool/capability ids, governance graph id, `aggregate_drift_signals`, `sliding_window_compromise_ratio∈[0,1]`, and a `state_hash`.
 - `EcosystemVerdict` (`verdict.py:149`) carries the kind, axis scores, pre/post state hashes, rationale, optional `recommended_intervention_id` and `evidence_record_id`.
 - `EcosystemAxisScores` (`verdict.py:81`) stores six raw axes and **computes** two surfaces:
-  - `viability_index` (`verdict.py:119`) = `1 - max(U, SB, RG)` clamped to [0,1], where `U=drift_delta`, `SB=max(contract_violation_severity, 1-governance_graph_legality)`, `RG=systemic_risk_under_event`. This is the RiskGate "Aubin viability" decomposition (the *formula* is real and verifiable in code; the paper-style docstring citation formerly attached to it was unverifiable and has been removed).
+  - `viability_index` (`verdict.py:119`) = `1 - max(U, SB, RG)` clamped to [0,1], where `U=drift_delta`, `SB=max(contract_violation_severity, 1-governance_graph_legality)`, `RG=systemic_risk_under_event`. This is the RiskGate "Aubin viability" decomposition (`(claim, unverified)` citation arxiv 2604.24686 — the *formula* is real and verifiable in code; the academic attribution is not checkable here).
   - `graduated_level` (`verdict.py:138` → `_graduated_level_from_viability` at `verdict.py:68`) maps viability to L0_ALLOW (≥0.90) … L4_QUARANTINE (<0.25).
 
 #### `EcosystemEngine.evaluate()` — the eight-step pipeline (`engine.py:453`)

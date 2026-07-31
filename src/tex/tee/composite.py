@@ -50,14 +50,14 @@ State of the art (May 18 2026)
     -75010 capabilities
     -75011 allowed-apis
     -75012 ai-sbom-ref
-* Compound attestation for multi-hop agent chains is an open design
-  challenge in TEE attestation. Tex's ``compound_chain`` field is the
-  production answer.
-* CrossGuard-style instance binding: TEE measurement bound to
+* arxiv 2605.03213 (Forough et al., May 7 2026): "compound attestation
+  for multi-hop agent chains" is named as an open challenge. Tex's
+  ``compound_chain`` field is the production answer.
+* CrossGuard pattern (surveyed in arxiv 2604.23280): TEE measurement bound to
   agent credential via instance nonce derived from a per-decision
   binding value. Tex derives the ITA attestation nonce from a SHA-256
   of ``decision_id`` so a captured JWT cannot be replayed across
-  decisions — closing the token-cloneability gap.
+  decisions — closes the cloneability gap the paper identifies.
 * draft-ietf-rats-ear-03 (Mar 15 2026): Tex's verification result
   embeds an AR4SI-style trustworthiness vector so verifiers don't have
   to re-derive it from raw claims.
@@ -300,16 +300,17 @@ class EatAiClaims(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Compound chain link (open design challenge)                                 #
+# Compound chain link (arxiv 2605.03213 §VII open challenge)                  #
 # --------------------------------------------------------------------------- #
 
 
 class CompoundAttestationLink(BaseModel):
     """A single hop in a compound attestation chain.
 
-    Compound attestation for multi-hop agent chains is an open
-    challenge — production frameworks do not generally bind per-hop
-    attestations into a coherent chain.
+    Forough et al. (arxiv 2605.03213, May 7 2026) identify "compound
+    attestation for multi-hop agent chains" as an OPEN challenge — no
+    production framework binds per-hop hardware attestations into a
+    coherent chain.
 
     Tex's design: each agent hop (planner → executor → tool-call) emits
     its own composite ITA JWT and records the previous hop's
@@ -399,8 +400,8 @@ class CompositeAttestationEnvelope(BaseModel):
         min_length=1,
         max_length=128,
         description=(
-            "Caller-supplied freshness nonce. Following the CrossGuard "
-            "binding pattern, Tex binds the nonce to "
+            "Caller-supplied freshness nonce. Per the CrossGuard "
+            "pattern (surveyed in arxiv 2604.23280) Tex binds the nonce to "
             "decision_id via SHA-256 so the JWT cannot be replayed across "
             "decisions."
         ),
@@ -463,7 +464,7 @@ class CompositeAttestationEnvelope(BaseModel):
         description="Optional EAT-AI claim set per draft-messous-eat-ai-01.",
     )
 
-    # --- Compound attestation chain ---
+    # --- Compound attestation chain (arxiv 2605.03213) ---
     compound_link: CompoundAttestationLink | None = Field(
         default=None,
         description="Optional link into a multi-hop compound attestation "

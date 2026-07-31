@@ -162,7 +162,7 @@ strong-edge planes *contradict* (JA4 says Chrome / h2 says Go; signed identity s
 tool-grammar says deploy-agent), that incoherence is a first-class POSITIVE detection of a
 deliberately-hiding or compromised agent. The engine surfaces the contradicting plane-PAIR as
 evidence and sets `attribution_conflict`. This catches the **compromised-but-still-signing agent
-that AIP cannot**.
+that AIP cannot** [arXiv 2603.24775].
 
 ---
 
@@ -176,7 +176,7 @@ inter-call cadence entropy, packetization mode (1:1 vs bundled) [P4], per-minute
 decomposition from the Usage API [P11], JA4/runtime [P1], eBPF/SPIFFE runtime context [P9/P13]} via
 an unsupervised mixture model; Bayesian model-selection on cluster count (account-sharing keystroke
 literature, ResearchGate 247887278) estimates k≥1. An anytime-valid **e-value** test ("is this
-stream a mixture of >1 generative process?") drives the split online. The
+stream a mixture of >1 generative process?") drives the split online [arXiv 2603.19022]. The
 **strong-edge transitive-closure failure across the credential bridge IS the positive split signal
 (N1).** Behaviorally-identical CLONES are split by attestation context (SPIFFE selector, eBPF
 PID/exec_id) where present; residual unresolved sharers are reported as *counted, bounded
@@ -235,7 +235,7 @@ Streaming, anytime-valid, online — never a full point-in-time re-walk.
   threshold gives false-positive-suppressed soft-disappearance as the delta output. (presence.py is
   correctly UNWIRED into `service.scan` today — this is the wiring, not a rebuild.)
 - **Anytime-valid guarantees:** verdicts and the unseen-fraction update under optional stopping via
-  e-values / anytime-valid conformal [arXiv 2510.13037].
+  e-values / anytime-valid conformal [arXiv 2603.19022, 2510.13037].
 - **Active effort on demand (N5):** when a coverage region goes quiet, the honeytoken lattice [P14]
   manufactures extra observation effort to push out the Orlitsky log(n) extrapolation horizon
   [PNAS 1607774113].

@@ -4,8 +4,8 @@ Evidence emission orchestrator — Thread 5 wiring layer.
 
 Connects the C2PA signer (outer COSE_Sign1, classical algorithm,
 spec-conformant) with the Tex evidence cosign (post-quantum
-ML-DSA-65 by default, defending against the six C2PA validator
-attack classes in Tex's C2PA attack matrix).
+ML-DSA-65 by default, defending against the six attack classes in
+arxiv 2604.24890).
 
 Output contract
 ---------------
@@ -35,7 +35,7 @@ records the degradation.
 
 References
 ----------
-- Tex C2PA attack matrix — six C2PA validator attack classes
+- arxiv 2604.24890 (Apr 27 2026) — six C2PA attack classes
 - C2PA 2.4 §13.2 (outer signature algorithm allow-list)
 - draft-ietf-cose-dilithium-11 (Nov 15 2025) — COSE codepoint TBD
 - NIST FIPS 204 (ML-DSA, finalised Aug 2024)
@@ -81,7 +81,7 @@ _logger = logging.getLogger(__name__)
 # construction. Two manifests with the same canonicalization_version
 # are guaranteed by this code to either both verify or both fail under
 # the same key — closing the cross-validator contradiction attack
-# (attack #3 in Tex's C2PA attack matrix).
+# (arxiv 2604.24890 attack #3).
 #
 # v1: Thread 5, flat JSON document signing input.
 # v2: Thread 6, Merkle context tree (CPSA-checked, supports
@@ -138,7 +138,7 @@ def _canonical_cosign_signing_input(
 
     What the cosign signs in both versions:
 
-      - the trusted timestamp (attack #1 in the attack matrix)
+      - the trusted timestamp (arxiv 2604.24890 attack #1)
       - the full-file hash (attack #4)
       - the canonicalization version (attack #3)
       - the retention anchor (attack #5)

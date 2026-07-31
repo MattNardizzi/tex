@@ -1,21 +1,21 @@
 """
 Governance Oracle.
 
-The Oracle is a *programmatic* detector: it applies deterministic
-thresholds and windowed statistics over quantities and derived
-market-structure measures (HHI, specialisation/CV) without LLM calls.
-It opens evidence-backed cases referencing stable rule IDs
+Per arxiv 2601.11369 §6.2.1, the Oracle is a *programmatic* detector:
+"applies deterministic thresholds and windowed statistics over quantities
+and derived market-structure measures (HHI, specialisation/CV) without
+LLM calls". It opens evidence-backed cases referencing stable rule IDs
 (e.g. ``P2_independent_decision``) when collusion signals fire, and the
 Controller traverses only manifest-declared edges in response.
 
-Four signals:
+Four signals from Table 3:
   S1 Synchronous Move  — >= K firms change quantities by >= X% same direction
   S2 Variance Collapse — cross-firm dispersion stays below threshold for L
                           consecutive rounds
   S3 High HHI          — Σ s_i² above threshold for a commodity
   S4 Specialisation    — within-firm CV above threshold
 
-Operational definitions:
+Operational definitions (§6.2.1):
   cross-firm dispersion  D_c,t = σ_i(q_i,c,t) / μ_i(q_i,c,t)
   HHI                    Σ s_i² where s_i is firm i's share of commodity c
   specialisation         CV_i = σ_qi / μ_qi across commodities
@@ -23,6 +23,11 @@ Operational definitions:
 Evaluate against EcosystemState.aggregate_drift_signals — the existing
 Tex carrier for these already-computed scalars (the upstream signal
 processing lives in tex.drift; the Oracle just reads).
+
+Reference
+---------
+arxiv 2601.11369 (Bracale Syrnikov et al., 2026), §6.2.1, Table 3
+arxiv 2601.10599 (Pierucci et al., 2026), §5.4 (transition function δ)
 
 Priority: P1.
 """
@@ -42,7 +47,7 @@ from tex.observability.telemetry import emit_event
 
 
 # ----------------------------------------------------------------------
-# Signal kinds — the institutional layer's four canonical collusion signals.
+# Signal kinds — match the paper's Table 3 exactly.
 # ----------------------------------------------------------------------
 
 
@@ -87,7 +92,7 @@ class OracleSignal:
     description: str = ""
 
     # For S2 only: how many consecutive rounds the dispersion must stay
-    # below threshold (the window parameter L); default 5.
+    # below threshold. Paper §6.2.1 uses parameter L; default 5.
     consecutive_rounds: int = 1
 
 
@@ -98,8 +103,8 @@ class OracleSignal:
 
 class OracleCase(BaseModel):
     """
-    An evidence-backed case: when signals fire, the Oracle emits a
-    probable_violation case referencing the stable rule ID.
+    An evidence-backed case per arxiv 2601.11369 §4.1: "the Oracle emits
+    a probable_violation case referencing the stable rule ID".
 
     The Controller consumes cases, looks up the matching transition by
     (current_state, triggered_by_kind), and traverses if legal. Cases
@@ -110,11 +115,11 @@ class OracleCase(BaseModel):
 
     case_id: str
     rule_id: str  # ABDICO stable rule identifier
-    kind: str = "probable_violation"  # canonical case kind
+    kind: str = "probable_violation"  # paper's case kind
     actor_entity_id: str
     triggered_by_signals: tuple[str, ...]
     evidence: dict[str, Any] = Field(default_factory=dict)
-    severity_tier: int = Field(default=0, ge=0, le=4)  # collusion tier 0..4
+    severity_tier: int = Field(default=0, ge=0, le=4)  # paper Table 1
     observed_at: datetime
     manifest_semantic_sha256: str = ""  # regime identity for join
 
@@ -152,15 +157,15 @@ class OracleObservation(BaseModel):
 
 
 # ----------------------------------------------------------------------
-# Tier classification
+# Tier classification per Table 1
 # ----------------------------------------------------------------------
 
 
 def collusion_tier(*, cv_excess: float, hhi_excess: float) -> int:
     """
-    Map (CV_excess, HHI_excess) to a discrete collusion tier.
+    Map (CV_excess, HHI_excess) to the paper's discrete collusion tier.
 
-    Tier thresholds:
+    Table 1 (arxiv 2601.11369 §5.3):
       Tier 0 (No evidence):  CV_ex <= 0 AND HHI_ex <= 0
       Tier 1 (Mild):         any positive excess below tier 2
       Tier 2 (Moderate):     CV_ex > 0.25 OR HHI_ex > 0.15
@@ -213,7 +218,7 @@ class GovernanceOracle:
     ...                         "S4_specialisation": "P2_independent_decision"},
     ... )
 
-    The Oracle's role is detection only — no enforcement.
+    Per the paper the Oracle's role is detection only — no enforcement.
     All side effects flow through the Controller.
     """
 
@@ -324,8 +329,8 @@ class GovernanceOracle:
         pending_cases: tuple[OracleCase, ...] = ()
         if fired_signal_ids:
             # Group all fired signals into a single case keyed by the
-            # most-cited rule_id. One probable_violation case is emitted
-            # per round, citing all triggering signals.
+            # most-cited rule_id. The paper emits one probable_violation
+            # case per round, citing all triggering signals.
             primary_rule = self._primary_rule_id(fired_signal_ids)
             case = OracleCase(
                 case_id=f"case_{uuid4().hex[:12]}",
@@ -391,7 +396,7 @@ class GovernanceOracle:
              (institutional_state, proposed_event_kind).
           2. If no edge exists → (False, None).
              The Controller treats this as "edge does not exist" — the
-             first legality check.
+             paper's first legality check.
           3. If an edge exists and has a sanction_id → (False, sanction_id).
              This models the ABDICO Or-else: traversal is recorded but
              carries the named sanction.

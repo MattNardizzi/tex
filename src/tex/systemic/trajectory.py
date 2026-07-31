@@ -38,7 +38,7 @@ class CascadePath(BaseModel):
     # One of: "NOT_PROVIDED", "PROVIDED_WHEN_NOT_NEEDED",
     # "WRONG_TIMING", "WRONG_DURATION", or "UNSPECIFIED".
     stpa_uca_class: str = Field(default="UNSPECIFIED", min_length=1, max_length=64)
-    # Internal vulnerability classes: cascade_amplification,
+    # Per arxiv 2603.04474 vulnerability classes: cascade_amplification,
     # topological_sensitivity, consensus_inertia.
     spark_to_fire_class: str = Field(default="UNCLASSIFIED", min_length=1, max_length=64)
 
@@ -77,8 +77,9 @@ class SystemicWeights(BaseModel):
 
     Weights must sum to <= 1.0; remaining mass is the implicit
     "unknown / safe" prior. Defaults are calibrated against the
-    Concordia governance-corruption substrate (Thread 4 institutional
-    evals) and internal cascade benchmarks.
+    Concordia governance-corruption substrate
+    (arxiv 2603.18894 / Thread 4 institutional evals) and the
+    From-Spark-to-Fire benchmark (arxiv 2603.04474).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

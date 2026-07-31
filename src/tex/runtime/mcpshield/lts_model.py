@@ -1,6 +1,8 @@
 """
 MCPShield Labeled Transition System.
 
+Reference: arxiv 2604.05969 (Acharya & Gupta), April 2026.
+
 Formal model of an MCP-based agent system:
 
     Definition 2 (MCP Agent System): An MCP agent system is a tuple
@@ -103,7 +105,7 @@ class ToolDefinition:
 
     @staticmethod
     def hash_definition(blob: str) -> str:
-        """Cryptographic hash H. Any collision-resistant H
+        """Cryptographic hash H. Per the paper, any collision-resistant H
         works; we use SHA-256 (FIPS 180-4) here to keep the runtime layer
         free of liboqs dependencies for verification.
         """

@@ -7,9 +7,10 @@ Bleeding-edge May 18, 2026 alignment
   Revocation Information" requires validators to check revocation
   status. The spec aligns COSE x5chain placement on RFC 9360 and
   requires all intermediate certs be included.
-- The v1 timestamp + missing OCSP staple combination is the dominant
-  attack class in Tex's C2PA attack matrix of documented validator
-  gaps. Tex closes that gap here.
+- The Sherman et al. paper *Verifying Provenance of Digital Media: Why
+  the C2PA Specifications Fall Short* (arxiv 2604.24890, Apr 27 2026)
+  documents that the v1 timestamp + missing OCSP staple combination
+  was the dominant attack class. Tex closes that gap here.
 - RFC 9277 nonce requirement: prevents OCSP replay attacks.
 - C2PA 2.1 §15.7 / 2.4 §15.9 failure codes:
     * signingCredential.revoked
@@ -51,8 +52,7 @@ DOES NOT:
 
 Priority
 --------
-P0 — closes the largest documented C2PA validator gap in Tex's
-attack matrix.
+P0 — closes the largest validator gap identified in arxiv 2604.24890.
 """
 
 from __future__ import annotations

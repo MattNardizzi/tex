@@ -1,31 +1,33 @@
 """
-ARM — Agentic Reference Monitor.
+ARM — Agentic Reference Monitor (arxiv 2604.04035, Chinaei, April 2026).
 
 Provenance-aware runtime enforcement layer. Treats denied actions as
 first-class graph nodes with counterfactual edges to subsequent actions
 that may have been causally influenced by them.
 
-Trust propagates through a five-level integrity lattice:
+Trust propagates through a five-level integrity lattice (§2.3, §5.3):
 
     ToolDesc < ToolUntrusted < ToolTrusted < UserInput < SysInstr
 
 over:
   - transitive data dependencies (DirectOutput / InputTo / FieldOf edges)
-  - field-level provenance (DataField nodes)
-  - denial-induced counterfactual paths (Counterfactual edges)
+  - field-level provenance (DataField nodes, §5.6)
+  - denial-induced counterfactual paths (Counterfactual edges, §3.7)
 
 All policy decisions are computed by deterministic graph traversals and
 explicit rules, never delegated back to the LLM under scrutiny
-(classic reference-monitor properties: complete mediation, tamper-proof,
+(§4.2 reference monitor properties: complete mediation, tamper-proof,
 verifiable).
 
-In Tex, the separate "audit log" (hash-chained tamper
+In Tex, the paper's separate "audit log" (§4.5, hash-chained tamper
 evidence) is the existing ``tex.events.ledger.InMemoryLedger`` — which
 is already SHA-256 hash-chained and signed via the algorithm-agility
 provider abstraction. The provenance graph is internal to ARM
 (``tex.causal._provenance_graph``).
 
 Priority: P1.
+
+Reference: arxiv 2604.04035 §3.7, §4.3.2, §5.
 """
 
 from __future__ import annotations
@@ -109,8 +111,8 @@ class AgenticReferenceMonitor:
 
       1. Pure in-memory (no ledger) — ``ledger=None``. Denials live only
          in the in-memory provenance graph; useful for unit tests and
-         for deployments which separate the audit log
-         from the graph.
+         for the paper's reference deployment which separates audit log
+         from graph.
       2. With ledger — ``ledger`` and ``provenance`` both wired. A
          ``DENIAL_EVENT`` is appended to the ledger on every denial; the
          signing algorithm is whatever the injected ``CryptoProvenance``
@@ -119,6 +121,8 @@ class AgenticReferenceMonitor:
       3. With external graph — ``provenance_graph=`` lets callers share
          a graph instance with other components (e.g. an EcosystemEngine
          wrapper).
+
+    Reference: arxiv 2604.04035 §4.
     """
 
     def __init__(
@@ -147,8 +151,8 @@ class AgenticReferenceMonitor:
         # provenance-graph node.
         self._event_to_node: dict[str, str] = {}
         # Track the tail of denial counterfactual targets that are still
-        # awaiting their next-call. Mirrors the "next tool call"
-        # heuristic.
+        # awaiting their next-call. Mirrors the "next tool call" heuristic
+        # from §3.7 (Algorithm 1, line 7).
         self._pending_denial_event_ids: list[str] = []
 
     # ------------------------------------------------------------------
@@ -172,17 +176,17 @@ class AgenticReferenceMonitor:
         actions that may have been causally influenced by the denial
         inherit security-relevant context.
 
-        TODO(P1): emit DENIAL_EVENT into the ledger
+        TODO(P1, arxiv:2604.04035 §4.5): emit DENIAL_EVENT into the ledger
             - DONE: when a ledger is wired, builds a ProposedEvent with
               kind=DENIAL_EVENT and appends it through the existing
               hash-chained, signature-verifying append_proposed path.
               Algorithm comes from the injected CryptoProvenance, never
               hardcoded — flips automatically when ML-DSA-65 lands.
-        TODO(P1): annotate counterfactual edges
+        TODO(P1, arxiv:2604.04035 §3.7): annotate counterfactual edges
                   in the graph
             - DONE: a DeniedAction node is added to the provenance graph;
               the ProvenanceGraph then auto-attaches a Counterfactual
-              edge to the *next* CallNode (the
+              edge to the *next* CallNode (matching the paper's
               temporally-adjacent-call heuristic). Explicit
               counterfactual_targets passed by callers are also wired
               if they are already in the graph.
@@ -266,13 +270,13 @@ class AgenticReferenceMonitor:
         """
         Return the integrity-lattice label for an event.
 
-        TODO(P1): walk transitive dependencies +
+        TODO(P1, arxiv:2604.04035 §5.3): walk transitive dependencies +
                   field-level provenance + denial-induced counterfactual paths
             - DONE: resolves the event_id to a graph node, runs the
-              ProvenanceGraph.min_trust query and the
-              has_counterfactual_chain_to query, and maps
+              ProvenanceGraph.min_trust query (Definition 4) and the
+              has_counterfactual_chain_to query (§5.4 query 2), and maps
               the result onto the public label set.
-        TODO(P1): return one of TRUSTED /
+        TODO(P1, arxiv:2604.04035 §3.7): return one of TRUSTED /
                   TAINTED_BY_DENIAL / UNTRUSTED_INPUT / DERIVED_FROM_TAINTED
             - DONE.
         """
@@ -284,7 +288,7 @@ class AgenticReferenceMonitor:
             return LABEL_UNTRUSTED_INPUT
 
         # Counterfactual paths take priority — denial-induced taint is
-        # the headline class of attack ARM targets, and treating
+        # the headline class of attack the paper targets, and treating
         # it as the dominant label keeps the public API decisive.
         if self._graph.has_counterfactual_chain_to(node_id):
             return LABEL_TAINTED_BY_DENIAL
@@ -299,7 +303,7 @@ class AgenticReferenceMonitor:
         # For Data / DataField nodes, the node's own intrinsic trust
         # label is considered alongside MinTrust over its ancestors —
         # MinTrust deliberately excludes the node from its own ancestor
-        # set, so a Data node with no upstream Data
+        # set (Definition 4), so a Data node with no upstream Data
         # would otherwise look fully trusted regardless of its own
         # label. The effective label is the meet of the two.
         payload = self._graph.payload(node_id)
@@ -335,14 +339,15 @@ class AgenticReferenceMonitor:
         """
         Deterministic graph-traversal check. Never asks the LLM.
 
-        TODO(P1): if any upstream event is
+        TODO(P1, arxiv:2604.04035 §4.3.2): if any upstream event is
                   TAINTED_BY_DENIAL, deny by default
             - DONE: uses ProvenanceGraph.evaluate which combines
-              min_trust < threshold (transitive taint)
-              with has_counterfactual_chain_to (causality laundering).
-        TODO(P1): apply explicit lattice rules
-            - DONE: threshold is ``DEFAULT_TRUST_THRESHOLD`` (ToolTrusted)
-              and configurable per instance.
+              min_trust < threshold (transitive taint, §5.4 query 1)
+              with has_counterfactual_chain_to (causality laundering,
+              §5.4 query 2).
+        TODO(P1, arxiv:2604.04035 §4.3): apply explicit lattice rules
+            - DONE: threshold is ``DEFAULT_TRUST_THRESHOLD`` (ToolTrusted
+              per §4.3.2) and configurable per instance.
         """
         node_id = self._resolve_node_id(proposed_event_id)
         if node_id is None:

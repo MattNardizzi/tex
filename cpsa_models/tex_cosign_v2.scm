@@ -4,7 +4,7 @@
 ;; CPSA (Cryptographic Protocol Shapes Analyzer, MITRE, v4.4.5) model
 ;; of the Tex evidence cosign + outer C2PA signature composition.
 ;;
-;; Reference: Thread 6 FRONTIER_DELTA. Tex's C2PA attack-matrix review
+;; Reference: Thread 6 FRONTIER_DELTA. arxiv 2604.24890 §"Recommendations"
 ;; calls for formal-methods analysis of provenance protocols. This
 ;; file is that analysis for the Tex composition. Run with:
 ;;
@@ -49,7 +49,7 @@
 ;;   If V accepts S_outer on C, then C contains the cosign assertion
 ;;   (label "tex.evidence_cosign") with the same R that the cosign
 ;;   signed. This rules out the cross-validator contradiction attack
-;;   #3 from Tex's C2PA attack matrix.
+;;   #3 from arxiv 2604.24890.
 ;;
 ;; G4 (binding: cosign covers every attack-defense leaf):
 ;;   If V accepts S_cosign on R, then R was computed from a Merkle

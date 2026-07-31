@@ -14,8 +14,8 @@ Reference anchors as of May 18 2026
 * NVIDIA Blackwell Confidential Computing + NVLink encryption.
 * draft-messous-eat-ai-01 — EAT profile for autonomous AI agents.
 * draft-ietf-rats-ear-03 — AR4SI trustworthiness vector.
-* Compound attestation for multi-hop agent chains (design gap Tex closes).
-* CrossGuard-style TEE instance binding (internal design label).
+* arxiv 2605.03213 — compound attestation gap analysis.
+* arxiv 2604.23280 — AI-identity survey covering CrossGuard TEE instance binding.
 
 """
 
@@ -74,7 +74,7 @@ from tex.tee.sota_2026 import (
     DriverPinning,
     TdispEvidence,
     MultiGpuBatch,
-    # Persistent agent memory (open design challenge)
+    # Persistent agent memory (arxiv 2605.03213 §VI open challenge)
     PersistentMemoryRegion,
     # Linux 6.7+ TSM event log binding
     TsmEventLog,

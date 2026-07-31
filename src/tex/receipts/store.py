@@ -4,9 +4,9 @@ Receipt persistence layer.
 Receipts are append-only. Use Postgres in production, SQLite in dev,
 in-memory for tests.
 
-Design note
------------
-NabaOS-style receipt store. The integrity argument depends
+Reference
+---------
+arxiv 2603.10060 — NabaOS receipt store. The integrity argument depends
 on the store being append-only; once a receipt is issued it cannot be
 mutated or replaced, only superseded by a later receipt.
 

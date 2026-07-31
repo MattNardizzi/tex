@@ -50,10 +50,10 @@ References
 - Five Eyes joint guidance "Careful Adoption of Agentic AI Services"
   (Australia, Canada, NZ, UK, US — 1 May 2026; 30 pages, 5 risk
   categories, 23 risks, 100+ best practices).
-- AttriGuard — uses parallel counterfactual tests;
+- arxiv 2603.10749 (AttriGuard) — uses parallel counterfactual tests;
   the structural reason codes from AttriGuard are the highest-signal
   "needs human review" triggers in the suite.
-- ARGUS — provenance-aware decision audit.
+- arxiv 2605.03378 (ARGUS) — provenance-aware decision audit.
 """
 
 from __future__ import annotations

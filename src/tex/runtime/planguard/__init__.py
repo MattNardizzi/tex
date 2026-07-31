@@ -2,6 +2,8 @@
 PlanGuard: Defending Agents against Indirect Prompt Injection via
 Planning-based Consistency Verification.
 
+Reference: arxiv 2604.10134, Gong & Deng, April 11 2026.
+
 Architecture
 ------------
   1. Isolated Planner — generates a reference set of valid actions derived
@@ -9,7 +11,7 @@ Architecture
   2. Hierarchical Verification — first hard constraints (deny unauthorized
      tool invocations), then Intent Verifier (validate parameter deviations)
 
-Training-free.
+Performance: ASR 72.8% -> 0% on InjecAgent. FPR 1.49%. Training-free.
 
 Priority: P1.
 """

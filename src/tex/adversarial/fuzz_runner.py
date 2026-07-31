@@ -29,6 +29,8 @@ References
 ----------
 - Nasr et al. October 2025 ("The Attacker Moves Second") — motivation
   for adaptive attack testing.
+- arxiv 2604.11790 (ClawGuard) AgentDojo + MCPSafeBench results.
+- arxiv 2605.03228 (MAGE) STAC + PI2 results.
 - arxiv 2403.02691 (InjecAgent) Type I + Type II benchmark.
 
 Usage
@@ -97,7 +99,7 @@ class FuzzReport(BaseModel):
             "=" * 64,
             f"Fixtures run: {self.fixtures_run}",
             f"Overall ASR: {self.overall_asr:.1%} "
-            f"(lower = better; internal target <5%)",
+            f"(lower = better; lab SOTA targets <5% per arxiv 2604.11790, 2605.03228)",
             f"Overall FPR: {self.overall_fpr:.1%}",
             "",
             "Per suite:",

@@ -1,6 +1,7 @@
 """Tests for AgentArmorSpecialist.
 
-Includes coverage for the ARGUS-style influence-provenance signals.
+Includes coverage for the ARGUS (arxiv 2605.03378, 5 May 2026) frontier
+provenance signals — this is the paper-only research nobody has shipped.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ def test_agentarmor_detects_integrity_downgrade(empty_ctx: RetrievalContext) -> 
     assert "ARMOR_INTEGRITY_DOWNGRADE" in codes
 
 
-# ── ARGUS influence-provenance signal tests ─────────────────────────────
+# ── ARGUS frontier signal tests (arxiv 2605.03378, 5 May 2026) ──────────
 
 
 def test_agentarmor_argus_untrusted_to_high_integrity_signal(

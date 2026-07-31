@@ -1,18 +1,19 @@
 """
 ARGUS Specialist Judge.
 
-Standalone specialist implementing an influence-provenance graph and
-provenance-aware decision audit.
+Standalone specialist implementing the influence-provenance graph and
+provenance-aware decision audit from arxiv 2605.03378v1 (Weng et al.,
+**5 May 2026 — published 13 days before this build**).
 
 Where AgentArmorSpecialist surfaces three ARGUS-style reason codes as
 hints inside its type-system output, this specialist builds the actual
-influence graph and runs parallel counterfactual tests over it.
+graph the paper proposes and runs parallel counterfactual tests over it.
 Together they cover both the "fast attribution hint" path (inside
 AgentArmor) and the "slow but defensible audit" path (here).
 
 Influence Provenance Graph (IPG)
 --------------------------------
-The IPG is a directed graph G = (V, E) where:
+Per arxiv 2605.03378 §3, the IPG is a directed graph G = (V, E) where:
 
   V is partitioned into:
     V_user        - the user's authorised instruction(s)
@@ -33,8 +34,8 @@ Counterfactual test
 For each decision node d:
   control-attenuated view G_d = G with all instruction-like content in
   the V_obs ancestors of d redacted to "neutral observation".
-  If, in G_d, the decision no longer has a justification path, we
-  conclude the decision was driven by injected content and
+  If, in G_d, the decision no longer has a justification path, the
+  paper concludes the decision was driven by injected content. We
   report this as ARGUS_DECISION_OBSERVATION_DRIVEN.
 
 This module ships a pure-Python deterministic IPG over a request's
@@ -46,7 +47,8 @@ box.
 
 Priority
 --------
-P0 — frontier piece.
+P0 — frontier piece. The IPG is paper-only as of May 18 2026; no
+public commercial governance platform implements it. Tex is first.
 """
 
 from __future__ import annotations
@@ -336,8 +338,8 @@ class ArgusSpecialist:
                             "ARGUS_DECISION_OBSERVATION_DRIVEN: decision "
                             f"node '{node.node_id}' lost its justification "
                             "when instruction-like observations were "
-                            f"redacted (counterfactual test). "
-                            f"Ancestor obs nodes: "
+                            f"redacted (counterfactual test, arxiv "
+                            f"2605.03378 §3.3). Ancestor obs nodes: "
                             f"{[o.node_id for o in instruction_like_obs][:4]}."
                         ),
                     )
@@ -414,8 +416,8 @@ class ArgusSpecialist:
                     "via trustworthy evidence."
                 ),
                 rationale=(
-                    "Specialist builds an influence-provenance graph "
-                    "over the request and runs "
+                    "Specialist builds an influence-provenance graph per "
+                    "arxiv 2605.03378v1 (Weng et al., 5 May 2026) and runs "
                     "parallel counterfactual tests over each decision "
                     "node. No suspect decisions found."
                 ),
@@ -450,13 +452,13 @@ class ArgusSpecialist:
             confidence=round(confidence, 4),
             summary=summary,
             rationale=(
-                "ARGUS constructs an "
+                "Per arxiv 2605.03378v1 (5 May 2026), ARGUS constructs an "
                 "influence-provenance graph over user instructions, "
                 "observations, decisions, and trustworthy evidence; runs "
                 "parallel counterfactual tests by redacting instruction-"
                 "like observations and re-checking decision justification. "
-                "This ships the full IPG primitive, not just the "
-                "reason-code heuristic."
+                "Tex is the first runtime governance platform to ship the "
+                "full IPG primitive, not just the reason-code heuristic."
             ),
             evidence=tuple(all_evidence),
             matched_policy_clause_ids=tuple([*deduped_codes, *deduped_asi]),
@@ -662,7 +664,7 @@ def _build_counterfactual(
 ) -> InfluenceProvenanceGraph:
     """Return G_d: instruction-like obs nodes redacted.
 
-    The counterfactual is the same graph
+    Per arxiv 2605.03378 §3.3, the counterfactual is the same graph
     with every untrusted observation's outgoing `justified_by` edges
     removed. The decision can still see the obs but cannot rely on it
     to justify itself. We implement by stripping `justified_by` edges

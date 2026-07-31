@@ -1,31 +1,36 @@
 """
 ARM-style provenance graph with counterfactual edges.
 
-The module targets a class of implicit-flow attacks (*causality
-laundering*) that flat IFC tracking and successful-execution
-dependency graphs both miss. The defense models denied actions as
-first-class provenance nodes with COUNTERFACTUAL edges to subsequent
-calls.
+Reference (primary)
+-------------------
+Chinaei, M. H. "Causality Laundering: Denial-Feedback Leakage in
+Tool-Calling LLM Agents." arXiv:2604.04035v1 [cs.CR] 05 Apr 2026.
 
-Companion mechanisms
+This is the bleeding-edge model nobody has shipped yet: the ARM paper
+identifies a class of implicit-flow attacks (*causality laundering*)
+that flat IFC tracking and successful-execution dependency graphs both
+miss. The defense models denied actions as first-class provenance
+nodes with COUNTERFACTUAL edges to subsequent calls.
+
+Companion references
 --------------------
 - FIDES (arxiv 2505.23643): label-based IFC with type-augmented product
   lattice. We integrate the product lattice from
   ``tex.governance.private_data_exec.ifc.lattice``.
 
-- Datalog-style dependency-graph policies: our graph structure is
-  compatible with future compiled-query policy engines, but we ship a
-  deterministic enforcement query directly to avoid the Datalog
-  dependency.
+- PCAS (arxiv 2602.16708): dependency-graph + Datalog policies. Our
+  graph structure is compatible with future PCAS-style query
+  compilation, but we ship a deterministic enforcement query (ARM
+  §5.4) directly to avoid the Datalog dependency.
 
-- NeuroTaint: semantic + causal + cross-session taint axes. Our
-  `Edge.kind` set includes ``Counterfactual`` (causal) and the
-  cross-session axis is realized by `MemoryStream` in
-  `tex.governance.private_data_exec.ifc.memory`.
+- NeuroTaint / "Ghost in the Agent" (arxiv 2604.23374): semantic +
+  causal + cross-session taint axes. Our `Edge.kind` set includes
+  ``Counterfactual`` (causal) and the cross-session axis is realized
+  by `MemoryStream` in `tex.governance.private_data_exec.ifc.memory`.
 
-- The GAAP-style permission DB and disclosure log (parent package) are
+- GAAP (arxiv 2604.19657): GAAP's permission DB and disclosure log are
   preserved as a complementary axis. The provenance graph here is the
-  *upstream* tracking layer; the DisclosureLog remains the
+  *upstream* tracking layer; GAAP's DisclosureLog remains the
   downstream egress audit.
 
 Design rules (constitution-mandated)
@@ -38,8 +43,8 @@ Design rules (constitution-mandated)
 - Deterministic: graph traversal uses sorted iteration over edges and
   nodes so that fingerprints are reproducible.
 - No exec(): the graph computes over data structures only.
-- Sub-millisecond evaluation for graphs up to hundreds of nodes. Our
-  pure-Python implementation is benchmarked in
+- Sub-millisecond evaluation for graphs up to hundreds of nodes (the
+  paper's target). Our pure-Python implementation is benchmarked in
   tests/governance/test_ifc_provenance.py.
 """
 
@@ -65,7 +70,7 @@ from tex.governance.private_data_exec.ifc.lattice import (
 
 
 class NodeKind(str, enum.Enum):
-    """The four node kinds of the ARM-style provenance graph."""
+    """Four node kinds per ARM §5.1."""
 
     CALL = "call"
     DATA = "data"
@@ -74,14 +79,14 @@ class NodeKind(str, enum.Enum):
 
 
 class EdgeKind(str, enum.Enum):
-    """The four edge kinds of the ARM-style provenance graph.
+    """Four edge kinds per ARM §5.2.
 
     DirectOutput   : Call -> Data (the tool produced this data)
     InputTo        : Data -> Call (this data flowed into a later call)
     FieldOf        : DataField -> Data (a structured component)
     Counterfactual : DeniedAction -> Call (the denial may have
-                     influenced this later call — the distinguishing
-                     edge that catches causality laundering)
+                     influenced this later call — the ARM-novel edge
+                     that catches causality laundering)
     """
 
     DIRECT_OUTPUT = "direct_output"
@@ -338,12 +343,11 @@ class ProvenanceGraph:
 
     def min_trust(self, node_id: str) -> IntegrityLevel:
         """
-        MinTrust(v): the conservative integrity of a node.
+        MinTrust(v) per ARM Definition 4.
 
         Returns the minimum integrity over all DATA / DATA_FIELD
         ancestors of `node_id`. Empty-ancestor case returns
-        SYS_INSTR (most trusted) — values with no untrusted
-        ancestors are fully trusted.
+        SYS_INSTR (most trusted), matching the paper's convention.
         """
         ancestors = self._ancestors(node_id)
         levels: list[IntegrityLevel] = []
@@ -389,7 +393,7 @@ class ProvenanceGraph:
             result = result.join(label)
         return result
 
-    # ── Counterfactual chain query ──────────────────────────────────
+    # ── ARM §5.4: Counterfactual chain query ────────────────────────
 
     def has_counterfactual_chain(self, node_id: str) -> bool:
         """

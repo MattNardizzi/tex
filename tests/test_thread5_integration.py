@@ -6,7 +6,7 @@ Proves the wiring claim in ``CLAIMS.md``:
 > Every PERMIT verdict on an outbound AI-generated artifact produces
 > an evidence record AND a C2PA 2.4 Content Credential with a
 > ``tex.evidence_cosign`` post-quantum assertion that closes the
-> six attack classes tracked in Tex's C2PA attack matrix.
+> six attack classes identified in arxiv 2604.24890.
 
 The integration goes through the actual ``EvidenceRecorder``
 public surface — no mocking of c2pa internals — so a regression in
@@ -273,7 +273,7 @@ def test_permit_emits_manifest_with_cosign_through_recorder(tmp_path: Path):
     assert cosign_result.is_valid, (
         f"Cosign must verify; issues={cosign_result.issues}"
     )
-    # All five attack-matrix defenses must be satisfied.
+    # All five NSA-paper attack defenses must be satisfied.
     for attack in ALL_ATTACKS:
         assert cosign_result.attack_defended(attack), (
             f"defense for {attack!r} must be satisfied in round-trip"

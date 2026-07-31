@@ -369,7 +369,7 @@ Legend: `[L]`=on live path, `[.]`=not reachable from main/api.
 - `[L]` `c2pa.evidence_emission` — Evidence emission orchestrator — Thread 5 wiring layer.
 - `[L]` `c2pa.manifest` — C2PA manifest data model.
 - `[L]` `c2pa.ocsp` — OCSP (RFC 6960) stapling for C2PA Content Credentials.
-- `[L]` `c2pa.spec_gap_defenses` — Defenses against documented C2PA validator gaps (Tex threat matrix).
+- `[L]` `c2pa.sherman_2026_defenses` — Defenses against the six attack classes documented in Sherman et al.,
 - `[L]` `c2pa.signer` — C2PA manifest signer.
 - `[L]` `c2pa.timestamp` — RFC 3161 Time-Stamp Authority (TSA) v2 timestamps for C2PA.
 - `[L]` `c2pa.verifier` — C2PA manifest verifier.
@@ -394,13 +394,13 @@ Legend: `[L]`=on live path, `[.]`=not reachable from main/api.
 - `[.]` `causal._denial_record` — Denial record — the in-memory representation of a denied tool call,
 - `[L]` `causal._hcg` — Hierarchical Causal Graph node + edge types.
 - `[L]` `causal._integrity` — Integrity lattice for ARM trust propagation.
-- `[L]` `causal._otar` — OTAR parsing — Observation/Thought/Action/Result tuples for the CHIEF graph.
+- `[L]` `causal._otar` — OTAR parsing — Observation/Thought/Action/Result tuples per CHIEF §4.1.1.
 - `[.]` `causal._provenance_graph` — ARM provenance graph.
-- `[.]` `causal.arm` — ARM — Agentic Reference Monitor.
+- `[.]` `causal.arm` — ARM — Agentic Reference Monitor (arxiv 2604.04035, Chinaei, April 2026).
 - `[L]` `causal.attribution_engine` — Attribution engine — orchestrates graph + prefill + Shapley over a stored Decision.
-- `[L]` `causal.chief` — CHIEF — Hierarchical Causal Graph.
+- `[L]` `causal.chief` — CHIEF — Hierarchical Causal Graph (arxiv 2602.23701).
 - `[L]` `causal.conformal_attribution` — Conformal Agent Error Attribution — uncertainty-aware attribution layer.
-- `[L]` `causal.counterfactual` — Counterfactual screener — CHIEF progressive causal screening.
+- `[L]` `causal.counterfactual` — Counterfactual screener — CHIEF §4.3 progressive causal screening.
 - `[L]` `causal.lsh_shapley` — LSH-Shapley blame distribution for per-agent attribution.
 - `[L]` `causal.prefill_signals` — Prefill-stage SLM signal extractor for attribution ranking.
 
@@ -637,7 +637,7 @@ Legend: `[L]`=on live path, `[.]`=not reachable from main/api.
 ### `intervention` — LIVE (6 files)
 - `[L]` `intervention.bounded_compromise` — Bounded-compromise calculator.
 - `[L]` `intervention.engine` — Intervention engine.
-- `[L]` `intervention.eradication` — Eradication rule synthesizer (AIR eradicate phase).
+- `[L]` `intervention.eradication` — Eradication rule synthesizer (AIR §3 eradication phase).
 - `[L]` `intervention.kinds` — Intervention kinds.
 - `[.]` `intervention.neyman_pearson` — Neyman-Pearson multi-monitor selection (Thread 8.1 frontier #3).
 - `[L]` `intervention.restorative` — Restorative-path executor.
@@ -767,7 +767,7 @@ Legend: `[L]`=on live path, `[.]`=not reachable from main/api.
 ### `receipts` — INDIRECT (4 files)
 - `[.]` `receipts.epistemic_source` — Epistemic source taxonomy for LLM claims.
 - `[.]` `receipts.receipt` — Tool execution receipt data model.
-- `[.]` `receipts.runtime` — Receipt issuer and verifier.
+- `[.]` `receipts.runtime` — Receipt issuer and verifier (NabaOS).
 - `[.]` `receipts.store` — Receipt persistence layer.
 
 ### `retrieval` — LIVE (1 files)
@@ -940,7 +940,7 @@ Legend: `[L]`=on live path, `[.]`=not reachable from main/api.
 - `[L]` `zkprov.integration` — ZKPROV integration hook for the ``/v1/guardrail`` evidence path.
 - `[L]` `zkprov.manifest` — Dataset manifest with EU AI Act Article 53(1)(d) TDS Template binding.
 - `[L]` `zkprov.proof` — ZKPROV proof generation and verification.
-- `[L]` `zkprov.receipts` — Epistemic tool receipts for provenance hot path.
+- `[L]` `zkprov.receipts` — NABAOS-style epistemic receipts for provenance hot path.
 - `[L]` `zkprov.recursive` — Recursive aggregation of ZKPROV proofs (VFT element 4).
 - `[L]` `zkprov.sampler` — Verifiable index-hiding batch sampler — VFT element 2.
 - `[L]` `zkprov.schnorr_group` — Self-contained discrete-log Σ-protocol toolkit (Pedersen + Fiat–Shamir).

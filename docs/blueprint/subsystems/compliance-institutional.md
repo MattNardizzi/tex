@@ -179,10 +179,10 @@ Also imported by `intervention/*` and `drift/*` (mostly docstring/type reference
 ## Technology / SOTA
 
 - **Cryptographic provenance chain:** SHA-256 canonical-JSON hashing (RFC-8785-style, "no floats" → milli-int quantisation), ECDSA-P256 default with an **algorithm-agility** path to ML-DSA-65 / BLAKE3-ML-DSA-65 / hybrid ML-DSA+Ed25519 (FIPS 204 / FIPS 186-5). Two-digest manifest scheme (semantic vs file).
-- **Institutional AI / LTS governance:** the graph is a formal labelled transition system G=(Q,E,δ); collusion detection via HHI (Σsᵢ²), cross-firm dispersion CV, and a 5-tier severity ladder — all programmatic, no LLM (the design's paper-style docstring citations were unverifiable and have been removed from the code). ABDICO rule-id edge-key convention. Sanction ladder (warning/fine/suspension/credit) with Pigouvian-correction framing (pS ≥ Δπ).
+- **Institutional AI / LTS governance:** the graph is a formal labelled transition system G=(Q,E,δ); collusion detection via HHI (Σsᵢ²), cross-firm dispersion CV, and a 5-tier severity ladder — all programmatic, no LLM (the design cites arxiv 2601.10599 / 2601.11369 — **claim, unverified** as to empirical results). ABDICO rule-id edge-key convention. Sanction ladder (warning/fine/suspension/credit) with Pigouvian-correction framing (pS ≥ Δπ).
 - **C2PA Content Credentials** as the disclosure substrate for EU AI Act Art. 50 / SB 942 / NY (IPTC `trainedAlgorithmicMedia` digitalSourceType).
 - **Reflexive (meta-circular) governance:** self-mutations ruled by the same production PDP; monotone floor/caution composition; ContextVar-based anti-recursion backstop; deploy-frozen two-level stratum; capability-token binding.
-- **Subagent-spawn compromise defense** (most-restrictive-state inheritance over a `spawned_by` chain) — the design's docstring citation was unverifiable and has been removed from the code.
+- **Subagent-spawn compromise defense** (most-restrictive-state inheritance over a `spawned_by` chain) — design cites arxiv 2605.08460 (**claim, unverified**).
 
 ---
 
@@ -216,4 +216,4 @@ Also imported by `intervention/*` and `drift/*` (mostly docstring/type reference
 
 8. **Two AB 853 modules are explicit future-dated stubs** (`california_ab853_capture.py:55`, `california_ab853_platforms.py:55,68`) — `NotImplementedError` with effective dates 2027/2028. Correctly labelled as stubs in their own docstrings ("NOT YET EFFECTIVE ... exists as a stub").
 
-9. **All docstring-cited empirical claims were unverifiable and have been removed from the code.** The collusion-tier reduction figures, the denied-request count, and the subagent-inheritance attack class were docstring claims sourced to paper-style citations that could not be verified against any public source. The *code* implements the mechanisms; the *quoted results* were decoration — they are not reproduced or tested in-repo.
+9. **All arxiv-citation empirical claims are unverified.** The collusion-tier reduction figures (3.1→1.8, Cohen's d=1.28), the "244 denied requests," and the subagent-inheritance attack class are docstring claims sourced to arxiv 2601.10599 / 2601.11369 / 2605.08460. The *code* implements the mechanisms; the *quoted results* are **(claim, unverified)** — they are not reproduced or tested in-repo.

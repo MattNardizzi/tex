@@ -1,7 +1,7 @@
 """
 AIRO (AI Risk Ontology) bindings.
 
-Per Golpayegani et al. 2022.
+Per Golpayegani et al. 2022 + arxiv 2604.27713.
 
 Maps Tex entity/event types into the AIRO compliance ontology so that
 verdicts can be expressed in regulator-readable terms (EU AI Act roles,

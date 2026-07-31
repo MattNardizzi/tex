@@ -180,7 +180,7 @@ No crypto/zk/tee primitives are *implemented inside* `_pending` — the pitch co
 - **OWASP API #1 BOLA defence** — pre-handler `RequireTenantMatch.from_body` + in-handler `enforce_tenant_match` belt-and-suspenders (`pitch_routes.py:484,600,611`).
 - **Deterministic domain-seeded heuristics** (SHA-256 PRNG over normalized domain) for reproducible demo dossiers (`_intel.py:66-69`).
 - **Frozen dataclasses / frozen pydantic models** throughout (immutable DTOs).
-- Referenced-but-unbuilt SOTA (TODOs only): HMAC tool receipts, ZKPROV (arxiv 2506.20915), VET Agent Identity Documents (arxiv 2512.15892), AAF quorum sharding (arxiv 2512.18561), A2A v1.2 signed Agent Cards, Microsoft Agent Governance Toolkit, C2PA 2.4.
+- Referenced-but-unbuilt SOTA (TODOs only): NabaOS HMAC receipts (arxiv 2603.10060), ZKPROV (arxiv 2506.20915), VET Agent Identity Documents (arxiv 2512.15892), AAF quorum sharding (arxiv 2512.18561), A2A v1.2 signed Agent Cards, Microsoft Agent Governance Toolkit, C2PA 2.4.
 
 ---
 

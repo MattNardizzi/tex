@@ -2,7 +2,7 @@
 Denial record — the in-memory representation of a denied tool call,
 mirroring the DENIAL_EVENT that gets written to the ledger.
 
-ARM treats denied actions as first-class
+ARM (arxiv 2604.04035 §3.7, §4.5) treats denied actions as first-class
 events. In Tex, this maps to two artifacts:
 
   1. A ``DeniedActionNode`` in the in-memory provenance graph
@@ -33,8 +33,8 @@ class DenialRecord(BaseModel):
     ``DENIAL_EVENT`` in the event ledger when ARM is wired with one,
     otherwise ``None``.
 
-    Design: denied actions are first-class nodes; the audit log is
-    hash-chained.
+    Reference: arxiv 2604.04035 §3.7 (denied actions as first-class
+    nodes); §4.5 (hash-chained audit log).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

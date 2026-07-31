@@ -7,12 +7,12 @@ for the responsible agent and decisive error step.
 
 We synthesise three small Who&When-shaped fixtures with seeded ground
 truth and verify that:
-  * OTAR parsing handles assistant/user roles
+  * OTAR parsing handles assistant/user roles per §4.1.1
   * Root-cause attribution lands on the seeded responsible agent
   * Step-level granularity is preserved (the output node carries the
     correct step_id / agent_id pair)
 
-Reference: ag2ai/Agents_Failure_Attribution.
+Reference: ag2ai/Agents_Failure_Attribution; arxiv 2602.23701 §5.1.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from tex.causal.chief import HierarchicalCausalGraph
 
 def test_orchestrator_omits_constraint() -> None:
     """
-    Scenario: the orchestrator marks constraints
+    Mirrors Figure 1 of the CHIEF paper: orchestrator marks constraints
     incorrectly at step 14 and websurfer overlooks them at step 16, so
     the final step 19 fails for "5-minute walk" violation.
 
@@ -184,7 +184,7 @@ def test_who_and_when_minimal_format() -> None:
     assert isinstance(payload, AgentNode)
     # The earliest anomaly is Excel_Expert at t1; the screener may also
     # accept the verifier itself if topology forces it. Either is valid
-    # per the "earliest decisive error" rule given the
+    # per the paper's "earliest decisive error" rule (Eq. 1) given the
     # deterministic anomaly-marker evaluator.
     assert payload.step_id in {"t1", "t3"}
 

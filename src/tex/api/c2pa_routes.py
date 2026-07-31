@@ -13,7 +13,7 @@ Two endpoints:
        Accepts a base64-encoded outer signature + base64-encoded
        canonical claim CBOR, optionally the asset bytes (base64),
        and returns a structured verification result that includes the
-       six-attack-defense status from Tex's C2PA attack matrix.
+       six-attack-defense status from arxiv 2604.24890.
        Content-Type: application/json (both ways).
 
 Both routes are intentionally read-mostly and side-effect-free:
@@ -205,7 +205,7 @@ class C2paVerifyRequest(BaseModel):
 
     ``asset_bytes_b64`` is optional. When provided, the cosign's
     ``full_file_sha256`` field is checked against the SHA-256 of
-    the supplied bytes (closing attack #4, exclusion-range tamper).
+    the supplied bytes (closing arxiv 2604.24890 attack #4).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -257,8 +257,8 @@ class C2paVerifyResponse(BaseModel):
     formal_verification_all_goals_satisfied: bool | None = None
     formal_verification_goals: tuple[str, ...] = ()
 
-    paper_reference: str = "tex:c2pa-attack-matrix"
-    durable_content_credentials_reference: str = "tex:durable-credentials"
+    paper_reference: str = "arxiv:2604.24890"
+    durable_content_credentials_reference: str = "arxiv:2603.02378, arxiv:2605.12456"
     formal_verification_reference: str = "CPSA v4.4.5 (MITRE)"
 
 
@@ -323,8 +323,8 @@ def post_c2pa_verify(
 ) -> C2paVerifyResponse:
     """
     Verify a manifest's outer C2PA signature AND the Tex evidence
-    cosign. Reports the five-attack-defense status from Tex's
-    C2PA attack matrix.
+    cosign. Reports the five-attack-defense status from
+    arxiv 2604.24890.
     """
     # Resolve manifest source.
     if body.record_id is not None:
@@ -407,7 +407,7 @@ def post_c2pa_verify(
         elif assertion.label == ASSERTION_LABEL_TEX_FORMAL_VERIFICATION:
             formal_data = dict(assertion.data)
 
-    # Watermark + cross-layer audit (desync detection).
+    # Watermark + cross-layer audit (arxiv 2603.02378).
     watermark_present = watermark_data is not None
     watermark_scheme = None
     watermark_score = None

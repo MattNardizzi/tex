@@ -5,9 +5,9 @@ The Thread 5 cosign signs a flat JSON document. That works, but the
 flat shape doesn't lend itself to formal-methods analysis because
 each defended attack class is just a field in a serialised blob —
 there's no structural guarantee that the signature *binds* every
-field. Tex's C2PA attack-matrix review therefore calls for a
-**Merkle hash tree** to represent protocol context, with each
-protocol element a leaf and the root signed.
+field. Golaszewski's UMBC/NSA paper (arxiv 2604.24890) recommends
+using a **Merkle hash tree** to represent protocol context, with
+each protocol element a leaf and the root signed.
 
 Thread 6 adds this as the cosign signing input v2. Both v1 (Thread 5,
 JSON-blob) and v2 (Thread 6, Merkle tree) are supported on the

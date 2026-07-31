@@ -1,17 +1,21 @@
 """
 Finite-trace Linear Temporal Logic (LTLf) evaluator for path policies.
 
-In practice, the large majority of organizationally relevant path
-policies are binary threshold rules on path state: has a particular step
-type appeared, has a sensitivity level been exceeded, has the step count
-reached a limit. Tex's path-governance contract frames policies as a
-violation-*probability* function, not in temporal logic. Encoding that
-policy class as **LTLf is this module's own design choice** (LTLf
-expresses exactly those binary path predicates compactly and gives the
-audit trail a formal anchor — the formula text, not opaque Python).
+Reference: Kaptein, Khan & Podstavnychy, "Runtime Governance for AI Agents:
+Policies on Paths," arXiv:2603.16586 (Mar 2026).
 
-This module implements LTLf over a finite trace (each execution path is
-assumed to terminate, which is what makes finite-trace LTL the right fit),
+The Kaptein paper catalogues concrete path policies and observes that in
+practice the large majority of organizationally relevant policies are binary
+threshold rules on path state: has a particular step type appeared, has a
+sensitivity level been exceeded, has the step count reached a limit. The paper
+itself frames policies as a violation-*probability* function, not in temporal
+logic. Encoding that policy class as **LTLf is this module's own design
+choice** (LTLf expresses exactly those binary path predicates compactly and
+gives the audit trail a formal anchor — the formula text, not opaque Python);
+it is not a construction the paper prescribes.
+
+This module implements LTLf over a finite trace (the paper assumes each
+execution path terminates, which is what makes finite-trace LTL the right fit),
 with the following operators and atoms:
 
 Atoms
@@ -40,7 +44,7 @@ operator characters.
 
 Examples
 --------
-The "PII predecessor requirement" policy maps to:
+The Kaptein paper's "PII predecessor requirement" maps to:
 
     F (tool=pii_check) | !(tool=read_personal_data)
 
@@ -53,12 +57,12 @@ The "approval before external send" policy maps to:
 
 read against the trace ending at the candidate action: if the candidate
 is an external send, then a human_approval must have appeared earlier.
-(Path policies evaluate prospectively against the partial path P_i with
-s* appended; this evaluator does the same — see ``evaluate``.)
+(The paper evaluates prospectively against the partial path P_i with s*
+appended; this evaluator does the same — see ``evaluate``.)
 
 This is intentionally a small, dependency-free LTLf engine. It is NOT a
 general LTLf model checker; it evaluates a single concrete trace, which
-is exactly what per-step policy evaluation requires.
+is exactly what the paper's per-step evaluation requires.
 
 Priority: P1.
 """
@@ -427,9 +431,9 @@ def evaluate(formula: str, trace: Sequence[PathStep]) -> bool:
     Evaluate ``formula`` against ``trace``.
 
     The trace is interpreted as a complete execution prefix, evaluated
-    starting at position 0. This corresponds to checking a path policy
-    against the partial path P_i with the candidate action s* appended
-    as the final position.
+    starting at position 0. Per the Kaptein paper, this corresponds to
+    checking a path policy against the partial path P_i with the
+    candidate action s* appended as the final position.
 
     Important: with this convention, formulas that should hold at
     every position must be wrapped in ``G(...)``. A bare formula like

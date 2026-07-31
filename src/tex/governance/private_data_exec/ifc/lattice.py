@@ -1,10 +1,13 @@
 """
 Integrity lattice and FIDES-style product lattice for IFC enforcement.
 
-Design notes
-------------
-- The ARM integrity lattice is Tex's five-level integrity ordering:
+References
+----------
+- Chinaei (ARM). "Causality Laundering: Denial-Feedback Leakage in
+  Tool-Calling LLM Agents." arXiv:2604.04035 (Apr 2026). Section 2.3
+  defines the five-level integrity lattice:
       ToolDesc < ToolUntrusted < ToolTrusted < UserInput < SysInstr
+  We adopt this lattice unchanged.
 
 - Costa, Köpf, Kolluri, Paverd, Russinovich, Salem, Tople, Wutschitz,
   Zanella-Béguelin (FIDES). "Securing AI Agents with Information-Flow
@@ -16,9 +19,10 @@ Design notes
   Communications of the ACM, 19(5), 1976. The foundational lattice
   model for information flow.
 
-- The GAAP-style permission DB (parent package) is the secondary
-  confidentiality axis we preserve as a cross-cut alongside the ARM
-  integrity lattice.
+- Stanley, Verma, Tsai, Kallas, Kumar (GAAP). "An AI Agent Execution
+  Environment to Safeguard User Data." arXiv:2604.19657 (Apr 2026).
+  GAAP's permission DB is the secondary confidentiality axis we
+  preserve as a cross-cut alongside the ARM integrity lattice.
 
 The lattice algebra defined here is the foundation for every
 enforcement decision in Tex's IFC stream. Lattice operations must be
@@ -35,24 +39,24 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
-# Integrity lattice (ARM)
+# Integrity lattice (ARM §2.3 Definition 1)
 # ---------------------------------------------------------------------------
 
 
 class IntegrityLevel(enum.IntEnum):
     """
-    The ARM five-level integrity lattice.
+    Five-level integrity lattice from ARM (arxiv 2604.04035 §2.3).
 
     Ordered TOTALLY from least-trusted to most-trusted. The integer
     values are deliberately chosen so that ``min(a, b)`` is the
     conservative join (i.e., taint floors to the lowest ancestor),
-    matching MinTrust semantics.
+    matching ARM's MinTrust semantics.
 
     Levels
     ------
     TOOL_DESC      — MCP tool metadata (descriptions/schemas). Most
                      attacker-controllable in real MCP deployments
-                     (tool-poisoning attacks). Lowest
+                     (tool-poisoning attacks, arxiv 2603.24203). Lowest
                      trust.
     TOOL_UNTRUSTED — Output from untrusted tools or external content
                      (web scrapes, third-party API responses, ingested
@@ -64,8 +68,8 @@ class IntegrityLevel(enum.IntEnum):
     SYS_INSTR      — Operator-supplied system instructions. The
                      canonical root of trust.
 
-    Use IntegrityLevel.min(a, b) as the conservative join (the FIDES
-    label propagation rule; monotonic taint).
+    Use IntegrityLevel.min(a, b) as the conservative join (FIDES §2.2
+    label propagation rule, ARM Property 1 Monotonic Taint).
     """
 
     TOOL_DESC = 0
@@ -79,7 +83,7 @@ class IntegrityLevel(enum.IntEnum):
         """
         Conservative join: minimum trust over a set of ancestors.
 
-        MinTrust semantics: a derived value inherits
+        Matches ARM Definition 4 (MinTrust): a derived value inherits
         the lowest trust of any data ancestor. With an empty set, we
         default to SYS_INSTR (the most-trusted level), so that values
         with no untrusted ancestors are treated as fully trusted.

@@ -36,7 +36,7 @@ Concurrency
 This executor is *single-threaded per transaction*. Tex's PDP pipeline
 serializes adjudications per request, so we deliberately don't add a
 lock-based concurrency manager here. Multi-agent shared-WAL semantics
-are the LogAct extension, deferred.
+are the LogAct extension (arxiv 2604.07988), deferred.
 """
 
 from __future__ import annotations

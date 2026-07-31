@@ -120,8 +120,8 @@ class SystemicRiskEvaluator:
     ) -> float:
         """
         Thread 9: compose PCTL (this evaluator) with SCCAL (semantic-
-        geometric co-evolution) and cascade reachability
-        (from ``CascadePredictor``).
+        geometric co-evolution from arxiv 2603.13325) and cascade
+        reachability (from ``CascadePredictor``).
 
         Convex combination per ``SystemicWeights``. Backward-compatible:
         when no SCCAL signal and no cascade probability are passed, the

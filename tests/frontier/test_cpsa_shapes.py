@@ -136,10 +136,10 @@ class TestFormalVerificationAssertion:
         assert "scm_sha256" in data
         assert len(data["scm_sha256"]) == 64
 
-    def test_paper_reference_is_internal_attack_matrix(self):
+    def test_paper_reference_cites_2604_24890(self):
         bundle = load_cpsa_shapes()
         data = model_provenance_assertion_data(bundle)
-        assert data["paper_reference"] == "tex:c2pa-attack-matrix"
+        assert "2604.24890" in data["paper_reference"]
 
     def test_assertion_label_constant(self):
         # The label string is the C2PA assertion label clients look up.

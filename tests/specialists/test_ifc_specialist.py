@@ -293,5 +293,5 @@ def test_rationale_cites_paper_references(
         retrieval_context=empty_ctx,
     )
     assert result.rationale is not None
-    assert "ARM provenance" in result.rationale  # ARM model
+    assert "arxiv 2604.04035" in result.rationale  # ARM
     assert "arxiv 2505.23643" in result.rationale  # FIDES

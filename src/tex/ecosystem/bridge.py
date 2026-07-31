@@ -26,8 +26,8 @@ Reference
 ---------
 - AAF (arxiv 2512.18561) §4.2: every verdict is itself an interaction
   event in the provenance ledger.
-- Institutional layer: VERDICT events participate in the governance LTS
-  the same way action events do.
+- Institutional AI (arxiv 2601.10599) §3: VERDICT events participate in
+  the LTS the same way action events do.
 
 Priority: P0.
 """

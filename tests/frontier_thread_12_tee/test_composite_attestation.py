@@ -4,12 +4,12 @@ Unit tests for Thread 12 — composite CPU+GPU TEE attestation.
 Coverage targets
 ----------------
 * Domain models (composite envelope, EAT-AI claims, trustworthiness vector)
-* Decision-bound nonce (CrossGuard pattern)
+* Decision-bound nonce (CrossGuard pattern, surveyed in arxiv 2604.23280)
 * Composer in dev-mode (deterministic stub JWT)
 * Verifier — happy path, every fail-closed failure mode
 * EAT-AI claim verification end-to-end
 * Trustworthiness vector population per draft-ietf-rats-ear-03
-* Compound attestation link semantics (multi-hop chains)
+* Compound attestation link semantics (arxiv 2605.03213)
 """
 
 from __future__ import annotations
@@ -335,7 +335,7 @@ class TestEatAiClaims:
 
 
 # --------------------------------------------------------------------------- #
-# Compound attestation link (multi-hop chains)                                #
+# Compound attestation link (arxiv 2605.03213)                                #
 # --------------------------------------------------------------------------- #
 
 

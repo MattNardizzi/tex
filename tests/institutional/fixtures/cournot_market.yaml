@@ -1,10 +1,10 @@
-# Cournot market governance manifest — the canonical five-state
-# escalation-ladder fixture.
+# Cournot market governance manifest — replicates arxiv 2601.11369
+# Figure 2 / Section 4.2 / Table 5.
 #
-# Five canonical institutional states:
+# Five paper-canonical institutional states:
 #   active     — baseline compliant
-#   warning    — under review
-#   fined      — penalised
+#   warning    — under review (Appendix C.1 "UNDER REVIEW")
+#   fined      — penalised (Appendix C.2 "PENALISED")
 #   credited   — short-lived rehabilitation overlay
 #   suspended  — last-resort removal (production forced to zero)
 #
@@ -30,17 +30,17 @@ interpreter:
 
 states:
   - state_id: "active"
-    description: "Baseline compliant state (CLEAR)"
+    description: "Baseline compliant state (Appendix C: CLEAR)"
   - state_id: "warning"
-    description: "Under regulatory review (UNDER REVIEW)"
+    description: "Under regulatory review (Appendix C.1: UNDER REVIEW)"
   - state_id: "fined"
-    description: "Penalty applied to round profits (PENALISED)"
+    description: "Penalty applied to round profits (Appendix C.2: PENALISED)"
   - state_id: "credited"
-    description: "Short-lived rehabilitation (REHABILITATED)"
+    description: "Short-lived rehabilitation (Appendix C.3: REHABILITATED)"
   - state_id: "suspended"
     description: "Removed from market for fixed duration"
 
-# Sanctions (policy surface): tier rates
+# Sanctions follow Table 5 (paper §6.2.3 Policy Surface): tier rates
 # 35% / 75% / 100%, $200 floor, suspension 5 rounds.
 sanctions:
   - sanction_id: "warning_notice"
@@ -83,7 +83,7 @@ sanctions:
     enforcement_action: "suspension"
     duration_rounds: 5
 
-# Restorative paths: time-driven expiry, credit-based
+# Restorative paths follow §4.2: time-driven expiry, credit-based
 # rehabilitation, and "clean" restoration from fined to active.
 restorative_paths:
   - path_id: "warning_expiry"
@@ -216,7 +216,7 @@ transitions:
     to_state: "credited"
     triggered_by: "credit_earned"
 
-# Policy surface.
+# Policy surface (Table 5 verbatim).
 policy_surface:
   fines:
     tier_1_rate: 0.35
@@ -231,7 +231,7 @@ policy_surface:
   recovery_gates:
     hhi_threshold: 0.65
 
-# Execution contracts.
+# Execution contracts per Appendix D.
 contracts:
   timing:
     default_jitter_rounds: 0

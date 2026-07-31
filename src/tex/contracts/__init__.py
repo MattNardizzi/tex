@@ -8,6 +8,12 @@ Contracts Layer — Agent Behavioral Contracts
 
 Formal specifications + runtime enforcement for individual agent reliability.
 
+Reference
+---------
+arxiv 2602.22302 (Bhardwaj 2026, "AgentAssert: Formal Behavioral
+Contracts for Autonomous AI Agents"). The reference impl ships at
+``github.com/qualixar/agentassert-abc`` (Elastic License 2.0).
+
 A behavioral contract specifies, for a single agent, the formal 6-tuple
 ``C = (P, I_hard, I_soft, G_hard, G_soft, R)``:
 
@@ -20,8 +26,8 @@ A behavioral contract specifies, for a single agent, the formal 6-tuple
     action sequence; modelled here as an injectable RecoveryDispatcher
 
 Distinct from governance graphs (institution-level) and runtime
-defenses (action-level): contracts are *agent-level* commitments.
-(p, δ, k)-satisfaction is exposed as fields on
+defenses (action-level): contracts are *agent-level* commitments. The
+ABC paper's (p, δ, k)-satisfaction is exposed as fields on
 ``BehavioralContract`` so a future SPRT certifier
 (``tex.contracts.certification``, P2) can compute statistical guarantees
 without re-deriving the parameters.

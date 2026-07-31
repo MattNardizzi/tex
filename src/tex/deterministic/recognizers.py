@@ -831,11 +831,14 @@ class JailbreakPersonaRecognizer(BaseRegexRecognizer):
 
 class InvisibleUnicodeRecognizer:
     """
-    Catches invisible-Unicode prompt injection.
+    Catches invisible-Unicode prompt injection — the May 2026 frontier
+    attack vector.
 
-    Background (see AWS Security Blog "Defending LLM applications
-    against Unicode character smuggling" Sep 2025 and "Imperceptible
-    Jailbreaking against Large Language Models" arxiv 2510.05025):
+    Background (synthesized from Cisco AI Defense's skill-scanner
+    advisory March 2026, AWS Security Blog "Defending LLM applications
+    against Unicode character smuggling" Sep 2025, USC Reverse-CAPTCHA
+    paper arxiv 2603.00164 Feb 2026, "Imperceptible Jailbreaking against
+    Large Language Models" arxiv 2510.05025):
 
     Attackers encode arbitrary instructions in Unicode codepoint ranges
     that are invisible in every common UI (terminals, browsers, code

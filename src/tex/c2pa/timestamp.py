@@ -6,10 +6,9 @@ Bleeding-edge alignment (May 18, 2026)
 - C2PA 2.4 §10.3.2.5 defines the "v2 timestamp" — the TimeStampReq's
   ``messageImprint`` is computed over the **signature** field of the
   outer COSE_Sign1 (not the original Sig_structure payload). This is a
-  hardening change vs v1 timestamps, which can be detached and
-  replayed against a tampered claim — the timestamp-replay class in
-  Tex's C2PA attack matrix. v2 binds the timestamp to the exact
-  signature bytes.
+  hardening change vs v1 timestamps, which the Sherman et al. paper
+  (arxiv 2604.24890 §3) showed could be detached and replayed against
+  a tampered claim. v2 binds the timestamp to the exact signature bytes.
 - A claim generator SHALL NOT create a v1 timestamp; a validator MAY
   process one for legacy assets. Tex emits only v2.
 - The TimeStampResp is wrapped in CBOR and placed in the unprotected
@@ -43,8 +42,7 @@ References
 - RFC 5816 (Apr 2010) — ESSCertIDv2 update.
 - C2PA 2.4 §10.3.2.5 — Time-stamps (v1 vs v2).
 - C2PA 2.4 §15.8 — Validate the Time-Stamp.
-- Tex C2PA attack matrix (timestamp-replay class) — why v2
-  timestamps are required.
+- arxiv 2604.24890 §3 — why v2 timestamps are required.
 """
 
 from __future__ import annotations
@@ -207,8 +205,7 @@ def v2_payload_digest(cose_sign1_signature: bytes) -> bytes:
     Per C2PA 2.4 §10.3.2.5: ``v2payload = signature field of COSE_Sign1``.
     The messageImprint is then SHA-256 of that payload. This binds the
     timestamp to the exact signature bytes, preventing the v1-style
-    replay attack (timestamp-replay class in Tex's C2PA attack
-    matrix).
+    replay attack documented in arxiv 2604.24890.
     """
     return hashlib.sha256(cose_sign1_signature).digest()
 

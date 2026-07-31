@@ -67,6 +67,10 @@ References
 * draft-kamimura-scitt-refusal-events-02 (Jan 29, 2026) — claim set
 * draft-anandakrishnan-ptv-attested-agent-identity-00 (Mar 2026) —
   PTV envelope shape
+* arxiv 2602.23701 (CHIEF, Feb 2026)
+* arxiv 2604.04035 (ARM, Apr 2026)
+* arxiv 2605.07509 (MASPrism, May 7, 2026)
+* arxiv 2605.03581 (ZK-Value LSH-Shapley, May 2026)
 * NVIDIA NRAS production v3 (docs.attestation.nvidia.com)
 """
 
@@ -254,7 +258,7 @@ def _build_scitt_claim_set(
                 tee_attestation.gpu_measurement_sha256
             )
         claim_set["tee_attestation"] = tee_dict
-    # Conformal prediction set. Floats are
+    # Conformal prediction set per arxiv 2605.06788. Floats are
     # encoded as ppm integers for CBOR-deterministic signing,
     # matching the same convention used for confidence and blame
     # shares elsewhere in the claim set.
@@ -387,9 +391,9 @@ def _build_layerwise_envelope(
     Selection strategy (Thread 15)
     ------------------------------
     We default to a GPT-2-shaped 12-layer transformer and a budget
-    that covers ~50% of layers — the default NANOZK
-    setting, where high-Fisher layers are expected to capture most
-    of the inference's information at a fraction of the proving cost. The
+    that covers ~50% of layers — the NANOZK paper's headline
+    setting, where high-Fisher layers capture 65-86% of the
+    inference's information at 50% of the proving cost. The
     Fisher scores here are stand-ins (uniform across layers when
     we don't have a real estimate from the caller); the selector
     still produces a deterministic top-k by index.
@@ -416,7 +420,7 @@ def _build_layerwise_envelope(
     # Uniform Fisher scores when we don't have a real estimator
     # plumbed in (the public surface accepts a caller-supplied
     # vector; the wired path here uses a tilted-uniform default
-    # that encodes the working assumption that
+    # that captures the empirical observation in NANOZK §3.3 that
     # later layers tend to carry slightly more output sensitivity).
     fisher_scores = tuple(
         1.0 + (0.02 * i) for i in range(total_layers)

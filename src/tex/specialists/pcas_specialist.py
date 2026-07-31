@@ -65,7 +65,7 @@ _DEFAULT_POLICY = """\
 %   data(DataId, Source, Label, ContentHash)
 %   depends_on(SourceId, TargetId)
 %
-% Toxic Flow policy: block read-untrusted-then-write-external chains.
+% Reference: arxiv 2602.16708 §5.2 (Toxic Flow policy).
 
 derived_from(X, Y) :- depends_on(X, Y).
 derived_from(X, Z) :- depends_on(X, Y), derived_from(Y, Z).

@@ -8,12 +8,15 @@ institutional state matches ``target_legal_state_id``.
 
 Reference
 ---------
-- Institutional restorative paths: three restoration kinds (expiry,
-  credit_relief, clean_restoration), declared alongside the sanction
-  ladder in the governance manifest.
-- This module guarantees *mechanical* correctness (every well-formed
-  path call succeeds); recovery *effectiveness* is a deployment
-  property, not a code guarantee.
+- arxiv 2601.11369 (Bracale Syrnikov et al., Jan 2026), §4.2
+  "Restorative paths": three restoration kinds (expiry,
+  credit_relief, clean_restoration); §6.2.2 sanction ladder + Table 5
+  paper defaults.
+- arxiv 2604.07833 v2 (Embodied Agents Runtime Governance, Apr 10
+  2026): recovery success benchmarks (91.4% +/- 3.0% with full policy
+  compliance; removal of Recovery Manager collapses to 28.1%). Used
+  as production aspiration; this module guarantees *mechanical*
+  correctness (every well-formed path call succeeds).
 
 Contract (FRONTIER_DELTA_thread_8 §4 Delta-3)
 ---------------------------------------------
@@ -270,8 +273,8 @@ class RestorativePathExecutor:
             "description": getattr(path, "description", ""),
             "emitted_at": datetime.now(UTC).isoformat(),
             "references": (
-                "manifest-declared restorative paths; "
-                "governance-log signed recovery records"
+                "arxiv:2601.11369 §4.2 restorative paths; "
+                "arxiv:2604.07833v2 recovery benchmarks"
             ),
         }
 

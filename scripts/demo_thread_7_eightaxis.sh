@@ -205,16 +205,16 @@ def main() -> None:
     )
     print()
     print(
-        "    Step 3 — ContractEnforcer.compliance_scores (ABC"
+        "    Step 3 — ContractEnforcer.compliance_scores (Bhardwaj ABC"
     )
     print(
-        "             behavioural contracts) → contract_violation_severity"
+        "             arxiv 2602.22302) → contract_violation_severity"
     )
     print(
         "    Step 5 — HierarchicalCausalGraph.fast_attribute (technique"
     )
     print(
-        "             inspired by multi-agent attribution work)"
+        "             inspired by MASPrism arxiv 2605.07509, May 8 2026)"
     )
     print(
         "             → causal_attribution_confidence at <5ms p99"
@@ -223,10 +223,10 @@ def main() -> None:
         "    Step 6 — evaluate_drift = BOCPD (Adams/MacKay) +"
     )
     print(
-        "             anytime-valid e-process (Drift-to-Action"
+        "             anytime-valid e-process (Drift-to-Action arxiv"
     )
     print(
-        "             style) → drift_delta blended"
+        "             2603.08578) → drift_delta blended"
     )
     print(
         "    Step 7 — SystemicRiskEvaluator.score call site behind the"
@@ -235,10 +235,10 @@ def main() -> None:
         "             TEX_ECOSYSTEM_SYSTEMIC flag (Thread 9 implements"
     )
     print(
-        "             ProbGuard arxiv 2508.00500 or GeomHerd-style"
+        "             ProbGuard arxiv 2508.00500 or GeomHerd arxiv"
     )
     print(
-        "             geometric signals)"
+        "             2605.11645)"
     )
     print()
     print(

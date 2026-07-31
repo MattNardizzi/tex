@@ -292,7 +292,7 @@ class DriftSignalRegistry:
 #
 # Reference: FRONTIER_DELTA_thread_7.md §6.3 (design justification —
 # why BOCPD + anytime-valid certificate over MI9-style JS divergence
-# or edit-distance drift), and §1 (Drift-to-Action).
+# or edit-distance drift), and §1 (Drift-to-Action arxiv 2603.08578).
 
 from datetime import datetime, UTC  # noqa: E402 — orchestrator-only
 
@@ -319,13 +319,13 @@ class DriftEvaluation(BaseModel):
         ``change_point_detected`` + per-signal MAP run length;
       * the **frequentist anytime-valid** signal from the e-process —
         ``anytime_valid_p_value`` + log-e-value;
-      * the **three-dimensional drift taxonomy** —
-        semantic / coordination / behavioral drift
+      * the **Rath 2026 three-dimensional drift taxonomy** (arxiv
+        2601.04170 §3) — semantic / coordination / behavioral drift
         as separate axes that compose into the aggregate
         ``drift_delta`` via max-pooling.
 
-    Three-dimension drift taxonomy (Thread 7.1 extension)
-    -----------------------------------------------------
+    Rath 2026 three-dimension taxonomy (Thread 7.1 extension)
+    --------------------------------------------------------
       * **semantic_drift** — progressive deviation of event-kind
         distribution from the declared/historical intent baseline.
         Probed by Jensen-Shannon divergence between the recent
@@ -352,16 +352,16 @@ class DriftEvaluation(BaseModel):
     Fields
     ------
     drift_delta
-        Aggregate drift score in [0, 1]. Max over the three drift
+        Aggregate drift score in [0, 1]. Max over the three Rath
         dimensions. ``1.0`` means at least one dimension crossed
         threshold; ``0.0`` means no dimension moved beyond noise.
     semantic_drift
-        Semantic-drift score in [0, 1]. Intent deviation.
+        Rath 2026 semantic-drift score in [0, 1]. Intent deviation.
     coordination_drift
-        Coordination-drift score in [0, 1]. Consensus
+        Rath 2026 coordination-drift score in [0, 1]. Consensus
         breakdown.
     behavioral_drift
-        Behavioral-drift score in [0, 1]. Unintended
+        Rath 2026 behavioral-drift score in [0, 1]. Unintended
         strategy emergence.
     signals_evaluated
         Tuple of signal_ids whose probed values produced a non-trivial
@@ -378,7 +378,7 @@ class DriftEvaluation(BaseModel):
         λ from the e-process grid that dominated the mixture for the
         dominant signal.
     dominant_dimension
-        Which of the three drift dimensions ("semantic", "coordination",
+        Which of the three Rath dimensions ("semantic", "coordination",
         "behavioral") dominated ``drift_delta``. ``None`` when all
         three are at 0.0 (no drift).
     """
@@ -572,7 +572,7 @@ class _DriftOrchestrator:
             # but rounding could conceivably nudge a hair past 1.0.
             per_signal_blended[sid] = min(1.0, max(0.0, blended))
 
-        # Thread 7.1 — three-dimension drift classification.
+        # Thread 7.1 — three-dimension Rath 2026 drift classification.
         # Per-signal blended scores are aggregated into the three drift
         # dimensions via max-pooling within each dimension's signal set.
         # See _SIGNAL_TO_DIMENSION for the signal→dimension map.
@@ -585,7 +585,7 @@ class _DriftOrchestrator:
             dim = _SIGNAL_TO_DIMENSION.get(sid)
             if dim is None:
                 # Unmapped signal — contributes to none of the three
-                # drift dimensions but still appears in signals_evaluated.
+                # Rath dimensions but still appears in signals_evaluated.
                 continue
             if score > dimension_scores[dim]:
                 dimension_scores[dim] = score
@@ -595,7 +595,7 @@ class _DriftOrchestrator:
         min_p = min(c.p_anytime_valid for c in per_signal_certs.values())
         dominant_cert = per_signal_certs[dominant_signal_id]
 
-        # Dominant dimension = which drift axis carries the highest
+        # Dominant dimension = which Rath axis carries the highest
         # score. If all three are 0.0 (e.g. unmapped signal triggered)
         # report None so consumers know to fall back to
         # dominant_signal_id alone.
@@ -693,12 +693,12 @@ _MODULE_DEFAULT_REGISTRY: "DriftSignalRegistry | None" = None
 # ----------------------------------------------------------------------
 
 
-# Thread 7.1 — three-dimensional drift taxonomy.
-# Maps each default signal to one of three
+# Thread 7.1 — Rath 2026 three-dimensional drift taxonomy
+# (arxiv 2601.04170 §3). Maps each default signal to one of three
 # drift axes: semantic (intent deviation), coordination (consensus
 # breakdown), behavioral (unintended strategy emergence). Signals
 # not in this map contribute to the aggregate drift_delta but to
-# none of the three drift axes.
+# none of the three Rath axes.
 _SIGNAL_TO_DIMENSION: dict[str, str] = {
     SIGNAL_TOOL_CALL_RATE_PER_AGENT: "semantic",
     SIGNAL_CAPABILITY_GRANT_RATE: "semantic",
@@ -729,9 +729,9 @@ class ProbeMapPolicy:
     ``ProbeMapPolicy`` and passing it to ``DriftSignalRegistry`` or
     directly to ``evaluate_drift`` callers.
 
-    Mirrors GAAT-style OPA Rego rule layering (declarative composition
-    of rules with priority) and RiskGate-style learned-classifier
-    extensibility.
+    Mirrors GAAT's OPA Rego rule layering (arxiv 2604.05119 §III.A —
+    declarative composition of rules with priority) and RiskGate's
+    learned-classifier extensibility (arxiv 2604.24686 §4).
 
     Both rule sets are frozen so the policy is hashable and safe to
     share across threads.

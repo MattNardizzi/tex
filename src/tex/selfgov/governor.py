@@ -87,11 +87,12 @@ COVERED_VIA (the site provably routes through a WIRED chokepoint; the
 delegation line is pinned by the tripwire test), EXCLUDED (reason), or
 DEPLOY_FROZEN (``DEPLOY_FROZEN_STRATUM``).
 
-Related constraint-framework ideas:
-  * Nidus-style: an externally-enforced constraint framework that
-    can govern its own modifications (proof obligations per commit).
-  * Aegis-style: cryptographic runtime governance; an immutable
-    ethics-policy layer bound at startup plus an enforcement kernel.
+Related work (retrieved + verified against arXiv abstracts 2026-06-11; abstract
+-level verification only, full texts not read this session):
+  * Nidus, arXiv:2604.05080 — externally-enforced constraint framework that
+    can govern its own modifications (V-model proof obligations per commit).
+  * Aegis, arXiv:2603.16938 — cryptographic runtime governance; immutable
+    ethics-policy layer bound at startup + enforcement kernel.
   * "Core Safety Values for Provably Corrigible Agents", arXiv:2507.20964 —
     corrigibility via hierarchically separated utility components.
 Delta here: self-mutations are ruled by the SAME production decision engine

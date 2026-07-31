@@ -15,9 +15,11 @@ Two schemes are supported:
     Hugging Face Transformers v4.46.0+.
     Detector source: github.com/google-deepmind/synthid-text.
 
-  * **TextSeal** — Gumbel-max-based with dual-key generation,
-    entropy-weighted scoring, multi-region localization. Robust to
-    dilution; Tex treats it as the stronger of the two schemes.
+  * **TextSeal** (Meta FAIR, arxiv 2605.12456, **May 12 2026**) —
+    Gumbel-max-based with dual-key generation, entropy-weighted
+    scoring, multi-region localization. Strictly dominates SynthID-Text
+    in detection strength and is robust to dilution.
+    Source: github.com/facebookresearch/textseal.
 
 Design properties
 -----------------
@@ -44,21 +46,25 @@ Design properties
    ML deps; it trusts the gateway-recorded score and validates only
    format + range.
 
-3. **Cross-layer audit.** When both a C2PA hard binding
-   (`content_sha256`) and a watermark soft binding are present,
-   ``CrossLayerAuditor`` flags the *desynchronisation attack*: a
-   manifest that says "human authored" while the watermark says
-   "AI generated", or vice versa. Both signatures may be
+3. **Cross-layer audit (arxiv 2603.02378).** When both a C2PA hard
+   binding (`content_sha256`) and a watermark soft binding are
+   present, ``CrossLayerAuditor`` flags the *desynchronisation
+   attack*: a manifest that says "human authored" while the watermark
+   says "AI generated", or vice versa. Both signatures may be
    cryptographically valid but they assert contradictory things —
-   a documented validator gap in Tex's C2PA threat matrix that
-   single-layer validation does not detect.
+   exactly what the paper's Section 3 shows is not detected by any
+   shipping C2PA validator.
 
 References
 ----------
 - Dathathri et al., "Scalable watermarking for identifying large
   language model outputs", Nature, Oct 2024.
-- Tex C2PA threat matrix — desynchronised provenance vs watermark
-  contradictions (internal reference: tex:cross-layer-audit).
+- Sander et al., "TextSeal: A Localized LLM Watermark for Provenance
+  & Distillation Protection", arxiv 2605.12456, May 12 2026.
+- Omidi et al., "On Google's SynthID-Text LLM Watermarking System",
+  arxiv 2603.03410, Mar 2026.
+- Authenticated Contradictions from Desynchronised Provenance and
+  Watermarking, arxiv 2603.02378, Mar 2 2026.
 """
 
 from __future__ import annotations
@@ -78,7 +84,7 @@ class WatermarkScheme(str, Enum):
     """Supported watermark schemes."""
 
     SYNTHID_TEXT = "synthid-text"     # Google DeepMind, Nature Oct 2024
-    TEXTSEAL = "textseal"             # entropy-weighted Gumbel-max scheme
+    TEXTSEAL = "textseal"             # Meta FAIR, arxiv 2605.12456, May 2026
     NONE = "none"                     # No watermark present / not applicable
 
 
@@ -89,16 +95,15 @@ TEX_EVIDENCE_WATERMARK_SCHEMA_V1: str = (
 ASSERTION_LABEL_TEX_EVIDENCE_WATERMARK: str = "tex.evidence_watermark"
 
 
-# Detection thresholds (production deployments tune per-domain).
+# Detection thresholds (paper-derived; production deployments tune per-domain).
 #
 # SynthID-Text: the Bayesian detector returns a posterior score in [0, 1].
-#   Dathathri et al. (Nature 2024) report Type-I error < 1e-2 at
-#   score > 0.9 on 200-token outputs. We default to 0.9 as a
-#   conservative threshold.
+#   Dathathri et al. report Type-I error < 1e-2 at score > 0.9 on
+#   200-token outputs. We default to 0.9 as a conservative threshold.
 #
 # TextSeal: the entropy-weighted score is a normalised log-likelihood
-#   ratio. We use 4.0 as the default — an internal design target for
-#   ~250-token outputs.
+#   ratio. Sander et al. Table 2 reports TPR > 99% at FPR 1% at score > 4.0
+#   on 250-token outputs. We use 4.0 as the default.
 SYNTHID_TEXT_DEFAULT_THRESHOLD: float = 0.9
 TEXTSEAL_DEFAULT_THRESHOLD: float = 4.0
 
@@ -248,15 +253,15 @@ class SynthIDTextDetectorAdapter:
 @dataclass(frozen=True, slots=True)
 class TextSealDetectorAdapter:
     """
-    Adapter for the TextSeal detector.
+    Adapter for Meta FAIR's TextSeal detector.
 
-    Lazy-imports ``textseal``.
+    Lazy-imports ``textseal``. arxiv 2605.12456 (May 12 2026).
     See ``SynthIDTextDetectorAdapter`` for the deployment pattern.
     """
 
     scheme: WatermarkScheme = WatermarkScheme.TEXTSEAL
     threshold: float = TEXTSEAL_DEFAULT_THRESHOLD
-    detector_version: str = "textseal/v1"
+    detector_version: str = "facebookresearch/textseal/v1"
 
     def detect(self, text: str, *, key_id: str) -> WatermarkDetectionResult:
         try:
@@ -334,7 +339,7 @@ def build_tex_evidence_watermark_assertion(
     One of ``"ai-generated"`` (the AI gateway produced this) or
     ``"human-authored"`` (a human wrote this, no AI involvement).
     The CrossLayerAuditor below checks this against the watermark
-    detection to flag desynchronisation attacks.
+    detection to flag desynchronisation attacks (arxiv 2603.02378).
     """
     if asserted_origin not in {"ai-generated", "human-authored"}:
         raise ValueError(
@@ -364,7 +369,7 @@ def build_tex_evidence_watermark_assertion(
         },
         "paper_reference": {
             "synthid-text": "Dathathri et al., Nature 2024",
-            "textseal": "tex:durable-credentials",
+            "textseal": "arxiv:2605.12456 (May 12 2026)",
         }.get(detection.scheme.value, "n/a"),
     }
     if detection.detection_p_value is not None:
@@ -381,7 +386,7 @@ def build_tex_evidence_watermark_assertion(
 
 
 # ---------------------------------------------------------------------------
-# Cross-layer audit — desynchronised provenance
+# Cross-layer audit (arxiv 2603.02378 — desynchronised provenance)
 # ---------------------------------------------------------------------------
 
 
@@ -408,7 +413,7 @@ class CrossLayerAuditResult:
     asserted_origin: str | None
     detected_watermark: bool | None
     detection_score: float | None
-    paper_reference: str = "tex:cross-layer-audit"
+    paper_reference: str = "arxiv:2603.02378"
 
 
 def cross_layer_audit(
@@ -421,8 +426,8 @@ def cross_layer_audit(
     Jointly audit the manifest's claimed origin against an actual
     watermark detection run.
 
-    The desynchronisation attack tracked in Tex's C2PA threat
-    matrix produces content where:
+    The desynchronisation attack of arxiv 2603.02378 produces
+    content where:
 
       (a) the C2PA manifest's assertions say "human authored" but the
           watermark detector says "AI generated", or

@@ -6,9 +6,9 @@ See ARCHITECTURE.md for the full six-layer model.
 Institutional Layer — Public Governance Graph + Oracle/Controller
 ==================================================================
 
-The headline architecture of the institutional layer: it reframes
-alignment from preference engineering in agent-space to mechanism design
-in institution-space.
+The headline architecture from arxiv 2601.10599 + 2601.11369 (Institutional
+AI). Reframes alignment from preference engineering in agent-space to
+mechanism design in institution-space.
 
 The governance graph is a public, immutable manifest declaring:
   - legal states (entity-state configurations the institution permits)
@@ -17,6 +17,9 @@ The governance graph is a public, immutable manifest declaring:
   - restorative paths from sanctioned states back to legal ones
 
 The Oracle observes; the Controller acts.
+
+Empirical results (arxiv 2601.11369): mean collusion tier falls from 3.1
+to 1.8 (Cohen's d=1.28); severe-collusion incidence drops from 50% to 5.6%.
 
 Priority
 --------

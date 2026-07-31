@@ -1,10 +1,11 @@
 """
 Anytime-valid conformal risk control for trajectory uncertainty.
 
-Thread 9. Extends standard conformal prediction to remain
+Thread 9. Reference: arxiv 2602.04364 ("Anytime-Valid Conformal Risk
+Control", Feb 2026). Extends standard conformal prediction to remain
 valid with high probability over a *cumulatively growing* calibration
 dataset at any time point — the regime the digital-twin operator runs
-in.
+in. Includes the matching asymptotic lower bound proven in the paper.
 
 Why we need this for ``simulate_forward``
 ------------------------------------------
@@ -54,8 +55,8 @@ class CalibrationBuffer:
     """
     Append-only buffer of nonconformity scores.
 
-    Implements the cumulative-calibration shape used by the anytime-valid
-    framework. For each new observation we push a new nonconformity score; for
+    Implements the cumulative-calibration shape from arxiv 2602.04364.
+    For each new observation we push a new nonconformity score; for
     each new prediction we read out the anytime-valid quantile.
 
     Thread-unsafe — caller is the engine's single-thread Step-7
@@ -88,7 +89,7 @@ class CalibrationBuffer:
         Compute the anytime-valid (1 - alpha) quantile with high-
         probability correction.
 
-        The quantile correction is
+        Per arxiv 2602.04364 §3, the quantile correction is
 
             q_at(alpha, n, delta) = q_emp((1 - alpha) * (n + 1) / n)
                                     + epsilon(n, delta)

@@ -5,8 +5,8 @@ Issuer
 ------
 Wraps the agent's tool-execution layer. The agent runtime — NOT the LLM —
 performs tool calls, computes input/output hashes, and issues receipts.
-The LLM receives the tool output plus the receipt ID. This is the
-integrity foundation: the LLM cannot forge an HMAC over data
+The LLM receives the tool output plus the receipt ID. Per arxiv 2603.10060,
+this is the integrity foundation: the LLM cannot forge an HMAC over data
 it never had the key for.
 
 Verifier
@@ -25,7 +25,12 @@ epistemic source taxonomy:
 
 The verifier additionally extracts integer literals from claim_text and
 checks them against receipt result_count values, catching the
-"count misstatement" hallucination type.
+"count misstatement" hallucination type called out in the abstract
+(87.6% detection rate per the paper).
+
+Reference
+---------
+arxiv 2603.10060 — Tool Receipts, Not Zero-Knowledge Proofs (Basu, Mar 2026).
 
 Performance target
 ------------------
@@ -140,6 +145,10 @@ class ReceiptIssuer:
         derives ``result_count`` per the NabaOS heuristic, then HMAC-SHA-256
         signs the canonical signing input. The receipt is appended to the
         backing store before being returned.
+
+        Reference
+        ---------
+        arxiv 2603.10060 §3.1 (receipt issuance protocol).
         """
         if not session_id:
             raise ValueError("session_id must be a non-empty string")
@@ -243,7 +252,7 @@ class ReceiptVerifier:
 
     Cross-checks every receipt id referenced by a claim against the backing
     store and re-derives the HMAC. Routes per epistemic source per the
-    NabaOS protocol.
+    NabaOS protocol (arxiv 2603.10060).
     """
 
     def __init__(
@@ -278,7 +287,7 @@ class ReceiptVerifier:
             present and intact. ``issues`` is a tuple of human-readable
             problem strings (empty when grounded).
 
-        Routing rules:
+        Per arxiv 2603.10060:
           - PRATYAKSHA: every claimed receipt id must resolve and HMAC-verify
           - ANUMANA:    at least one parent receipt must resolve and verify
           - SHABDA:     at least one receipt must resolve (citation pointer

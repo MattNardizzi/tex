@@ -1,21 +1,22 @@
 """
 NABAOS-style epistemic receipts for provenance hot path.
 
-Design
-------
-NABAOS (internal design label) is a receipt scheme built on
-HMAC-signed receipts the agent runtime cannot forge, classifying
-each claim by Nyāya Śāstra epistemic source (pramāṇa):
+Reference
+---------
+arxiv 2603.10060 (March 9, 2026) — "Tool Receipts, Not Zero-Knowledge
+Proofs: Practical Hallucination Detection for AI Agents". NABAOS
+proposes HMAC-signed receipts the agent runtime cannot forge,
+classifying each claim by Nyāya Śāstra epistemic source (pramāṇa):
 direct tool output (pratyakṣa), inference (anumāna), external
 testimony (śabda), absence (abhāva), or ungrounded opinion.
 
 Why NABAOS in a ZKPROV thread
 ------------------------------
 A full ZKPROV proof costs seconds-to-minutes to generate; you do
-*not* want it on every interactive request. The pragmatic shape
-for verifiable AI agents is **two-tier**:
+*not* want it on every interactive request. The May-2026 best
+practice for verifiable AI agents is **two-tier**:
 
-  * Hot path: cheap HMAC receipts on every response.
+  * Hot path: sub-15ms HMAC receipts on every response.
   * Slow path: ZKPROV proof generated asynchronously and chained
     into the evidence record when ready.
 
@@ -25,7 +26,8 @@ references them by ID. When the ZK proof later lands, it binds to
 the same response hash and supersedes the receipt's role for
 regulator-grade audit.
 
-This is the fourth wedge piece.
+This is the fourth wedge piece. NABAOS is 10 weeks old as of May 18
+2026. Nobody else has integrated it.
 """
 
 from __future__ import annotations

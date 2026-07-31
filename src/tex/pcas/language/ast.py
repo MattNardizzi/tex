@@ -31,14 +31,15 @@ Notes
   stratifier, not by the parser.
 - Helper-vs-atom disambiguation: at parse time both look identical
   ``name(args)``. The stratifier looks up ``name`` in the helper registry;
-  whatever's not registered is treated as a relation atom — helper
-  functions are called like atoms by design.
+  whatever's not registered is treated as a relation atom. This matches
+  PCAS §4.5.2's "helper functions called like atoms" design.
 - Rule annotations: ``@authorize`` heads contribute PERMIT weight,
   ``@deny`` heads contribute FORBID weight. Both present on the same
-  ground head -> FORBID (fail-closed authorization flow).
+  ground head -> FORBID (fail-closed, matches PCAS §4.4.1
+  authorization-flow).
 
-Reference: semi-positive Datalog with stratified negation per
-Abiteboul-Hull-Vianu ch.15.
+Reference: arxiv 2602.16708 §4.5; semi-positive Datalog with stratified
+negation per Abiteboul-Hull-Vianu ch.15.
 """
 
 from __future__ import annotations

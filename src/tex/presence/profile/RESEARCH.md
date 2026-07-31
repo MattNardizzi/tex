@@ -1,20 +1,20 @@
-# Profile Memory — frontier survey (June 2026)
+# Profile Memory — frontier survey (retrieved 2026-06-21)
 
 Survey for L2 (per-tenant PROFILE on top of S5 sealed memory + a two-way
-confirm/correct loop). External citations that could not be verified against a
-public source have been removed; those sections survive as unattributed
-technique notes. Where a fact is carried from a prior session's survey, it is
-labelled `UNVERIFIED-FROM-MEMORY`. This file is the "frontier is the floor"
-evidence the constitution requires before non-trivial novel work.
+confirm/correct loop). Every citation below was **retrieved this session** via web
+fetch and is verifiable at the URL given; where a fact is carried from a prior
+session's survey rather than re-retrieved, it is labelled `UNVERIFIED-FROM-MEMORY`.
+This file is the "frontier is the floor" evidence the constitution requires before
+non-trivial novel work.
 
-## TL;DR — the survey says exactly what Tex already does; L2 fills the one gap
+## TL;DR — the frontier says exactly what Tex already does; L2 fills the one gap
 
-Current thinking on long-term agent memory converges on a single thesis:
+The 2026 literature on long-term agent memory converges on a single thesis:
 **security and verifiability cannot be retrofitted at retrieval time — they must be
 anchored at WRITE time, with provenance, versioning, and a real forget path.** Tex's
 S5 memory already implements the write-anchored, forgettable, content-anchored,
-per-tenant store. The named *open* problem — validate provenance
-**before** write, and forgetting is the strongest test — is precisely the gap L2
+per-tenant store. The frontier's named *open* problem — "validate provenance
+**before** write," and "forgetting is the strongest test" — is precisely the gap L2
 closes for the *personalization* surface: a profile fact (preference / boundary /
 correction) is provenance-validated before it is written, citable after, and
 revocable. The novel contribution L2 adds beyond the literature is the **two-way
@@ -24,20 +24,25 @@ is a sealed, signed LABEL that can only *tighten* a future tier — never inflat
 
 ---
 
-## 1. Mnemonic sovereignty — write-time memory governance (technique note, unattributed)
+## 1. MemTensor "mnemonic sovereignty" — arXiv:2604.16548
 
-- **Mnemonic sovereignty**: a system's verifiable, recoverable
+**"A Survey on the Security of Long-Term Memory in LLM Agents: Toward Mnemonic
+Sovereignty"** — Zehao Lin, Xixuan Hao, Renyu Fu, Shaobo Cui, Kai Chen, Chunyu Li,
+Zhiyu Li, Feiyu Xiong. Retrieved 2026-06-21 from
+<https://arxiv.org/abs/2604.16548> and <https://arxiv.org/html/2604.16548v1>.
+
+- **Mnemonic sovereignty** (verbatim): *"a system's verifiable, recoverable
   governance over what may be written, who may read, when updates are authorized,
-  and which states may be forgotten. This is the exact property a per-tenant
+  and which states may be forgotten."* This is the exact property a per-tenant
   profile must provide — and the name maps onto Tex's existing per-tenant
   write-gate + recall + forget.
-- **Memory lifecycle framing**: six phases (Write, Store, Retrieve, Execute,
+- **Memory Lifecycle Framework**: six phases (Write, Store, Retrieve, Execute,
   Share & Propagate, **Forget & Rollback**) × four objectives (Integrity,
-  Confidentiality, Availability, Governance). The thesis: robust long-term-memory
-  security cannot be retrofitted at retrieval or execution time alone — it must be
-  anchored in storage-time provenance, versioning, and policy-aware retention from
-  the outset.
-- **Governance primitives** (the design checklist L2 is
+  Confidentiality, Availability, Governance). The thesis: *"robust LTM security
+  cannot be retrofitted at retrieval or execution time alone, but must be anchored
+  in storage-time provenance, versioning, and policy-aware retention from the
+  outset."*
+- **Governance primitives** Section 11 enumerates (the design checklist L2 is
   measured against):
   1. **Write-gate validation** — pre-consolidation checks before content enters
      memory. *(L2: `ProfileMemory.apply_correction`/`confirm` validate provenance
@@ -62,55 +67,68 @@ is a sealed, signed LABEL that can only *tighten* a future tier — never inflat
      `PresenceCalibrationFeed.forget_resolution` to pull the calibration
      contribution — the one cross-substrate edge a correction creates.)*
 
-- **The named OPEN problems** — shared blind spots across long-term-memory
-  systems: no validation of provenance before write, no explicit
-  source metadata in long-term memory, and forgetting — the strongest test of
-  mnemonic sovereignty — largely unimplemented. **These two are
+  > **Honesty note on a name-vs-body discrepancy I actually observed.** The
+  > *abstract* names *"five architectural primitives"* of "Verifiable Memory
+  > Governance (VMG)"; the *body* (Section 11, in the v1 HTML I fetched) enumerates
+  > **nine** governance primitives. I report the nine I read rather than inventing a
+  > clean "five." (The nanozk lesson applied to a citation: do not round a source to
+  > a tidier number than it states.)
+
+- **The named OPEN problems** — *"shared blind spots across every system
+  examined"*: systems lack *"validate provenance before write"* and *"explicit
+  source metadata in long-term memory,"* and *"Forgetting is the strongest test of
+  mnemonic sovereignty"* and *"remains largely unimplemented."* **These two are
   exactly what L2 ships**: provenance-validated-before-write profile facts, and a
   real per-record `revoke`.
 
-## 2. Tiered provenance-aware memory (technique note, unattributed)
+## 2. TierMem — arXiv:2602.17913
+
+**"From Lossy to Verified: A Provenance-Aware Tiered Memory for Agents"** — Qiming
+Zhu, Shunian Chen, Rui Yu, Zhehao Wu, Benyou Wang. Retrieved 2026-06-21 from
+<https://arxiv.org/abs/2602.17913>.
 
 - **Two-tier hierarchy + a runtime sufficiency router**: a fast summary index by
-  default; *escalate* to an **immutable raw-log store** only when summary evidence
+  default; *Escalate* to an **immutable raw-log store** only when summary evidence
   is insufficient; then **write back verified findings as new summary units linked
-  to their raw sources.**
-- **Why it matters to Tex**: this escalation discipline is the *same shape* as
+  to their raw sources.** Results on LoCoMo: 0.851 acc (vs 0.873 raw-only),
+  −54.1% input tokens, −60.7% latency.
+- **Why it matters to Tex**: TierMem's escalation discipline is the *same shape* as
   Tex's tier law — answer at the cheap tier (DERIVED estimate) only when sufficient,
   else escalate to the authoritative source (recompute from SEALED rows), else
   ABSTAIN. And "write back verified findings linked to raw sources" is exactly what
   S5 `seal` does (a verdict bound to its `EvidenceRef`s) — and what an L2 *confirm*
-  records. The novel inversion L2 adds: in the tiered design the router decides sufficiency;
+  records. The novel inversion L2 adds: in TierMem the router decides sufficiency;
   in Tex the **operator's correction** is a human sufficiency signal that lowers the
   tier ceiling for a subject permanently and revocably.
-- **The "write-before-query barrier"** (compression decisions made
+- **The "write-before-query barrier"** TierMem names (compression decisions made
   before knowing what a query hinges on) is why Tex never compresses a fact into a
   weight or a lossy summary: profile facts are stored discrete and verbatim, and the
   gate recomputes from rows at query time.
 
-## 3. Portable agent memory (technique note, unattributed — revocation design input)
+## 3. Portable Agent Memory — arXiv:2605.11032 (revocation design input)
 
-A protocol pattern for provenance-verified memory transfer across heterogeneous
-LLM agents:
+**"Portable Agent Memory: A Protocol for Provenance-Verified Memory Transfer Across
+Heterogeneous LLM Agents"** — Santhosh Kumar Ravindran (Microsoft). Retrieved
+2026-06-21 from <https://arxiv.org/html/2605.11032v1>.
 
 - Crypto: **BLAKE3** content-addressing (entry id = BLAKE3 of canonical JSON with
   the `id` field omitted), **Ed25519** root signing, a **Merkle-DAG** over
   `parent_ids`, and **capability tokens** (signed, scoped — read/write/derive/
   redact/export/rehydrate).
-- **Provenance-preserving deletion**: redacted entries maintain their
+- **Provenance-preserving deletion** (verbatim): *"Redacted entries maintain their
   DAG position with content replaced by typed tokens, enabling recovery by
-  authorized parties while satisfying erasure requirements.
-- **Design tension L2 resolves deliberately the OTHER way.** The portable-memory
-  pattern redacts-in-place (keeps a recoverable placeholder for audit). Tex's profile
+  authorized parties while satisfying erasure requirements."*
+- **Design tension L2 resolves deliberately the OTHER way.** Portable Agent Memory
+  redacts-in-place (keeps a recoverable placeholder for audit). Tex's profile
   `revoke` does **wholesale forget-by-avoidance** (S5's discipline): the record is
   *gone*, not a recoverable token. Rationale, stated honestly: a *forgettable*
   per-tenant profile must satisfy erasure as true unrecoverability from the store,
   not "recoverable by authorized parties" — the right-to-be-forgotten reading is
-  stronger. The audit trail redact-in-place keeps via placeholders is, in Tex,
+  stronger. The audit trail Portable Agent Memory keeps via placeholders is, in Tex,
   carried by the *separate* append-only governance chain a correction may have fed
   (the human-resolution evidence row), which is not revoked — so "what was decided"
   stays auditable even though "this tenant's private boundary" is fully forgotten.
-  We adopt the content-addressing idea but via Tex's existing `sha256` content
+  We adopt their content-addressing idea but via Tex's existing `sha256` content
   anchor (`tex.presence.memory.records.presence_record_hash`) — **no new crypto
   primitive** (the nanozk rule): we do not introduce BLAKE3 or a Merkle-DAG where a
   recomputable sha256 anchor + the existing `tex.evidence.seal` signer already give
@@ -133,7 +151,7 @@ LLM agents:
    directly answering the survey's named blind spot (§1). A correction with no named
    operator, or a non-lowering tier transition, writes NOTHING.
 2. **Revoke is cross-substrate** (profile fact + calibration contribution), matching
-   governance primitive #9 in §1's checklist — rather than only deleting the local row.
+   VMG primitive #9 — rather than only deleting the local row.
 3. **Wholesale forget over redaction-with-placeholder** is now a *documented,
    deliberate* choice (§3), with the audit-trail responsibility explicitly assigned
    to the separate append-only chain — not an unexamined default.

@@ -81,8 +81,10 @@ the *single-hypothesis* case — a post-hoc certificate of an unchangeable rule,
 than reimplement it; no λ ever moves the runtime floor (that would make it
 data-dependent and score-fireable — the very thing we forbid).
 
-The reversibility × blast-radius lattice itself is Tex's own design and
-deliberately carries no external citation. The
+No external paper is cited here **deliberately**: the arXiv ID some Tex
+roadmap notes attached to this lattice could not be verified on arXiv and
+described cryptographic dynamic-capability binding, not reversibility /
+blast / a lattice — a misattribution, so it is dropped entirely. The
 whole leap is ``research-early`` until a *field-labelled* corpus is measured —
 until then every certificate reads ``certified=False`` (see the certificate).
 

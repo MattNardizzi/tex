@@ -215,7 +215,7 @@ Confirmed by grep across `src/tex` (excluding the packages themselves):
 ## Technology / SOTA
 
 - **LTLf (finite-trace LTL)** per De Giacomo & Vardi 2013 with strong/weak next; **RV-LTL 4-valued runtime verification** per Bauer/Leucker/Schallhart 2011; **bounded-eventually `F<=k`** for the ABC recovery window. References cited in `_ltl.py:47-55`.
-- **AgentAssert / ABC behavioral contracts** — the 6-tuple `C=(P,I_hard,I_soft,G_hard,G_soft,R)`, `(p,δ,k)`-satisfaction, per-step compliance scores C_hard/C_soft, reliability index Θ. The paper-style docstring citation carried throughout `contract.py`/`runtime_enforcement.py` was unverifiable and has been removed from the code; treat the formalism as Tex's own design framing.
+- **AgentAssert / ABC behavioral contracts** — the 6-tuple `C=(P,I_hard,I_soft,G_hard,G_soft,R)`, `(p,δ,k)`-satisfaction, per-step compliance scores C_hard/C_soft, reliability index Θ. Cited as arXiv 2602.22302 (Bhardwaj 2026) throughout `contract.py`/`runtime_enforcement.py`. **(claim, unverified — paper IDs not checked against any source; treat as design framing.)**
 - **Join-semilattice / FIDES capability lattice** patterns (action_class, rule_of_two) — `join = max`, fail-closed top.
 - **Meta "Agents Rule of Two" / lethal trifecta** (Willison) — `rule_of_two.py`.
 - **RCPS (Risk-Controlling Prediction Sets), Hoeffding-Bentkus UCB** — Bates/Angelopoulos/Lei/Malik/Jordan JACM 2021, arXiv:2101.02703, reused via `crc_gate` (`action_class.py:76-82`).

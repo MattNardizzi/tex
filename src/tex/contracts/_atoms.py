@@ -2,7 +2,7 @@
 Atom resolver for behavioral-contract LTL atoms.
 
 This module bridges the propositional LTL evaluator in ``_ltl`` with the
-ContractSpec predicate DSL of the ABC contract model. LTL
+ABC paper's predicate DSL (arxiv 2602.22302 §5.1, "ContractSpec"). LTL
 atoms are opaque strings; this resolver gives them concrete semantics
 over a ``ContractContext`` (proposed event + ecosystem state + recent
 event window).
@@ -16,7 +16,7 @@ namespace-specific.
 
   field:<path><op><literal>
       Field-path lookup into the proposed event's payload, with one of
-      the 14 ContractSpec operators baked into the atom string. Path
+      14 ABC ContractSpec operators baked into the atom string. Path
       may be dotted (``output.pii_detected``). Examples:
           field:output.pii_detected==false
           field:output.tone_score>=0.7
@@ -48,28 +48,28 @@ namespace-specific.
       True iff ``event_id`` ∈ proposed.upstream_event_ids — useful for
       Until-style "no action without prior approval" patterns.
 
-Operator vocabulary
--------------------
-The 14 ContractSpec operators:
+Reference
+---------
+- arxiv 2602.22302 §5.1 — ContractSpec 14 operators:
   ``equals, not_equals, gt, gte, lt, lte, in, not_in, contains,
   not_contains, matches, exists, expr, between``.
 
-Engineering choices:
+Engineering choices (paper silent):
 
 * ``in`` / ``not_in`` accept comma-separated literals:
   ``field:tool_id~in:read,write,list``. The ``~`` separator is used so
   the atom remains LTL-tokenisable (``,`` is reserved by the LTL
   evaluator's tokenizer).
 * ``matches`` uses Python ``re.search`` (substring regex), not
-  ``re.fullmatch`` — pattern-matching intent without requiring
-  user-anchored regexes.
+  ``re.fullmatch``, matching the paper's described "pattern matching"
+  intent without requiring user-anchored regexes.
 * ``expr`` (sandboxed cross-field arithmetic) is intentionally NOT
   supported here — its security model deserves its own thread.
-  TODO(P2): vendor a sandboxed expression evaluator (intentionally
-  not Turing-complete).
+  TODO(P2): vendor a sandboxed expression evaluator per ABC §5.5
+  ("intentionally not Turing-complete").
 * Numeric coercion: literals that parse as ``float`` are compared
-  numerically; otherwise comparisons are string-typed, matching
-  ``ContractSpec`` flat-dict semantics.
+  numerically; otherwise comparisons are string-typed. We match the
+  reference impl's ``ContractSpec`` flat-dict semantics.
 """
 
 from __future__ import annotations

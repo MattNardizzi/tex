@@ -1,11 +1,11 @@
 """
 Prefill-stage SLM signal extractor for attribution ranking.
 
-Adapts the MASPrism prefill-signals approach
-to Tex's structured decision-graph context. Where MASPrism uses
+Adapts MASPrism's prefill-signals approach (arxiv 2605.07509, May 7
+2026) to Tex's structured decision-graph context. Where MASPrism uses
 prefill signals to *identify* candidates from a flat trace, Tex uses
 them to *re-rank* candidates that the graph-based attribution pass has
-already identified.
+already identified — a hybrid no published paper has implemented.
 
 What we extract
 ---------------
@@ -52,7 +52,9 @@ optional signal source would violate Section 3 hard constraint #4.
 
 References
 ----------
-- MASPrism — prefill-stage signals for failure attribution
+- arxiv 2605.07509 (MASPrism, May 7, 2026) — prefill-stage signals
+  for failure attribution
+- Qwen3.5 release blog (qwen.ai, Feb 16, 2026)
 - Qwen3-0.6B technical report (arxiv 2505.09388)
 
 This module is independent of the graph-based attribution pass.

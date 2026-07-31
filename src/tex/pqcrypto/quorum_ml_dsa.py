@@ -11,7 +11,7 @@ For **genuine threshold ML-DSA** — n parties holding replicated shares
 of one ML-DSA secret, running a 3-round MPC, producing a *single*
 FIPS 204 signature — see ``tex.pqcrypto.threshold_ml_dsa`` (Mithril,
 ePrint 2026/013) and ``tex.pqcrypto.talus_tee`` (TALUS-TEE 1-round
-path).
+path, arxiv 2603.22109).
 
 The quorum certificate construction is shipped alongside genuine
 threshold ML-DSA because it has different operational properties:
@@ -79,8 +79,8 @@ Security
 
 Comparison to true MPC threshold ML-DSA
 ---------------------------------------
-True MPC threshold schemes — Mithril (ePrint 2026/013) and the
-TALUS-TEE design —
+The 2026 frontier MPC schemes — Mithril (ePrint 2026/013, USENIX Security
+'26, PQShield) and TALUS (arxiv 2603.22109 v2, Mar 24 2026, Codebat) —
 produce a *single* FIPS 204 signature that any unmodified ML-DSA verifier
 accepts. That requires multi-round MPC protocols with online coordination
 between signers. Mithril is 3 online rounds with Replicated Secret Sharing;
@@ -105,8 +105,8 @@ Threshold parameter sets supported
 References
 ----------
 - Mithril, ePrint 2026/013 (Celi/del Pino/Espitau/Niot/Prest, USENIX Sec '26)
-- TALUS (internal design label), one-round online signing
-- Shamir nonce DKG (complementary design, see ``talus_tee``)
+- TALUS, arxiv 2603.22109 v2 (Kao, Mar 2026), one-round online signing
+- Shamir Nonce DKG, arxiv 2601.20917 (Kao, Jan 2026)
 - ML-DSaaS, ePrint 2026/814 (Rambaud/Roth/Urban, Apr 2026), TSaaS variant
 - Hermine, MPTS 2026 (Borin et al., IBM) — Raccoon-based, NOT FIPS 204
 - Quorus, ePrint (Bienstock/de Castro/Escudero/Polychroniadou/Takahashi)

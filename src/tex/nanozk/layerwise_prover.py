@@ -53,10 +53,10 @@ The full prove path layers four post-NANOZK-paper improvements:
      work is dominated by the multilinear evaluation claim, not by
      constraint accumulation — this is what enables the sub-23 ms
      verifier target.
-  3. Nonlinearity gadgets (softmax/GELU/LayerNorm) use the Jolt
-     Atlas prefix-suffix decomposition. The verifier checks the
-     table identity in O(log |T|) work rather than committing to a
-     65,536-entry table.
+  3. Nonlinearity gadgets (softmax/GELU/LayerNorm) use the prefix-
+     suffix decomposition from Jolt Atlas (arxiv 2602.17452 §4.1,
+     Feb 19 2026). The verifier checks the table identity in
+     O(log |T|) work rather than committing to a 65,536-entry table.
   4. The final wire-form proof is VEIL-wrapped (ePrint 2026/683,
      Apr 7 2026) so the protocol is zero-knowledge against the
      stronger hash-based assumption rather than the elliptic-curve
@@ -112,11 +112,11 @@ LAYERWISE_BACKEND_ID: Final[str] = "nanozk-layerwise-2026"
 not know this id rejects the proof rather than silently accepting."""
 
 
-# Sub-23 ms verifier target (internal performance target). We track it
+# Sub-23 ms verifier target from arxiv 2603.18046 §5.2. We track it
 # as a constant so the integration tests can assert against it.
 NANOZK_VERIFIER_TARGET_MS: Final[float] = 23.0
 NANOZK_PROOF_SIZE_BYTES: Final[int] = 6_900
-"""Design target: 6.9 KB constant proof size per layer at GPT-2 scale.
+"""Paper claim: 6.9 KB constant proof size per layer at GPT-2 scale.
 After VEIL wrapping the wire size is 6.9 KB × 1.12 ≈ 7.7 KB per layer."""
 
 
@@ -949,8 +949,8 @@ def verify_layer_proof(
     expected_weights_commitment: str | None = None,
     expected_circuit: LayerCircuit | None = None,
 ) -> LayerProofVerification:
-    """Verify a per-layer proof. Sub-23 ms internal performance
-    target — asserted in the integration tests on the shim path.
+    """Verify a per-layer proof. Sub-23 ms target per arxiv 2603.18046
+    §5.2 — asserted in the integration tests on the shim path.
 
     The verifier checks, in order:
       1. Inputs consistency — proof's claimed input hash matches

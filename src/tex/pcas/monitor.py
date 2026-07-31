@@ -19,7 +19,8 @@ it computes a verdict in {PERMIT, ABSTAIN, FORBID} grounded in:
    - ``deny`` present                            -> FORBID (fail-closed)
    - ``deny`` absent, ``authorize`` present      -> PERMIT
    - neither present                             -> ABSTAIN
-   This is the fail-closed authorization flow we apply system-wide.
+   This matches PCAS §4.4.1 authorization-flow with the fail-closed
+   correction we apply system-wide.
 
 The monitor never throws on policy semantic failure; it converts
 EvaluationError / StratificationError / ParseError into FORBID with a
@@ -28,7 +29,7 @@ becomes a PERMIT is if the policy *explicitly* authorizes the
 candidate action.
 
 Latency target: < 1 ms p99 on graphs with <= 100 nodes / 500 edges,
-which is the operating regime PCAS is designed for.
+which is the regime PCAS reports in arxiv 2602.16708 Table 3.
 """
 
 from __future__ import annotations

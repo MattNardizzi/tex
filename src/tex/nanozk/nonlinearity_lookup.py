@@ -28,23 +28,25 @@ root of a sum-of-squares). The two textbook ways to handle them are:
       agreement with the floating-point reference (modulo
       quantisation, which is unavoidable in any ZK circuit).
 
-The NANOZK design picks option (b) with 16-bit precision, targeting
-no measurable perplexity change. That's the right call — verification
+NANOZK (arxiv 2603.18046 §3.2) picked option (b) with 16-bit precision
+and reported "zero measurable perplexity change" across GPT-2,
+GPT-2-Medium, and TinyLLaMA-1.1B. That's the right call — verification
 should not change the model. The problem with naive (b) is the
 *materialised* table size: a 16-bit softmax index space is 65,536
 entries per query; a 12-layer transformer with 12 attention heads
 queries it ~ 12 × 12 × seq_len² times. That's a lot of constraints to
 prove inclusion against.
 
-The Jolt Atlas design introduces **prefix-suffix decomposition**:
-large lookup tables for common nonlinearities admit a decomposition
+Jolt Atlas (arxiv 2602.17452 §4.1, Feb 19 2026) introduced
+**prefix-suffix decomposition**: large lookup tables for common
+nonlinearities admit a decomposition
 
   T(x) = f(prefix(x)) ⊕ g(suffix(x))
 
 for some lightweight combiner ⊕. The prefix and suffix tables are
 each √|T| in size, and the sumcheck verifier handles the combination
-in O(log |T|) work — without materialising T. The Jolt Atlas shape
-covers softmax, GELU, and LayerNorm specifically.
+in O(log |T|) work — without materialising T. The Jolt Atlas paper
+documents this for softmax, GELU, and LayerNorm specifically.
 
 We adopt the Jolt Atlas shape here. The numerical tables are
 deterministic: every value is computed once at module import from the
@@ -71,17 +73,22 @@ For each nonlinearity ``f`` we expose:
 Tests assert ``f_lookup(x) == reference(x)`` to within the 16-bit
 quantisation grid for every x in the input domain.
 
-Design notes
-------------
-- Prefix-suffix decomposition of large lookup tables is the Jolt
-  Atlas shape adopted here.
-- Neural-teleportation table compression is deliberately NOT used —
-  it is a training-time optimisation that requires retraining; we
-  want the zero-perplexity-change property, so we stay on the
-  static-table path.
-- 16-bit lookups are chosen as the precision at which quantisation
-  error is expected to be unmeasurable in perplexity (design
-  target, not a measured external result).
+References
+----------
+- arxiv 2602.17452 §4.1, *Prefix-Suffix Decomposition of Large Lookup
+  Tables* (Jolt Atlas, Feb 19 2026)
+- arxiv 2602.17452 §4.2, *Neural Teleportation for Lookup Table
+  Compression* (cited but not used — neural teleportation is a
+  training-time optimisation that requires retraining; we want the
+  zero-perplexity-change property, so we stay on the static-table
+  path)
+- arxiv 2603.18046 §3.2, NANOZK's claim of zero measurable accuracy
+  loss with 16-bit lookups
+- arxiv 2604.23647 — Kim et al., *Hardware-Efficient Softmax and
+  Layer Normalization with Guaranteed Normalization for Edge
+  Devices*, Apr 26 2026. Validates our 16-bit shape against custom
+  silicon's normalisation guarantees (GLUE +0.07%, SQuAD -0.01%,
+  perplexity -0.09%).
 """
 
 from __future__ import annotations

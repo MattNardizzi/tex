@@ -5,8 +5,8 @@ Covers:
   * ``RecordedScoreDetector`` for SynthID-Text and TextSeal.
   * ``build_tex_evidence_watermark_assertion`` builder shape and limits.
   * Perceptual text hash robustness to common email re-encoding.
-  * Cross-layer audit detection of desynchronisation attacks
-    (manifest origin vs watermark detection contradictions).
+  * Cross-layer audit detection of arxiv 2603.02378 desynchronisation
+    attacks (manifest origin vs watermark detection contradictions).
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class TestRecordedScoreDetectorTextSeal:
             recorded_score=5.2,
             recorded_p_value=1e-15,
             threshold=TEXTSEAL_DEFAULT_THRESHOLD,
-            detector_version="textseal/v1",
+            detector_version="facebookresearch/textseal/v1",
             detected_regions=((0, 120), (250, 400)),
         )
         result = det.detect(
@@ -98,7 +98,7 @@ class TestBuildWatermarkAssertion:
             recorded_score=5.5,
             recorded_p_value=1e-18,
             threshold=TEXTSEAL_DEFAULT_THRESHOLD,
-            detector_version="textseal/v1",
+            detector_version="facebookresearch/textseal/v1",
         )
         body = b"this is an ai-generated marketing email body"
         result = det.detect(body.decode(), key_id="k-1")
@@ -107,7 +107,7 @@ class TestBuildWatermarkAssertion:
             key_id="k-1",
             soft_binding_value="sha256:" + ("a" * 64),
             asserted_origin="ai-generated",
-            detector_url="https://detectors.texaegis.com/textseal",
+            detector_url="https://github.com/facebookresearch/textseal",
         )
         assert payload["scheme"] == "textseal"
         assert payload["watermark_present"] is True
@@ -115,8 +115,8 @@ class TestBuildWatermarkAssertion:
         assert payload["soft_binding"]["kind"] == "perceptual-text-hash-v1"
         assert payload["soft_binding"]["value"].startswith("sha256:")
         assert "$schema" in payload
-        # Scheme reference is carried into the assertion.
-        assert payload["paper_reference"] == "tex:durable-credentials"
+        # Paper reference is carried into the assertion.
+        assert "2605.12456" in payload["paper_reference"]
 
     def test_invalid_asserted_origin_rejected(self):
         det = RecordedScoreDetector(
@@ -167,7 +167,7 @@ class TestPerceptualTextHash:
 
 
 # ---------------------------------------------------------------------------
-# Cross-layer audit (desynchronised provenance)
+# Cross-layer audit (arxiv 2603.02378)
 # ---------------------------------------------------------------------------
 
 
@@ -202,13 +202,13 @@ class TestCrossLayerAudit:
         assert ISSUE_WATERMARK_VALIDATED in result.issues
 
     def test_desync_human_authored_but_watermark_present(self):
-        """The desynchronisation attack: manifest claims human-authored
+        """The arxiv 2603.02378 attack: manifest claims human-authored
         but the watermark detector says AI generated."""
         wm = _wm_assertion(present=True, origin="human-authored")
         result = cross_layer_audit(watermark_assertion=wm)
         assert result.is_consistent is False
         assert ISSUE_DESYNC_HUMAN_AUTHORED_BUT_AI_DETECTED in result.issues
-        assert result.paper_reference == "tex:cross-layer-audit"
+        assert result.paper_reference == "arxiv:2603.02378"
 
     def test_desync_ai_generated_but_no_watermark_at_all(self):
         """The complementary desync: manifest claims AI-generated, but the

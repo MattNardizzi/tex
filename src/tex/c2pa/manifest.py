@@ -75,7 +75,9 @@ TEX_VERDICT_SCHEMA_V1: str = "https://schemas.texaegis.com/c2pa/tex.verdict/v1"
 
 # Tex evidence-cosign schema URL — locks the wire format of the
 # Thread-5 post-quantum co-signature assertion that closes the six
-# C2PA validator attack classes tracked in Tex's C2PA attack matrix.
+# attack classes identified in arxiv 2604.24890 (Sherman/Krawetz/NSA,
+# Apr 27 2026, "Verifying Provenance of Digital Media: Why the C2PA
+# Specifications Fall Short").
 TEX_EVIDENCE_COSIGN_SCHEMA_V1: str = (
     "https://schemas.texaegis.com/c2pa/tex.evidence_cosign/v1"
 )
@@ -344,8 +346,8 @@ def build_tex_evidence_cosign_assertion(
 ) -> C2paAssertion:
     """
     Build a ``tex.evidence_cosign`` assertion that closes the six
-    C2PA validator attack classes tracked in Tex's C2PA attack
-    matrix (against C2PA 2.2–2.4 validator behaviour).
+    attack classes identified in arxiv 2604.24890 (Sherman et al.,
+    Apr 27 2026) against C2PA 2.2–2.4.
 
     The cosign is a Tex-internal assertion carried inside the C2PA
     manifest. The outer COSE_Sign1 signs the claim CBOR (which
@@ -361,8 +363,8 @@ def build_tex_evidence_cosign_assertion(
     What each field defends against
     -------------------------------
     - ``bound_timestamp`` — included in the signed cosign input,
-      so swapping the outer trusted timestamp (attack #1 in the
-      matrix) yields a cosign that no longer verifies.
+      so swapping the outer trusted timestamp (NSA paper attack
+      #1) yields a cosign that no longer verifies.
     - ``revocation_proof`` — hash-pin of the OCSP response or CRL
       snapshot the outer signing cert was validated against at
       signing time. Defends against the spec's optional revocation
@@ -380,7 +382,7 @@ def build_tex_evidence_cosign_assertion(
       whose C2PA certificate expires (attack #5) can still be
       re-verified offline via the chain.
 
-    The remaining mitigations (independent security audit;
+    The remaining recommendations (independent security audit;
     clarified public-comm claims) are policy/operational, not
     serialization-level.
 
@@ -417,7 +419,7 @@ def build_tex_evidence_cosign_assertion(
         "canonicalization_version": canonicalization_version,
         "retention_anchor": dict(retention_anchor),
         "defends_against": {
-            "reference": "tex:c2pa-attack-matrix",
+            "paper": "arxiv:2604.24890",
             "attacks": [
                 "timestamp_swap",
                 "revocation_skipped",

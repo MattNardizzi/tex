@@ -1,7 +1,7 @@
 """
 Hierarchical Causal Graph node + edge types.
 
-Structure:
+Per arxiv 2602.23701 §4.1.1 — §4.1.2:
 
   V = V_sub ∪ V_agt
     V_sub  — Subtask Node (high-level logical phase)
@@ -12,11 +12,11 @@ Structure:
     E_agt  — connects agent nodes (inter-agent collaboration)
     E_step — explicit data-flow at step granularity, recording exact
              upstream outputs and downstream inputs (variable references
-             in OTAR tuples)
+             in OTAR tuples — paper §4.1.2)
 
-Edge construction: subtask and agent edges carry counterfactual
-patterns ``Φ`` linking ``Bias(u)`` to ``Anomaly(v)``; step edges serve
-as data snapshots.
+Edge construction follows the paper's pattern: subtask and agent edges
+carry counterfactual patterns ``Φ`` linking ``Bias(u)`` to
+``Anomaly(v)``; step edges serve as data snapshots.
 
 Implementation
 --------------
@@ -37,14 +37,14 @@ from tex.causal._otar import OTARTuple
 
 
 class NodeKind(str, Enum):
-    """Node tier in the CHIEF hierarchical causal graph."""
+    """Node tier per CHIEF §4.1.1."""
 
     SUBTASK = "subtask"
     AGENT = "agent"
 
 
 class EdgeKind(str, Enum):
-    """Edge tier in the CHIEF hierarchical causal graph."""
+    """Edge tier per CHIEF §4.1.2."""
 
     SUB = "subtask"  # E_sub
     AGT = "agent"    # E_agt
@@ -53,10 +53,10 @@ class EdgeKind(str, Enum):
 
 class SubtaskNode(BaseModel):
     """
-    A high-level logical phase.
+    A high-level logical phase. Per Fig. 5(a) of the CHIEF paper.
 
     ``goal`` corresponds to ``G_sub`` in the virtual oracle tuple
-    ``O_k = ⟨G_sub, P_pre, E_key, C_acc⟩``. The remaining
+    ``O_k = ⟨G_sub, P_pre, E_key, C_acc⟩`` (§4.2.1). The remaining
     oracle fields are populated by ``OracleSynthesizer`` if/when wired
     (P1 work — see ``HierarchicalCausalGraph``).
     """
@@ -73,8 +73,8 @@ class AgentNode(BaseModel):
     """
     An atomic agent execution unit, OTAR-attributed.
 
-    ``otar`` is the ⟨Observation, Thought, Action, Result⟩ tuple.
-    ``step_id`` and ``agent_id`` together uniquely
+    ``otar`` is the ⟨Observation, Thought, Action, Result⟩ tuple per
+    §4.1.1 / Fig. 5(b). ``step_id`` and ``agent_id`` together uniquely
     identify the node within the trace; the graph node ID itself is
     derived deterministically from them.
     """
@@ -94,7 +94,7 @@ class CausalEdge(BaseModel):
 
     For ``EdgeKind.STEP`` edges, ``upstream_output_ref`` and
     ``downstream_input_ref`` capture the exact variable / OTAR-result
-    references that constitute the data-flow snapshot.
+    references that constitute the data-flow snapshot (§4.1.2).
     For ``EdgeKind.SUB`` and ``EdgeKind.AGT`` edges, ``pattern`` carries
     the counterfactual pattern ``Φ`` (Bias → Anomaly).
 

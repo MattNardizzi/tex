@@ -51,7 +51,7 @@ The package therefore splits cleanly into **LIVE** (`standing.py`, `private_data
 | `kernel_mcp/capability.py` | 165 | DEMO/TEST | `McpCapability`, `CapabilitySet`, `TrustTier` (4-tier), `tier_rank`/`tier_meets`. |
 | `kernel_mcp/syscall_gate.py` | 771 | DEMO/TEST | `McpSyscallGate` — six-layer pipeline, SSRF guard (CVE-2026-44232 IPv6 classes), secret scanner, SHA-256 audit chain. |
 | `stpa_specs/__init__.py` | 73 | DEMO/TEST | Re-exports STPA artifacts + manifest loader. |
-| `stpa_specs/hazard_model.py` | 176 | DEMO/TEST | STPA dataclasses (Loss/Hazard/UCA/LossScenario + Tex extensions). |
+| `stpa_specs/hazard_model.py` | 176 | DEMO/TEST | STPA dataclasses (Loss/Hazard/UCA/LossScenario + Doshi-2026 extensions). |
 | `stpa_specs/manifest.py` | 490 | DEMO/TEST | Pydantic YAML manifest loader, cross-ref validation, UCA→module coverage matrix. |
 
 ---
@@ -126,7 +126,7 @@ This is the algorithmically richest part of the package and the one that runs on
 
 ### 5. `stpa_specs/` (DEMO/TEST) — STPA hazard model
 
-Classical STPA dataclasses + Tex extensions (`hazard_model.py`). `manifest.py` loads/validates a YAML manifest into a frozen pydantic `StpaManifest` (`:70`) with full cross-reference validation that aggregates all errors (`load_manifest`, `:97-218`), and `build_coverage_matrix` (`:437`) walks two chains (LossScenario mitigations + Hazard→Requirement→Specification enforcement modules) to compute per-UCA coverage and the **uncovered set**.
+Classical STPA dataclasses + Doshi-2026 extensions (`hazard_model.py`). `manifest.py` loads/validates a YAML manifest into a frozen pydantic `StpaManifest` (`:70`) with full cross-reference validation that aggregates all errors (`load_manifest`, `:97-218`), and `build_coverage_matrix` (`:437`) walks two chains (LossScenario mitigations + Hazard→Requirement→Specification enforcement modules) to compute per-UCA coverage and the **uncovered set**.
 
 ### 6. `private_data_exec/sandbox.py` (DEMO/TEST) — GAAP sandbox
 
@@ -258,16 +258,16 @@ No native crypto / TEE / ZK libraries are used in this package — the only cryp
 
 The package is a catalogue of 2024-2026 agent-governance research, implemented rather than cited:
 
-- **Runtime governance on paths** — `path_policy/*`. LTLf is Tex's own encoding choice on top of a violation-probability framing (`path_policy/ltlf.py:11-15`, honestly disclosed).
+- **Runtime Governance on Paths** (Kaptein/Khan/Podstavnychy, arXiv:2603.16586) — `path_policy/*`. LTLf is Tex's own encoding choice on top of the paper's violation-probability framing (`path_policy/ltlf.py:11-15`, honestly disclosed).
 - **RV-LTL four-valued runtime verification** (Bauer/Leucker/Schallhart, ACM TOSEM 2011) — the RV4 classifier in `ltlf.py`, with a **sound over-approximation** for the permanent-violation verdict (the load-bearing soundness property for FORBID).
-- **ARM / causality laundering** — `ifc/provenance.py` counterfactual edges + chain query.
+- **ARM / Causality Laundering** (Chinaei, arXiv:2604.04035) — `ifc/provenance.py` counterfactual edges + chain query.
 - **FIDES product lattice** (Costa et al., arXiv:2505.23643) — `ifc/lattice.py` (label × capacity, declassification of low-capacity outputs).
-- **NeuroTaint cross-session taint** — `ifc/memory.py`.
+- **NeuroTaint cross-session taint** (arXiv:2604.23374) — `ifc/memory.py`.
 - **CA-CI contextual integrity** (Roemmich/Martin/Schaub IEEE S&P 2026; Nissenbaum 2004) — `ifc/ci_norms.py` six-tuple.
 - **Rule of Two / lethal trifecta** (Meta Oct 2025; Willison 2025) — `ifc/engine.py` check (f).
-- **Governed MCP** — `kernel_mcp/*` six-layer pipeline (Layer 5 logit gate unimplemented).
-- **STPA** (Leveson handbook 2018) — `stpa_specs/*`.
-- **GAAP** — `private_data_exec/sandbox.py`.
+- **Governed MCP** (Son, arXiv:2604.16870) — `kernel_mcp/*` six-layer pipeline (Layer 5 logit gate unimplemented).
+- **STPA** (Leveson handbook 2018; Doshi et al. ICSE-NIER 2026 arXiv:2601.08012) — `stpa_specs/*`.
+- **GAAP** (Stanley et al., arXiv:2604.19657) — `private_data_exec/sandbox.py`.
 - **CVE-2026-44232** IPv6 SSRF bypass classes — encoded in `kernel_mcp/syscall_gate.py:189-217` (claim about the CVE is unverifiable from code, but the blocklist itself is real and comprehensive).
 
 Design patterns: frozen `@dataclass(slots=True)` / frozen pydantic for value objects; PEP/PDP separation; conservative-join lattice algebra; fail-closed defaults throughout; deterministic SHA-256 fingerprints; sliding-window + token-bucket; LRU+TTL caches.

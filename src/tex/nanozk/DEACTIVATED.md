@@ -35,9 +35,9 @@ an existing, audited zkML backend rather than the bespoke pipeline here:
 - **Lagrange DeepProve** — production-grade zkML, proves small-model inference
   (GPT-2 scale today). <https://lagrange.dev/blog/deepprove-zkml>
 - **EZKL** — the most mature open-source zkML toolkit (still beta).
-- **NANOZK** is an internal design label for the layerwise proving approach
-  this scaffold sketches; the scaffold does **not** implement a working
-  layerwise prover.
+- The paper this scaffold is *named after* is real:
+  **NANOZK: Layerwise Zero-Knowledge Proofs for Verifiable LLM Inference**,
+  arXiv:2603.18046. The scaffold cites it; it does **not** implement it.
 
 ## Market note (as of 2026-06)
 zero-knowledge ML is real but concentrated in crypto/on-chain contexts and small

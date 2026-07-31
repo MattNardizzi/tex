@@ -1,25 +1,24 @@
 """
-Tests for tex.c2pa.spec_gap_defenses — verifies Tex's posture
-against the six C2PA validator attack classes in Tex's C2PA
-attack matrix.
+Tests for tex.c2pa.sherman_2026_defenses — verifies Tex's posture
+against the six attack classes in Sherman et al., arxiv 2604.24890.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tex.c2pa.spec_gap_defenses import (
-    SpecGapAttackClass,
-    SpecGapDefense,
-    SpecGapDefensePosture,
+from tex.c2pa.sherman_2026_defenses import (
+    ShermanAttackClass,
+    ShermanDefense,
+    ShermanDefensePosture,
     assess_current_posture,
     render_buyer_dossier,
 )
 
 
-def test_six_attack_classes_are_named():
-    """The six classes from Tex's C2PA attack matrix."""
-    values = {c.value for c in SpecGapAttackClass}
+def test_six_attack_classes_are_named_per_paper():
+    """The six classes from Sherman et al. §3 attack matrix."""
+    values = {c.value for c in ShermanAttackClass}
     assert "C1.timestamp_replay" in values
     assert "C2.stale_ocsp" in values
     assert "C3.chain_truncation" in values
@@ -32,18 +31,18 @@ def test_six_attack_classes_are_named():
 def test_posture_covers_all_six_classes():
     posture = assess_current_posture()
     classes = {d.attack_class for d in posture.defenses}
-    assert classes == set(SpecGapAttackClass)
+    assert classes == set(ShermanAttackClass)
 
 
 def test_all_six_defenses_are_currently_wired():
-    """Headline assertion: Tex closes all six attack-matrix
+    """Headline assertion: Tex closes all six Sherman 2026 attack
     classes. Any regression flips this to False."""
     posture = assess_current_posture()
     failures = [
         d.attack_class.value for d in posture.defenses if not d.wired
     ]
-    assert posture.spec_gap_compliant is True, (
-        f"Spec-gap defense regressions detected: {failures}"
+    assert posture.sherman_2026_compliant is True, (
+        f"Sherman-2026 defense regressions detected: {failures}"
     )
 
 
@@ -68,14 +67,15 @@ def test_render_buyer_dossier_is_json_serialisable():
     # Round-trips through JSON without loss.
     serialised = json.dumps(dossier)
     decoded = json.loads(serialised)
-    assert decoded["reference"] == "tex:c2pa-attack-matrix"
-    assert decoded["spec_gap_compliant"] is True
+    assert decoded["paper"]["arxiv_id"] == "2604.24890"
+    assert decoded["sherman_2026_compliant"] is True
     assert len(decoded["defenses"]) == 6
 
 
-def test_dossier_lists_reference():
+def test_dossier_lists_paper_anchor():
     dossier = render_buyer_dossier()
-    assert dossier["reference"] == "tex:c2pa-attack-matrix"
+    assert dossier["paper"]["title"].startswith("Verifying Provenance")
+    assert dossier["paper"]["published"] == "2026-04-27"
 
 
 def test_specific_defenses_cite_their_modules():
@@ -85,12 +85,12 @@ def test_specific_defenses_cite_their_modules():
     posture = assess_current_posture()
     by_class = {d.attack_class: d for d in posture.defenses}
 
-    c1 = by_class[SpecGapAttackClass.TIMESTAMP_REPLAY]
+    c1 = by_class[ShermanAttackClass.TIMESTAMP_REPLAY]
     assert any(
         "tex.c2pa.timestamp" in m for m in c1.wired_modules
     ), "C1 defense must cite tex.c2pa.timestamp"
 
-    c2 = by_class[SpecGapAttackClass.STALE_OCSP]
+    c2 = by_class[ShermanAttackClass.STALE_OCSP]
     assert any(
         "tex.c2pa.ocsp" in m for m in c2.wired_modules
     ), "C2 defense must cite tex.c2pa.ocsp"

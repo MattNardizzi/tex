@@ -1,27 +1,28 @@
 # L1 Calibration Flywheel — frontier survey (June 2026)
 
-> Written BEFORE coding, per the session brief. External citations that could
-> not be verified against a public source have been removed; those entries
-> survive only as unattributed technique notes. Anything carried from memory is
-> labelled `UNVERIFIED-FROM-MEMORY` or dropped.
+> Written BEFORE coding, per the session brief. Every citation below was
+> retrieved and read **this session** (web fetch of the arXiv abstract page).
+> Anything I could not retrieve is labelled `UNVERIFIED-FROM-MEMORY` or dropped.
 > The job this informs: wire sealed human resolutions → a per-tenant conformal
 > calibration set, and flip Session-2's DERIVED floor from `transductive`
 > (approximate) to `calibrated` once enough labels accrue — **without overclaiming
 > the coverage we actually earn.**
 
-## 1. Sources and technique notes
+## 1. The papers (retrieved + verified this session)
 
-| Reference | What it gives us |
-|---|---|
-| Conformal abstention (technique note, unattributed) | Finite-sample guarantees on **both** the probability of *participation* (not abstaining) and the probability the answer is *correct*. Confirms the design pattern Tex already runs — abstain is the safe floor, and the abstain boundary itself can carry a conformal guarantee. |
-| Adaptive conformal calibration (technique note, unattributed) | **Adaptive** (input-/prompt-dependent) calibration: keeps **marginal** coverage while improving **conditional** coverage, with no minimum calibration size stated — silent on `min_n`. Supports per-tenant (input-stratified) calibration as a principled refinement, not a hack. |
-| [2403.03868](https://arxiv.org/abs/2403.03868) — *Confidence on the Focal: Conformal Prediction with Selection-Conditional Coverage* (Ying Jin, Zhimei Ren, 2024) | **The load-bearing caveat.** Marginally-valid CP intervals **can fail** to cover when the test unit was *selected* by a data-driven rule (top-K, optimization, conformal-p-value). Proposes prediction sets with finite-sample coverage **conditional on selection**; generalizes Mondrian CP to multiple test units + arbitrary permutation-invariant selection rules. |
+| arXiv | Title / authors | Date | What it gives us |
+|---|---|---|---|
+| [2604.27914](https://arxiv.org/abs/2604.27914) | *Geometry-Calibrated Conformal Abstention for Language Models* | 2026-04-30 | Conformal Abstention (CA): finite-sample guarantees on **both** the probability of *participation* (not abstaining) and the probability the answer is *correct*. Confirms the design pattern Tex already runs — abstain is the safe floor, and the abstain boundary itself can carry a conformal guarantee. |
+| [2604.13991](https://arxiv.org/abs/2604.13991) | *Adaptive Conformal Prediction for Improving Factuality of Generations by LLMs* — Rubashevskii, Piatrashyn, Nakov, Panov | 2026-04-15 | **Adaptive** (input-/prompt-dependent) calibration: keeps **marginal** coverage while improving **conditional** coverage. The abstract states **no minimum calibration size** — silent on `min_n`. Supports per-tenant (input-stratified) calibration as a principled refinement, not a hack. |
+| [2403.03868](https://arxiv.org/abs/2403.03868) | *Confidence on the Focal: Conformal Prediction with Selection-Conditional Coverage* — Ying Jin, Zhimei Ren | 2024 | **The load-bearing caveat.** Marginally-valid CP intervals **can fail** to cover when the test unit was *selected* by a data-driven rule (top-K, optimization, conformal-p-value). Proposes prediction sets with finite-sample coverage **conditional on selection**; generalizes Mondrian CP to multiple test units + arbitrary permutation-invariant selection rules. |
 
-Additional adaptive/drift techniques considered (used for the drift discussion
-in §4, not relied on for a guarantee): drift-aware conformal prediction for
-non-exchangeable streams; online shift detection (windowed shift alarm →
-conformal abstention reweight); Gibbs & Candès **ACI**
-(Adaptive Conformal Inference) for non-stationary streams.
+Additional adaptive/drift work surfaced while searching (read at abstract level
+only; used for the drift discussion in §4, not relied on for a guarantee):
+[DASC, 2606.15953](https://arxiv.org/abs/2606.15953) (drift-aware spectral CP for
+non-exchangeable streams); [Online Shift Detection, 2606.11949](https://arxiv.org/abs/2606.11949)
+(KS-window shift alarm → conformal abstention reweight); Gibbs & Candès **ACI**
+(Adaptive Conformal Inference) for non-stationary streams, referenced via
+[2601.00908](https://arxiv.org/abs/2601.00908).
 
 ## 2. The calibrated-floor formula (confirmed against the live code)
 
@@ -37,8 +38,8 @@ of the calibration scores with the test score, the standard split-CP result hold
 
 The *realized* coverage is Beta-distributed (Vovk; Lei et al. 2018; Angelopoulos &
 Bates 2023): `Coverage ~ Beta(n+1−l, l)` with `l = ⌊(n+1)α⌋`, mean ≥ 1−α and
-spread shrinking like ~1/n. Tex's threshold matches the standard split-conformal
-formula — confirmed by reading the code, not assumed.
+spread shrinking like ~1/n. Tex's threshold matches the formula in the paper
+([2605.06788](https://arxiv.org/abs/2605.06788), Feng et al.) — confirmed by reading the code, not assumed.
 
 ## 3. `min_n` for a *non-vacuous* floor
 
@@ -83,8 +84,9 @@ stated precisely so no code overclaims:
 
 4. **Degrades under drift.** Within-stratum exchangeability breaks when the tenant's
    agent behaviour shifts (new tools, new policies, attack-pattern change). ACI
-   (Gibbs & Candès), drift-aware calibration, and online shift detection are the
-   principled responses (online α-adjustment / drift-weighted calibration). Tex does **none** of
+   (Gibbs & Candès), DASC ([2606.15953](https://arxiv.org/abs/2606.15953)), and online
+   shift detection ([2606.11949](https://arxiv.org/abs/2606.11949)) are the principled
+   responses (online α-adjustment / drift-weighted calibration). Tex does **none** of
    these yet: the floor is a static split-CP quantile that silently assumes no drift.
    This is a named, owned limitation — V1 ships the honest static floor + the
    disclosure, not an adaptive one.

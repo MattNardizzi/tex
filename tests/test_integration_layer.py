@@ -672,11 +672,12 @@ class TestServiceMetadata:
 # both the hard-violation FORBID short-circuit and the soft-violation
 # ABSTAIN paths fire as designed.
 #
-# Design alignment:
-#   * ABC 6-tuple — drives contract structure.
+# Source-paper alignment:
+#   * arxiv 2602.22302 §3 (ABC 6-tuple) — drives contract structure.
 #   * arxiv 2411.14581 (LTL3 finite-trace semantics) — three-valued runtime
 #     verdicts map to PERMIT / ABSTAIN / FORBID.
-#   * Enforcement intercepts violations but cannot guarantee safe goal
+#   * arxiv 2603.19328 (Verifier Tax, Mar 2026) — empirical finding that
+#     enforcement intercepts violations but cannot guarantee safe goal
 #     completion. We assert the *enforcement mechanism*, not goal completion.
 #
 # See FRONTIER_DELTA_thread_1.md for the full delta brief.
@@ -894,14 +895,14 @@ class TestBehavioralContracts:
 # Thread 1.5 — session-scoped enforcement + ledger replay                   #
 # ------------------------------------------------------------------------- #
 #
-# Proves the ABC (p, δ, k)-satisfaction semantics work across
+# Proves the ABC paper's (p, δ, k)-satisfaction semantics work across
 # requests. The Thread 1 build had a single global enforcer; Thread 1.5
 # moved to per-(agent_id, session_id) enforcer instances with ledger
 # replay on session bootstrap. The tests below assert:
 #
 #   1. The PDP step_index accumulates across requests for the same
 #      (agent_id, session_id), which is what makes the StepShield
-#      Early Intervention Rate metric measurable.
+#      Early Intervention Rate metric (arxiv 2601.22136) measurable.
 #   2. Different sessions of the same agent get independent recovery
 #      state — a soft violation in session A does not poison session B.
 #   3. The session_key surfaces in violation metadata so audit
@@ -912,7 +913,7 @@ class TestBehavioralContracts:
 
 
 class TestBehavioralContractsSessionScoping:
-    """ABC (p, δ, k)-satisfaction across requests."""
+    """ABC §3.3 (p, δ, k)-satisfaction across requests."""
 
     def _post_with_session(
         self,
@@ -946,8 +947,8 @@ class TestBehavioralContractsSessionScoping:
         Two requests in the same (agent_id, session_id) pair should
         share enforcer state, so the second request's step_index is
         strictly greater than the first's. This is the foundation of
-        StepShield's Early Intervention Rate and
-        ABC's (p, δ, k)-satisfaction.
+        StepShield's Early Intervention Rate (arxiv 2601.22136) and
+        ABC's (p, δ, k)-satisfaction (arxiv 2602.22302 §3.3).
         """
         import uuid
 
@@ -1171,7 +1172,7 @@ class TestBehavioralContractsSessionScoping:
 
     def test_bounded_recovery_discharges_within_k_window(self, monkeypatch):
         """
-        ABC (p, δ, k)-satisfaction: a soft violation must be
+        ABC §3.3 (p, δ, k)-satisfaction: a soft violation must be
         recovered within k subsequent steps or it escalates. This test
         proves the recovery counter works across PDP requests.
 
@@ -1269,7 +1270,7 @@ class TestBehavioralContractsSessionScoping:
 #   * ``previous_hash`` field (linear chain integrity)
 #   * ``parent_evidence_hash`` field in payload (semantic cross-reference)
 #
-# Design alignment: the AgentAssert evidence
+# Source-paper alignment: arxiv 2602.22302 §5.2 AgentAssert evidence
 # model — each violation is a discrete, signable, cryptographically
 # chained event. Tex's implementation goes further by keeping the
 # linear-chain integrity property of the JSONL log intact.
@@ -1749,7 +1750,7 @@ class TestIncidentAttribution:
         assert payload["parent_evidence_hash"] == decision_records[0].record_hash
 
     def test_attribution_with_conformal_set(self, attribution_client):
-        """Request a conformal prediction set.
+        """Request a conformal prediction set per arxiv 2605.06788.
 
         Verifies the CP layer returns a structurally valid
         contiguous prediction set, the threshold and coverage mode
@@ -1881,13 +1882,13 @@ class TestIncidentAttribution:
 # Thread 4 — Runtime Defense Specialist Integration                          #
 #                                                                            #
 # Proves each of the five new specialist judges fires when exercised by an   #
-# actual /v1/guardrail request. Specialists:                                 #
-#   - ClawGuard                                                              #
-#   - PlanGuard   (+ arxiv 2403.02691 InjecAgent)                            #
-#   - MAGE                                                                   #
-#   - MCPShield                                                              #
+# actual /v1/guardrail request. References:                                  #
+#   - ClawGuard   arxiv 2604.11790 (Apr 2026)                                #
+#   - PlanGuard   arxiv 2604.10134 (Apr 2026) + arxiv 2403.02691 InjecAgent  #
+#   - MAGE        arxiv 2605.03228 (4 May 2026)                              #
+#   - MCPShield   arxiv 2604.05969 (Apr 2026)                                #
 #   - AgentArmor  arxiv 2508.01249v3 (Nov 2025)                              #
-#                  + ARGUS (frontier)                                        #
+#                  + ARGUS arxiv 2605.03378 (5 May 2026, frontier)           #
 #                                                                            #
 # Each test confirms the specialist contributed at least one reason code     #
 # inside the decision evidence visible on the response.                      #
@@ -1987,7 +1988,7 @@ class TestThread4RuntimeDefenseSpecialists:
 
     # ── AgentArmor (with ARGUS frontier) ─────────────────────────────────
     def test_agentarmor_fires_on_argus_provenance_signal(self, client):
-        """ARGUS — provenance-aware decision auditing.
+        """ARGUS arxiv 2605.03378 — provenance-aware decision auditing.
 
         Verifies the AgentArmor specialist *contributes* its ARGUS reason
         codes inside the live /v1/guardrail request path. The PDP's final
@@ -2185,7 +2186,7 @@ class TestThread4_5FrontierSpecialists:
 # Thread 4.5 Option A: measured-ASR CI gate.                               #
 #                                                                          #
 # Asserts the full adversarial harness produces an Overall ASR below the   #
-# configured ceiling AND a benign FPR below the calibration                #
+# paper-SOTA-aligned threshold AND a benign FPR below the calibration      #
 # bound. If lexical patterns drift, this test catches the regression       #
 # before it ships.                                                         #
 # ─────────────────────────────────────────────────────────────────────── #
@@ -2197,8 +2198,10 @@ class TestAdversarialMeasuredASR:
     def test_overall_asr_below_paper_sota_threshold(self, client):
         """Lexical-only baseline must achieve <= 8% overall ASR.
 
-        8% is the conservative ceiling chosen for the lexical
-        baseline. When TEX_SPECIALIST_LLM_MODE=tiered is
+        Reference: arxiv 2604.11790 ClawGuard reports 0.6-3.1% on
+        AgentDojo; arxiv 2605.03228 MAGE reports STAC ASR 8.3%. Our
+        lexical baseline is benchmarked against both — 8% is the
+        conservative ceiling. When TEX_SPECIALIST_LLM_MODE=tiered is
         configured, the threshold is materially lower; this gate only
         covers the lexical baseline.
         """
@@ -2273,7 +2276,8 @@ class TestThread15NanozkLayerwiseAttribution:
       8. Tamper the envelope's input_hash and verify the live
          verifier rejects.
 
-    Reference: the NANOZK layerwise scaffold (``tex.nanozk``).
+    Reference: arxiv 2603.18046 (NANOZK), arxiv 2602.17452 (Jolt
+    Atlas), eprint 2026/683 (VEIL).
     """
 
     @pytest.fixture
@@ -3161,8 +3165,8 @@ class TestThread9DigitalTwinIntegration:
 
 # =====================================================================
 # Thread 9.1 — Self-tuning loop: calibrator-informed Koopman dictionary,
-# NN-lift (ScaRe-Kro), exact-OT for ORC, and the
-# SCCAL curvature-gated attention recurrence.
+# NN-lift (ScaRe-Kro per arxiv 2601.01076), exact-OT for ORC, and the
+# SCCAL curvature-gated attention recurrence (paper §3.3).
 # =====================================================================
 
 

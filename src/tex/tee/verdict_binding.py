@@ -20,12 +20,13 @@ one field the TDX quoting hardware signs.
 
 Prior art / novelty (re-verify before any customer-facing claim)
 ----------------------------------------------------------------
-Guardrail-attestation designs typically attest the guardrail **code**;
-the open problem is that proof-of-execution != proof-of-guardrail
-**decision**. Binding the *decision* into ``report_data`` is the narrow
-delta here. The capability rests on the green benchmark in
+Proof-of-Guardrail (arXiv 2603.05786) attests the guardrail **code**;
+the open problem it names is "proof-of-execution != proof-of-guardrail
+**decision**." Binding the *decision* into ``report_data`` is the narrow
+delta here. Citation status: ``UNVERIFIED-FROM-MEMORY`` — not re-fetched
+this session; the capability rests on the green benchmark in
 ``tests/tee/test_verdict_binding.py`` (verdict-swap ⇒ ``ok=False``,
-forgery=0 over the suite), never on a citation.
+forgery=0 over the suite), never on the citation.
 
 THE BUG THIS FIXES (load-bearing)
 ---------------------------------

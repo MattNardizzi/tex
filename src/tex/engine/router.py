@@ -678,8 +678,9 @@ class DecisionRouter:
             return True
 
         # Frontier structural specialists firing in the mid-band should promote
-        # to ABSTAIN even when other layers see nothing. These specialists'
-        # detection strength is specialist-level, not
+        # to ABSTAIN even when other layers see nothing. The paper SOTA numerics
+        # (arxiv 2604.10134 §IV, 2605.03228 §5, 2603.10749, 2601.05755,
+        # 2605.03378, 2604.11790, 2604.05969) are specialist-level, not
         # pipeline-fused; without this rule the specialist signal is diluted to
         # PERMIT by zero-scoring downstream layers. Benign-traffic calibration
         # is preserved because these specialists return floor (0.05) on benign

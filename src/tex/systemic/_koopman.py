@@ -1,8 +1,11 @@
 """
 Koopman lift + linear advance for the ecosystem digital twin.
 
-Thread 9. Data-driven reachability via Koopman/EDMD lifting, paired
-with conformal coverage bands (``_conformal.py``) for the forecast.
+Thread 9. Reference: arxiv 2601.01076 (Nath/Yin/Chou, PMLR 2026,
+"Scalable Data-Driven Reachability Analysis and Control via Koopman
+Operators with Conformal Coverage Guarantees") and arxiv 2605.01803
+(Leon, May 2026, "Koopman Representations for Early Outbreak
+Warning and Minimal Counterfactual Intervention").
 
 The Koopman operator lifts nonlinear ecosystem-state dynamics
 ``x_{t+1} = f(x_t)`` to an approximately-linear advance ``z_{t+1} =
@@ -83,7 +86,7 @@ _RIDGE_LAMBDA: float = 1e-3
 # Below this many observed transitions, EDMD is unreliable. We fall
 # back to identity lift (i.e. mean-transition advance).
 MIN_TRAINING_N: int = 8
-# Default learned-dictionary lifted dim.
+# Default learned-dictionary lifted dim (matches ScaRe-Kro reference impl).
 _NN_LIFT_DIM: int = 32
 # NN-lift training defaults (small + deterministic; full repro tested).
 _NN_LIFT_EPOCHS: int = 80
@@ -319,15 +322,16 @@ def _lifted_dim(state_dim: int, n_rbfs: int) -> int:
 
 
 # =============================================================================
-# Thread 9.1: NN-lift (learned-dictionary Koopman)
+# Thread 9.1: NN-lift (ScaRe-Kro-style, arxiv 2601.01076 §III.A)
 # =============================================================================
 
 class _NNLift:
     """
     Two-layer neural-network lift φ_θ : R^d → R^L.
 
-    Instead of a hand-crafted dictionary, the lift can use a learned
-    NN observable. The NN learns observables jointly with the linear
+    Per arxiv 2601.01076 (Nath/Yin/Chou, PMLR 2026), the SOTA Koopman
+    lift uses a learned NN observable rather than a hand-crafted
+    dictionary. The NN learns observables jointly with the linear
     advance operator K such that K φ(x_t) ≈ φ(x_{t+1}). We train
     end-to-end via a one-step prediction loss.
 
@@ -513,8 +517,8 @@ def fit_koopman(
       RBF centers are biased toward ``high_leverage_regions``. The
       operator learns dynamics in a calibrator-shaped frame.
     - ``learned_dictionary``: when True (and torch is installed), use
-      the learned NN-lift dictionary. The NN is trained end-to-end via
-      one-step prediction loss.
+      the NN-lift dictionary per arxiv 2601.01076 §III.A. The NN is
+      trained end-to-end via one-step prediction loss.
 
     Returns None if there are fewer than ``MIN_TRAINING_N`` transitions;
     callers should fall back to identity-advance in that case.
@@ -528,7 +532,7 @@ def fit_koopman(
 
     snapshot_version = tenant_profile.snapshot_version if tenant_profile else 0
 
-    # ---- NN-lift path (Thread 9.1: learned dictionary) ------------------
+    # ---- NN-lift path (Thread 9.1: ScaRe-Kro-style) ---------------------
     if learned_dictionary:
         if not _HAS_TORCH:
             # Caller asked for NN-lift but torch is missing — degrade

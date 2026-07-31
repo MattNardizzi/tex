@@ -12,8 +12,8 @@ References
   https://docs.nvidia.com/attestation/attestation-client-tools-sdk/latest/
 * Blackwell CC + NVLink encryption: 590-series driver release notes
   (confirmed GA May 2026).
-* Design rationale: GPU state is the weakest link when only the CPU
-  is attested; composite CPU+GPU attestation is required for
+* arxiv 2605.03213 (May 7 2026): GPU TEE attestation is the weakest
+  link in CPU-only attestation; composite CPU+GPU is required for
   production agentic AI.
 """
 
@@ -66,8 +66,9 @@ def collect_gpu_evidence(*, nonce: bytes) -> GpuEvidence:
     with the local-GPU verifier. Returns SPDM evidence bytes plus the
     GPU SKU. Dev-mode fallback: deterministic stub.
 
-    The nonce is required: production without a per-decision nonce is
-    vulnerable to quote replay (the CrossGuard binding rationale).
+    The nonce is required: production without per-decision nonce is
+    vulnerable to replay per the CrossGuard pattern (surveyed in
+    arxiv 2604.23280).
     """
     if not nonce:
         raise ValueError("nonce must be non-empty for GPU attestation")

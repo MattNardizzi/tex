@@ -15,9 +15,9 @@
 # against the live request and short-circuits to FORBID before fusion when
 # the formula is violated. This is the capability claimed in CLAIMS.md §1.
 #
-# Background
-# ----------
-# - the ABC 6-tuple contract model (tex.contracts)
+# Reference papers
+# ----------------
+# - arxiv 2602.22302 (Bhardwaj, ABC) §3.1 6-tuple
 # - arxiv 2411.14581 (LTL3 finite-trace semantics)
 #
 # Usage

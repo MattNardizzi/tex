@@ -399,7 +399,7 @@ documented unreachable (ECDSA-P256 has no exotic backend).
 - **SCITT** (`draft-ietf-scitt-architecture-22`) COSE_Sign1_Tagged signed statements +
   **refusal-events** taxonomy (`draft-kamimura-scitt-refusal-events-02`).
 - **PTV attested-agent-identity** envelope (`draft-anandakrishnan-ptv-...`) + **NanoZK**
-  layerwise ZK proofs + **VEIL** wrapping (eprint 2026/683).
+  layerwise ZK proofs (arxiv 2603.18046) + **VEIL** wrapping (eprint 2026/683).
 - **NVIDIA NRAS** EAT-JWT **TEE attestation** (RATS / RFC 9334).
 - **Negative-knowledge / non-membership** via sorted-key Merkle accumulator with
   adjacency proofs; **count-conservation** safety predicate.

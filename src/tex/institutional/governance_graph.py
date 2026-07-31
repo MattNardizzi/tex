@@ -1,8 +1,8 @@
 """
 Governance graph.
 
-A labeled transition system (LTS) over institutional states. The formal
-triple is G = (Q, E, δ) where:
+A labeled transition system (LTS) over institutional states. Per arxiv
+2601.10599 §5.4 the formal triple is G = (Q, E, δ) where:
   Q = discrete institutional states (e.g. active, warning, fined,
       credited, suspended)
   E = directed edges (legal transitions) carrying stable join identifiers
@@ -11,14 +11,19 @@ triple is G = (Q, E, δ) where:
       successor states, where Σ is the set of observable behavioural
       signals emitted by the Oracle.
 
-The manifest is the public contract — a machine-readable JSON/YAML
-artifact that externalises the institution.
-Two SHA-256 digests are recorded per emitted manifest:
+The manifest is the public contract per arxiv 2601.11369 §4.2 — a
+machine-readable JSON/YAML artifact that externalises the institution.
+Two SHA-256 digests are recorded per emitted manifest (Appendix D):
   manifest_semantic_sha256 — canonicalised content (regime identity)
   manifest_file_sha256     — exact emitted bytes (artifact provenance)
 
 The semantic digest excludes the digests themselves and any signature
 fields so the manifest can carry its own identity.
+
+Reference
+---------
+arxiv 2601.11369 (Bracale Syrnikov et al., 2026), Appendix D
+arxiv 2601.10599 (Pierucci et al., 2026), §5.4 "The Governance Graph"
 
 Priority: P1.
 """
@@ -40,10 +45,10 @@ from tex.institutional.sanctions import (
 from tex.observability.telemetry import emit_event
 
 
-# Canonical state labels for the Cournot fixture topology.
-# We do not hardcode these into validation — manifests are domain-portable —
-# but we expose them as a constant so fixtures can import the canonical
-# Cournot topology.
+# Paper-canonical state labels per arxiv 2601.11369 Figure 2 / Section 4.2.
+# We do not hardcode these into validation — manifests are domain-portable
+# (Section 4.2 "Domain portability") — but we expose them as a constant so
+# fixtures can import the canonical Cournot topology.
 CANONICAL_COURNOT_STATES: tuple[str, ...] = (
     "active",
     "warning",
@@ -52,8 +57,8 @@ CANONICAL_COURNOT_STATES: tuple[str, ...] = (
     "suspended",
 )
 
-# Edge-key format:  "<RULE_ID>:<from_state>-><to_state>"
-# RULE_ID is the stable ABDICO identifier (e.g. P2_independent_decision).
+# Edge-key format from Appendix D:  "<RULE_ID>:<from_state>-><to_state>"
+# RULE_ID is the stable ABDICO identifier (§4.1, e.g. P2_independent_decision).
 _EDGE_KEY_RE = re.compile(
     r"^(?P<rule_id>[A-Za-z0-9_]+):(?P<from>[a-z_][a-z0-9_]*)->(?P<to>[a-z_][a-z0-9_]*)$"
 )
@@ -62,24 +67,24 @@ _EDGE_KEY_RE = re.compile(
 @dataclass(frozen=True, slots=True)
 class LegalState:
     """
-    A discrete institutional state in the governance graph.
+    A discrete institutional state per arxiv 2601.10599 §5.4.
 
     Fields
     ------
     state_id
         Stable lowercase identifier (e.g. "active", "warning").
     description
-        Human-legible label rendered into Institutional notices.
+        Human-legible label rendered into Institutional notices
+        (Appendix C of 2601.11369).
     predicate_ltl
-        DEPRECATED. The institutional layer does not use LTL formulas —
-        institutional states are discrete labels. Retained as an optional free-text
+        DEPRECATED. The paper does not use LTL formulas — institutional
+        states are discrete labels. Retained as an optional free-text
         annotation for backward compatibility with the original scaffold.
         Setting this has no semantic effect; the Oracle dispatches by
         state_id only.
 
-    TODO(P2): if a future revision extends the institutional layer with
-        LTL-style runtime predicates over ecosystem state, repurpose
-        this field.
+    TODO(P2): if a future paper extends Institutional AI with LTL-style
+        runtime predicates over ecosystem state, repurpose this field.
     """
 
     state_id: str
@@ -103,11 +108,11 @@ class LegalTransition:
         "expiry_tick". The Controller looks up edges by (from_state,
         triggered_by).
     edge_key
-        Stable join identifier. Format:
+        Stable join identifier per Appendix D. Format:
         "<RULE_ID>:<from_state>-><to_state>". Mandatory and unique within
         the graph.
     rule_id
-        ABDICO rule identifier. Multiple edges may share a rule_id
+        ABDICO rule identifier (§4.1). Multiple edges may share a rule_id
         when one rule fans out to several transitions (e.g. one rule
         firing both Active->Warning and Warning->Fined depending on
         prior state).
@@ -118,10 +123,10 @@ class LegalTransition:
         References RestorativePath.path_id. Set on restorative edges
         (warning->active, fined->credited, fined->active, etc.).
     timing
-        Manifest execution-contract timing:
+        Manifest execution-contract timing per §6.2.2:
           duration_rounds  - how long the target state persists
           cooldown_rounds  - how long before this edge can fire again
-          jitter_rounds    - randomised delay (contracts.timing)
+          jitter_rounds    - randomised delay (Appendix D contracts.timing)
         None values mean "not declared" and the Controller treats them
         as zero.
     sanction_on_violation
@@ -131,7 +136,7 @@ class LegalTransition:
         DEPRECATED — see LegalState.predicate_ltl. Retained as a free-
         text annotation field.
     metadata
-        Manifest-declared opaque metadata
+        Manifest-declared opaque metadata per Appendix D
         ("metadata: tier/tags/provenance"). Carried verbatim.
     """
 
@@ -192,6 +197,11 @@ class GovernanceGraph:
     Auditors verify regime identity by recomputing canonical_sha256 over
     this dict and comparing against manifest_semantic_sha256.
 
+    Reference
+    ---------
+    arxiv 2601.11369 Appendix D (manifest schema, two-digest scheme)
+    arxiv 2601.10599 §5.4 (graph topology + manifest + governance engine)
+
     TODO(P2): policy_program IR (currently carried as opaque dict) becomes
         a typed CST when we ship a manifest interpreter spec.
     TODO(P2): publisher_signature_b64 is currently optional and unverified
@@ -234,7 +244,7 @@ class GovernanceGraph:
         ----------
         data
             Parsed manifest (typically ``json.load`` or ``yaml.safe_load``
-            output). Schema follows the manifest schema described above.
+            output). Schema follows Appendix D.
         file_bytes
             Optional raw bytes for the manifest_file_sha256 digest. If
             omitted, a deterministic re-serialisation is hashed instead
@@ -262,9 +272,9 @@ class GovernanceGraph:
         )
         transitions = _parse_transitions(data.get("transitions") or [])
 
-        # Carry policy_surface / policy_program / contracts verbatim.
-        # These are opaque (versioned IR + resolved snapshot) so we do
-        # not parse them into typed structures yet.
+        # Carry policy_surface / policy_program / contracts verbatim. The
+        # paper specifies these as opaque (versioned IR + resolved snapshot)
+        # so we do not parse them into typed structures yet.
         policy_surface = (
             dict(data["policy_surface"])
             if isinstance(data.get("policy_surface"), dict)
@@ -621,7 +631,7 @@ def _parse_transitions(raw: Iterable[Any]) -> tuple[LegalTransition, ...]:
         rule_id = str(entry.get("rule_id", ""))
 
         # Auto-derive edge_key if rule_id+from+to are present but edge_key
-        # is missing — the key format is mechanical so we can do this safely.
+        # is missing — paper format is mechanical so we can do this safely.
         if not edge_key and rule_id and from_state and to_state:
             edge_key = f"{rule_id}:{from_state}->{to_state}"
         # Auto-derive rule_id from edge_key if only edge_key is given.
@@ -809,8 +819,9 @@ def _semantic_digest_input(
 ) -> dict[str, Any]:
     """
     Build the canonical dict that gets hashed to produce
-    manifest_semantic_sha256. This excludes the digest fields themselves
-    and any signature so the manifest can carry its own identity.
+    manifest_semantic_sha256. Per Appendix D this excludes the digest
+    fields themselves and any signature so the manifest can carry its
+    own identity.
     """
     return {
         "schema_version": schema_version,

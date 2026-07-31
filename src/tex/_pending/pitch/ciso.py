@@ -38,10 +38,10 @@ from tex._pending.pitch._intel import (
 _TEX_RUNTIME_CAPABILITIES: tuple[str, ...] = (
     "kernel-MCP gate — every tool call adjudicated against signed "
     "policy; no MCP server can poison tool descriptions silently",
-    "HMAC-SHA-256 tool execution receipts (NabaOS pattern) — "
-    "runtime issues, agent never holds the key",
+    "HMAC-SHA-256 tool execution receipts (NabaOS pattern, "
+    "arxiv 2603.10060) — runtime issues, agent never holds the key",
     "ClawGuard deterministic boundary enforcement against IPI via "
-    "skill files (OWASP Agentic Skills Top 10)",
+    "skill files (OWASP Agentic Skills Top 10, arxiv 2604.11790)",
     "MCPShield + mcp_injection_specialist — defends MCP-001 "
     "(tool poisoning) and MCP-002 (SSRF)",
     "Bounded-compromise certificate per renewal period — provable "

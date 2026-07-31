@@ -7,7 +7,8 @@ checked at the boundary, not inside the LLM.
 
 Implementation
 --------------
-ClawGuard places four components at every tool-call boundary:
+Per arxiv 2604.11790 §III-A, ClawGuard places four components at every
+tool-call boundary:
 
   1. Content Sanitizer (S_in / S_out): pattern-library redaction of
      sensitive spans on both incoming arguments AND outgoing tool returns.
@@ -18,8 +19,8 @@ ClawGuard places four components at every tool-call boundary:
      — handled at session-init time when a skill is first loaded.
   4. Approval Mechanism: ambiguous verdicts queue for user authorization.
 
-A most-restrictive-wins aggregation combines per-attribute verdicts into
-the final V(a*).
+The most-restrictive-wins aggregation (paper Eq. 7) combines per-attribute
+verdicts into the final V(a*).
 
 Backwards-compatible signature: check_call returns (allowed, reason) where
 ambiguous verdicts that do not have an approval handler are conservatively
@@ -49,16 +50,16 @@ from tex.runtime.clawguard.rule_set import (
 )
 
 # Approval handler: takes a sanitized tool call, returns True iff user
-# explicitly approves. A timeout τ is applied; the handler is
-# responsible for honoring it. None disables the approval queue
-# (ambiguous → deny).
+# explicitly approves. Per paper §III-A.4, a timeout τ is applied; the
+# handler is responsible for honoring it. None disables the approval
+# queue (ambiguous → deny).
 ApprovalHandler = Callable[[str, Mapping[str, Any], str], bool]
 
 _DEFAULT_LOGGER = get_logger("tex.runtime.clawguard")
 
 
 class SanitizedCall(BaseModel):
-    """The sanitized tool-call form (a*)."""
+    """The (a*) form from paper Eq. 4."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -68,7 +69,7 @@ class SanitizedCall(BaseModel):
 
 
 class ContentSanitizer:
-    """Pattern-library redaction of sensitive spans."""
+    """Pattern-library redaction of sensitive spans (paper §III-A.1)."""
 
     def __init__(
         self,
@@ -102,7 +103,7 @@ class ContentSanitizer:
         return result
 
 
-# Obfuscation indicators: base64-looking blobs, hex
+# Obfuscation indicators per paper §III-A.2: base64-looking blobs, hex
 # encoding, shell concatenation, excessive indirection. Conservatively
 # map matches to ambiguous so they queue for user review.
 _OBFUSCATION_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -128,13 +129,13 @@ def _looks_obfuscated(text: str) -> bool:
 
 class RuleEvaluator:
     """
-    The rule evaluator V. Returns (verdict, hit_rule, attribute, value).
+    V from paper §III-A.2. Returns (verdict, hit_rule, attribute, value).
 
     Modes:
-      - "strict": An attribute that matches NEITHER a
+      - "strict": paper-faithful. An attribute that matches NEITHER a
         whitelist nor a blacklist returns AMBIGUOUS, forcing user
         review. Use this when R_task is LLM-induced and reliably covers
-        the intended tool surface.
+        the intended tool surface (paper §III-B Step 2).
       - "deny_only": offline-friendly. Only blacklists block; everything
         else is implicitly ALLOW. Use this when R_task is induced by a
         deterministic baseline that may not enumerate every legitimate
@@ -169,7 +170,7 @@ class RuleEvaluator:
     ) -> tuple[Verdict, Rule | None, str | None]:
         """
         Combine per-attribute V_elem outcomes into V(a*) under
-        most-restrictive-wins.
+        most-restrictive-wins (paper Eq. 7).
 
         attributes maps each domain to the concrete strings to be checked
         against that domain's rules. Strings can include the tool name
@@ -181,7 +182,7 @@ class RuleEvaluator:
             for value in values:
                 if not isinstance(value, str):
                     continue
-                # Obfuscation -> ambiguous.
+                # Obfuscation -> ambiguous (paper §III-A.2 final paragraph).
                 if domain is RuleDomain.CMD and _looks_obfuscated(value):
                     seen_amb = (None, f"obfuscation_detected:{value[:40]}")
                 v_elem, rule = self._evaluate_value(domain, value)
@@ -197,7 +198,7 @@ class RuleEvaluator:
     def _evaluate_value(
         self, domain: RuleDomain, value: str
     ) -> tuple[Verdict, Rule | None]:
-        """Per-attribute V_elem with blacklist priority."""
+        """Per-attribute V_elem (paper Eq. 6) with blacklist priority."""
         deny_hit: Rule | None = None
         allow_hit: Rule | None = None
         for rule, compiled in self._compiled:
@@ -223,7 +224,7 @@ class ToolCallBoundaryEnforcer:
     """
     Full ClawGuard boundary check.
 
-    The canonical pipeline is:
+    Per arxiv 2604.11790 §III-A, the canonical pipeline is:
         1. Sanitize input args (S_in)
         2. Evaluate rules over the sanitized call (V)
         3. If amb -> ask user via approval handler
@@ -263,8 +264,7 @@ class ToolCallBoundaryEnforcer:
         TODO(P0): apply task rules second (user-confirmed)
         TODO(P0): deny on first match; emit audit event with rule_id
 
-        Status: implemented as the full sanitize/evaluate/approve
-        pipeline. The
+        Status: implemented per arxiv 2604.11790 §III-A pipeline. The
         scaffolded signature is preserved; ambiguous verdicts route
         through the optional approval handler, defaulting to DENY when
         no handler is configured (deny-by-default invariant).
@@ -351,7 +351,7 @@ class ToolCallBoundaryEnforcer:
         return True, None
 
     def sanitize_output(self, output: Any) -> tuple[Any, list[str]]:
-        """Apply the output sanitizer S_out to a tool return value."""
+        """Apply S_out per paper Eq. 5."""
         return self._sanitizer.sanitize(output)
 
     @staticmethod
@@ -361,7 +361,8 @@ class ToolCallBoundaryEnforcer:
         """
         Project tool_name + tool_input into the three rule domains.
 
-        For each relevant attribute x_i extracted from a*, we extract:
+        Per paper §III-A.2, "for each relevant attribute x_i extracted
+        from a*". We extract:
           - cmd: tool_name itself + free-text command-like strings (those
             that do not look like paths or network URLs).
           - file: any path-like string (starts with / or ~, or begins
@@ -369,8 +370,8 @@ class ToolCallBoundaryEnforcer:
           - net: any URL or hostname-like string (contains :// or ends
             with a TLD, or is a literal IP).
 
-        Each value is routed to ONE primary domain. An AMBIGUOUS
-        verdict in any domain blocks the call by default; we
+        Each value is routed to ONE primary domain. Per Eq. 7, an
+        AMBIGUOUS verdict in any domain blocks the call by default; we
         therefore avoid double-evaluating the same string in domains
         where it is not relevant, which would otherwise force benign
         URLs to be 'amb' in cmd despite being explicitly allowed in net.
@@ -410,9 +411,10 @@ class ToolCallBoundaryEnforcer:
             # patterns ('rm -rf /', 'curl ... | bash') can match the full
             # value even when it embeds a URL or a path. Domain-specific
             # routing only ADDS the value to file/net domains; it does not
-            # remove it from cmd. A single tool call can have multiple
-            # relevant attributes evaluated under their own domain rules
-            # (most-restrictive-wins).
+            # remove it from cmd. This matches the paper's intent that a
+            # single tool call can have multiple relevant attributes
+            # evaluated under their own domain rules (paper §III-A.2,
+            # Eq. 7 most-restrictive-wins).
             cmd.append(value)
             if looks_net:
                 nets.append(value)

@@ -1,7 +1,7 @@
 """
 Tests for tex.contracts._atoms — the predicate atom resolver.
 
-Coverage of the 14 ContractSpec operators:
+Coverage of the 14 ContractSpec operators (arxiv 2602.22302 §5.1):
   ==, !=, >, >=, <, <=, ~contains, ~not_contains, ~matches, ~in,
   ~not_in, ~between, ~exists.
 (``expr`` is intentionally not implemented in this thread — it has its

@@ -610,7 +610,7 @@ Every module, alphabetical, with path · LOC · tier(R/T/S) · wiring · layer �
 | `tex.c2pa.evidence_emission` | 362 | 4/2/0 | WIRED | Evidence | base64, datetime, hashlib, json, logging | 1 | 2/10 |
 | `tex.c2pa.manifest` | 460 | 5/1/0 | WIRED | Evidence | datetime, pydantic | 4 | 11/0 |
 | `tex.c2pa.ocsp` | 558 | 5/5/0 | WIRED | Evidence | cryptography, datetime, enum, secrets | 4 | 2/3 |
-| `tex.c2pa.spec_gap_defenses` | 335 | 2/2/0 | WIRED | Evidence | enum, importlib | 3 | 1/0 |
+| `tex.c2pa.sherman_2026_defenses` | 335 | 2/2/0 | WIRED | Evidence | enum, importlib | 3 | 1/0 |
 | `tex.c2pa.signer` | 297 | 3/7/0 | WIRED | Evidence | base64, cryptography, threading | 0 | 2/9 |
 | `tex.c2pa.timestamp` | 449 | 3/3/0 | WIRED | Evidence | datetime, enum, hashlib, pyasn1, secrets | 11 | 2/3 |
 | `tex.c2pa.verifier` | 679 | 9/6/0 | WIRED | Evidence | base64, cryptography, datetime, pathlib | 2 | 1/11 |

@@ -7,10 +7,12 @@ that every governance-graph transition was decided correctly. The
 signature on each log entry is the cryptographic anchor that makes that
 verification offline-checkable.
 
-Design context: NIST's RSA / DH / ECC deprecation timeline (deprecate
-2030, disallow 2035 for NSS under CNSA 2.0) makes post-quantum-grade
-signatures the prudent floor for any agent-governance audit trail
-intended to remain verifiable past 2030. Tex's algorithm-agility surface
+Post-cutoff context (May 7, 2026): arxiv 2605.06933 (MAGIQ, Avizeh /
+Mallick / Oprea / Nita-Rotaru / Safavi-Naini) argues that NIST's RSA /
+DH / ECC deprecation timeline (deprecate 2030, disallow 2035 for NSS
+under CNSA 2.0) makes post-quantum-grade signatures the May-2026
+credibility floor for any agent-governance audit trail intended to
+remain verifiable past 2030. Tex's algorithm-agility surface
 (``tex.pqcrypto.algorithm_agility``) already dispatches ML-DSA-44/65/87
 (FIPS 204), HYBRID_ML_DSA_ED25519, ED25519, and ECDSA_P256. This module
 *selects* among them per runtime liboqs availability.
@@ -37,12 +39,15 @@ References
 ----------
 * FIPS 204 (ML-DSA, finalized August 2024)
 * NSA CNSA 2.0 (pure-PQ mandate for NSS, 2030-2035)
+* arxiv 2605.06933 (MAGIQ, May 7 2026) — PQ as credibility floor for
+  multi-agent governance audit trails
 * ``tex.pqcrypto.algorithm_agility`` — the underlying dispatcher
 
 Honesty note
 ------------
-This module does NOT claim Universal-Composability-framework security.
-It claims only what it ships: algorithm-agility-driven selection of the strongest available
+This module does NOT claim Universal-Composability-framework security
+(which MAGIQ provides for its full protocol suite). It claims only what
+it ships: algorithm-agility-driven selection of the strongest available
 NIST-standardized signature algorithm at runtime, with telemetry naming
 the choice.
 """

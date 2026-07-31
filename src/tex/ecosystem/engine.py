@@ -39,8 +39,8 @@ in days 90+.
 References
 ----------
 - AAF (arxiv 2512.18561 v3, March 2026): eight-step runtime layer.
-- Institutional layer (tex.institutional): governance-graph LTS framing
-  for steps 4 and 8.
+- Institutional AI (arxiv 2601.10599, 2601.11369, January 2026):
+  governance-graph LTS framing for steps 4 and 8.
 - IETF SCITT architecture draft -22 (April 2026): attestation envelope.
 - RFC 9162 (Certificate Transparency v2): window Merkle root format.
 - Microsoft Agent Governance Toolkit (open-sourced April 2026):
@@ -215,7 +215,8 @@ class EcosystemEngine:
         # step 4. Both default ``None`` for backward compat — when
         # neither is provided, step 4 is a pass-through (axis score 1.0,
         # "no manifest declared, all transitions legal under undeclared
-        # regime"). See FRONTIER_DELTA_thread_2.md §4.1.
+        # regime"). Reference: arxiv 2601.11369 (Bracale Syrnikov et
+        # al., Jan 2026) and FRONTIER_DELTA_thread_2.md §4.1.
         governance_graph: "GovernanceGraph | None" = None,
         oracle: "GovernanceOracle | None" = None,
         # Thread 2 (P1): institutional governance log (signed audit
@@ -232,8 +233,8 @@ class EcosystemEngine:
         # advancement on FORBID with sanction). Subagent inheritance
         # walks this map via ``resolve_effective_state``.
         institutional_states: "dict[str, str] | None" = None,
-        # Thread 7.1: RiskGate P3 monotonic restriction.
-        # When True, the engine tracks a per-actor
+        # Thread 7.1: RiskGate P3 monotonic restriction (arxiv
+        # 2604.24686 §4). When True, the engine tracks a per-actor
         # minimum viability index observed across the evaluation
         # history. Subsequent verdicts cannot report a higher
         # *effective* viability than that floor without an explicit
@@ -274,7 +275,7 @@ class EcosystemEngine:
         governance_graph, oracle
             Thread-2 institutional collaborators. When both are
             provided, step 4 of ``evaluate()`` becomes a real
-            governance-graph LTS legality check.
+            governance-graph LTS legality check per arxiv 2601.11369.
             When either is ``None``, step 4 is a pass-through. Backward
             compatible — existing tests do not pass these.
         governance_log
@@ -423,7 +424,7 @@ class EcosystemEngine:
         (no prior evaluation), or the minimum viability index observed
         across the actor's evaluation history.
 
-        Per RiskGate P3 — once the engine has
+        Per RiskGate (arxiv 2604.24686) P3 — once the engine has
         observed an actor at a low viability, subsequent verdicts
         cannot relax that floor without an explicit
         ``record_recovery`` call.
@@ -457,7 +458,7 @@ class EcosystemEngine:
 
           Step 1 — ontology.validate_event(proposed)                 [done]
           Step 2 — graph.project_state_at(proposed.timestamp)        [done]
-          Step 3 — contract check (ABC behavioural contracts)        [done, Thread 7]
+          Step 3 — contract check (Bhardwaj ABC arxiv 2602.22302)    [done, Thread 7]
           Step 4 — governance LTS legality (Thread 2)                [done]
           Step 5 — fast causal attribution (CHIEF.fast_attribute)    [done, Thread 7]
           Step 6 — drift detection (BOCPD + anytime-valid e-process) [done, Thread 7]
@@ -472,13 +473,15 @@ class EcosystemEngine:
         in Thread 8.
 
         Reference: AAF (arxiv 2512.18561 v3, Mar 2026) §4.1 pipeline
-                   ordering; the institutional layer's governance-LTS
-                   framing for step 4; deterministic ABC behavioural
-                   contracts for step 3; anytime-valid e-process
-                   certificates (Drift-to-Action style) for step 6;
-                   ProbGuard (arxiv 2508.00500 v3, Mar 2026) plus
-                   GeomHerd-style geometric herding signals for the
-                   step 7 Thread-9 target.
+                   ordering; Institutional AI (arxiv 2601.10599) §3
+                   LTS framing for step 4; Bhardwaj ABC (arxiv
+                   2602.22302) §3 for step 3; MASPrism (arxiv
+                   2605.07509, May 2026) for step 5 technique
+                   inspiration; Drift-to-Action (arxiv 2603.08578,
+                   Mar 2026) for step 6 anytime-valid certificate;
+                   ProbGuard (arxiv 2508.00500 v3, Mar 2026) +
+                   GeomHerd (arxiv 2605.11645, May 2026) for step 7
+                   Thread-9 target.
         """
         proposed_event_id = self._derive_event_id(proposed)
 
@@ -553,8 +556,8 @@ class EcosystemEngine:
             )
 
         # --- Step 3: behavioral contracts (Thread 7, wired) ---
-        # Composes ABC deterministic constraint satisfaction with the
-        # ecosystem-level severity aggregate.
+        # Composes Bhardwaj ABC (arxiv 2602.22302) §3.2 deterministic
+        # satisfaction with the ecosystem-level severity aggregate.
         # We call ``compliance_scores`` (NOT ``check_pre``) because
         # ``compliance_scores`` is pure: no step_index advance, no
         # violation recording, no soft-recovery deadlines touched.
@@ -564,7 +567,7 @@ class EcosystemEngine:
         #
         # Severity = 1 - min(C_hard, C_soft) — a single hard failure
         # propagates to maximum severity (mirrors ABC's "any hard
-        # violation invalidates the step" semantics).
+        # violation invalidates the step" semantics §3.3).
         #
         # FAIL-CLOSED: if the enforcer raises, severity is set to 1.0
         # (treat as if all constraints failed) and a telemetry event
@@ -575,8 +578,8 @@ class EcosystemEngine:
         # severity event still PERMITs but its evidence record
         # surfaces the severity explicitly.
         #
-        # Reference: Thread 1.5 SessionEnforcerRegistry composition;
-        # FRONTIER_DELTA_thread_7.md §6.1.
+        # Reference: arxiv 2602.22302 §3.2, §3.3, §3.6; Thread 1.5
+        # SessionEnforcerRegistry composition; FRONTIER_DELTA_thread_7.md §6.1.
         contract_violation_severity = 0.0
         if self._contracts is not None:
             try:
@@ -615,8 +618,8 @@ class EcosystemEngine:
 
         # --- Step 4: governance-graph LTS legality check ---
         # When an oracle is wired, ask whether the proposed event is a
-        # legal transition under the active institutional graph. The
-        # LTS is over institutional events;
+        # legal transition under the active institutional graph. Per
+        # arxiv 2601.11369 §4.2 the LTS is over institutional events;
         # action events without a manifest-declared edge produce
         # ``(False, None)`` from ``evaluate_transition`` which we
         # interpret as "no edge declared → step 4 is a pass-through"
@@ -624,9 +627,11 @@ class EcosystemEngine:
         # marks it sanctionable, step 4 returns FORBID with rationale
         # naming the (from_state, triggered_by) pair.
         #
-        # Reference: FRONTIER_DELTA_thread_2.md §4 for the design rationale.
+        # Reference: arxiv 2601.11369 (Bracale Syrnikov et al., Jan 2026)
+        # and FRONTIER_DELTA_thread_2.md §4 for the design rationale.
         #
-        # Subagent-state inheritance: an actor's effective ``from_state`` is the
+        # Subagent-state inheritance per arxiv 2605.08460 (Cai/Zhang/Hei,
+        # May 8 2026): an actor's effective ``from_state`` is the
         # most-restrictive state across its ``spawned_by`` chain. A
         # subagent of a ``suspended`` actor is evaluated under
         # ``suspended``.
@@ -721,8 +726,8 @@ class EcosystemEngine:
         # confidence in [0, 1]. See
         # ``HierarchicalCausalGraph.fast_attribute`` for the
         # algorithm and FRONTIER_DELTA_thread_7.md §6.2 for the
-        # design justification (a heavier full-trace attribution port
-        # was rejected as too slow for the 5ms budget).
+        # design justification (rejected MASPrism port at 2.66s/trace
+        # vs. 5ms budget).
         #
         # FAIL-CLOSED: on any error the axis is set to 0.0 (no
         # attribution) and a telemetry event fires — the engine
@@ -761,7 +766,7 @@ class EcosystemEngine:
         # + frequentist anytime-valid p-value, blended into the
         # ``drift_delta`` axis. The anytime-valid certificate is emitted
         # alongside the Bayesian score so downstream interventions
-        # (Thread 8) can apply a Drift-to-Action-style
+        # (Thread 8) can apply Drift-to-Action arxiv 2603.08578's
         # cost-aware controller against a valid Type-I-bounded signal.
         #
         # When no drift collaborator is wired the axis is honestly
@@ -833,9 +838,9 @@ class EcosystemEngine:
         #     property ``P_{<θ}[ F unsafe_state ]`` over a DTMC
         #     abstraction of the ecosystem state. PAC bounds. 38.66s
         #     forward-looking warnings on the published benchmarks.
-        #   * GeomHerd-style geometric signals: Ollivier-Ricci
-        #     curvature on agent-interaction graphs as an early
-        #     herding indicator.
+        #   * GeomHerd (arxiv 2605.11645, May 2026): Ollivier-Ricci
+        #     curvature on agent-interaction graphs. Forward-looking
+        #     ≥272 steps before order-parameter onset.
         #
         # The engine never short-circuits to FORBID/ABSTAIN on a scorer
         # failure: a misconfigured flag must not be capable of DoS'ing

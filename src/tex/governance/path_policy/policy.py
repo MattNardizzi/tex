@@ -1,8 +1,10 @@
 """
 Path policy specification language.
 
-Tex's path-governance contract model formalizes governance policies as
-deterministic functions
+Reference: Kaptein, Khan & Podstavnychy. "Runtime Governance for AI Agents:
+Policies on Paths." arXiv:2603.16586 (Mar 2026).
+
+The Kaptein paper formalizes governance policies as deterministic functions
 
     pi_j(A, P_i, s*, Sigma) -> [0, 1]
 
@@ -12,7 +14,7 @@ the policy set as
     v_i = 1 - prod_{j in J} (1 - pi_j(A, P_i, s*, Sigma))
 
 The decision function delta(v_i) maps to one of three concrete intervention
-outcomes:
+outcomes (paper Section 4.4):
 
   - Pass:  the proposed action executes unmodified
   - Steer: execution pauses; a compliance hint is injected, human approval
@@ -20,24 +22,26 @@ outcomes:
   - Block: the proposed action is prevented, the task terminates at a
            failure state, the incident is escalated
 
-Two surface concepts make this concrete:
+Tex's existing scaffolding pre-commits to two surface concepts that the
+paper does not specify directly:
 
   1. PathPolicy.ltl_formula — a string in a small finite-trace LTL
      dialect (LTLf) that the runtime checker compiles and evaluates over
-     the sliding window. In practice, most path policies are binary
-     threshold rules on path state: LTLf expresses exactly this class
-     compactly, and provides a formal anchor for the audit trail (the
-     formula text is what is audited, not opaque Python).
+     the sliding window. The paper's Section 3.5 lists policies that the
+     authors observe "are binary threshold rules on path state": LTLf
+     expresses exactly this class compactly, and provides a formal
+     anchor for the audit trail (the formula text is what is audited,
+     not opaque Python).
   2. PathPolicy.severity ("block" | "warn" | "audit") — a simplified
      decision-function attached per-policy. severity="block" maps to
-     Block; severity="warn" maps to Steer with no human approval;
-     severity="audit" maps to Pass-with-audit-event.
+     paper-Block; severity="warn" maps to paper-Steer with no human
+     approval; severity="audit" maps to Pass-with-audit-event.
 
-For the deterministic-function policy class, see ``CallablePolicy``
-below — it is the mechanism by which Tex exposes the full
-pi_j(A, P_i, s*, Sigma) form when an LTLf expression cannot capture the
-policy (e.g., graduated/probabilistic data-exfiltration policies,
-cross-agent shared-state policies that read Sigma).
+For the deterministic-function policy class from Section 3.2 of the paper,
+see ``CallablePolicy`` below — it is the mechanism by which Tex exposes
+the full pi_j(A, P_i, s*, Sigma) form when an LTLf expression cannot
+capture the policy (e.g., graduated/probabilistic data-exfiltration
+policies, cross-agent shared-state policies that read Sigma).
 
 Priority: P1.
 """
@@ -79,7 +83,7 @@ class PathPolicy:
     severity: PathPolicySeverity  # "block" | "warn" | "audit"
 
 
-# A path step is a (state, action, observation) tuple, following the
+# A path step is a (state, action, observation) tuple, per the paper's
 # definition of an execution path P = (s_1, ..., s_n) where each
 # s_i = (tau_i, d_in,i, d_out,i). Tex flattens to:
 #   state       — agent / org state vector at step i (mapping)
@@ -91,10 +95,10 @@ class PathPolicy:
 PathStep = tuple[Mapping[str, object], Mapping[str, object], Mapping[str, object]]
 
 
-# Signature for the deterministic-function policy class:
+# Signature for the deterministic-function policies of Section 3.2:
 #     pi_j(A, P_i, s*, Sigma) -> [0, 1]
 # We model A and Sigma as plain mappings to keep the framework general
-# (A is simply an identifier plus registered metadata).
+# (per the paper, "A is simply an identifier" plus registered metadata).
 PolicyFn = Callable[
     [Mapping[str, object], Sequence[PathStep], Mapping[str, object], Mapping[str, object]],
     float,
@@ -111,11 +115,11 @@ class CallablePolicy:
     maximum data-sensitivity level encountered, or information-barrier
     policies that read shared state Sigma.
 
-    pi_j is required to be deterministic: identical inputs always
+    The paper requires pi_j to be deterministic: identical inputs always
     produce identical outputs. The audit trail records the policy_id and
     the inputs at evaluation time, so any auditor can reproduce the score.
-    Random / non-deterministic logic inside ``fn`` violates this
-    contract.
+    Random / non-deterministic logic inside ``fn`` is a violation of the
+    paper's framework (Section 3.2).
 
     Attributes
     ----------
@@ -132,7 +136,7 @@ class CallablePolicy:
     requires_path:
         If True, the checker re-evaluates this policy on every step.
         If False, the checker may evaluate it once at registration time
-        (a pre-task phase optimization).
+        (paper Section 4.2: pre-task phase optimization).
     """
 
     policy_id: str

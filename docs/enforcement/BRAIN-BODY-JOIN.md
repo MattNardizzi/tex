@@ -53,7 +53,7 @@ matters.
 
 Key sources (verify before quoting): Pipelock `github.com/luckyPipewrench/pipelock` +
 `pipelab.org/learn/action-receipt-spec`; AgentROA `draft-nivalto-agentroa-route-authorization`;
-PCAA; Sello; AIVS `draft-stone-aivs-00`; ACTA
+PCAA `arXiv 2606.04104`; Sello `arXiv 2606.04193`; AIVS `draft-stone-aivs-00`; ACTA
 `draft-farley-acta-signed-receipts-01`; Asqav `draft-marques-asqav-compliance-receipts-02`.
 
 ---

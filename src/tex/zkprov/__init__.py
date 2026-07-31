@@ -33,8 +33,8 @@ What this thread ships (Thread 14, May 2026 frontier)
 6. **SCITT ARP** (draft-hillier-scitt-arp-00, May 1 2026) —
    cross-sovereign attestation reconciliation. COSE labels
    0x801-0x804 wired here; narrowed-claim projection live.
-7. **NABAOS** (internal design label) — fast HMAC epistemic
-   receipts that complement the slow-path ZK proof for
+7. **NABAOS** (arxiv 2603.10060, Mar 9 2026) — sub-15ms HMAC
+   epistemic receipts that complement the slow-path ZK proof for
    interactive verification.
 8. **EU AI Act Article 53(1)(d)** — TDS Template (24 Jul 2025)
    field binding so the manifest projects directly onto the public

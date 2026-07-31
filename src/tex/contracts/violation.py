@@ -10,18 +10,18 @@ consumers in one shape:
   2. **The intervention layer** (tex.intervention, P2) — the
      ``severity`` + ``clause_kind`` decide whether to BLOCK / SANCTION
      / WARN.
-  3. **Temporal-detection metrics** — the StepShield metric set
+  3. **Temporal-detection benchmarks** — the StepShield 2026 metrics
      (Early Intervention Rate, Intervention Gap, Tokens Saved) all
      require a step-of-detection timestamp, which is what
      ``step_index`` captures.
 
-Design notes
-------------
-- The ABC contract model's operational metrics drive the field shape.
-- The StepShield temporal-detection metrics all derive from
-  ``step_index``.
-- The ARM-style provenance model treats denial events as first-class
-  citizens; this record IS our denial event when severity
+References
+----------
+- arxiv 2602.22302 (Bhardwaj, ABC) §3.6 — operational metrics
+- arxiv 2601.22136 (Felicia et al., StepShield) — temporal detection
+  metrics; ``step_index`` is the field they all derive from
+- arxiv 2604.04035 (Agentic Reference Monitor) — denial events as
+  first-class citizens; this record IS our denial event when severity
   is ``"block"``.
 """
 

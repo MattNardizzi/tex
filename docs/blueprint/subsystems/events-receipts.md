@@ -13,7 +13,7 @@ Two sibling units that both self-declare as the "Evidence" layer but are wired v
 
 - **`tex.events`** is a **REAL, LIVE** append-only cryptographic event ledger. Every admitted ecosystem event is hash-chained, canonicalized (RFC 8785 / JCS subset), ECDSA-P256 signed, and verified at append time and on demand. It is instantiated in `tex.main.build_runtime` and feeds the `EcosystemEngine` PERMIT path. The cryptography is genuine (`cryptography` library, SECP256R1 + SHA-256, DER signatures), verified live below.
 
-- **`tex.receipts`** is a **REAL but NOT-LIVE** HMAC-SHA-256 tool-receipt subsystem (the paper-style docstring citation formerly in `receipts/__init__.py:20` was unverifiable and has been removed). The issuance/verification logic is fully implemented and works (smoke-tested below), including fabrication detection, HMAC tamper detection, epistemic-source routing (Nyaya pramana taxonomy), and count-misstatement detection. **But no LIVE code path constructs `ReceiptIssuer`/`ReceiptVerifier`.** Its only non-self importer is `tex._pending.pitch.insurer_export` (an ORPHAN under `_pending/`). The spine pass classified `receipts=INDIRECT`; the code shows it is effectively **DEMO/TEST-ONLY** (exercised only by `tests/frontier/test_receipts.py` and `test_scaffolding_imports.py`).
+- **`tex.receipts`** is a **REAL but NOT-LIVE** HMAC-SHA-256 tool-receipt subsystem ("NabaOS-style", per arxiv 2603.10060 claim in `receipts/__init__.py:20`). The issuance/verification logic is fully implemented and works (smoke-tested below), including fabrication detection, HMAC tamper detection, epistemic-source routing (Nyaya pramana taxonomy), and count-misstatement detection. **But no LIVE code path constructs `ReceiptIssuer`/`ReceiptVerifier`.** Its only non-self importer is `tex._pending.pitch.insurer_export` (an ORPHAN under `_pending/`). The spine pass classified `receipts=INDIRECT`; the code shows it is effectively **DEMO/TEST-ONLY** (exercised only by `tests/frontier/test_receipts.py` and `test_scaffolding_imports.py`).
 
 The two units share a conceptual seam — `Event.tool_receipt_id` (`events/event.py:59`) is meant to link a ledger event to a tool receipt — but **that field is never populated from a real receipt anywhere in LIVE code** (verified below).
 
@@ -184,7 +184,7 @@ Grep across `src/tex` for `ReceiptIssuer | ReceiptVerifier | InMemoryReceiptStor
 **REAL (verified live):**
 - **ECDSA-P256 signing/verification is genuine.** `EcdsaP256Provider` uses `cryptography` SECP256R1 + SHA-256 + DER (`_ecdsa_provider.py:40-83`). Smoke test (`PYTHONPATH=src`): `default_signature_provider()` → `EcdsaP256Provider`; sign produced a **72-byte DER signature**; verify of the correct message → `True`, tampered → `False`. Not a stub.
 - **Hash chain + canonicalization are real.** `InMemoryLedger.append` enforces all six invariants with real SHA-256 re-derivation (`ledger.py:295-308`); `verify_chain` re-walks the slice (`ledger.py:216-291`).
-- **HMAC receipts are real.** Smoke test issued a receipt (`rcpt-` + 32 hex), HMAC-SHA-256 over canonical JSON; verifier returned `(True, ())` for a valid pratyaksha claim, `(False, ('fabricated receipt id: ...',))` for a bad id, and `(False, ('count misstatement: claim mentions [99] ...',))` for a count lie. All three detection types work as coded.
+- **HMAC receipts are real.** Smoke test issued a receipt (`rcpt-` + 32 hex), HMAC-SHA-256 over canonical JSON; verifier returned `(True, ())` for a valid pratyaksha claim, `(False, ('fabricated receipt id: ...',))` for a bad id, and `(False, ('count misstatement: claim mentions [99] ...',))` for a count lie. All three NabaOS detection types work as coded.
 
 **STUBS / honest non-implementations:**
 - `ml_dsa_not_yet_wired()` (`_ecdsa_provider.py:135-148`) — raises `NotImplementedError` by design ("Thread 4"). It is **not called by anything** (grep: only definition + docstring mention). Honest dead-end, not a silent fallback.
@@ -205,7 +205,7 @@ Grep across `src/tex` for `ReceiptIssuer | ReceiptVerifier | InMemoryReceiptStor
 - **RFC 8785 JSON Canonicalization Scheme (subset)** for deterministic hashing (`_canonical.py:1-19`). Mirrors `tex.evidence.chain._stable_json`.
 - **Tamper-evident hash chain** — each record links `previous_ledger_hash → prior record_hash`; signature is over `record_hash` (not payload), so identity/lineage fields are all bound. Cited inspiration: arxiv 2512.18561 "AAF" (`__init__.py:17`, `ledger.py:13-18`) — *(claim, unverified; the citation is a design reference, the chain is independently real)*.
 - **HMAC-SHA-256 tool receipts** with constant-time compare (`runtime.py:388`) — the integrity argument is that the LLM never holds the key, so it cannot forge a receipt id.
-- **Nyaya Shastra pramana taxonomy** (PRATYAKSHA/ANUMANA/SHABDA/ABHAVA/UNGROUNDED) mapped to verification rules (`epistemic_source.py`, `runtime.py:349-360`). The docstring citation and quoted detection-rate numbers formerly in `receipts/__init__.py` were **unverifiable and have been removed from the code**.
+- **Nyaya Shastra pramana taxonomy** (PRATYAKSHA/ANUMANA/SHABDA/ABHAVA/UNGROUNDED) mapped to verification rules (`epistemic_source.py`, `runtime.py:349-360`). Cited: arxiv 2603.10060 "Tool Receipts, Not Zero-Knowledge Proofs" (`receipts/__init__.py:20`) — detection-rate numbers (94.2%/87.6%/91.3%, `__init__.py:28-29`) are **paper claims, unverified in this repo**.
 - **Design patterns:** structural typing (`Protocol` + `runtime_checkable` for `EventLedger`/`ReceiptStore`), dependency injection of the signature/HMAC provider (algorithm agility), PEP 562 lazy module attributes to break import cycles (`events/__init__.py:65-73`), frozen pydantic value objects.
 
 ---
@@ -222,7 +222,7 @@ Grep across `src/tex` for `ReceiptIssuer | ReceiptVerifier | InMemoryReceiptStor
 
 ## Notable Findings
 
-1. **Receipts is real but orphaned at runtime.** Fully-implemented, test-passing HMAC receipt subsystem with **zero LIVE wiring**. Its only non-test importer is in `_pending/` (orphan). Classify **DEMO_TEST_ONLY**, not LIVE. (Spine said INDIRECT; the only edges are orphan + tests.)
+1. **Receipts is real but orphaned at runtime.** Fully-implemented, test-passing NabaOS receipt subsystem with **zero LIVE wiring**. Its only non-test importer is in `_pending/` (orphan). Classify **DEMO_TEST_ONLY**, not LIVE. (Spine said INDIRECT; the only edges are orphan + tests.)
 
 2. **The events↔receipts link is unconnected.** `tool_receipt_id` plumbing exists end-to-end in the events unit, but the live engine never passes a real receipt id (`engine.py:1157-1161`), and nothing constructs a receipt to link. The "events ledger tags an HMAC tool receipt" story (`events/__init__.py:13`) is **not realized in LIVE code**.
 
@@ -234,6 +234,6 @@ Grep across `src/tex` for `ReceiptIssuer | ReceiptVerifier | InMemoryReceiptStor
 
 6. **Float-blind canonicalization is a latent foot-gun.** `_canonical.py` rejects floats (`:71-75`). Since `canonical_json` is reused across c2pa, graph, pqcrypto, compliance, institutional, and receipts, any of those passing a float payload will raise `TypeError`. Tracked as TODO(P1) but unfixed.
 
-7. **Detection-rate claims were paper numbers, not measured here.** The detection-rate figures formerly quoted in `receipts/__init__.py:28-29` were sourced to an unverifiable citation and have been removed from the code. The AAF storage figures (`ledger.py:16-18`) come from a cited arxiv paper; nothing in this repo measures them. Label any external repetition as *(claim, unverified)*.
+7. **Detection-rate claims are paper numbers, not measured here.** The 94.2%/87.6%/91.3% figures (`receipts/__init__.py:28-29`) and AAF storage figures (`ledger.py:16-18`) come from cited arxiv papers; nothing in this repo measures them. Label any external repetition as *(claim, unverified)*.
 
 8. **Strong import-cycle hygiene.** Both `__init__` files and `ledger.py`/`engine.py` use `TYPE_CHECKING` + PEP 562 lazy exports + inline imports specifically to keep the offline ECDSA verify path free of the heavy ecosystem/telemetry chain (`events/__init__.py:47-73`, `ledger.py:31-62`). This is genuine engineering, not cargo-culting — and it is why so many external units import `tex.events._canonical`/`_ecdsa_provider` submodules directly instead of the package root.

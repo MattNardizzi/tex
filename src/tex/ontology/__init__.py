@@ -13,8 +13,12 @@ that the temporal knowledge graph admits.
 References
 ----------
 - AIRO (AI Risk Ontology, Golpayegani et al. 2022)
+- arxiv 2604.27713 (Knowledge Graph Representations for LLM-Based Policy
+  Compliance Reasoning)
+- arxiv 2604.00555 (Ontology-Constrained Neural Reasoning in Enterprise
+  Agentic Systems)
 
-Three sub-ontologies:
+Three sub-ontologies (per arxiv 2604.00555):
   role_ontology         How domain actors reason
   interaction_ontology  How actors coordinate
   governance_ontology   What regulatory bounds apply (EU AI Act, NAIC, etc.)

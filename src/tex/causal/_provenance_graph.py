@@ -1,7 +1,7 @@
 """
 ARM provenance graph.
 
-Structure:
+Per arxiv 2604.04035 Definition 3 (§5.1):
 
     G = (V, E, τ, ℓ)
 
@@ -10,28 +10,31 @@ Structure:
   τ : V_Data ∪ V_DataField → 𝒯                        (trust assignment)
   ℓ                                                    (metadata labels)
 
-Edge labels:
+Edge labels (§5.2):
   DirectOutput(c, d)  — call c produced data d
   InputTo(d, c)       — data d was input to call c
   FieldOf(f, d)       — field f is a component of structured data d
   Counterfactual(a_d, c) — denied action a_d may have causally influenced
                             subsequent call c (auto-attached temporally)
 
-Trust propagation:
+Trust propagation (§5.3, Definition 4):
 
     MinTrust(v) = min_{u ∈ Ancestors(v) ∩ (V_Data ∪ V_DataField)} τ(u)
 
 Empty data-ancestor set ⇒ MinTrust(v) = SysInstr (no taint observed).
 
-Monotonic taint: for any edge ``(u, v) ∈ E``,
+Property 1 (Monotonic Taint, §5.3): for any edge ``(u, v) ∈ E``,
 ``MinTrust(v) ≤ MinTrust(u)``. This is enforced *implicitly* by the
 computation — any new edge can only narrow the min over ancestors.
 
 Backend
 -------
 ``networkx.DiGraph`` per the project-wide convention (see
-``tex.graph.temporal_kg``) — the approved dependency; we accept the
-constant-factor slowdown versus a rust-backed graph library.
+``tex.graph.temporal_kg``). The paper's reference implementation uses
+``rustworkx``; we keep semantics identical and accept the constant-factor
+slowdown — networkx is the approved dependency.
+
+Reference: arxiv 2604.04035 §5.
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ from tex.causal._integrity import (
 
 
 class ProvenanceNodeKind(str, Enum):
-    """Disjoint node tiers in the ARM provenance graph."""
+    """Disjoint node tiers per ARM Definition 3."""
 
     CALL = "call"
     DATA = "data"
@@ -60,7 +63,7 @@ class ProvenanceNodeKind(str, Enum):
 
 
 class ProvenanceEdgeLabel(str, Enum):
-    """Labeled edges in the ARM provenance graph."""
+    """Labeled edges per ARM §5.2."""
 
     DIRECT_OUTPUT = "direct_output"   # c → d
     INPUT_TO = "input_to"             # d → c
@@ -93,7 +96,7 @@ class DataNode(_NodeBase):
 
 
 class DataFieldNode(_NodeBase):
-    """A sub-component of structured data (field-level provenance)."""
+    """A sub-component of structured data (field-level provenance, §5.6)."""
 
     node_id: str = Field(min_length=1, max_length=256)
     field_path: str = Field(min_length=1, max_length=512)
@@ -103,7 +106,7 @@ class DataFieldNode(_NodeBase):
 
 class DeniedActionNode(_NodeBase):
     """
-    A first-class denied action. This is the abstraction that
+    A first-class denied action. Per §3.7, this is the abstraction that
     flat-provenance defenses miss; ARM's whole detection mechanism for
     causality laundering hinges on these nodes existing in the graph.
     """
@@ -139,10 +142,12 @@ class ProvenanceGraph:
 
     Mutation surface is intentionally narrow — only ARM's enforcement
     pipeline calls ``add_*`` and ``add_edge``. The graph is queried by
-    two enforcement queries:
+    the two enforcement queries from §5.4:
 
       1. ``MinTrust(c) < θ``        (transitive taint propagation)
       2. ``CounterfactualChains(c) ≠ ∅``  (causality laundering)
+
+    Reference: arxiv 2604.04035 §5.
     """
 
     __slots__ = ("_g", "_last_denial_id")
@@ -150,7 +155,7 @@ class ProvenanceGraph:
     def __init__(self) -> None:
         self._g: nx.DiGraph = nx.DiGraph()
         # Tracks the most recently added DeniedAction node, so that the
-        # *next* CallNode (the temporally-adjacent one) can
+        # *next* CallNode (the temporally-adjacent one per §3.7) can
         # auto-receive a Counterfactual edge.
         self._last_denial_id: str | None = None
 
@@ -158,9 +163,9 @@ class ProvenanceGraph:
 
     def add_call(self, node: CallNode) -> None:
         self._add_node(node)
-        # Auto-attach a Counterfactual edge from the most recent
-        # denial to this call. This is a deliberate conservative
-        # over-approximation (the agent's internal reasoning is
+        # §3.7: auto-attach a Counterfactual edge from the most recent
+        # denial to this call. This is the conservative over-approximation
+        # the paper explicitly chooses (the agent's internal reasoning is
         # opaque, so we mark the temporally adjacent call as potentially
         # influenced).
         if self._last_denial_id is not None:
@@ -171,7 +176,8 @@ class ProvenanceGraph:
             )
             # The denial's influence is consumed by the immediately
             # following call. Subsequent calls do not receive the edge
-            # automatically ("next tool call" rule).
+            # automatically; this matches the paper's "next tool call"
+            # rule (Algorithm 1, line 7).
             self._last_denial_id = None
 
     def add_data(self, node: DataNode) -> None:
@@ -230,11 +236,11 @@ class ProvenanceGraph:
 
     def min_trust(self, node_id: str) -> IntegrityLevel:
         """
-        Compute ``MinTrust(node_id)`` (minimum reachable trust).
+        Compute ``MinTrust(node_id)`` per Definition 4 (§5.3).
 
         Reverse-walks the graph to collect data ancestors, then takes the
         lattice meet (= numeric ``min``) over their trust labels. If no
-        data ancestors exist, returns ``SysInstr``.
+        data ancestors exist, returns ``SysInstr`` per the definition.
         """
         if node_id not in self._g.nodes:
             raise KeyError(f"unknown node {node_id!r}")
@@ -251,7 +257,7 @@ class ProvenanceGraph:
 
     def has_counterfactual_chain_to(self, node_id: str) -> bool:
         """
-        ``CounterfactualChains(c) ≠ ∅`` — the causality-laundering query.
+        ``CounterfactualChains(c) ≠ ∅`` per §5.4 query 2.
 
         Returns True iff any path from a ``DeniedAction`` node reaches
         ``node_id`` and traverses at least one ``Counterfactual``-labeled
@@ -301,7 +307,7 @@ class ProvenanceGraph:
         threshold: IntegrityLevel = DEFAULT_TRUST_THRESHOLD,
     ) -> tuple[bool, str | None]:
         """
-        Combined Layer-2 enforcement decision.
+        Combined Layer-2 enforcement decision per §4.3.2 / §5.4.
 
         Returns ``(allow, deny_reason)``. A deny verdict carries one of:
           - ``"transitive_taint"`` — MinTrust(c) < θ

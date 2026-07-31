@@ -3,8 +3,8 @@ HTTP-level tests for the Thread 5 C2PA routes.
 
 Goal: prove that ``POST /v1/c2pa/verify`` correctly verifies a real
 manifest produced by ``build_signed_manifest_with_cosign``, and
-correctly reports the five-attack-defense status from Tex's C2PA
-attack matrix.
+correctly reports the five-attack-defense status from
+arxiv 2604.24890.
 
 The ``GET /v1/evidence/{record_id}/c2pa`` route requires a Postgres
 mirror; we use a stand-in in-memory mirror attached to the app's
@@ -167,7 +167,7 @@ def test_verify_with_claim_cbor_returns_valid(client, signed_manifest_pair):
     assert payload["cosign_present"] is True
     assert payload["cosign_valid"] is True
     assert payload["cosign_algorithm"] == "ed25519"
-    assert payload["paper_reference"] == "tex:c2pa-attack-matrix"
+    assert payload["paper_reference"] == "arxiv:2604.24890"
     defenses = {d["attack"]: d["defended"] for d in payload["attack_defenses"]}
     # All five attacks defended.
     assert defenses["timestamp_swap"] is True

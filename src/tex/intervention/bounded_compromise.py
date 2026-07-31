@@ -37,8 +37,9 @@ g_max      adversary's maximum expected per-step gain
 epsilon    strict-dominance slack (lambda*H - g_max >= epsilon > 0)
 eta*       long-run compromise ratio ceiling, eta* in (0, 1)
 Delta_max  bound on private rewards (for welfare shortfall)
-D*         ABC drift bound; D* = alpha_ABC / gamma, used
-           by ``estimate_adversary_payoff`` to map drift signal -> g_max.
+D*         Bhardwaj ABC Drift Bounds Theorem; D* = alpha_ABC / gamma, used
+           by ``estimate_adversary_payoff`` to map drift signal -> g_max
+           (arxiv 2602.22302).
 
 Section 1.4 of the standing-orders document simplified Theorem 5 to "eta < 1
 iff cost > payoff". The actual theorem is a *ratio bound*; this module
@@ -47,6 +48,7 @@ implements the ratio.
 Reference
 ---------
 - arxiv 2512.18561 v3 (AAF), §5.4 Theorem 5 + Proposition 1.
+- arxiv 2602.22302 (Bhardwaj ABC), §3 Drift Bounds Theorem (input).
 - arxiv 2507.15886 (Hua et al., NeurIPS 2025), Neyman-Pearson framing
   of cost-constrained allocation -- informative cross-reference.
 - FRONTIER_DELTA_thread_8.md §1, §4 Delta-1 for the math signature
@@ -192,8 +194,8 @@ class BoundedCompromiseCalculator:
 
         Mapping
         -------
-        - ``drift_signals['abc_drift_d_star']`` -- the ABC drift
-          bound D* = alpha_ABC / gamma.
+        - ``drift_signals['abc_drift_d_star']`` -- the Bhardwaj ABC Drift
+          Bounds Theorem D* = alpha_ABC / gamma (arxiv 2602.22302).
           Higher D* means a wider behavioral envelope, which we treat
           as a larger adversary opportunity. We linearly map
           D* in [0, 1] -> g_max in [0, 1], clamped.
@@ -221,7 +223,7 @@ class BoundedCompromiseCalculator:
 
         candidates: list[float] = []
 
-        # ABC D*
+        # Bhardwaj ABC D*
         if "abc_drift_d_star" in drift_signals:
             try:
                 d_star = float(drift_signals["abc_drift_d_star"])

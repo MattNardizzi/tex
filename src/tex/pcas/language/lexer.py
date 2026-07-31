@@ -23,7 +23,7 @@ Token taxonomy
 Comments
 --------
 - Line comment: ``%`` to end of line (Datalog tradition; matches CLP /
-  Soufflé conventions).
+  Soufflé / PCAS examples in arxiv 2602.16708 appendix A).
 - Block comment: ``/* ... */`` (non-nesting).
 
 Whitespace is insignificant. Line / column tracking is 1-indexed for

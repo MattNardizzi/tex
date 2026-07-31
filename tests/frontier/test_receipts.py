@@ -1,6 +1,10 @@
 """
 Tests for the Tex receipts package (Thread 5 — NabaOS HMAC tool receipts).
 
+Reference
+---------
+arxiv 2603.10060 — Tool Receipts, Not Zero-Knowledge Proofs (Basu, Mar 2026).
+
 Coverage
 --------
 - ToolExecutionReceipt model: schema, frozen, canonical signing input
@@ -373,9 +377,11 @@ def test_issuer_hashes_handle_complex_outputs(issuer: ReceiptIssuer) -> None:
 # --- ReceiptVerifier ---
 
 
-# Five canonical examples — one per pramana in the NabaOS taxonomy.
-# The verifier currently targets 3 hallucination types (fabricated tool
-# refs, count misstatements, false absence).
+# Five canonical examples — one per pramana per arxiv 2603.10060.
+# TODO(verify-against-paper-six-types): the paper names 6 hallucination types
+# in NyayaVerifyBench; the abstract details only 3 (fabricated tool refs,
+# count misstatements, false absence). Confirm the remaining 3 against the
+# full paper before declaring this fixture complete.
 
 
 def test_pratyaksha_grounded_when_receipt_resolves_and_verifies(

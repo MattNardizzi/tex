@@ -26,7 +26,7 @@ For a stored ``tex.domain.decision.Decision``:
      progressive counterfactual screen. Produces an initial top
      candidate.
 
-  4. **Multi-candidate expansion.** Instead
+  4. **Multi-candidate expansion (per arxiv 2603.25001).** Instead
      of collapsing to a single root cause, we enumerate up to N
      candidates by running the counterfactual screener over every
      anomaly-bearing step in the graph and keeping those flagged
@@ -45,12 +45,13 @@ For a stored ``tex.domain.decision.Decision``:
 
   7. **Causality-laundering check (ARM, NEW).** Each candidate is
      checked for ARM's ``LABEL_TAINTED_BY_DENIAL`` upstream label,
-     surfacing the ``causality_laundering_suspected`` flag.
+     surfacing the ``causality_laundering_suspected`` flag per
+     arxiv 2604.04035.
 
   8. **LSH-Shapley blame distribution (NEW).** Build
      ``AgentContribution`` records from the per-agent activity in
-     the trace and compute an LSH-bucketed Shapley approximation.
-     Populates ``blame_distribution``.
+     the trace and compute a Shapley approximation per arxiv
+     2605.03581. Populates ``blame_distribution``.
 
   9. **PTV / ZK envelope (NEW, optional).** If ZK is enabled,
      build a PTV-shaped envelope binding the prefill SLM's model
@@ -120,12 +121,12 @@ from tex.observability.telemetry import emit_event
 
 
 # ---------------------------------------------------------------------------
-# Integrity-level classification (ARM MinTrust label assignment)
+# Integrity-level classification (ARM §4.2 MinTrust label assignment)
 # ---------------------------------------------------------------------------
 #
-# Every data item in the provenance graph
+# Per arxiv 2604.04035 §4.2, every data item in the provenance graph
 # carries a static MinTrust label derived from its source. ARM's runtime
-# propagates these via lattice_meet along causal edges,
+# propagates these via lattice_meet (Definition 4) along causal edges,
 # yielding a node's "effective trust" = minimum trust over its data
 # ancestors.
 #
@@ -176,7 +177,7 @@ def _classify_agent_integrity(agent_id: str) -> IntegrityLevel:
     "we don't know what produced this" means "don't trust it" rather
     than "assume system-level integrity."
 
-    Design: static MinTrust assignment.
+    Reference: arxiv 2604.04035 §4.2 (static MinTrust assignment).
     """
     if not agent_id:
         return IntegrityLevel.TOOL_UNTRUSTED
@@ -193,7 +194,7 @@ def _effective_integrity_for_candidate(
 ) -> IntegrityLevel:
     """Compute a candidate's effective integrity via lattice meet.
 
-    Per ARM's Minimum Reachable Trust rule, a node's effective
+    Per ARM Definition 4 (Minimum Reachable Trust), a node's effective
     trust is the minimum trust over all data ancestors that flow into
     it. We walk the HCG's edges from the candidate step upward to find
     all ancestors, classify each ancestor's static integrity, and take
@@ -268,7 +269,7 @@ class CausalCandidate(BaseModel):
     doesn't carry integrity labels."""
     reasoning_perspective: str = Field(min_length=1, max_length=128)
     """Short tag for which screening stage flagged this candidate.
-    Attribution can be multi-perspective;
+    Per arxiv 2603.25001, attribution can be multi-perspective;
     this field surfaces the perspective."""
 
 
@@ -297,7 +298,7 @@ class CausalAttributionResult(BaseModel):
     attribution_latency_ms: float = Field(ge=0.0)
 
     conformal_set: ConformalPredictionSet | None = None
-    """Optional conformal prediction set.
+    """Optional conformal prediction set (arxiv 2605.06788, May 7 2026).
     Populated only when the caller requests it via the endpoint flag.
     Provides a contiguous range of trajectory indices guaranteed
     (under CP exchangeability) to contain the decisive error with
@@ -426,8 +427,8 @@ def _enumerate_candidates(
 ) -> list[_RankedCandidate]:
     """Enumerate up to ``_MAX_CANDIDATES`` candidates from the HCG.
 
-    Don't collapse to a single root cause:
-    run the screener over every anomaly-bearing step, keep all
+    Per arxiv 2603.25001: don't collapse to a single root cause.
+    Run the screener over every anomaly-bearing step, keep all
     that the screener confirms as true root causes, plus any
     anomaly steps the screener didn't confirm (with reduced
     confidence). Sort by timestep then confidence.
@@ -595,7 +596,7 @@ def _causality_laundering_check(
 ) -> bool:
     """ARM's denial-induced-taint flag for the decision.
 
-    The ledger carries a DENIAL_EVENT
+    Per arxiv 2604.04035 §4.5, the ledger carries a DENIAL_EVENT
     for each denied tool call, and ARM propagates trust through
     the integrity lattice. The signal Tex surfaces here is: did
     this decision contain any FORBID-class ASI findings whose
@@ -606,7 +607,7 @@ def _causality_laundering_check(
     ``ASI04_uncontrolled_code_execution``, or
     ``ASI06_memory_poisoning`` AND whose severity > 0.7 triggers
     the flag. These three categories most often correspond to
-    causality-laundering exploitation.
+    causality-laundering exploitation per the ARM paper §6.
 
     A follow-on thread can replace this heuristic with a real
     ARM provenance-graph query when the ARM ledger is wired into
@@ -690,7 +691,8 @@ def compute_attribution(
     decision
         The stored Decision to attribute.
     include_conformal
-        When True, compute a conformal prediction set
+        When True, compute a conformal prediction set per arxiv
+        2605.06788 (Conformal Agent Error Attribution, May 7 2026)
         and attach it to the result. Default False to keep the
         common case latency low.
     conformal_alpha
@@ -698,7 +700,8 @@ def compute_attribution(
         conformal_alpha``. Default 0.1 (90% coverage).
     conformal_algorithm
         Which CP algorithm to use. Default ``"two_way_filtration"``
-        (produces tightest contiguous sets in expectation).
+        (paper's recommended choice; produces tightest contiguous
+        sets in expectation).
 
     Fail-closed: returns a structurally valid result for any
     structurally valid Decision. Never returns None, never raises.
@@ -733,8 +736,8 @@ def compute_attribution(
     causality_laundering = _causality_laundering_check(decision)
 
     # Build final CausalCandidate list. Integrity level is computed
-    # from ARM's MinTrust lattice
-    # walk: the candidate's static integrity is determined by
+    # from ARM's MinTrust lattice walk per arxiv 2604.04035 §4.2 +
+    # Definition 4: the candidate's static integrity is determined by
     # its agent source family, then meet-joined with the integrity of
     # all ancestors in the HCG. The level reported here is the
     # *effective* trust of the candidate, not just its own.
@@ -780,7 +783,7 @@ def compute_attribution(
         "graph+prefill" if signals.signals_available else "graph"
     )
 
-    # Optional: conformal prediction set.
+    # Optional: conformal prediction set per arxiv 2605.06788.
     # Computed only when the caller asks for it (keeps default
     # latency low). Uses prefill NLL when available, falls back to
     # screener confidence keyed by step_id when not. The set is a

@@ -6,36 +6,38 @@ single seed violation into a systemic failure, via bounded BFS over the
 LLM-MAS dependency graph with edge-propagation probabilities derived
 from empirical co-failure rates + closed-form Laplacian-spectrum bounds.
 
-Design notes
-------------
-- Cascade math over the LLM-MAS dependency graph. Three internal
-  vulnerability classes — cascade_amplification,
+References
+----------
+- arxiv 2603.04474 ("From Spark to Fire", Mar 2026): the LLM-MAS
+  cascade math. Three vulnerability classes — cascade_amplification,
   topological_sensitivity, consensus_inertia. Process-oriented
   propagation abstraction with coverage metrics.
-- Closed-form Average-Value-at-Risk on the Laplacian spectrum for
-  cascading failures in time-delay consensus networks. Used for
-  analytical fallback when empirical edge weights are missing.
-- Cascade-sensitivity observation: when graph expansion is
-  exponential, node load alone does not reveal propagation risk.
-  Geometry matters.
-- arxiv 2512.17600 (Dec 2025): STAMP/STPA loss-of-control
+- arxiv 2604.06024 (Apr 2026): closed-form Average-Value-at-Risk on
+  Laplacian spectrum for cascading failures in time-delay consensus
+  networks. Used for analytical fallback when empirical edge weights
+  are missing.
+- arxiv 2603.17112 (Mar 2026): cascade-sensitivity analysis
+  Proposition 4 — when graph expansion is exponential, node load
+  alone does not reveal propagation risk. Geometry matters.
+- arxiv 2512.17600 (Dec 2025 / Feb 2026): STAMP/STPA loss-of-control
   taxonomy. Each cascade path is tagged with the corresponding
   Unsafe-Control-Action class.
 
 Algorithm
 ---------
 Bounded BFS from the seed event_id, capped by ``max_depth=8`` and
-pruned by ``min_probability=0.05`` per the original brief. These
-defaults surface the high-probability chains so Thread 8's
-intervention selector can act on them.
+pruned by ``min_probability=0.05`` per the original brief (these are
+the From-Spark-to-Fire empirical sweet spots; the paper reports
+defense success rate jumping 0.32 → 0.89 with their genealogy-graph
+governance, and we want to surface those same high-probability
+chains so Thread 8's intervention selector can act on them).
 
 Edge propagation probability
 ----------------------------
 For an edge from event A to event B in the dependency graph,
 ``p_AB = max(empirical, analytical_lower_bound)`` where:
   * empirical: historical co-failure rate of (kind(A), kind(B)) pairs.
-  * analytical_lower_bound: 1 / (1 + spectral_gap) — the internal
-    closed-form design regime.
+  * analytical_lower_bound: 1 / (1 + spectral_gap) per arxiv 2604.06024.
 
 When no historical data is available (cold start), we use a uniform
 prior of 0.1 — high enough to surface paths during early operation,
@@ -44,9 +46,10 @@ beyond depth 2.
 
 Path aggregate probability
 --------------------------
-``p_path = prod(p_edge)`` — an independence assumption, adequate for
-first-order cascade risk. We sort paths by aggregate probability
-descending.
+``p_path = prod(p_edge)`` — independence assumption (per Spark-to-Fire
+§3 propagation abstraction, which empirically validates this on six
+multi-agent frameworks for first-order cascade risk). We sort paths
+by aggregate probability descending.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ from tex.observability.telemetry import emit_event
 from tex.systemic.trajectory import CascadePath
 
 
-# Default cascade-search parameters (internal design choices).
+# Per-Spark-to-Fire empirical defaults.
 DEFAULT_MAX_DEPTH: int = 8
 DEFAULT_MIN_PROBABILITY: float = 0.05
 COLD_START_PROBABILITY: float = 0.1
@@ -75,7 +78,7 @@ class DependencyEdge(BaseModel):
     from_event_id: str = Field(..., min_length=1)
     to_event_id: str = Field(..., min_length=1)
     propagation_probability: float = Field(..., ge=0.0, le=1.0)
-    # Internal spark-to-fire vulnerability classification for the edge.
+    # Spark-to-Fire vulnerability classification for the edge.
     spark_to_fire_class: str = Field(default="cascade_amplification", min_length=1)
     # STPA Unsafe-Control-Action class for downstream tagging.
     stpa_uca_class: str = Field(default="UNSPECIFIED", min_length=1)
@@ -104,7 +107,7 @@ class CascadePredictor:
         aggregate probability descending.
 
         Bounded BFS:
-          * depth limit: ``max_depth`` (default 8).
+          * depth limit: ``max_depth`` (defaults 8 per Spark-to-Fire).
           * probability prune: aggregate < ``min_probability`` → drop.
           * path explosion cap: at most ``MAX_PATHS_RETURNED`` paths.
 

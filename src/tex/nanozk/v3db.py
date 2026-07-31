@@ -14,10 +14,15 @@ proof. Kept in-tree, intentionally, so a real backend can be wired in later
 V3DB — audit-on-demand zero-knowledge proofs for verifiable
 vector search over committed snapshots.
 
-Structural scaffold modeled on the SHAPE of (a placeholder, NOT a real
-implementation of) an audit-on-demand verifiable vector-search protocol
-over committed snapshots. "V3DB" is the internal design label for that
-intended protocol shape.
+Structural scaffold modeled on the SHAPE of (a placeholder, NOT a real implementation of):
+
+  Zipeng Qiu, Wenjie Qu, Jiaheng Zhang, Binhang Yuan,
+  *V3DB: Audit-on-Demand Zero-Knowledge Proofs for Verifiable
+  Vector Search over Committed Snapshots*, arxiv 2603.03065
+  (Mar 3 2026; v2 Mar 5 2026).
+
+Reference Rust prototype: github.com/TabibitoQZP/zk-IVF-PQ
+(Plonky2-based; 22× faster proving than circuit-only baseline).
 
 Why V3DB
 --------
@@ -120,9 +125,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 V3DB_PROTOCOL_VERSION: str = "v3db-2026-03-05"
-"""Pinned protocol version for the V3DB scaffold wire format."""
+"""Pinned to the arxiv 2603.03065 v2 (Mar 5 2026) protocol."""
 
-# Design-target figures (frozen for the audit surface).
+# Paper headline empirical claims (frozen for the audit surface).
 PAPER_PROVING_SPEEDUP_OVER_CIRCUIT: float = 22.0
 PAPER_PEAK_MEMORY_REDUCTION: float = 0.40
 """Up to 40% reduction in peak prover memory consumption."""

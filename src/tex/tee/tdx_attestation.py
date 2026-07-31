@@ -24,8 +24,8 @@ References
   https://github.com/intel/trustauthority-client-for-python
 * ITA composite attestation spec:
   https://docs.trustauthority.intel.com/main/articles/articles/ita/concept-gpu-attestation.html
-* Partial TEE shielding is a live attack surface. Tex therefore
-  records ``tdx_is_debuggable``
+* arxiv 2605.03213 §VII (May 7 2026): identifies "partial TEE shielding"
+  as a 2026 attack surface. Tex therefore records ``tdx_is_debuggable``
   and the verifier treats debuggable=True as fail-closed.
 """
 

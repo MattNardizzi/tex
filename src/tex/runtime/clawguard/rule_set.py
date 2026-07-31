@@ -4,8 +4,8 @@ ClawGuard rule sets.
 BaseRuleSet — loaded before user task is known.
 TaskRuleSet — induced from user instruction before any external tool runs.
 
-Design
-------
+Design (paper §III-B, arxiv 2604.11790)
+---------------------------------------
 The active rule set is R = R_base ∪ R_task, with R_base evaluated
 unconditionally and R_task derived from the user's stated objective. Each
 rule lives in one of three domains:
@@ -18,7 +18,7 @@ verdict V_elem(x) is one of:
   ⊥     (deny)  — x matches B_d
   ⊤     (allow) — x matches W_d
   amb   (review) — neither, or obfuscated input
-When x matches both, blacklist priority applies.
+Per paper: when x matches both, blacklist priority applies.
 
 Priority: P0.
 """
@@ -40,7 +40,7 @@ _DEFAULT_LOGGER = get_logger("tex.runtime.clawguard")
 
 
 class RuleDomain(str, Enum):
-    """Rule domain: d ∈ {cmd, file, net}."""
+    """Paper §III-A.2: d ∈ {cmd, file, net}."""
 
     CMD = "cmd"
     FILE = "file"
@@ -48,7 +48,7 @@ class RuleDomain(str, Enum):
 
 
 class RuleAction(str, Enum):
-    """Rule action: B (deny) vs W (allow)."""
+    """Paper §III-A: B (deny) vs W (allow)."""
 
     DENY = "deny"
     ALLOW = "allow"
@@ -96,27 +96,27 @@ class BaseRuleSet(BaseModel):
           - deny: outbound to non-allowlisted domains (configurable)
           - deny: secret patterns in outbound payloads (AWS keys, OpenAI sk-, GitHub ghp_)
 
-        Status: implemented as a default baseline safety rule set,
-        aligned with MITRE ATT&CK T1041 (exfiltration over C2) and
-        TA0006 (credential access).
+        Status: implemented per arxiv 2604.11790 Appendix B (default
+        baseline safety rules) and aligned with MITRE ATT&CK T1041
+        (exfiltration over C2) and TA0006 (credential access).
         """
         return cls(rules=_DEFAULT_BASELINE_RULES)
 
 
 class TaskRuleSet(BaseModel):
-    """User-objective-derived rules. Active alongside R_base."""
+    """User-objective-derived rules. Active alongside R_base (paper Eq. 10)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     rules: tuple[Rule, ...]
     objective: str = ""
-    confirmed: bool = False  # User confirmation before activation.
+    confirmed: bool = False  # User confirmation per §III-B Step 3.
 
     @classmethod
     def induce_from_objective(cls, user_instruction: str) -> "TaskRuleSet":
         """
         Induce task-specific rules from the user's stated objective, before
-        any external tool is invoked:
+        any external tool is invoked. Per arxiv 2604.11790 §III-B Eq. 9:
             R_task_raw = M(rho, H_0)
 
         TODO(P0): LLM-induce task-specific rules from user instruction
@@ -158,12 +158,12 @@ class TaskRuleSet(BaseModel):
         return cls(rules=tuple(rules), objective=normalized, confirmed=False)
 
     def confirm(self) -> "TaskRuleSet":
-        """User confirmation step before the task rules go live."""
+        """User confirmation step per §III-B Step 3."""
         return self.model_copy(update={"confirmed": True})
 
 
 # ---------------------------------------------------------------------------
-# Default baseline rules
+# Default baseline rules (paper §III-B Step 1, Appendix B)
 # ---------------------------------------------------------------------------
 
 # Per the scaffolding docstring's six-rule contract, the rules below cover:
@@ -248,9 +248,9 @@ _DEFAULT_BASELINE_RULES: tuple[Rule, ...] = (
     # Rule 5: outbound to non-allowlisted domains. Present as a rule object
     # so deployments can flip the default; the pattern below is a deny-all
     # sentinel that DOES NOT activate unless the deployment explicitly
-    # turns it on by replacing this rule. R_base invariants are fixed at
-    # deny and cannot be overridden by R_task; this entry exists as a
-    # documented hook.
+    # turns it on by replacing this rule. Per paper §III-B, R_base
+    # invariants are "fixed at deny and cannot be overridden by R_task";
+    # this entry exists as a documented hook.
     Rule(
         rule_id="base.net.deny.non_allowlisted_default",
         description=(
@@ -301,7 +301,7 @@ _DEFAULT_BASELINE_RULES: tuple[Rule, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Sanitization patterns
+# Sanitization patterns (paper §III-A.1, Appendix A)
 # ---------------------------------------------------------------------------
 
 

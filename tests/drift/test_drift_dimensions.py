@@ -1,13 +1,13 @@
 """
-Tests for the three-dimension drift taxonomy
-(Thread 7.1 extension to evaluate_drift).
+Tests for the Rath 2026 three-dimension drift taxonomy
+(arxiv 2601.04170 §3, Thread 7.1 extension to evaluate_drift).
 
 Coverage
 --------
 * DriftEvaluation exposes semantic_drift / coordination_drift /
   behavioral_drift / dominant_dimension fields.
 * drift_delta = max(three dimensions).
-* tool_call events trigger semantic_drift (intent surface).
+* tool_call events trigger semantic_drift (Rath: intent surface).
 * agent-to-agent messages trigger coordination_drift.
 * denial events trigger behavioral_drift.
 * dominant_dimension reflects which axis carried the highest score.
@@ -51,7 +51,7 @@ def state(now: datetime) -> EcosystemState:
 
 
 def test_drift_evaluation_has_three_dimension_fields() -> None:
-    """Verify the taxonomy fields exist on DriftEvaluation."""
+    """Verify the Rath 2026 taxonomy fields exist on DriftEvaluation."""
     ev = DriftEvaluation(
         drift_delta=0.5,
         semantic_drift=0.5,
@@ -86,7 +86,7 @@ def test_drift_evaluation_default_dimension_fields() -> None:
 
 
 def test_signal_to_dimension_map_covers_seven_defaults() -> None:
-    """Every default signal except the auxiliary ones has a drift
+    """Every default signal except the auxiliary ones has a Rath
     dimension assignment. (capability_used is the alias of
     tool_call_rate_per_agent and isn't a default signal itself.)"""
     assert "tool_call_rate_per_agent" in _SIGNAL_TO_DIMENSION
@@ -96,7 +96,7 @@ def test_signal_to_dimension_map_covers_seven_defaults() -> None:
     assert "outbound_content_volume_per_tenant" in _SIGNAL_TO_DIMENSION
     assert "average_path_depth" in _SIGNAL_TO_DIMENSION
     assert "average_compromise_score" in _SIGNAL_TO_DIMENSION
-    # All assigned to one of the three drift axes.
+    # All assigned to one of the three Rath axes.
     for dim in _SIGNAL_TO_DIMENSION.values():
         assert dim in ("semantic", "coordination", "behavioral")
 
@@ -107,7 +107,7 @@ def test_signal_to_dimension_map_covers_seven_defaults() -> None:
 def test_tool_call_event_triggers_semantic_drift(
     state: EcosystemState, now: datetime,
 ) -> None:
-    """Per the drift taxonomy, tool-call rate is an intent-surface
+    """Per the Rath taxonomy, tool-call rate is an intent-surface
     signal → semantic drift dimension."""
     reg = DriftSignalRegistry(seed_defaults=True)
     proposed = ProposedEvent(
@@ -129,7 +129,7 @@ def test_tool_call_event_triggers_semantic_drift(
 def test_cross_agent_message_triggers_coordination_drift(
     state: EcosystemState, now: datetime,
 ) -> None:
-    """Cross-agent messages are a coordination signal in the drift
+    """Cross-agent messages are a coordination signal in the Rath
     taxonomy."""
     reg = DriftSignalRegistry(seed_defaults=True)
     proposed = ProposedEvent(
@@ -151,7 +151,7 @@ def test_denial_event_triggers_behavioral_drift(
     state: EcosystemState, now: datetime,
 ) -> None:
     """Denial events signal an agent in a frustration/exploration
-    regime → behavioral drift dimension (unintended strategy)."""
+    regime → behavioral drift dimension (Rath unintended strategy)."""
     reg = DriftSignalRegistry(seed_defaults=True)
     proposed = ProposedEvent(
         event_kind="denial_event",

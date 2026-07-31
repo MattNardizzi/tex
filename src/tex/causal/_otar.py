@@ -1,15 +1,17 @@
 """
-OTAR parsing — Observation/Thought/Action/Result tuples for CHIEF.
+OTAR parsing — Observation/Thought/Action/Result tuples per CHIEF §4.1.1.
 
 Each Agent Node ``a ∈ V_agt`` in CHIEF's Hierarchical Causal Graph is
 characterized by a structured ``⟨Observation, Thought, Action, Result⟩``
 tuple, extended from the TAR schema (Bouzenia & Pradel, 2025) by the
 addition of an explicit Observation field.
 
+Reference: arxiv 2602.23701 §4.1.1; OTAR prompt in Appx. B.
+
 Parser strategy
 ---------------
-For deterministic enforcement in Tex we accept three trace shapes and
-parse them deterministically:
+The CHIEF paper uses an LLM-based parser. For deterministic enforcement
+in Tex we accept three trace shapes and parse them deterministically:
 
 1. **Tex-native** — explicit ``observation`` / ``thought`` / ``action``
    / ``result`` keys. Pass-through.
@@ -21,7 +23,7 @@ parse them deterministically:
    ``Thought:``, ``Action:``, ``Result:``) when present; otherwise the
    whole content becomes ``action`` and the other fields are empty.
 
-TODO(P1): replace deterministic parser with an
+TODO(P1, arxiv:2602.23701 Appx.B): replace deterministic parser with an
 LLM-based parser path when an LLM provider is wired into the causal
 package; the LLM-based parser handles natural-language traces that this
 deterministic parser cannot disentangle.
@@ -39,10 +41,10 @@ class OTARTuple(BaseModel):
     Frozen ⟨Observation, Thought, Action, Result⟩ tuple.
 
     Each field is a normalised string; empty strings are allowed when
-    the underlying step did not surface that component (the parser is
-    best-effort).
+    the underlying step did not surface that component (per the paper,
+    the parser is best-effort).
 
-    Reference: Bouzenia & Pradel 2025 (TAR).
+    Reference: arxiv 2602.23701 §4.1.1, Bouzenia & Pradel 2025 (TAR).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -75,6 +77,8 @@ def parse_otar(step: Mapping[str, Any]) -> OTARTuple:
       3. Otherwise, parse marker-delimited free-text from ``content``,
          falling back to placing the whole text in ``action`` if no
          markers are found.
+
+    Reference: arxiv 2602.23701 §4.1.1.
     """
     # Path 1: Tex-native
     native_keys = {"observation", "thought", "action", "result"}

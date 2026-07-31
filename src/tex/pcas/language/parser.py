@@ -23,8 +23,8 @@ Parse errors are fatal: this is a *policy* language, and silently
 accepting a malformed policy could license dangerous actions. Always
 fail-closed; the PDP treats parse errors as FORBID via ``PcasMonitor``.
 
-Reference: standard Datalog recursive-descent following
-Abiteboul-Hull-Vianu ch.15.
+Reference: arxiv 2602.16708 §4.5.1, §4.5.3 (rule annotations); standard
+Datalog recursive-descent following Abiteboul-Hull-Vianu ch.15.
 """
 
 from __future__ import annotations

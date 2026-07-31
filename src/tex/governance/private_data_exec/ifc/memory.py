@@ -1,9 +1,14 @@
 """
 NeuroTaint cross-session memory stream.
 
-The key insight behind this module is that taint propagation in LLM
-agents is *not* limited to explicit content transfer. Three additional
-channels matter:
+Reference
+---------
+"Ghost in the Agent: Redefining Information Flow Tracking for LLM
+Agents." arXiv:2604.23374 (NeuroTaint, Apr 2026).
+
+NeuroTaint's key insight is that taint propagation in LLM agents is
+*not* limited to explicit content transfer. Three additional channels
+matter:
 
   1. Semantic transformation — the LLM rephrases tainted content,
      erasing surface-level patterns but preserving the underlying
@@ -23,6 +28,9 @@ IfcSpecialist consults when assembling the graph for a new request.
 We deliberately keep this in-memory only and bounded by capacity. A
 durable backing store (Postgres) is straightforward to add later via
 a `MemoryStreamBackend` protocol; we ship the in-memory variant first.
+
+This is BLEEDING-EDGE wiring: no shipping competitor preserves IFC
+labels across agent sessions as of May 2026.
 """
 
 from __future__ import annotations

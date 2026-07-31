@@ -22,9 +22,8 @@ hash being present without re-inspecting the payload dict.
 References
 ----------
 - AIRO (Golpayegani et al. 2022)
-
-Denied actions are modeled as first-class events rather than log lines,
-so the provenance graph can reason over what was refused.
+- arxiv 2604.00555 (Ontology-Constrained Neural Reasoning)
+- arxiv 2604.04035 (Agentic Reference Monitor — first-class denied actions)
 """
 
 from __future__ import annotations

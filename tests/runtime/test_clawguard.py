@@ -20,7 +20,7 @@ Rule coverage we verify:
 
 References
 ----------
-- ClawGuard runtime module (src/tex/runtime/clawguard/)
+- arxiv 2604.11790 (ClawGuard, Zhao et al., April 13 2026)
 - MITRE ATT&CK T1041, TA0006, T1090, T1485
 """
 

@@ -10,7 +10,8 @@ Frontier delta (May 18, 2026) — bleeding edge vs competitor baseline
 -------------------------------------------------------------------
 - Microsoft Agent Governance Toolkit ships ML-DSA-65 only. No SLH-DSA.
 - Asqav ships ML-DSA-65 only. No SLH-DSA.
-- SLH-DSA support remains rare across the Python PQ library
+- The "quantum-safe" benchmark (arxiv 2605.17061, May 16 2026) explicitly
+  marks SLH-DSA as "not yet implemented" across the Python PQ library
   ecosystem. **Tex ships it in the live evidence path.**
 - CNSA 2.0 mandates SLH-DSA-256s for software and firmware signing
   (NSA Cybersecurity Advisory, updated CNSA 2.1 Dec 2024 per FAQ; reiterated

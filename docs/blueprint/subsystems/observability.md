@@ -28,7 +28,7 @@ The unit takes **zero new hard third-party dependencies** for its verified surfa
 | `telemetry.py` | 474 | Structured JSON logging (`JsonLogFormatter`), `emit_event()` (the 102-import workhorse), `get_logger()`, request-id/decision-id/policy-version context-vars + binders, in-process `TelemetryState` counters, `TelemetryMiddleware` ASGI middleware, `instrument_app()`. **Only `emit_event`/`get_logger` are live; the middleware/binders/counters are dead code.** |
 | `metrics.py` | 471 | Top-level Prometheus `GET /metrics` aggregator. `HttpMetrics` (thread-safe HTTP counters), `MetricsMiddleware` (pure-observation ASGI), `render_metrics()` exposition, `install_metrics(app)` wiring point, optional `_maybe_start_otlp_exporter` OTLP push bridge. **Live** via `main.py:1535`. |
 | `discovery_metrics.py` | 163 | `DiscoveryMetrics` — process-local, RLock-guarded counters for discovery scans (scans started/completed/failed, drift counts, per-connector success/failure, avg scan duration). **Live** (scheduler writes, API reads). |
-| `governance_span.py` | 122 | `verdict_to_otel_attributes()` — renders an `EcosystemVerdict` into a GAAT-compatible (arxiv 2604.05119, claim-unverified) OTel span-attribute dict; `GAAT_ACTION_TABLE`, `GAAT_SPAN_SCHEMA_VERSION`. **Test-only** — no production caller. |
+| `governance_span.py` | 122 | `verdict_to_otel_attributes()` — renders an `EcosystemVerdict` into a GAAT-compatible OTel span-attribute dict; `GAAT_ACTION_TABLE`, `GAAT_SPAN_SCHEMA_VERSION`. **Test-only** — no production caller. |
 
 Total: 1241 lines across 4 substantive `.py` files (+ empty `__init__`).
 
@@ -165,7 +165,7 @@ Any of the ~100 importers calling `emit_event(...)` → `get_logger()` (`telemet
 
 - **OpenMetrics / Prometheus text-exposition format v0.0.4** — hand-rendered, no `prometheus_client` dependency (`metrics.py:52`, `:172-228`). Deliberate single-process design (single uvicorn worker → no `PROMETHEUS_MULTIPROC_DIR`), documented as a known limitation if multi-worker (claim in docstring `metrics.py:18-25`, plausible, not independently verified against deploy config).
 - **OpenTelemetry OTLP push** — observable gauges/counters via `MeterProvider` + `PeriodicExportingMetricReader`, gRPC-with-HTTP-fallback exporter selection (`metrics.py:411-418`). Optional bridge.
-- **GAAT (Governance-Aware Agent Telemetry)** — `governance_span.py` claims compatibility with "arxiv 2604.05119, Apr 6 2026, Apple" and "OpenTelemetry Semantic Conventions v1.32" (docstring `:6-9`, `:33-34`). **(claim, unverified)** — these citations cannot be verified from code; what IS real is the attribute-dict shape and the L0..L4 action table. The cited paper/date is in the future relative to most of the codebase and should be treated as aspirational labelling.
+- **GAAT (Governance-Aware Agent Telemetry)** — `governance_span.py` claims compatibility with "OpenTelemetry Semantic Conventions v1.32" (docstring `:33-34`) and formerly carried a paper-style docstring citation that was unverifiable and has been removed from the code. What IS real is the attribute-dict shape and the L0..L4 action table.
 - **Bounded-cardinality metrics** — status bucketed to `1xx..5xx` classes, no per-path labels (`metrics.py:54-67`) — a real anti-cardinality-explosion design pattern.
 - **Structured JSON logging** with `contextvars`-based trace correlation (request/decision/policy) — standard ASGI structured-logging pattern, though the propagation half is dead.
 - **ASGI middleware** (pure-observation pattern), `__slots__` + `RLock` concurrency primitives throughout.
@@ -189,7 +189,7 @@ Any of the ~100 importers calling `emit_event(...)` → `get_logger()` (`telemet
 
 3. **`governance_span.py` is test-only (effectively orphan in production).** `verdict_to_otel_attributes` and `GAAT_ACTION_TABLE` are imported solely by `tests/ecosystem/test_viability_p3_gaat.py`. No production code renders verdicts to OTel spans. The `metrics.py` module docstring even references it ("`governance_span` renders OpenTelemetry-compatible span attributes", `metrics.py:8`) but nothing in the live path calls it.
 
-4. **GAAT citation is unverifiable and forward-dated.** `governance_span.py:6-9,33-34` cites "arxiv 2604.05119, Apr 6 2026, Apple". This is a docstring claim with no code consequence and cannot be confirmed; label it **(claim, unverified)**. The functional code (attribute shape, L0..L4 table) is real regardless.
+4. **The GAAT docstring citation was unverifiable and has been removed from the code.** It was a docstring label (`governance_span.py:6-9`) with no code consequence. The functional code (attribute shape, L0..L4 table) is real regardless.
 
 5. **`metrics.py` is the genuine deliverable and is solidly built.** It is fail-open on every composed surface (memory/discovery/learning/evidence all wrapped in try/except → debug log, never a 500 on `/metrics`), bounds label cardinality, and adds no hard dependency. This matches its docstring honesty section (`metrics.py:4-35`) — one of the rare cases where the docstring's self-assessment checks out against the code.
 

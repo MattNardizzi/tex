@@ -1,8 +1,8 @@
 """
 Anytime-valid risk certificate for streaming drift detection.
 
-Per Drift-to-Action Controllers (arxiv 2603.08578, Mar 9 2026 — Phase-0
-research brief §1 / Step 6) and Howard, Ramdas, McAuliffe, Sekhon
+Built for the drift layer's Drift-to-Action step (Phase-0
+research brief §1 / Step 6), following Howard, Ramdas, McAuliffe, Sekhon
 2021 "Time-uniform, nonparametric, nonasymptotic confidence sequences"
 (arxiv 1810.08240).
 
@@ -22,8 +22,8 @@ null is at most ``α``. So when Tex emits ``p_anytime_valid = 1/E_t``
 at step t and the operator gates intervention on ``p < α``, the
 false-positive rate over the entire infinite horizon is bounded by α
 — regardless of how often the operator peeks. This is the
-formalisation Drift-to-Action §3 requires for "act on drift evidence
-under operational constraints."
+formalisation Drift-to-Action requires: acting on drift evidence
+under operational constraints.
 
 Construction
 ------------
@@ -73,9 +73,8 @@ Tex Thread 7 ships both at every Step 6 emission.
 
 References
 ----------
-- arxiv 2603.08578 (Drift-to-Action Controllers, Mar 2026):
-  anytime-valid risk certificate motivation; cost-aware intervention
-  controller built on top.
+- Drift-to-Action framing: anytime-valid risk certificate
+  motivation; cost-aware intervention controller built on top.
 - arxiv 1810.08240 (Howard, Ramdas, McAuliffe, Sekhon 2021):
   time-uniform sub-Gaussian confidence sequences.
 - Robbins 1970, "Statistical methods related to the law of the

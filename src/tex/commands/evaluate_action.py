@@ -669,8 +669,8 @@ class EvaluateActionCommand:
         # Gated by TEX_TEE_MODE=1 so non-CC deployments pay zero cost and
         # existing tests are unaffected. When enabled, each decision's
         # evidence record carries a hardware-rooted attestation JWT whose
-        # nonce is bound to the decision_id (CrossGuard pattern, arxiv
-        # 2604.23280, Apr 28 2026). Failures are isolated: TEE collection
+        # nonce is bound to the decision_id (decision-bound nonce
+        # pattern). Failures are isolated: TEE collection
         # errors are recorded as a metadata flag but never block the
         # decision from being recorded — the decision path stays
         # fail-closed at the PDP layer, not at the audit layer.
@@ -819,7 +819,7 @@ class EvaluateActionCommand:
 
         This is the "evidence on demand" claim. See
         ``EvidenceRecorder.record_contract_violation`` for the per-row
-        payload schema and its alignment to arxiv 2602.22302 §5.2.
+        payload schema.
 
         Best-effort semantics
         ---------------------

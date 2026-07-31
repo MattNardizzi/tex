@@ -2,7 +2,7 @@
 LSH-Shapley blame distribution for per-agent attribution.
 
 Implements a Locality-Sensitive Hash (LSH) approximation of Shapley
-values per ZK-Value (arxiv 2605.03581 §3, May 2026). LSH-Shapley
+values (ZK-Value style). LSH-Shapley
 buckets agents by similarity of their contribution patterns and
 computes Shapley values within buckets, reducing the standard Shapley
 complexity from O(2^n) to O(n log n) while preserving the key Shapley
@@ -11,18 +11,16 @@ similar-contribution groups.
 
 Why this matters for attribution
 --------------------------------
-The AAAI 2026 causal-inference paper (arxiv 2509.08682) introduces
-Shapley-based agent-level blame assignment but uses CDC-MAS to make
-it tractable. LSH-Shapley is an alternative tractable Shapley
-approximation that was published May 2026 (post-MASPrism). Using it
+Shapley-based agent-level blame assignment needs a tractable
+approximation to be usable at request-path latencies. LSH-Shapley
+is such a tractable approximation. Using it
 here for blame distribution means:
 
   * `blame_distribution: Mapping[str, float]` in attribution results
     is a *real* Shapley approximation, not a heuristic.
-  * The algorithm is documented, citable, and matches what published
-    research uses as of May 2026.
-  * Future ZK extension is straightforward — ZK-Value already shows
-    how to make LSH-Shapley provable end-to-end.
+  * The algorithm is documented and deterministic.
+  * A future ZK extension is straightforward — the bucketed
+    computation is amenable to being proven end-to-end.
 
 Algorithm sketch
 ----------------
@@ -54,9 +52,7 @@ the hash-chained record.
 
 References
 ----------
-- arxiv 2605.03581 §3 (ZK-Value LSH-Shapley, May 2026)
-- arxiv 2509.08682 §3 (AAAI 2026, performance causal inversion +
-  Shapley)
+- arxiv 2509.08682 — Shapley-based agent-level blame assignment
 - Shapley (1953), "A Value for n-Person Games"
 """
 

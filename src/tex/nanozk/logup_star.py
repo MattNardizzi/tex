@@ -20,11 +20,11 @@ Structural scaffold modeled on the SHAPE of (a placeholder, NOT a real implement
 
 Why Logup\\* (and not logup-GKR)
 -------------------------------
-Jolt Atlas (arxiv 2602.17452, Feb 19 2026) uses standard logup-GKR
-(ePrint 2023/1284) for its prefix-suffix lookup arguments. Logup\\*
-is a strict improvement on logup-GKR for the **small-table indexed
-lookup** case — which is exactly the regime Thread 15 sits in
-(256-entry prefix and suffix tables per Jolt Atlas §4.1).
+The Jolt Atlas design uses standard logup-GKR (ePrint 2023/1284)
+for its prefix-suffix lookup arguments. Logup\\* is a strict
+improvement on logup-GKR for the **small-table indexed lookup**
+case — which is exactly the regime Thread 15 sits in (256-entry
+prefix and suffix tables in the Jolt Atlas shape).
 
 Key advantages over logup-GKR (per ePrint 2025/946 abstract):
 

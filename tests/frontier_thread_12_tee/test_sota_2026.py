@@ -10,7 +10,7 @@ Covers:
 - DriverPinning (R590 TRD1)
 - TdispEvidence (PCIe TDISP)
 - MultiGpuBatch (ITA up-to-8 GPU)
-- PersistentMemoryRegion (arxiv 2605.03213 §VI)
+- PersistentMemoryRegion (persistent agent-memory digests)
 - TsmEventLog (Linux 6.7+ TSM ConfigFS)
 - ScittReceipt (draft-ietf-scitt-architecture-22)
 - TcbAdvisoryCheckResult + check_tcb_advisories
@@ -332,7 +332,7 @@ class TestMultiGpuBatch:
 
 
 # ---------------------------------------------------------------------------
-# 8. PersistentMemoryRegion — arxiv 2605.03213 §VI
+# 8. PersistentMemoryRegion — persistent agent-memory digests
 # ---------------------------------------------------------------------------
 
 

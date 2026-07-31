@@ -1,11 +1,9 @@
 """
-Counterfactual screener — CHIEF §4.3 progressive causal screening.
+Counterfactual screener — CHIEF progressive causal screening.
 
-Reference: arxiv 2602.23701 §4.3 (Counterfactual Attribution),
-                          §4.3.1 Local Attribution,
-                          §4.3.2 Planning-Control Attribution,
-                          §4.3.3 Data-Flow Attribution,
-                          §4.3.4 Deviation-Aware Attribution.
+Counterfactual attribution in four stages: Local Attribution,
+Planning-Control Attribution, Data-Flow Attribution, and
+Deviation-Aware Attribution.
 
 The screener disentangles error-propagation paths and decides whether a
 candidate failure step is the *true root cause* or a *propagated
@@ -25,8 +23,8 @@ symptom*. Stages run in a strict order:
   4. Deviation-Aware Attribution (reversibility)
        If a later step re-satisfies the oracle criteria after the
        suspect step, the deviation is reversible and the candidate is
-       NOT a root cause (paper §4.3.4 — "we prioritize the attribution
-       to irreversible errors").
+       NOT a root cause (attribution is prioritized to irreversible
+       errors).
 
 Priority: P1.
 """
@@ -63,7 +61,7 @@ class ScreeningOutcome(BaseModel):
 
 
 class CounterfactualScreener:
-    """Progressive causal screener per CHIEF §4.3."""
+    """Progressive causal screener for CHIEF."""
 
     def screen(
         self,
@@ -75,17 +73,17 @@ class CounterfactualScreener:
         """
         Returns ``(is_true_root_cause, confidence)``.
 
-        TODO(P1, arxiv:2602.23701 §4.3): re-execute the trace with the
+        TODO(P1): re-execute the trace with the
                   candidate node masked
             - DONE: implemented as graph-mask reachability (we do not
-              re-run the LLM; the paper's counterfactual is operationalised
-              as a structural ablation per §4.3.1).
-        TODO(P1, arxiv:2602.23701 §4.3): compare resulting outcome to
+              re-run the LLM; the counterfactual is operationalised
+              as a structural ablation).
+        TODO(P1): compare resulting outcome to
                   observed failure
             - DONE: a candidate is a true root cause iff the failure
               becomes unreachable from any source node when the
               candidate is removed (Local + Data-Flow stages).
-        TODO(P1, arxiv:2602.23701 §4.3.4): apply deviation-aware
+        TODO(P1): apply deviation-aware
                   reversibility check
             - DONE: if a later AGENT node on a path from candidate to
               failure has ``otar.result`` indicating recovery, the
@@ -123,7 +121,7 @@ class CounterfactualScreener:
                 f"observed failure node {observed_failure_id!r} not in graph"
             )
 
-        # --- Stage 1: Local Attribution (§4.3.1) --------------------
+        # --- Stage 1: Local Attribution -----------------------------
         # S_cause = {x' ∈ Pre(x) | Bias(x') →Φ Anomaly(x)}.
         # Pragmatic structural proxy: if the candidate has no incoming
         # causal edges of any kind from another agent step, the error
@@ -137,7 +135,7 @@ class CounterfactualScreener:
 
         if not upstream_agents:
             # Local — but we still need the deviation-aware reversibility
-            # check (§4.3.4) before declaring the candidate a root cause.
+            # check before declaring the candidate a root cause.
             if _is_reversible(
                 graph,
                 suspect_id=candidate_root_cause_id,
@@ -161,7 +159,7 @@ class CounterfactualScreener:
                 rationale="no upstream causal trigger; error originates at candidate",
             )
 
-        # --- Stage 2: Planning-Control Attribution (§4.3.2) ---------
+        # --- Stage 2: Planning-Control Attribution ------------------
         # Detect loop groups via simple cycles on the agent-edge subgraph;
         # if the candidate participates in a cycle, attribute to planner
         # vs executor by inspecting OTAR thoughts/actions.
@@ -189,10 +187,10 @@ class CounterfactualScreener:
                 rationale=rationale,
             )
 
-        # --- Stage 3: Data-Flow Attribution (§4.3.3) ----------------
+        # --- Stage 3: Data-Flow Attribution -------------------------
         # Walk E_step edges in reverse from the candidate to find the
         # earliest step whose result was the first divergence. The
-        # paper's structural test: if removing the candidate disconnects
+        # structural test: if removing the candidate disconnects
         # the failure node from its source, the candidate caused the
         # failure; otherwise the candidate is a downstream propagator.
         masked = graph.copy()
@@ -217,7 +215,7 @@ class CounterfactualScreener:
                 rationale="failure remains reachable when candidate masked; downstream propagator",
             )
 
-        # --- Stage 4: Deviation-Aware reversibility (§4.3.4) --------
+        # --- Stage 4: Deviation-Aware reversibility -----------------
         if _is_reversible(
             graph,
             suspect_id=candidate_root_cause_id,
@@ -287,7 +285,7 @@ def _is_reversible(
     failure_id: str,
 ) -> bool:
     """
-    §4.3.4 reversibility check.
+    Deviation-aware reversibility check.
 
     Walks descendants of the suspect that are temporally between suspect
     and failure (by ``timestep`` on the AgentNode payload) and returns
@@ -328,12 +326,13 @@ def _planning_control_attribution(
     candidate_id: str,
 ) -> tuple[str, str, float] | None:
     """
-    §4.3.2 — distinguish planner vs executor on loop groups.
+    Planning-control attribution — distinguish planner vs executor on
+    loop groups.
 
     Returns ``(stage_label, rationale, confidence)`` if the candidate
     participates in an agent-edge cycle, else ``None``. Loop detection
     is restricted to cycles among agent nodes connected by ``EdgeKind.AGT``
-    edges — that is the paper's "loop group" notion.
+    edges — that is the "loop group" notion.
     """
     candidate_payload = coerce_node_payload(graph.nodes[candidate_id]["data"])
     if not isinstance(candidate_payload, AgentNode):

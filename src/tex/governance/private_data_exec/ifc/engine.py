@@ -14,7 +14,7 @@ Engine pipeline (per request)
 2. Build a ProvenanceGraph from the classification.
 3. If the operator marked any preceding actions as denied in
    `metadata["recent_denials"]`, materialize DeniedAction nodes
-   BEFORE the proposed call node so ARM Algorithm 1 auto-links a
+   BEFORE the proposed call node so the graph builder auto-links a
    Counterfactual edge.
 4. Materialize a CALL node for the proposed sink action.
 5. Run the ARM enforcement queries:
@@ -250,7 +250,7 @@ class IfcEngine:
 
         # Pre-register any operator-asserted denied actions so the
         # CALL node about to be materialized can pick up a
-        # Counterfactual edge per ARM Algorithm 1.
+        # Counterfactual edge from the graph builder.
         recent_denials = self._extract_recent_denials(request)
         for denial in recent_denials:
             graph.add_denied_action(
@@ -296,7 +296,7 @@ class IfcEngine:
         violations: list[IfcViolation] = []
         evidence: list[IfcEvidenceItem] = []
 
-        # (a) MinTrust floor (ARM §5.4 query 1).
+        # (a) MinTrust floor query.
         effective_label = graph.effective_label(call_id)
         min_trust = effective_label.integrity
         sink = is_sink_action(request.action_type)
@@ -318,7 +318,7 @@ class IfcEngine:
                 )
             )
 
-        # (b) Counterfactual chain (ARM §5.4 query 2) — causality
+        # (b) Counterfactual chain query — causality
         # laundering detection.
         if graph.has_counterfactual_chain(call_id):
             denied_ids = graph.counterfactual_denials(call_id)
@@ -329,8 +329,8 @@ class IfcEngine:
                     reason=(
                         "Counterfactual path reaches the proposed action "
                         f"from {len(denied_ids)} denied-action node(s). "
-                        "Per ARM (arxiv 2604.04035), this pattern is the "
-                        "denial-feedback leakage attack class."
+                        "This pattern is the denial-feedback leakage "
+                        "attack class (causality laundering)."
                     ),
                     detail={"denial_node_ids": list(denied_ids)},
                 )
@@ -408,8 +408,7 @@ class IfcEngine:
                         reason=(
                             f"{len(untrusted_carry)} memory item(s) from "
                             "prior sessions carry untrusted-integrity "
-                            "taint into this request. Per NeuroTaint "
-                            "(arxiv 2604.23374), cross-session "
+                            "taint into this request. Cross-session "
                             "persistence is a first-class taint axis."
                         ),
                         detail={

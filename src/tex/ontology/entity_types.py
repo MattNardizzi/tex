@@ -11,7 +11,6 @@ that need to validate a payload dict use ``model_for(kind)``.
 References
 ----------
 - AIRO (Golpayegani et al. 2022)
-- arxiv 2604.00555 (Ontology-Constrained Neural Reasoning)
 """
 
 from __future__ import annotations

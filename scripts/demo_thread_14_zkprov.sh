@@ -34,7 +34,7 @@
 #   * eprint 2026/721   LatticeFold+ ℓ2 (April 19 2026)
 #   * arxiv 2507.07031  ZKTorch / Mira parallel (Jul 9 2025)  <-- NEW
 #   * draft-hillier-scitt-arp-00 (May 1 2026)
-#   * arxiv 2603.10060  NABAOS (Mar 9 2026)
+#   * NABAOS HMAC tool receipts (internal design label)
 #
 # Usage:
 #   TEX_HOST=http://localhost:8000 ./scripts/demo_thread_14_zkprov.sh
@@ -315,5 +315,5 @@ echo "  LatticeFold+   eprint 2026/721 (Apr 19 2026)"
 echo "  Mira parallel  ZKTorch arxiv 2507.07031 (6.2x faster proving)"
 echo "  Poseidon       Grassi et al. USENIX 2021, real BN254-t3 wired"
 echo "  SCITT ARP      draft-hillier-scitt-arp-00 (May 1 2026)"
-echo "  NABAOS         arxiv 2603.10060 (Mar 9 2026)"
+echo "  NABAOS         HMAC tool receipts (internal design label)"
 echo "  EU AI Act      Article 53(1)(d) TDS template, enforcement Aug 2 2026"

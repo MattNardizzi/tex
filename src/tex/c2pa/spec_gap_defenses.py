@@ -1,7 +1,7 @@
 """
-Defenses against the six attack classes documented in Sherman et al.,
-*Verifying Provenance of Digital Media: Why the C2PA Specifications
-Fall Short* (arxiv 2604.24890, 27 April 2026).
+Defenses against the six C2PA validator attack classes tracked in
+Tex's own C2PA attack matrix (documented gaps in shipping C2PA
+validator behaviour).
 
 What this module is
 -------------------
@@ -13,15 +13,15 @@ defenses **explicit, structured, and exportable** so:
 1. An auditor can read one record and confirm Tex closes all six
    classes without walking the full codebase.
 2. Buyer-facing materials (audit evidence packets, security
-   dossiers) can cite the paper and bind specific Tex modules to specific
-   attack-class IDs.
+   dossiers) can bind specific Tex modules to specific attack-class
+   IDs in the matrix.
 3. A regression in any defense (e.g. someone reverts the v2 timestamp
    to v1, or removes OCSP staple parsing) flips the
-   ``ShermanDefensePosture`` returned by ``assess_current_posture()``,
+   ``SpecGapDefensePosture`` returned by ``assess_current_posture()``,
    which the audit pipeline alerts on.
 
-The six attack classes (arxiv 2604.24890 §3)
---------------------------------------------
+The six attack classes (Tex C2PA attack matrix)
+-----------------------------------------------
 - **C1: TIMESTAMP-REPLAY** — a v1 TSA timestamp signs the
   ``Sig_structure`` payload, so it can be detached and reattached
   to a manifest whose claim bytes were tampered with after signing.
@@ -51,21 +51,21 @@ The six attack classes (arxiv 2604.24890 §3)
 
 Composite assurance posture
 ---------------------------
-A signed manifest is "Sherman-2026-compliant" iff all six defenses are
+A signed manifest is "spec-gap-compliant" iff all six defenses are
 in force for it. ``assess_current_posture()`` returns a record that
 maps each class id to the wired module and a boolean; an exporter
 serialises this to JSON for the brand-safety dossier.
 
 References
 ----------
-- Sherman et al., arxiv 2604.24890 (Apr 27 2026), §3 attack matrix.
+- Tex C2PA attack matrix (internal reference: tex:c2pa-attack-matrix).
 - C2PA 2.4 §10.3.2.5 (v2 timestamps), §13.2 (chain), §14
   (unprotected header), §15.7/§15.8/§15.9 (failure codes).
 - RFC 8785 (JSON Canonicalization), RFC 9360 (x5chain), RFC 9277
   (OCSP nonces).
 
-Priority: P1 (buyer-facing attestation — cites the latest published
-attack paper against C2PA and shows Tex's response inline).
+Priority: P1 (buyer-facing attestation — names each documented C2PA
+validator gap and shows Tex's response inline).
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class ShermanAttackClass(str, Enum):
+class SpecGapAttackClass(str, Enum):
     """Stable identifiers for the six attack classes."""
 
     TIMESTAMP_REPLAY = "C1.timestamp_replay"
@@ -86,10 +86,10 @@ class ShermanAttackClass(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ShermanDefense:
+class SpecGapDefense:
     """One row of the six-class defense matrix."""
 
-    attack_class: ShermanAttackClass
+    attack_class: SpecGapAttackClass
     description: str
     wired_modules: tuple[str, ...]
     """Dotted import paths of the modules that implement the defense."""
@@ -103,15 +103,15 @@ class ShermanDefense:
 
 
 @dataclass(frozen=True, slots=True)
-class ShermanDefensePosture:
+class SpecGapDefensePosture:
     """Composite posture for the full attack matrix."""
 
-    defenses: tuple[ShermanDefense, ...]
-    sherman_2026_compliant: bool
+    defenses: tuple[SpecGapDefense, ...]
+    spec_gap_compliant: bool
     """``True`` iff every defense is ``wired=True``."""
 
 
-def _build_defense_table() -> tuple[ShermanDefense, ...]:
+def _build_defense_table() -> tuple[SpecGapDefense, ...]:
     """Construct the canonical six-class defense matrix.
 
     Each ``wired_modules`` tuple lists the dotted paths that
@@ -120,8 +120,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
     ``tests/frontier/test_c2pa*.py``.
     """
     return (
-        ShermanDefense(
-            attack_class=ShermanAttackClass.TIMESTAMP_REPLAY,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.TIMESTAMP_REPLAY,
             description=(
                 "v1 timestamp signs the Sig_structure payload, "
                 "letting a valid TSA token be reattached to a "
@@ -139,8 +139,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
             spec_anchor="C2PA 2.4 §10.3.2.5 + §15.8",
             wired=True,
         ),
-        ShermanDefense(
-            attack_class=ShermanAttackClass.STALE_OCSP,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.STALE_OCSP,
             description=(
                 "Missing or expired OCSP staple lets a revoked "
                 "signing cert validate. Closed by mandatory "
@@ -156,8 +156,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
             spec_anchor="C2PA 2.4 §15.9 + RFC 6960 + RFC 9277",
             wired=True,
         ),
-        ShermanDefense(
-            attack_class=ShermanAttackClass.CHAIN_TRUNCATION,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.CHAIN_TRUNCATION,
             description=(
                 "Intermediate certs omitted from x5chain trigger "
                 "partial-chain validators to accept under a forged "
@@ -174,8 +174,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
             spec_anchor="C2PA 2.4 §13.2 + RFC 9360",
             wired=True,
         ),
-        ShermanDefense(
-            attack_class=ShermanAttackClass.ASSERTION_INJECTION,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.ASSERTION_INJECTION,
             description=(
                 "Extra assertions appended after signing slip "
                 "through validators that don't canonicalize before "
@@ -192,8 +192,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
             spec_anchor="RFC 8785 + RFC 9052 §4.4",
             wired=True,
         ),
-        ShermanDefense(
-            attack_class=ShermanAttackClass.INGREDIENT_FORGERY,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.INGREDIENT_FORGERY,
             description=(
                 "Child manifest fabricates ingredient references "
                 "pointing to non-existent parents. Closed by the "
@@ -210,8 +210,8 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
             spec_anchor="C2PA 2.4 §11.6 ingredients + Tex extension",
             wired=True,
         ),
-        ShermanDefense(
-            attack_class=ShermanAttackClass.CROSS_MANIFEST_REPLAY,
+        SpecGapDefense(
+            attack_class=SpecGapAttackClass.CROSS_MANIFEST_REPLAY,
             description=(
                 "A valid COSE_Sign1 is detached and reattached to "
                 "a different asset whose SHA-256 collides (computed "
@@ -233,19 +233,19 @@ def _build_defense_table() -> tuple[ShermanDefense, ...]:
     )
 
 
-def assess_current_posture() -> ShermanDefensePosture:
-    """Build the current Sherman-2026 defense posture.
+def assess_current_posture() -> SpecGapDefensePosture:
+    """Build the current spec-gap defense posture.
 
     Probes each defense's ``wired_modules`` for importability and
     flips ``wired=False`` on any missing module. This is the function
     the auditing pipeline calls on every release to detect regressions.
     """
     table = _build_defense_table()
-    defenses: list[ShermanDefense] = []
+    defenses: list[SpecGapDefense] = []
     for d in table:
         all_present = _all_modules_importable(d.wired_modules)
         defenses.append(
-            ShermanDefense(
+            SpecGapDefense(
                 attack_class=d.attack_class,
                 description=d.description,
                 wired_modules=d.wired_modules,
@@ -253,9 +253,9 @@ def assess_current_posture() -> ShermanDefensePosture:
                 wired=all_present,
             )
         )
-    return ShermanDefensePosture(
+    return SpecGapDefensePosture(
         defenses=tuple(defenses),
-        sherman_2026_compliant=all(d.wired for d in defenses),
+        spec_gap_compliant=all(d.wired for d in defenses),
     )
 
 
@@ -299,20 +299,13 @@ def render_buyer_dossier() -> dict:
 
     Shape is intentionally flat so it can be embedded in audit evidence
     packets or security dossiers without further transformation. The
-    ``sherman_2026_compliant`` boolean is the headline; the per-class
+    ``spec_gap_compliant`` boolean is the headline; the per-class
     table is the supporting evidence.
     """
     posture = assess_current_posture()
     return {
-        "paper": {
-            "title": (
-                "Verifying Provenance of Digital Media: Why the C2PA "
-                "Specifications Fall Short"
-            ),
-            "arxiv_id": "2604.24890",
-            "published": "2026-04-27",
-        },
-        "sherman_2026_compliant": posture.sherman_2026_compliant,
+        "reference": "tex:c2pa-attack-matrix",
+        "spec_gap_compliant": posture.spec_gap_compliant,
         "defenses": [
             {
                 "id": d.attack_class.value,
@@ -327,9 +320,9 @@ def render_buyer_dossier() -> dict:
 
 
 __all__ = (
-    "ShermanAttackClass",
-    "ShermanDefense",
-    "ShermanDefensePosture",
+    "SpecGapAttackClass",
+    "SpecGapDefense",
+    "SpecGapDefensePosture",
     "assess_current_posture",
     "render_buyer_dossier",
 )

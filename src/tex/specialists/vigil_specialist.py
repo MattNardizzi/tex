@@ -1,8 +1,8 @@
 """
 VIGIL Specialist Judge.
 
-Implements verify-before-commit on the agent's tool stream per arxiv
-2601.05755v2 (VIGIL framework + SIREN benchmark, January 2026).
+Implements verify-before-commit on the agent's tool stream (the VIGIL
+framework, paired with the SIREN signal class).
 
 Where ClawGuard enforces a static boundary on inbound content, VIGIL
 operates on the *outbound* tool-call stream: each tool call is treated
@@ -10,7 +10,7 @@ as a *speculative hypothesis* whose commit must be verified against
 the agent's user-grounded intent. If the verification fails, the call
 is denied with a structured reason; if it passes, the call ships.
 
-The paper's central insight: defending against IPI by *restricting* the
+The central insight: defending against IPI by *restricting* the
 agent's reasoning over external content (the static-isolation paradigm)
 forces a tradeoff against benign reasoning flexibility. VIGIL inverts
 this — let the agent reason freely, but require a verifier-grounded
@@ -34,9 +34,8 @@ context that produced it. For each request:
 
 SIREN-style detection
 ---------------------
-The SIREN benchmark (959 cases) tests "tool stream injection cases
-designed to simulate pervasive threats characterized by dynamic
-dependencies." We approximate the SIREN signal class by detecting:
+The SIREN signal class covers tool-stream injection threats
+characterized by dynamic dependencies. We approximate it by detecting:
 
   - Tool-stream divergence (proposed tool/parameters don't match the
     user's stated intent).
@@ -47,12 +46,10 @@ dependencies." We approximate the SIREN signal class by detecting:
   - Manipulated metadata signature (tool-call metadata claims to
     "originate from" something other than the user prompt).
 
-References
-----------
-- arxiv 2601.05755v2 (VIGIL framework + SIREN benchmark, Jan 2026) —
-  primary paper anchor.
-- arxiv 2604.11790 (ClawGuard) — boundary enforcer companion.
-- arxiv 2605.03378 (ARGUS) — provenance companion.
+Related components
+------------------
+- ClawGuard — boundary enforcer companion.
+- ARGUS — provenance companion.
 - OWASP ASI 2026 ASI02 (Tool Misuse), ASI07 (Insecure Inter-Agent
   Comm), ASI08 (Cascading Failure).
 """
@@ -204,7 +201,7 @@ class VigilSpecialist:
             or verif.cascade_chaining
             or verif.metadata_claim_mismatch
         ):
-            # Per arxiv 2601.05755, VIGIL only escalates on divergence
+            # VIGIL only escalates on divergence
             # when there is *independent* evidence the tool stream was
             # manipulated. Token-level divergence alone is too noisy on
             # legitimate tool calls whose interface vocabulary doesn't
@@ -222,7 +219,7 @@ class VigilSpecialist:
                         f"(divergence={verif.divergence_score:.3f}, "
                         f"threshold={_INTENT_DIVERGENCE_THRESHOLD}) AND "
                         "independent tool-stream-poison signal present. "
-                        "Per arxiv 2601.05755 verify-before-commit, the "
+                        "Under verify-before-commit, the "
                         "tool call should not be committed."
                     ),
                 )
@@ -275,7 +272,7 @@ class VigilSpecialist:
                     "user-grounded intent check."
                 ),
                 rationale=(
-                    "VIGIL (arxiv 2601.05755) verifies each tool call "
+                    "VIGIL verifies each tool call "
                     "against the user's grounded intent before commit. "
                     "This request's proposed action aligns with the "
                     "user prompt and shows no SIREN-class tool-stream "
@@ -307,10 +304,9 @@ class VigilSpecialist:
             )
             uncertainty_flags.append(
                 build_specialist_human_review_flag(
-                    "VIGIL verify-before-commit returned DENY; per "
-                    "arxiv 2601.05755 and Five Eyes May 2026 guidance, "
-                    "the proposed tool call must not be committed "
-                    "without human review."
+                    "VIGIL verify-before-commit returned DENY; per Five "
+                    "Eyes May 2026 guidance, the proposed tool call must "
+                    "not be committed without human review."
                 )
             )
 
@@ -325,12 +321,11 @@ class VigilSpecialist:
                 "Proposed tool call fails grounded-intent check."
             ),
             rationale=(
-                "VIGIL implements arxiv 2601.05755v2 verify-before-commit. "
+                "VIGIL implements verify-before-commit. "
                 "Each tool call is a speculative hypothesis; the commit "
                 "requires verifier agreement with the user-grounded intent. "
                 "SIREN-style signals were detected in the observation "
-                "stream. No commercial governance platform ships this "
-                "primitive as of May 2026."
+                "stream."
             ),
             evidence=tuple(evidence),
             matched_policy_clause_ids=tuple([*deduped, *asi_tags]),

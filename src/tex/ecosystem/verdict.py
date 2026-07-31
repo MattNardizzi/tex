@@ -15,11 +15,11 @@ Thread 7.1 extension
 Adds two surfaces over the existing six-axis scoring:
 
   * ``viability_index`` — scalar in [0, 1] derived from the axis
-    scores per Aubin viability theory (RiskGate, arxiv 2604.24686,
-    Apr 27 2026). Higher = healthier; 1.0 = full viability, 0.0 =
+    scores per the RiskGate Aubin-viability framing.
+    Higher = healthier; 1.0 = full viability, 0.0 =
     at the viability boundary.
   * ``graduated_level`` — GAAT-compatible enforcement tier
-    (L0/L1/L2/L3/L4 per arxiv 2604.05119, Apr 6 2026). Maps the
+    (L0/L1/L2/L3/L4). Maps the
     viability index to a discrete enforcement level for systems
     that consume per-event decisions rather than continuous scores.
 """
@@ -43,7 +43,7 @@ class EcosystemVerdictKind(str, Enum):
 
 class GraduatedEnforcementLevel(str, Enum):
     """
-    GAAT-compatible enforcement tiers (arxiv 2604.05119 §III.A).
+    GAAT-compatible enforcement tiers.
 
     Maps viability_index to a discrete level for downstream systems
     that consume per-event decisions:
@@ -54,8 +54,8 @@ class GraduatedEnforcementLevel(str, Enum):
       L3 REDIRECT    — 0.25 ≤ viability_index < 0.50
       L4 QUARANTINE  — viability_index < 0.25
 
-    These thresholds match GAAT's published Theorem-3 max-action
-    composition table (Apple, Apr 6 2026).
+    These thresholds are Tex's own convention for the max-action
+    composition table.
     """
 
     L0_ALLOW = "L0_allow"
@@ -90,7 +90,7 @@ class EcosystemAxisScores(BaseModel):
 
     Viability index formula
     -----------------------
-    Per RiskGate (arxiv 2604.24686):
+    Per the RiskGate decomposition:
 
         viability_index = 1 - max(U, SB, RG)
 

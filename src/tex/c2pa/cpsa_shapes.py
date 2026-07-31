@@ -180,7 +180,7 @@ def model_provenance_assertion_data(
             }
             for s in bundle.skeletons
         ],
-        "paper_reference": "arxiv:2604.24890 §Recommendations",
+        "paper_reference": "tex:c2pa-attack-matrix",
     }
     if scm_path is not None:
         payload["scm_sha256"] = compute_scm_sha256(scm_path)

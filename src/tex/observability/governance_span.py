@@ -2,9 +2,8 @@
 OpenTelemetry-compatible governance span attributes for ecosystem
 verdicts.
 
-Reference: Governance-Aware Agent Telemetry (GAAT, arxiv 2604.05119,
-Apr 6 2026, Apple). GAAT extends OpenTelemetry's span attribute
-schema with governance metadata so OpenTelemetry exporters (Jaeger,
+Governance-Aware Agent Telemetry (GAAT) extends OpenTelemetry's span
+attribute schema with governance metadata so OpenTelemetry exporters (Jaeger,
 Tempo, AWS X-Ray, Honeycomb) can render and query ecosystem verdicts
 without bespoke tooling.
 
@@ -17,7 +16,7 @@ OTel pipeline. The shape is:
         # OpenTelemetry standard
         "service.name": "tex",
         "service.namespace": "ecosystem",
-        # GAAT-compatible governance attributes (GAAT §III.A)
+        # GAAT-compatible governance attributes
         "governance.decision": "permit" | "abstain" | ...,
         "governance.enforcement_level": "L0_allow" | ... | "L4_quarantine",
         "governance.viability_index": 0.92,
@@ -30,7 +29,7 @@ The schema is stable and versioned via ``GAAT_SPAN_SCHEMA_VERSION``.
 
 References
 ----------
-- GAAT (arxiv 2604.05119, Apr 6 2026) — GTS schema, §III.A
+- GAAT — Tex's governance telemetry span (GTS) schema convention
 - OpenTelemetry Semantic Conventions v1.32 — service / resource
 """
 
@@ -79,7 +78,7 @@ def verdict_to_otel_attributes(
         "service.namespace": service_namespace,
         # Schema version for downstream consumers.
         "tex.governance.schema_version": GAAT_SPAN_SCHEMA_VERSION,
-        # GAAT-compatible governance attributes (the §III.A core set).
+        # GAAT-compatible governance attributes (the core set).
         "governance.decision": verdict.kind.value,
         "governance.enforcement_level": axes.graduated_level.value,
         "governance.viability_index": axes.viability_index,
@@ -110,9 +109,9 @@ def verdict_to_otel_attributes(
     return attrs
 
 
-# GAAT-compatible enforcement-level → action map (arxiv 2604.05119
-# §III.A Table I). Provided as a reference for downstream consumers
-# that want to mirror GAAT's L0..L4 → action semantics.
+# GAAT-compatible enforcement-level → action map (Tex's own L0..L4
+# convention). Provided as a reference for downstream consumers
+# that want to mirror the L0..L4 → action semantics.
 GAAT_ACTION_TABLE: dict[str, str] = {
     "L0_allow": "ALLOW",
     "L1_alert": "ALERT",

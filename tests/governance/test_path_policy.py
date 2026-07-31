@@ -181,7 +181,7 @@ class TestLtlfTemporal:
         assert evaluate("(state.safe=yes) U (tool=done)", trace2) is False
 
     def test_combined_paper_pii_predecessor(self):
-        # Kaptein 2603.16586 §3.5 PII predecessor: a pii_check must
+        # The PII predecessor requirement: a pii_check must
         # appear before any read_personal_data action. Equivalent
         # LTLf: at every position, if read_personal_data is performed,
         # then pii_check has been seen at some earlier position.
@@ -230,7 +230,7 @@ class TestLtlfParser:
 
 class TestPathPolicyChecker:
     def test_block_policy_denies_when_violated(self):
-        # Per Kaptein §4.2, policies typically condition on a compact
+        # Path policies typically condition on a compact
         # state vector. We model "approval before external_send" as:
         # at the candidate step, EITHER tool is not external_send OR
         # state.approved=true. The runtime is responsible for setting

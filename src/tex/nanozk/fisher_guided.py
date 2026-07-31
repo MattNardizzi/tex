@@ -18,32 +18,26 @@ Goal
 When proving every layer of a transformer is impractical (the prover
 amortises sublinearly but does not vanish), pick the subset of layers
 whose verification *most* informs the verifier about the inference's
-correctness. NANOZK (arxiv 2603.18046 §3.3, Mar 17 2026) proposed
-Fisher information as the principled choice: high-Fisher layers
-dominate the model's output sensitivity, so verifying them captures
-the bulk of the inference's "computational signature".
+correctness. The NANOZK design uses Fisher information as the
+principled choice: high-Fisher layers dominate the model's output
+sensitivity, so verifying them is expected to capture the bulk of the
+inference's "computational signature". (Design rationale, not a
+measured result.)
 
-What the NANOZK paper claims
-----------------------------
-Quoting arxiv 2603.18046: "Verifying only high-Fisher layers captures
-65–86% of model sensitivity with 50% of the proving cost, compared to
-51–79% for random selection — a consistent improvement across
-architectures."
-
-What's deliberately stricter than the paper
--------------------------------------------
-The paper's algorithm is "sort by Fisher score descending, pick top-k
+The selection algorithm
+-----------------------
+The base algorithm is "sort by Fisher score descending, pick top-k
 within budget". This module implements that exactly, with two
-production-grade additions the paper does not specify:
+production-grade additions:
 
   1. **Deterministic tie-breaking by layer index** when two scores are
-     bit-identical. The paper is silent on ties, which is fine for an
+     bit-identical. Leaving ties unspecified is fine for an
      evaluation script but unacceptable for a cryptographic protocol
      where the verifier must reproduce the prover's selection bit-for-
      bit to recompute the layer-set commitment.
 
   2. **Budget arithmetic that respects per-layer cost variance**.
-     NANOZK assumes uniform per-layer cost (a single transformer block
+     The naive form assumes uniform per-layer cost (a single transformer block
      has the same prove time on every layer). That is approximately
      true for GPT-2's 12 identical blocks but fails the moment we
      touch Mixture-of-Experts, GQA/MQA (Gauge Symmetries paper,

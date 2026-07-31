@@ -1,16 +1,16 @@
 """
 TALUS-TEE — 1-round-online threshold ML-DSA with TEE attestation.
 
-**Bleeding-edge frontier as of May 20, 2026.** TALUS (arxiv 2603.22109 v2,
-Leo Kao / Codebat, Mar 24 2026) introduced two techniques —
+TALUS is the internal design label for a construction built on two
+techniques —
 the Boundary Clearance Condition (BCC) and the Carry Elimination Framework
 (CEF) — that reduce threshold ML-DSA online signing to a single broadcast
 round. TALUS-TEE achieves this by delegating the residual ``r0``-check
 predicate to a Trusted Execution Environment (TEE) coordinator.
 
-**No public reference implementation of TALUS exists** (as of May 20, 2026).
-The paper provides full protocols and UC-security proofs but no code. Tex
-ships the first end-to-end production deployment harness.
+**No reference implementation of the native TALUS construction exists.**
+Tex ships the end-to-end deployment harness; the cryptographic core is
+Mithril executed inside the TEE (see below).
 
 What this module provides
 -------------------------
@@ -40,20 +40,20 @@ What this module is honest about
 - The cryptographic core today is Mithril (3-round MPC) executed inside a
   TEE coordinator. The user-facing online signing API is 1-round because
   rounds 1 and 2 happen inside the enclave during the preprocessing phase.
-  This matches TALUS-TEE's profile-P1 deployment description but uses
-  Mithril's MPC primitives rather than TALUS-TEE's BCC+CEF cryptographic
-  optimization. The BCC+CEF optimization shaves ~30% off signing time per
-  the TALUS paper's benchmarks; the operational round count is identical.
+  This matches the TALUS-TEE profile-P1 deployment shape but uses
+  Mithril's MPC primitives rather than the BCC+CEF cryptographic
+  optimization. BCC+CEF is expected to reduce signing time; the
+  operational round count is identical.
 - The native TALUS-TEE BCC+CEF cryptographic implementation is gated
   behind ``TEX_TALUS_NATIVE_BCC=1`` and currently raises
-  ``NotImplementedError`` — to be wired when a vetted reference impl ships
-  (the paper authors have not yet released code as of May 20, 2026).
+  ``NotImplementedError`` — to be wired if a vetted reference
+  implementation ships (none is available).
 
 Threat model
 ------------
 - **TEE compromise**: if the SGX/TDX/SEV-SNP enclave is compromised, the
-  attacker recovers the threshold signing material. This is the same
-  threat model TALUS-TEE explicitly accepts (Section 6 of the paper).
+  attacker recovers the threshold signing material. This is the
+  threat model the TALUS-TEE design explicitly accepts.
 - **Attestation freshness**: every signature requires a recent attestation
   quote (default freshness: 3600 seconds). Stale quotes are rejected.
 - **Side channels**: a side-channel attack on the enclave reveals the
@@ -62,8 +62,6 @@ Threat model
 
 References
 ----------
-- arxiv 2603.22109 v2 (Kao — TALUS, Mar 24 2026)
-- arxiv 2601.20917 (Kao — Shamir Nonce DKG, Jan 2026; complementary)
 - RFC 9334 (Remote ATtestation procedureS, Jan 2023)
 - Intel SGX DCAP attestation (Quote V3, V4)
 - Intel TDX 1.0 attestation (TD report → quote)
@@ -392,8 +390,8 @@ class TalusTeeSdk:
         -------------------------
         When ``TEX_TALUS_NATIVE_BCC=1`` is set, this method routes through
         a native BCC+CEF cryptographic implementation (not yet shipped —
-        the TALUS paper authors have not released reference code as of
-        May 20, 2026). Currently raises ``NotImplementedError`` in that
+        no reference implementation is available). Currently raises
+        ``NotImplementedError`` in that
         mode; the default mode uses Mithril MPC inside the TEE and
         delivers the same operational profile.
         """
@@ -407,8 +405,8 @@ class TalusTeeSdk:
         if os.environ.get("TEX_TALUS_NATIVE_BCC") == "1":
             raise NotImplementedError(
                 "Native TALUS-TEE BCC+CEF cryptographic path not yet available "
-                "— the paper authors (arxiv 2603.22109) have not released "
-                "reference code as of May 20, 2026. Unset TEX_TALUS_NATIVE_BCC "
+                "— no reference implementation exists; this backend is a "
+                "structural shim. Unset TEX_TALUS_NATIVE_BCC "
                 "to use the Mithril-inside-TEE operational profile."
             )
 

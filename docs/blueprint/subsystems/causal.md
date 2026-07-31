@@ -20,7 +20,7 @@ The package's *live deliverable* is `compute_attribution(decision)` (in `attribu
 
 **Architectural self-label** (`__init__.py:1-2`, `:29-30`): Layer 4 "Execution Governance"; "wired via api/incident_routes and ecosystem/engine." The api/incident_routes half is **confirmed live**; the ecosystem/engine half is **wired but dormant at runtime** (see Wiring).
 
-Most of the academic citations in the docstrings (arxiv IDs, dates, author names) reference papers from 2026 that cannot be checked from inside the repo; the *algorithms* they describe (Shapley, MinHash/LSH, split-conformal quantile, lattice meet, BFS reachability) are all genuinely implemented in code. Treat the specific arxiv numbers/dates as `(claim, unverified)` but the implemented math as real.
+The docstrings formerly carried paper-style academic citations (ids, dates, author names) that could not be verified against any public source; those citation labels have been removed from the code. The *algorithms* they described (Shapley, MinHash/LSH, split-conformal quantile, lattice meet, BFS reachability) are all genuinely implemented in code — the implemented math is real, the citation labels were decoration.
 
 ---
 
@@ -230,7 +230,7 @@ External libraries:
 - **LLM interpretability signals**: prefill-stage per-token NLL + attention entropy as out-of-distribution scores (`prefill_signals.py`).
 - **Design patterns**: dependency injection (ARM's 3 modes, screener injection), frozen pydantic value objects everywhere, deterministic seeding for replayability (`_SHAPLEY_MC_SEED`, `_LSH_SEED_VERSION`), env-flag feature gating, fail-closed degradation.
 
-The cited 2026 arxiv numbers/authors/dates are `(claim, unverified)` from inside the repo; the implemented algorithms are real.
+The paper-style citation labels formerly in the docstrings were unverifiable and have been removed from the code; the implemented algorithms are real.
 
 ---
 
@@ -253,11 +253,11 @@ State that lives across calls: only the SLM cache and the `TEX_CONFORMAL_CALIBRA
 
 2. **ARM is fully built but unused at runtime.** `AgenticReferenceMonitor`, the provenance graph, denial recording, deterministic `check_proposed`, integrity labeling, and the real `DENIAL_EVENT` ledger append are all implemented and pass `tests/causal/test_arm.py`, but no live code constructs or calls an `AgenticReferenceMonitor`. It is `DEMO_TEST_ONLY`. The spine pass's "causal=LIVE" is correct for the *package* (the attribution_engine path is live) but masks that the ARM subcomponent is not on any call path.
 
-3. **Causality-laundering in the live result is a heuristic, not an ARM query.** `causality_laundering_suspected` in every `CausalAttributionResult` is set by `_causality_laundering_check` (`attribution_engine.py:594-624`), which inspects ASI category/severity — it does **not** consult the ARM provenance graph or its `has_counterfactual_chain_to`. The docstring honestly flags this as v1-heuristic-to-be-replaced. Anyone reading "causality laundering per arxiv 2604.04035" in the result should know the real ARM mechanism (which exists in `arm.py`) is *not* what produced the flag.
+3. **Causality-laundering in the live result is a heuristic, not an ARM query.** `causality_laundering_suspected` in every `CausalAttributionResult` is set by `_causality_laundering_check` (`attribution_engine.py:594-624`), which inspects ASI category/severity — it does **not** consult the ARM provenance graph or its `has_counterfactual_chain_to`. The docstring honestly flags this as v1-heuristic-to-be-replaced. Anyone reading a "causality laundering" provenance label in the result should know the real ARM mechanism (which exists in `arm.py`) is *not* what produced the flag.
 
 4. **The "hybrid no one else has implemented" prefill re-ranking is inert by default.** `TEX_ATTRIBUTION_SLM_ENABLED` defaults to `"0"` (`prefill_signals.py:42-43` comment, `_try_load_slm:236`), and `transformers`/`torch` are optional. So in a default deployment `signals_available=False`, `attribution_method="graph"`, and step-6 re-ranking is a no-op pass-through. The hybrid path is real code but ships off.
 
-5. **Docstring arxiv citations are unverifiable from the repo** and include very specific 2026 dates/authors (e.g. CHIEF 2602.23701, ARM 2604.04035, conformal 2605.06788, LSH-Shapley 2605.03581, MASPrism 2605.07509). Mark all as `(claim, unverified)`. The *algorithms* are genuinely implemented; the provenance labels are decoration.
+5. **Docstring citation labels (the CHIEF / ARM / conformal / LSH-Shapley / MASPrism attributions) were unverifiable and have been removed from the code.** They carried very specific paper-style ids, dates, and authors that could not be matched to any public source. The *algorithms* are genuinely implemented; the citation labels were decoration.
 
 6. **`model_weight_sha256` is a surrogate**, not a real weights hash (`prefill_signals.py:344-349`). It hashes the string `"transformers:{model_id}"`. The field is destined for ZK proof binding, where a fake weight hash would undermine the proof — flagged here because the docstring says "Required for ZK proof generation."
 

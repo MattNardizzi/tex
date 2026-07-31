@@ -1,9 +1,9 @@
 """
 Role ontology — how domain actors reason.
 
-Per arxiv 2604.00555 three-layer ontology framework. Returns the
-reasoning pattern (typical inputs, outputs, constraints, AIRO role
-binding) for a domain role.
+Part of Tex's three-layer ontology (role / interaction / governance).
+Returns the reasoning pattern (typical inputs, outputs, constraints,
+AIRO role binding) for a domain role.
 
 Seed roles are taken from the dual-ICP buyer narratives. Anything not
 in the table raises KeyError; expanding the role table is a P1 follow-up

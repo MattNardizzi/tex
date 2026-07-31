@@ -1,16 +1,16 @@
 """
 Information-Flow Control sub-layer for Tex.
 
-This sub-package extends ``tex.governance.private_data_exec`` (GAAP)
-with the bleeding-edge May 2026 IFC stack used by the PDP at runtime.
+This sub-package extends ``tex.governance.private_data_exec`` (the
+GAAP-style sandbox) with the IFC stack used by the PDP at runtime.
 
-Reference implementations
--------------------------
-- ARM provenance graph + counterfactual edges     — arxiv 2604.04035
+Component mechanisms
+--------------------
+- ARM provenance graph + counterfactual edges
 - FIDES product lattice (label × type capacity)   — arxiv 2505.23643
-- NeuroTaint cross-session memory                 — arxiv 2604.23374
-- CA-CI six-tuple contextual integrity            — IEEE S&P 2026
-- GAAP permission DB + disclosure log (parent)    — arxiv 2604.19657
+- NeuroTaint cross-session memory
+- CA-CI six-tuple contextual integrity
+- GAAP-style permission DB + disclosure log (parent package)
 - Rule of Two corrective check                    — Meta Oct 2025,
                                                     Towards AI Nov 2025
 

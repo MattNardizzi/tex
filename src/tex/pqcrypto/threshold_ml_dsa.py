@@ -17,7 +17,7 @@ Bleeding-edge frontier as of May 20, 2026
   no public implementation.
 - PQShield Mithril (ePrint 2026/013): the Rust crate ``threshold-ml-dsa``
   v0.3 (crates.io, Apr 14 2026, MIT). **This is what Tex binds to.**
-- TALUS (arxiv 2603.22109 v2, Codebat, Mar 24 2026): 1 online round
+- TALUS (internal design label): 1 online round
   with TEE. See ``tex.pqcrypto.talus_tee`` for the Tex implementation.
 
 How this module works

@@ -10,7 +10,7 @@ composition path and prove three properties Thread 5 was responsible for:
 
   2. When the recorder receives a PERMIT decision with an
      ``outbound_artifact`` and a complete ``C2paEmissionContext``,
-     it produces a C2PA 2.4 manifest (with cosign + Sherman 2026
+     it produces a C2PA 2.4 manifest (with cosign + the attack-matrix
      six-attack defenses), stores the manifest in the mirror, and
      anchors the manifest hash in the JSONL evidence chain.
 
@@ -288,7 +288,8 @@ def test_record_decision_with_artifact_and_context_emits_c2pa(tmp_path) -> None:
       - manifest hash is anchored in the JSONL evidence chain row
       - the row carries the cosign metadata (algorithm, canonicalization
         version, full_file_sha256) needed for offline re-verification
-        after the outer cert expires (NSA paper attack class 5 defense)
+        after the outer cert expires (attack class 5 defense,
+        cert-expiry-before-retention)
     """
     priv_pem, pub_pem, cert_pem, key_id = _make_es256_signer_keypair_and_cert()
     cosign_key = _make_cosign_keypair()
@@ -324,8 +325,7 @@ def test_record_decision_with_artifact_and_context_emits_c2pa(tmp_path) -> None:
     # verifier needs to re-derive the manifest offline.
     assert stored["has_cosign"] is True
     assert stored["cosign_algorithm"] == "ed25519"
-    # canonicalization v2 is the Merkle-bound default (Golaszewski
-    # FIDO UAF context tree, arxiv 2511.06028).
+    # canonicalization v2 is the Merkle-bound default.
     assert stored["canonicalization_version"] in {
         "tex.evidence_cosign/v1",
         "tex.evidence_cosign/v2",
@@ -337,7 +337,7 @@ def test_record_decision_with_artifact_and_context_emits_c2pa(tmp_path) -> None:
     # Tenant binding plumbed all the way through.
     assert stored["tenant_id"] == "tenant-thread5-test"
 
-    # Sherman 2026 NSA paper attack class 5: the chain row must
+    # Attack class 5 (cert-expiry-before-retention): the chain row must
     # commit to the full file hash so the manifest is offline-
     # verifiable after the outer cert expires.
     assert stored["full_file_sha256"] is not None

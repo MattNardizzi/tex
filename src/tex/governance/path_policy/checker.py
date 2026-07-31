@@ -4,19 +4,16 @@ Path policy runtime checker.
 Maintains a sliding window of recent (state, action, observation) tuples
 and checks each candidate action against active path policies before allow.
 
-Reference: Kaptein, Khan & Podstavnychy. "Runtime Governance for AI Agents:
-Policies on Paths." arXiv:2603.16586 (Mar 2026), Sections 3.2-3.3 and 4.2.
-
 Implementation notes
 --------------------
-The paper defines policy composition as
+Policy composition is defined as
 
     v_i = 1 - prod_{j in J} (1 - pi_j(A, P_i, s*, Sigma))
 
 The checker evaluates every active policy against the current trace
 (the sliding window with the candidate action appended) and composes
 their violation probabilities by this formula. Three intervention
-outcomes are supported (paper Section 4.4): Pass, Steer, Block.
+outcomes are supported: Pass, Steer, Block.
 
 For audit, the checker emits one ``path_policy.checked`` event per
 ``check`` call. If any policy produces a non-zero violation probability,
@@ -29,7 +26,7 @@ The check() return contract is preserved from the original scaffolding:
 
     (allowed: bool, violated_policy_ids: tuple[str, ...])
 
-allowed is True iff no severity="block" policy fired (paper-Block
+allowed is True iff no severity="block" policy fired (the Block
 outcome). severity="warn" and severity="audit" populate
 violated_policy_ids without setting allowed=False — the caller can
 inspect the second tuple element for steer/audit signals.
@@ -56,9 +53,9 @@ from tex.governance.path_policy.policy import (
 from tex.observability import telemetry
 
 
-# Default sliding-window size. The Kaptein paper notes paths "from a
-# handful of steps to thousands of steps" but emphasizes that "the state
-# vector is a sufficient statistic for each policy". Tex retains the
+# Default sliding-window size. Agent paths range from a handful of
+# steps to thousands of steps, but the state vector is a sufficient
+# statistic for each policy. Tex retains the
 # raw trace within the window because LTLf needs it; longer histories
 # are summarized by a separate state-vector projection (left to the
 # caller; the path_policy_checker is intentionally history-only).
@@ -138,7 +135,7 @@ class PathPolicyChecker:
         Append a completed step (with its observed output) to the window.
 
         Called by the runtime after a candidate action has been allowed
-        and executed. The observation is the d_out,i of the paper's
+        and executed. The observation is the d_out,i component of the
         path-step triple.
         """
         self._history.append((dict(state), dict(action), dict(observation)))
@@ -147,10 +144,9 @@ class PathPolicyChecker:
         """
         Mutate the shared governance state Sigma.
 
-        Per the paper's Section 3.5 instantiation, Sigma "captures
-        governance-relevant facts that no single agent's path contains,
-        such as which agents have accessed which data categories or
-        which information barriers have been activated."
+        Sigma captures governance-relevant facts that no single agent's
+        path contains, such as which agents have accessed which data
+        categories or which information barriers have been activated.
         """
         for key, value in fields.items():
             self._shared_state[key] = value
@@ -176,14 +172,14 @@ class PathPolicyChecker:
         --------------
         Evaluates LTLf-formula policies and CallablePolicy functions
         against the same trace. Composes violation probabilities per
-        the paper's v_i = 1 - prod (1 - pi_j) formula. Emits one
+        the v_i = 1 - prod (1 - pi_j) formula. Emits one
         telemetry event per policy that fires plus one summary event
         per call.
         """
         # Build the trace: history + the candidate position. The
         # candidate has empty state-update and empty observation
-        # (per paper: s* is "what the agent intends to do, not what
-        # it has done", so d_out,i is unknown).
+        # (s* is what the agent intends to do, not what it has done,
+        # so d_out,i is unknown).
         candidate_step: PathStep = (
             {},
             dict(candidate_action),
@@ -208,8 +204,8 @@ class PathPolicyChecker:
                 # An LTLf formula expresses what should hold (the
                 # "good" property). A violation is when the formula
                 # is FALSE on the trace. So pi_j = 1.0 if the formula
-                # is unsatisfied, else 0.0 — the binary policies the
-                # paper observes are most common.
+                # is unsatisfied, else 0.0 — the binary policy class
+                # that dominates in practice.
                 holds = evaluate_compiled(compiled, trace)  # type: ignore[arg-type]
                 pi_j = 0.0 if holds else 1.0
             self._record_policy_outcome(
@@ -254,7 +250,7 @@ class PathPolicyChecker:
                 if cp.severity == "block":
                     any_block = True
 
-        # 3. Compose v_i per the paper's formula.
+        # 3. Compose v_i per the composition formula.
         v_i = self._compose_violation_score(violation_probs)
 
         telemetry.emit_event(

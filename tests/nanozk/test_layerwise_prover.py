@@ -53,7 +53,7 @@ class TestConstants:
         assert LAYERWISE_CIRCUIT_VERSION == "nanozk-layerwise-v1-2026.05"
 
     def test_verifier_target_is_paper_value(self) -> None:
-        # arxiv 2603.18046 §5.2 reports 23 ms verifier time.
+        # Internal sub-23 ms verifier performance target.
         assert NANOZK_VERIFIER_TARGET_MS == 23.0
 
 
@@ -209,7 +209,7 @@ class TestSingleLayerProveVerify:
         assert isinstance(result, LayerProofVerification)
 
     def test_verifier_latency_under_paper_target(self) -> None:
-        # arxiv 2603.18046 §5.2 — 23ms verifier target. The shim
+        # Internal 23ms verifier target. The shim
         # path is sub-millisecond so this is comfortably under.
         inp = b"hello"
         out = b"world"

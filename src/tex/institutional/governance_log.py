@@ -1,15 +1,14 @@
 """
 Cryptographically-keyed, append-only governance log.
 
-Per arxiv 2601.11369 §6.2.2 + Appendix D the governance log is the
-"immutable, append-only execution trace that links every institutional
-action back to the manifest". The paper carries the manifest semantic
-digest on every log entry so an external auditor can join log entries
-to a specific public manifest version.
+The governance log is the immutable, append-only execution trace that
+links every institutional action back to the manifest. Every log entry
+carries the manifest semantic digest so an external auditor can join
+log entries to a specific public manifest version.
 
-Tex extends the paper by *signing* every log entry with a key
-deliberately distinct from the main events ledger key. This satisfies
-two operating constraints:
+Tex additionally *signs* every log entry with a key deliberately
+distinct from the main events ledger key. This satisfies two operating
+constraints:
 
 1. **Independent audit channel.** A regulator (insurer, NAIC,
    investigator) verifying the institutional layer should not need
@@ -25,8 +24,6 @@ two operating constraints:
 
 Reference
 ---------
-arxiv 2601.11369 (Bracale Syrnikov et al., 2026), §6.2.2, Appendix D
-arxiv 2601.10599 (Pierucci et al., 2026), §5.4 (audit interfaces)
 NIST FIPS 186-5 (ECDSA-P256 default), FIPS 204 (ML-DSA target)
 
 Priority: P1.

@@ -185,7 +185,7 @@ per-request:  EvaluateActionCommand.execute
 
 ## Technology
 
-- **Temporal/property graph** over `networkx.MultiDiGraph` — append-only events as edges, versioned entity snapshots, time-travel via `bisect`. Docstring cites **Zep / Graphiti** temporal-aware KG and **arxiv 2602.05665** (Graph-based Agent Memory) as references (`temporal_kg.py:37-39`) — *(citations, unverified)*.
+- **Temporal/property graph** over `networkx.MultiDiGraph` — append-only events as edges, versioned entity snapshots, time-travel via `bisect`. Docstring cites **Zep / Graphiti** temporal-aware KG as a reference (`temporal_kg.py:37-39`); a paper-style citation formerly alongside it was unverifiable and has been removed.
 - **Deterministic canonical hashing** — SHA-256 over an RFC-8785-subset canonical JSON (`tex.events._canonical`), float-rejecting, schema-versioned, with a pinned empty-graph hash. This is the reproducibility/audit primitive.
 - **rustworkx (Rust-backed) optional acceleration** for BFS/reachability with a transparent networkx fallback; edge-kind carried as the rustworkx edge weight to survive MultiDiGraph parallel edges (`rustworkx_backend.py:197-201`). Docstring claims 5-50× speedups and "first published rustworkx integration for an agent governance reference monitor" (`rustworkx_backend.py:11-14, 37-39`) — *(marketing claims, unverified)*.
 - **libpq hardening** — mandatory `connect_timeout` + `statement_timeout` + `lock_timeout` to prevent a single-worker wedge (`connection.py:44-56, 108-114`). Sound operational engineering.

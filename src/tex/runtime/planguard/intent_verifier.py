@@ -2,20 +2,20 @@
 Hierarchical Intent Verifier.
 
 Two-stage check:
-  Stage I (Deterministic Constraint Matching, paper §IV-C1):
+  Stage I (Deterministic Constraint Matching):
     Three cases:
       1. Exact match (a_act in S_ref)         -> Pass
       2. Tool name not in S_ref               -> Block (Type I attack)
       3. Tool name OK, params don't match     -> escalate to Stage II
-  Stage II (Tool Intent Verification, paper §IV-C2):
+  Stage II (Tool Intent Verification):
     M_verify(I, S_ref, a_act, r_act) -> {True, False}
     Determines whether parameter deviation is benign formatting drift
     (e.g., 'last_week' vs 'lastweek') or a malicious intent shift.
 
 The agent's reasoning r_act is the critical Stage II signal — without it,
-we cannot distinguish Type II attacks from benign LLM stochasticity. The
-paper reports that Stage I alone produces FPR of 27-38% (unacceptable);
-adding Stage II's reasoning-aware check brings FPR to <3.3%.
+we cannot distinguish Type II attacks from benign LLM stochasticity.
+Stage I alone over-blocks on benign parameter drift; Stage II's
+reasoning-aware check is what keeps false positives low.
 
 Priority: P1.
 """
@@ -42,9 +42,9 @@ _DEFAULT_LOGGER = get_logger("tex.runtime.planguard")
 
 class IntentVerifier:
     """
-    Hierarchical Verifier V from arxiv 2604.10134 §IV-C.
+    Hierarchical Verifier V.
 
-    Stage II uses an injectable LLM callable (M_verify in paper notation)
+    Stage II uses an injectable LLM callable (M_verify)
     to judge whether parameter deviation reflects malicious intent. When
     no LLM is configured we fall back to a conservative deterministic
     semantic check that only allows narrowly-defined formatting variance.
@@ -72,8 +72,8 @@ class IntentVerifier:
         TODO(P1): Stage 1 hard constraint check on tool name
         TODO(P1): Stage 2 LLM-based intent check on parameter delta
 
-        Status: implemented. Backwards-compatible signature; for full
-        paper-faithful behavior, callers should use verify_with_reasoning
+        Status: implemented. Backwards-compatible signature; for the full
+        reasoning-aware check, callers should use verify_with_reasoning
         which accepts the agent's pre-action reasoning r_act.
         """
         return self.verify_with_reasoning(
@@ -91,17 +91,17 @@ class IntentVerifier:
         reference_plan: ReferencePlan,
         agent_reasoning: str,
     ) -> tuple[bool, str | None]:
-        """Paper Algorithm 1 with the explicit r_act parameter."""
+        """Full hierarchical verification with the explicit r_act parameter."""
         candidate = Action.from_mapping(
             tool_name=proposed_tool, params=dict(proposed_params)
         )
 
-        # --- Stage I, Case 1: Exact match (paper Algorithm 1 lines 5-7) ---
+        # --- Stage I, Case 1: Exact match ---
         if candidate in reference_plan.actions:
             self._emit("planguard.action.pass", reason="exact_match", action=candidate)
             return True, None
 
-        # --- Stage I, Case 2: Unauthorized tool (lines 8-10) ---
+        # --- Stage I, Case 2: Unauthorized tool ---
         if candidate.tool_name not in reference_plan.allowed_tools:
             reason = (
                 f"type_i_unauthorized_tool: '{candidate.tool_name}' not in "
@@ -114,7 +114,7 @@ class IntentVerifier:
             )
             return False, reason
 
-        # --- Stage I, Case 3: Parameter mismatch -> Stage II (lines 11-17) ---
+        # --- Stage I, Case 3: Parameter mismatch -> Stage II ---
         if self._intent_llm is not None:
             try:
                 is_safe = bool(
@@ -184,8 +184,8 @@ class IntentVerifier:
             whitespace and underscore/hyphen variants).
           - Reasoning must not contain exfiltration markers
             ('exfil', 'attacker', 'send to', URLs to non-allowlisted
-            domains). Per paper §VI-B, attackers must inject reasoning
-            to defeat Stage II.
+            domains). An attacker must inject the reasoning itself to
+            defeat Stage II.
         """
         if _reasoning_smells_malicious(agent_reasoning):
             return False

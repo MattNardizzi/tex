@@ -361,9 +361,9 @@ default and the native deps are absent, so the SHA-256/HMAC fallbacks run.
 Cited (claim-level) algorithms the names reference — none implemented, all are
 HMAC/SHA-256 placeholders modeled on the *shape* of:
 
-- **NANOZK** layerwise transformer ZK (arXiv 2603.18046) — the namesake.
+- **NANOZK** layerwise transformer ZK — the namesake.
 - **VEIL** hash-based ZK compiler (ePrint 2026/683).
-- **Jolt Atlas** prefix-suffix lookup decomposition (arXiv 2602.17452).
+- **Jolt Atlas** prefix-suffix lookup decomposition.
 - **Logup\*** lookup argument (ePrint 2025/946).
 - **GaugeZKP** symmetry canonicalisation (OpenReview 1Ne3tfQC0T).
 - **Poseidon-BN254** SNARK-friendly hash — *this one has a real (optional) lib
@@ -372,7 +372,7 @@ HMAC/SHA-256 placeholders modeled on the *shape* of:
 - **Mira / ZKTorch** parallel KZG folding (arXiv 2507.07031).
 - **Sublinear-space proving** Cook-Mertz tree evaluation (arXiv 2509.05326).
 - **DeepProve** GKR-sumcheck zkML (Lagrange Labs) — real subprocess bridge.
-- **V3DB** verifiable IVF-PQ vector search (arXiv 2603.03065).
+- **V3DB** verifiable IVF-PQ vector search.
 
 Real techniques actually present: Fisher-information top-k / fractional-knapsack
 selection; 16-bit quantised lookup-table approximation with banker's rounding;

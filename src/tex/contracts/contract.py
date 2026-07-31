@@ -1,9 +1,7 @@
 """
 Behavioral contract specification.
 
-Per arxiv 2602.22302 (Bhardwaj, "AgentAssert: Formal Behavioral
-Contracts for Autonomous AI Agents") — the contract is the formal
-6-tuple
+Tex's ABC contract model: a behavioral contract is the formal 6-tuple
 
     C = (P, I_hard, I_soft, G_hard, G_soft, R)
 
@@ -11,17 +9,17 @@ extended to support the existing Tex 4-field scaffold so this thread
 is a non-breaking refinement: the original ``precondition_ltl``,
 ``postcondition_ltl``, and ``invariants_ltl`` fields are preserved.
 ``invariants_ltl`` is interpreted as ``hard_invariants_ltl`` for
-back-compat, and the ABC-paper-aligned ``soft_invariants_ltl``,
+back-compat, and the 6-tuple-aligned ``soft_invariants_ltl``,
 ``hard_governance_ltl``, ``soft_governance_ltl`` are added as new fields.
 
-Source-paper crosswalk
-----------------------
-- arxiv 2602.22302 §3.1 Definition 3.1 — the 6-tuple structure
-- arxiv 2602.22302 §3.3 Definition 3.7 — (p, δ, k)-satisfaction
-- arxiv 2602.22302 §3.5 Definition 3.12 — behavioral drift score (consumed
-  separately by tex.drift; this layer just exposes the parameters)
-- AgentVerify preprints.org 2604.1029 — propositional LTL templates
-  used by the invariant-response enforcement loop
+Model components
+----------------
+- the 6-tuple structure C = (P, I_hard, I_soft, G_hard, G_soft, R)
+- (p, δ, k)-satisfaction
+- behavioral drift score (consumed separately by tex.drift; this layer
+  just exposes the parameters)
+- the AgentVerify propositional LTL template set used by the
+  invariant-response enforcement loop
 
 Priority: P1.
 """
@@ -34,7 +32,7 @@ from typing import Literal
 from tex.contracts._ltl import LTLFormula, LTLParseError
 
 
-# Constraint kinds — the 4-way taxonomy from arxiv 2602.22302 §3.1.
+# Constraint kinds — the taxonomy of the ABC 6-tuple.
 ConstraintKind = Literal[
     "precondition",
     "hard_invariant",
@@ -44,8 +42,8 @@ ConstraintKind = Literal[
     "postcondition",  # legacy Tex scaffold field, kept for back-compat
 ]
 
-# Severity literal — the existing Tex action vocabulary; ABC paper has
-# only "block on hard / recover on soft", but Tex distinguishes
+# Severity literal — the existing Tex action vocabulary; the base ABC
+# model has only "block on hard / recover on soft", but Tex distinguishes
 # "sanction" (admit + reduce trust) from "warn" (telemetry only) per
 # tex.ecosystem.verdict.EcosystemVerdictKind.
 SeverityOnViolation = Literal["block", "sanction", "warn"]
@@ -75,7 +73,7 @@ class BehavioralContract:
     """
     A behavioral contract for one agent.
 
-    Field crosswalk to arxiv 2602.22302 §3.1:
+    Field crosswalk to the ABC 6-tuple:
 
       precondition_ltl       -> P  (single LTL combining all preconds)
       hard_invariants_ltl    -> I_hard   (alias: invariants_ltl)
@@ -87,7 +85,7 @@ class BehavioralContract:
       satisfaction_p         -> p in (p,δ,k)
 
     Legacy fields kept to preserve the existing Tex scaffold:
-      postcondition_ltl      -> not in the ABC paper; degrades to a
+      postcondition_ltl      -> not part of the 6-tuple; degrades to a
                                 ``F<=1`` check on the post-execution state
       invariants_ltl         -> back-compat alias for hard_invariants_ltl
 
@@ -113,7 +111,7 @@ class BehavioralContract:
     covered_event_kinds: tuple[str, ...]
     severity_on_violation: SeverityOnViolation
 
-    # (p, δ, k) parameters per arxiv 2602.22302 §3.3
+    # (p, δ, k)-satisfaction parameters
     recovery_window_k: int
     delta_tolerance: float
     satisfaction_p: float
@@ -137,7 +135,7 @@ class BehavioralContract:
         satisfaction_p: float = 0.95,
     ) -> "BehavioralContract":
         """
-        Convenience builder using ABC paper field names.
+        Convenience builder using the ABC 6-tuple field names.
 
         Parses every LTL string at construction time and raises
         ``LTLParseError`` on malformed input — callers get the failure
@@ -166,7 +164,7 @@ class BehavioralContract:
         return contract
 
     def __post_init__(self) -> None:
-        # Numeric guardrails — match arxiv 2602.22302 §3.3.
+        # Numeric guardrails on the (p, δ, k) parameters.
         if not 0.0 <= self.delta_tolerance <= 1.0:
             raise ValueError(
                 f"delta_tolerance must be in [0,1], got {self.delta_tolerance}"
@@ -240,7 +238,7 @@ class BehavioralContract:
     def total_constraint_count(self) -> int:
         """
         |I_hard| + |I_soft| + |G_hard| + |G_soft| — used to compute
-        per-step ABC compliance scores (arxiv 2602.22302 §3.3 Def 3.6).
+        per-step ABC compliance scores.
         Preconditions and postconditions are excluded; they apply at
         boundary points and don't contribute to the per-step scores.
         """

@@ -7,12 +7,12 @@ Proves the claim that Thread 6 puts on the table:
 > a single C2PA 2.4 Content Credential that simultaneously:
 >
 >   1. carries a post-quantum ML-DSA-65 ``tex.evidence_cosign``
->      assertion closing the six attack classes of arxiv 2604.24890
->      (Thread 5 — A-);
+>      assertion closing the six attack classes in Tex's C2PA
+>      attack matrix (Thread 5 — A-);
 >   2. carries a ``tex.evidence_watermark`` soft-binding assertion
 >      naming the SynthID-Text or TextSeal watermark scheme used at
 >      generation time, with cross-layer audit defending against the
->      desynchronisation attack of arxiv 2603.02378 (Thread 6 Gap 1);
+>      desynchronisation attack (Thread 6 Gap 1);
 >   3. carries a ``tex.evidence_attestation`` assertion binding the
 >      signing key to a hardware-attested TEE via EAT JWT issued by
 >      NVIDIA NRAS / Intel Trust Authority / Veraison
@@ -410,12 +410,12 @@ class TestThread6FullStack:
             signed, expected_full_file_sha256=body_sha
         )
         assert cosign_result.is_valid, cosign_result.issues
-        # Defends against every attack class from arxiv 2604.24890.
+        # Defends against every attack class in Tex's C2PA attack matrix.
         assert cosign_result.all_attacks_defended
         for attack in ALL_ATTACKS:
             assert cosign_result.attack_defended(attack)
 
-        # 11. Cross-layer audit (arxiv 2603.02378 desync defense).
+        # 11. Cross-layer audit (desync defense).
         wm_assertion = next(
             dict(a.data)
             for a in signed.claim.assertions

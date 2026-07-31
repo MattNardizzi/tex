@@ -257,11 +257,11 @@ The validator is genuinely constructed and injected, but `evaluate_action.py:961
 ## Technology / SOTA
 
 - **PCTL probabilistic model checking** (Hansson-Jonsson 1994 bounded-until semantics) over a learned DTMC — ProbGuard / Pro2Guard `(claim, unverified: arXiv:2508.00500)`. Implementation is real and matches the described absorbing-set method.
-- **Koopman operator theory / EDMD** — least-squares operator estimation with a polynomial+RBF observable dictionary; optional learned NN dictionary. `(claim: arXiv:2601.01076)`.
-- **Discrete Ollivier-Ricci curvature** with α-lazy random walks and Wasserstein-1 optimal transport (exact network-simplex/HiGHS LP or entropic Sinkhorn). `(claim: SCCAL arXiv:2603.13325, GeomHerd arXiv:2605.11645)`. The OT and curvature math are genuine.
-- **Anytime-valid conformal risk control** — cumulative calibration with a Hoeffding `1/√n` correction. `(claim: arXiv:2602.04364)`.
+- **Koopman operator theory / EDMD** — least-squares operator estimation with a polynomial+RBF observable dictionary; optional learned NN dictionary.
+- **Discrete Ollivier-Ricci curvature** with α-lazy random walks and Wasserstein-1 optimal transport (exact network-simplex/HiGHS LP or entropic Sinkhorn). The OT and curvature math are genuine.
+- **Anytime-valid conformal risk control** — cumulative calibration with a Hoeffding `1/√n` correction.
 - **Curvature-gated attention recurrence** — sigmoid curvature gates × softmax attention, bidirectional ψ/ϕ predictors, KL co-evolutionary divergence. Real math, novel composition.
-- **Bounded BFS cascade genealogy** with independence-product path probability and STPA/Spark-to-Fire taxonomy tags. `(claim: arXiv:2603.04474, 2604.06024, 2512.17600)`.
+- **Bounded BFS cascade genealogy** with independence-product path probability and STPA/Spark-to-Fire taxonomy tags. `(claim: arXiv:2512.17600)`.
 - **AIRO (AI Risk Ontology)** + DPV vocabulary mapping; EU AI Act / NAIC / FTC / CA SB 942 / NIST AI RMF regulatory anchors. `(claim: Golpayegani et al. 2022)`.
 - **Design patterns:** registry pattern (entity/event), protocol injection (`EventLookup`), runtime class factory (`_make_typed_event`), frozen Pydantic v2 `extra="forbid"` throughout, deterministic seeding (SHA-256 → torch generator), monotone-lowering safety invariant.
 

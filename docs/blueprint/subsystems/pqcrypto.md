@@ -218,7 +218,7 @@ These match the spine pass's "pqcrypto=15 guards" count.
 
 - **NIST standards:** FIPS 203 (ML-KEM), FIPS 204 (ML-DSA), FIPS 205 (SLH-DSA); SP 800-208 (LMS, stubbed). HQC noted as the NIST 4th-round non-lattice KEM (FIPS 207 draft) **(claim, unverified)**.
 - **IETF/wire formats:** draft-ietf-cose-dilithium-11 (COSE alg ids -48/-49/-50, `ml_dsa.py:84-92`); RFC 8785 JSON canonicalization (evidence signer); draft-ietf-lamps-pq-composite-sigs-18 binding + OIDs; RFC 5280/5652 DER (composite_cms); RFC 8032 Ed25519; RFC 9334 attestation (talus_tee).
-- **Frontier schemes:** BLAKE3-pre-hash ML-DSA (Project Eleven/Taurus); Mithril MPC threshold (ePrint 2026/013) via vendored Rust; TALUS-TEE (arxiv 2603.22109); ML-KEM+HQC hybrid KEM combiner via HKDF-SHA-512 (`hqc.py:304-316`).
+- **Frontier schemes:** BLAKE3-pre-hash ML-DSA (Project Eleven/Taurus); Mithril MPC threshold (ePrint 2026/013) via vendored Rust; TALUS-TEE; ML-KEM+HQC hybrid KEM combiner via HKDF-SHA-512 (`hqc.py:304-316`).
 - **Design patterns:** Strategy/Protocol (pluggable `SignatureProvider`); lazy import-time backend selection with graceful degradation; fail-closed allow-list (durability); non-separable composite/hybrid (both-halves-must-verify); sign-then-verify fault guard; length-prefixed self-describing wire layouts with version constants.
 - **Cryptographic hygiene observed in code:** private keys held as 32-byte seeds, never serialized expanded across the API (`ml_dsa.py:26-30` doc + `from_seed_bytes` usage); descriptor commitments re-derived on verify; implicit-rejection KEM semantics flagged to callers.
 

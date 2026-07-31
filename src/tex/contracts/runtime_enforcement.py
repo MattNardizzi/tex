@@ -1,8 +1,7 @@
 """
-Runtime contract enforcer.
+Runtime contract enforcer for ABC behavioral contracts.
 
-Per arxiv 2602.22302 (AgentAssert, ABC). The enforcer runs the per-turn
-loop described in §5.3:
+The enforcer runs a per-turn loop:
 
   1. Evaluate all contract constraints against the observed state.
   2. Update compliance and drift metrics.
@@ -19,13 +18,14 @@ violations recorded into the cryptographic ledger, they pass
 ``ledger`` + ``provenance`` at construction — same convention as
 ``tex.drift.change_point.ChangePointDetector``.
 
-Reference
----------
-- arxiv 2602.22302 §3 (the formalism), §5.3 (the runtime monitor loop)
-- AgentVerify (arxiv-prep 2604.1029) §3.2.1 — runtime monitor token
-  semantics for invariant-response form ``G(p -> X q)``, which is the
-  shape our soft constraints take after F<=k unrolling
-- arxiv 2601.22136 (StepShield) — step_index instrumentation
+Design notes
+------------
+- The ABC formalism drives the constraint evaluation; the runtime
+  monitor loop is the per-turn enforcement described above.
+- The AgentVerify runtime-monitor token semantics cover the
+  invariant-response form ``G(p -> X q)``, which is the shape our
+  soft constraints take after F<=k unrolling.
+- The StepShield metric set motivates the step_index instrumentation.
 
 Priority: P1.
 """
@@ -84,7 +84,7 @@ class _SoftRecoveryEntry:
     discharged and ``recovered_at_step`` is recorded. If the deadline
     passes without recovery, the next pre/post check produces a
     fresh ContractViolation with severity escalated to ``block``
-    (matches AgentAssert's "fallback chain" semantics in §5.4).
+    (the "fallback chain" semantics).
     """
 
     triggering_event_id: str
@@ -212,14 +212,13 @@ class ContractEnforcer:
             violations from this step (ledger consumers want the
             complete list).
 
-        Source-paper alignment
-        ----------------------
-        - arxiv 2602.22302 §3.2 Definition 3.4 — the deterministic
-          satisfaction conditions for preconditions, invariants, and
-          governance. We evaluate all three at the pre-step.
-        - arxiv 2602.22302 §5.3 — the per-turn enforcement loop;
-          recovery state is reset for constraints that return to
-          satisfaction.
+        Contract-model alignment
+        ------------------------
+        - The satisfaction conditions for preconditions, invariants,
+          and governance are deterministic. We evaluate all three at
+          the pre-step.
+        - Per-turn enforcement loop: recovery state is reset for
+          constraints that return to satisfaction.
 
         TODO(P1): finish soft-violation deadline expiry handling
             — DONE. Expired deadlines fire an escalation
@@ -375,7 +374,7 @@ class ContractEnforcer:
             raise ValueError("weights must sum to 1")
 
         if not self._c_hard_history:
-            # No checks performed yet: optimistic 1.0, mirrors AgentAssert.
+            # No checks performed yet: optimistic 1.0 by convention.
             return 1.0
 
         c_bar = sum(self._c_hard_history) / len(self._c_hard_history)
@@ -603,7 +602,7 @@ class ContractEnforcer:
         if key in self._soft_pending:
             # Already pending — don't re-emit on every step it stays
             # violated. The expiry sweep will produce the escalation
-            # record. This matches AgentAssert's "obligation token" model.
+            # record. This is the "obligation token" model.
             return
         deadline = step + contract.recovery_window_k
         self._soft_pending[key] = _SoftRecoveryEntry(
@@ -693,8 +692,7 @@ class ContractEnforcer:
         """
         For every pending soft-recovery whose deadline is now past,
         emit an escalation ContractViolation with severity ``block``
-        and clear the entry. Mirrors AgentAssert's "fallback chain"
-        semantics in §5.4.
+        and clear the entry. This is the "fallback chain" semantics.
         """
         expired: list[tuple[str, str, str, int]] = []
         for key, entry in self._soft_pending.items():

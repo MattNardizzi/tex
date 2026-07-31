@@ -1,11 +1,8 @@
 """
 MCPShield: Formal Verification for MCP Tool Calls.
 
-Reference: arxiv 2604.05969 (Acharya & Gupta), April 2026.
-
 Models MCP interactions as Labeled Transition Systems (LTS) with
-trust-boundary annotations. Verifies the four formal security properties
-defined in the paper:
+trust-boundary annotations. Verifies four formal security properties:
 
   Property 1 (Tool Integrity)        - hash equality at every invocation
   Property 2 (Data Confinement)      - sensitive data stays in authorised domains
@@ -13,11 +10,7 @@ defined in the paper:
   Property 4 (Context Isolation)     - cross-domain use requires authorization
 
 Decidability follows from the finite state space and finite security
-lattice (paper §IV-B).
-
-Threat taxonomy: 7 categories, 23 vectors, 4 attack surfaces, grounded in
-analysis of 177,000+ MCP tools. Coverage: 91% vs ≤34% for any single
-existing defense (paper §VI).
+lattice.
 
 Priority: P1.
 """

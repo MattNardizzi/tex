@@ -1,17 +1,14 @@
 """
 MAGE Pre-Action Risk Assessor (Judge).
 
-Reference: arxiv 2605.03228 (Wang et al., Stony Brook + Cisco), May 2026.
-
-Implements Eq. 3 of the paper:
+Implements the judge relation:
 
     d_t, e_t = J(a_t | m_t)
 
 where ``a_t`` is the pending action, ``m_t`` is the distilled shadow
 memory at turn t, ``d_t ∈ {approve, reject}`` is the verdict, and ``e_t``
-is the rationale. The paper backs J with a small RL-trained LLM (J_θ); we
-expose that as a pluggable callable and ship a deterministic offline path
-that runs:
+is the rationale. J can be backed by an LLM (J_θ); we expose that as a
+pluggable callable and ship a deterministic offline path that runs:
 
   - hard-rule pattern matching (matches PlanGuard / ClawGuard's
     reasoning-smell + obfuscation patterns) on the action and on every
@@ -22,9 +19,6 @@ that runs:
   - adversarial-signal detection: if any distilled entry was sourced from
     an external observation and its keyword overlap with the action is
     high, this is the cross-turn STAC pattern and is rejected.
-
-Performance per paper §V: STAC ASR 100% → 8.3% on Qwen3-4B; PI2 ASR → 0%;
-benign utility 73-94% retained at 7K extra tokens / task.
 
 Priority: P1.
 """
@@ -74,7 +68,7 @@ _EXFIL_SINKS = re.compile(
 )
 
 
-# Pluggable judge callable: paper-faithful J_θ takes (action, distilled_memory)
+# Pluggable judge callable: an LLM-backed J_θ takes (action, distilled_memory)
 # and returns (allow_bool, deny_reason_or_None).
 JudgeCallable = Callable[
     [dict[str, Any], tuple[ShadowMemoryEntry, ...]],
@@ -83,9 +77,9 @@ JudgeCallable = Callable[
 
 
 class PreActionRiskAssessor:
-    """The MAGE J-component, per Eq. 3 of the paper.
+    """The MAGE J-component: d_t, e_t = J(a_t | m_t).
 
-    Wraps a ``ShadowMemory`` and either a paper-faithful LLM judge
+    Wraps a ``ShadowMemory`` and either an LLM judge
     (``judge_callable``) or the deterministic offline path described above.
     """
 

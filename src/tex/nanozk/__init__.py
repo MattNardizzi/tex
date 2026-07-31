@@ -38,13 +38,12 @@ identified as the highest information-content layers. The verifier in
 ``nanozk_verifier_not_implemented_in_this_thread`` dead-end to a live
 verdict.
 
-Why we are not just implementing the NANOZK paper as-is (May 2026 SOTA)
-----------------------------------------------------------------------
+Why the design composes several techniques
+------------------------------------------
 
-NANOZK (arxiv 2603.18046, Mar 17 2026, USC) is the foundational
-*layerwise* paper, but the zkML frontier has moved underneath it in
-the eight weeks since publication. The implementation here composes
-NANOZK's layerwise decomposition with five strictly newer results:
+NANOZK is the internal name for the layerwise-decomposition approach
+this package scaffolds. The design composes that layerwise
+decomposition with five additional techniques:
 
   1. **Jagged-PCS multilinear commitments** (Succinct, *SP1 Hypercube
      is Now Live on Mainnet*, Feb 19 2026). SP1 Hypercube was the
@@ -65,13 +64,12 @@ NANOZK's layerwise decomposition with five strictly newer results:
      pipeline as of May 18 2026.**
 
   3. **Jolt Atlas neural teleportation + prefix-suffix lookup
-     decomposition** (Benno/Centelles/Douchet/Gibran, arxiv
-     2602.17452, Feb 19 2026). NANOZK uses 16-bit lookup tables for
-     softmax/GELU/LayerNorm; Jolt Atlas's prefix-suffix decomposition
-     collapses these tables without materialising them, which is the
-     difference between "table at rest" memory and "table evaluated
-     in O(log n) sumcheck work". We adopt the prefix-suffix form
-     for our nonlinearity gadgets.
+     decomposition** (internal design label). A naive design uses
+     16-bit lookup tables for softmax/GELU/LayerNorm; the
+     prefix-suffix decomposition collapses these tables without
+     materialising them, which is the difference between "table at
+     rest" memory and "table evaluated in O(log n) sumcheck work".
+     We adopt the prefix-suffix form for our nonlinearity gadgets.
 
   4. **Constraint fusion** (Qu et al., zkGPT, USENIX Sec '25 /
      ePrint 2025/1184). Adjacent rounding constraints — the
@@ -112,12 +110,6 @@ through ``tex.pqcrypto.algorithm_agility``).
 Anchor papers (in citation order)
 ---------------------------------
 
-- arxiv 2603.18046 — Wang, *NANOZK: Layerwise Zero-Knowledge Proofs
-  for Verifiable Large Language Model Inference*, USC, Mar 17 2026.
-  43 s prove / 6.9 KB proof / 23 ms verify on GPT-2 scale.
-- arxiv 2602.17452 — Benno, Centelles, Douchet, Gibran, *Jolt Atlas:
-  Verifiable Inference via Lookup Arguments in Zero Knowledge*, ICME
-  Labs, Feb 19 2026.
 - eprint 2026/683 — Dalal, Hemo, Rabinovich, Rothblum, *VEIL:
   Lightweight Zero-Knowledge for Hash-Based Multilinear Proof
   Systems*, Apr 7 2026.
@@ -327,7 +319,7 @@ from tex.nanozk.deepprove_backend import (
     register_deepprove_if_available,
 )
 
-# Upgrade 8 — V3DB verifiable vector search (arxiv 2603.03065)
+# Upgrade 8 — V3DB verifiable vector search
 from tex.nanozk.v3db import (
     PAPER_PEAK_MEMORY_REDUCTION,
     PAPER_PROVING_SPEEDUP_OVER_CIRCUIT,

@@ -662,7 +662,7 @@ def health_endpoint() -> HealthResponse:
             "mira_parallel_accumulation": "arxiv 2507.07031 / ZKTorch; "
             "3x-10x proof size reduction, 6.2x faster proving",
             "scitt_arp": "draft-hillier-scitt-arp-00 (May 1 2026)",
-            "nabaos": "arxiv 2603.10060 (Mar 9 2026)",
+            "nabaos": "hmac-tool-receipts",
             "eu_ai_act_article_53_1_d": "TDS Template 24 Jul 2025; "
             "enforcement Aug 2 2026; fines up to €15M / 3% global revenue",
             "fips_204_ml_dsa": "NIST FIPS 204 (Aug 2024); "

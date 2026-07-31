@@ -6,28 +6,17 @@ Targets long-horizon attacks: memory poisoning (MINJA), tool-chaining
 attacks (STAC), persistent indirect prompt injection (PI2), and objective
 drift across multi-turn agent interactions.
 
-Reference
----------
-- arxiv 2605.03228v1 (MAGE, Wang/Jiang/Liang/Fleming/Wang — Stony Brook +
-  Cisco, submitted 4 May 2026, **two weeks old at build time**)
-
-  Architecture: memory manager M_θ + judge J_θ, same model parameterized
-  by θ. Shadow memory follows m_t = M(m_{t-1}, s_{t-1}) and the judge
-  produces d_t, e_t = J(a_t | m_t).
-
-  SOTA numerics:
-    - STAC ASR: 100.0% → 8.3% (Qwen3-4B backbone)
-    - PI2 ASR: → 0.0% under environment-as-adversary setting
-    - Benign utility preserved: 94.4% / 73.0%
-    - Overhead: 7.0K extra tokens / task
-    - Detection latency: majority detected at/near first attack turn
-    - Algorithmic shape: O(T), not O(T²)
+Design
+------
+- MAGE architecture: memory manager M_θ + judge J_θ, same model
+  parameterized by θ. Shadow memory follows m_t = M(m_{t-1}, s_{t-1})
+  and the judge produces d_t, e_t = J(a_t | m_t). Algorithmic shape:
+  O(T), not O(T²).
 
 - arxiv 2506.20528 (MINJA, Dong et al.) — Memory Injection Attack with
   >95% injection success / 70% downstream attack success at idealised.
 
-- arxiv 2602.16901 (AgentLAB, Jiang et al.) — 644 long-horizon test cases
-  across 28 environments, five attack families: intent hijacking, tool
+- AgentLAB long-horizon attack families: intent hijacking, tool
   chaining, task injection, objective drifting, memory poisoning.
 
 This specialist surfaces:
@@ -209,9 +198,9 @@ class MageSpecialist:
     ) -> None:
         """
         Args:
-            llm_dispatcher: Optional LLM dispatcher for the paper-faithful
-                M_theta memory manager + J_theta judge (arxiv 2605.03228
-                §4.2). When None, the default production dispatcher is
+            llm_dispatcher: Optional LLM dispatcher for the LLM-backed
+                M_theta memory manager + J_theta judge.
+                When None, the default production dispatcher is
                 used (off unless TEX_SPECIALIST_LLM_DISPATCH is set).
                 When supplied, the specialist runs the real shadow-
                 memory distillation + risk-assessment loop after lexical
@@ -294,7 +283,7 @@ class MageSpecialist:
                 if tag not in asi_tags:
                     asi_tags.append(tag)
 
-        # 3. Paper-faithful M_theta + J_theta dispatch (arxiv 2605.03228 §4.2).
+        # 3. LLM-backed M_theta + J_theta dispatch.
         #    Cheap-miss / expensive-hit: fire only after lexical / shadow
         #    pass already produced at least one reason. The dispatched
         #    LLM call models the joint M (memory manager) + J (judge)
@@ -319,7 +308,7 @@ class MageSpecialist:
                             SpecialistEvidence(
                                 text="mage_judge_block",
                                 explanation=(
-                                    "MAGE_LLM_JUDGE_BLOCK: arxiv 2605.03228 "
+                                    "MAGE_LLM_JUDGE_BLOCK: the MAGE "
                                     "J_theta judged action unsafe across "
                                     "trajectory. Rationale: " + rationale
                                 ),
@@ -357,7 +346,7 @@ class MageSpecialist:
                 summary="No MAGE long-horizon threat signals detected.",
                 rationale=(
                     "Specialist scans for the five long-horizon attack "
-                    "families per arxiv 2605.03228 + arxiv 2602.16901: "
+                    "families: "
                     "memory poisoning (MINJA), tool chaining (STAC), "
                     "persistent indirect prompt injection (PI2), "
                     "objective drift (GoalDrift), and observation-authority "
@@ -400,12 +389,12 @@ class MageSpecialist:
             confidence=round(confidence, 4),
             summary=summary,
             rationale=(
-                "Per arxiv 2605.03228 (4 May 2026), MAGE's shadow memory "
+                "MAGE's shadow memory "
                 "captures security-critical context across the agent's "
                 "trajectory. This specialist surfaces five long-horizon "
                 "attack families, consults prior-turn high-risk shadow "
                 "entries for cross-turn STAC matches, AND dispatches "
-                "the paper-faithful M_theta + J_theta LLM judge when "
+                "the M_theta + J_theta LLM judge when "
                 "configured."
             ),
             evidence=tuple(all_evidence),
@@ -421,18 +410,17 @@ class MageSpecialist:
         request: Any,
         lexical_reasons: list[str],
     ) -> DispatchResult:
-        """Run paper-faithful joint M_theta + J_theta dispatch.
+        """Run the joint M_theta + J_theta dispatch.
 
         Wraps the shadow-memory distillation + risk-assessment loop
-        into a single LLM call per arxiv 2605.03228 §4.2.2 (the paper
-        uses a single shared model parameterised by θ, differentiated
-        by role-specific prompting; we do the same).
+        into a single LLM call: one shared model parameterised by θ,
+        differentiated by role-specific prompting.
         """
         # Extract shadow memory excerpt from metadata if present.
         shadow_excerpt = self._shadow_memory_excerpt(request.metadata)
         system_prompt = (
-            "You are MAGE, the long-horizon agentic security judge from "
-            "arxiv 2605.03228. Maintain a shadow memory of security-"
+            "You are MAGE, a long-horizon agentic security judge. "
+            "Maintain a shadow memory of security-"
             "critical context and assess whether the pending action is "
             "safe at the trajectory level. Reply with a JSON object: "
             '{"verdict": "approve" | "reject", "rationale": "..."}. '

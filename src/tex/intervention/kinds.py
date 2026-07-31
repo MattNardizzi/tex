@@ -2,10 +2,10 @@
 Intervention kinds.
 
 Thread 8 ships 7 kinds. Thread 8.1 adds an 8th, ``ERADICATION_RULE_SYNTHESIS``,
-per AIR (arxiv 2602.11749, Feb 12 2026) §3 eradication phase: generate a
+for the AIR eradication phase: generate a
 new structured guardrail rule from the incident context so the same
-incident class cannot recur. AIR's wedge over Tex up to Thread 8 is that
-Tex's intervention enum was *fixed*; AIR generates new rules at runtime.
+incident class cannot recur. Up to Thread 8 Tex's intervention enum was
+*fixed*; eradication-rule synthesis generates new rules at runtime.
 Thread 8.1 closes that gap.
 """
 

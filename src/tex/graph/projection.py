@@ -16,7 +16,6 @@ Priority: P0.
 References
 ----------
 - Zep / Graphiti immutable-snapshot contract
-- arxiv 2602.05665 (Graph-based Agent Memory: Taxonomy)
 """
 
 from __future__ import annotations

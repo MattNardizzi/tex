@@ -8,7 +8,7 @@ governance-log entries that back them:
 
   1. Active actor → PERMIT (legal transition logged)
   2. Fined actor → FORBID (sanctioned transition logged)
-  3. Subagent of suspended parent → FORBID via inheritance per arxiv 2605.08460
+  3. Subagent of suspended parent → FORBID via inheritance
 
 Run from the repo root:
     python3 scripts/demo_thread_2.py
@@ -219,7 +219,6 @@ def main() -> int:
     dump_verdict(v3)
     print("\ngovernance log:")
     dump_log(engine3)
-    print("  (per arxiv 2605.08460 — Cai/Zhang/Hei, May 8 2026)")
 
     banner("Summary")
     print(f"  S1 active actor:     {v1.kind.value}  (expected PERMIT)")

@@ -7,16 +7,16 @@ later checked for consistency against this reference.
 
 Implementation
 --------------
-Per arxiv 2604.10134 §IV-B, the planner P is a function P(I, T) -> S_ref
-where I is the user instruction, T is the tool set, and S_ref is a set of
-zero or more actions a_i = (t_k, v_k). The planner is architecturally
-isolated from external retrieved content, so any S_ref it produces is
-mathematically uncontaminated by adversarial payloads (paper Eq. 6).
+The planner P is a function P(I, T) -> S_ref where I is the user
+instruction, T is the tool set, and S_ref is a set of zero or more actions
+a_i = (t_k, v_k). The planner is architecturally isolated from external
+retrieved content, so any S_ref it produces is uncontaminated by
+adversarial payloads by construction.
 
 Two backends are supported:
-  - LLMPlannerCallable: paper-faithful path. Inject a real LLM (DeepSeek-V3.2
-    in the paper's evaluation). The callable receives only (instruction,
-    tool_catalog) and must return a list of (tool_name, params) pairs.
+  - LLMPlannerCallable: LLM-backed path. Inject a real LLM; the callable
+    receives only (instruction, tool_catalog) and must return a list of
+    (tool_name, params) pairs.
   - DeterministicPlanner: training-free, offline default. Walks the tool
     catalog and matches verbs/nouns from the instruction against tool
     descriptions. Used for tests and as a safe fallback when no LLM is
@@ -48,9 +48,8 @@ class ToolSpec(BaseModel):
     name: str = Field(min_length=1)
     description: str
     # Verb tokens used by the deterministic planner to match against the
-    # user instruction. Lowercase, single-token preferred. Per paper §IV-A
-    # the planner is given the tool definitions T; we model the relevant
-    # slice here.
+    # user instruction. Lowercase, single-token preferred. The planner is
+    # given the tool definitions T; we model the relevant slice here.
     verbs: tuple[str, ...] = Field(default_factory=tuple)
     # Optional regex patterns over the user instruction that, if matched,
     # extract a parameter value. Each match group becomes a candidate
@@ -59,7 +58,7 @@ class ToolSpec(BaseModel):
 
 
 class ToolCatalog(BaseModel):
-    """The set of tools the planner is allowed to consider — paper's T."""
+    """The set of tools the planner is allowed to consider — the tool set T."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -73,14 +72,14 @@ class ToolCatalog(BaseModel):
 
 
 class Action(BaseModel):
-    """One reference action a_i = (t_k, v_k) per paper Eq. 1."""
+    """One reference action a_i = (t_k, v_k)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     tool_name: str = Field(min_length=1)
     # Frozen JSON-equivalent params. We use a tuple of sorted (key, value)
     # pairs so Action is hashable, enabling set membership for Stage I
-    # exact-match (paper Algorithm 1 line 5: a_act ∈ S_ref).
+    # exact-match (a_act ∈ S_ref).
     params: tuple[tuple[str, Any], ...] = Field(default_factory=tuple)
 
     @classmethod
@@ -100,8 +99,8 @@ class ReferencePlan(BaseModel):
     """
     A reference plan derived solely from user instructions.
 
-    Per paper §IV-B, S_ref is a *set* of actions. Membership checks
-    (a_act ∈ S_ref) are the foundation of Stage I verification.
+    S_ref is a *set* of actions. Membership checks (a_act ∈ S_ref) are
+    the foundation of Stage I verification.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -112,7 +111,7 @@ class ReferencePlan(BaseModel):
 
     @property
     def allowed_tools(self) -> frozenset[str]:
-        """The tool-name projection {t | (t, v) ∈ S_ref} per paper §IV-C1."""
+        """The tool-name projection {t | (t, v) ∈ S_ref}."""
         return frozenset(a.tool_name for a in self.actions)
 
     @property
@@ -130,7 +129,7 @@ _DEFAULT_LOGGER = get_logger("tex.runtime.planguard")
 
 class IsolatedPlanner:
     """
-    The Isolated Planner P from arxiv 2604.10134.
+    The Isolated Planner P.
 
     Critical invariant: this class is architecturally forbidden from
     receiving any external context (tool outputs, retrieved documents,
@@ -153,7 +152,7 @@ class IsolatedPlanner:
         """
         Generate the reference action set S_ref from the user instruction.
 
-        Per arxiv 2604.10134 §IV-B (Eq. 6):
+        Formally:
             S_ref = P(I, T) = {a_1, a_2, ..., a_k}, k >= 0
 
         TODO(P1): run planner LLM with ONLY user instruction

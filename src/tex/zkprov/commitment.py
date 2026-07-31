@@ -640,7 +640,7 @@ def deterministic_test_ca(label: str = "default") -> SignatureKeyPair:
 # evidence-chain hot path we want a sub-millisecond, commitment-aware
 # tag that can be attached to every evidence record. We provide an
 # HMAC-SHA256 tag binding (commitment_id, response_hash). This is
-# the NABAOS (arxiv 2603.10060) receipt pattern adapted for
+# the NABAOS receipt pattern adapted for
 # training-data provenance: cheap enough for every request, strong
 # enough that the prover cannot forge it without the manifest key.
 

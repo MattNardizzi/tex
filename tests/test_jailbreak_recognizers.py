@@ -17,8 +17,7 @@ red-team research:
   ASCII smuggling.
 - AWS Security Blog (Sep 2025) on defending LLM apps against Unicode
   character smuggling.
-- USC Reverse-CAPTCHA paper arxiv 2603.00164 (Feb 2026) and
-  arxiv 2510.05025 "Imperceptible Jailbreaking against LLMs" on the
+- arxiv 2510.05025 "Imperceptible Jailbreaking against LLMs" on the
   variation-selector steganography channel.
 
 Design goals for this file:

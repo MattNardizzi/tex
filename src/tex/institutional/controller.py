@@ -1,27 +1,20 @@
 """
 Governance Controller.
 
-Per arxiv 2601.11369 §6.2.2 the Controller is the *manifest interpreter*:
-"Given traversal requests selected by the policy program, it checks
-legality (edge existence, state compatibility, cooldown gates), executes
-the transition with manifest-declared temporal metadata (duration,
-cooldown, jitter), and records each applied or blocked traversal with
-full provenance (edge key, from/to states, case ID, effective timing)
-in the immutable, append-only governance log."
+The Controller is the *manifest interpreter*: given traversal requests
+selected by the policy program, it checks legality (edge existence,
+state compatibility, cooldown gates), executes the transition with
+manifest-declared temporal metadata (duration, cooldown, jitter), and
+records each applied or blocked traversal with full provenance (edge
+key, from/to states, case ID, effective timing) in the immutable,
+append-only governance log.
 
-The paper explicitly logs *blocked* traversals too — Section 7 reports
-"244 suspension requests were denied because the required coordination
-streak was not met". Tex preserves this discipline: every legality check
-that fails produces a BLOCKED decision and a governance-log entry.
+Blocked traversals are logged too: every legality check that fails
+produces a BLOCKED decision and a governance-log entry.
 
 The Controller is the only component permitted to mutate trust scores
 or revoke capabilities; in Thread 12 we model the *decision*, with
 mechanical application deferred to tex.intervention.engine (P2).
-
-Reference
----------
-arxiv 2601.11369 (Bracale Syrnikov et al., 2026), §6.2.2, §7
-arxiv 2601.10599 (Pierucci et al., 2026), §5.4 (Governance Engine)
 
 Priority: P1.
 """
@@ -42,7 +35,7 @@ from tex.observability.telemetry import emit_event
 
 
 class ControllerOutcome(str, Enum):
-    """The four possible outcomes per §6.2.2 + Tex's BLOCKED extension."""
+    """The Controller's possible outcomes, including the BLOCKED extension."""
 
     ALLOW = "ALLOW"
     SANCTION = "SANCTION"
@@ -80,7 +73,7 @@ class ControllerDecision(BaseModel):
     actor_entity_id
         Which actor the decision applies to.
     effective_round
-        The round in which the decision takes effect (paper's "effective
+        The round in which the decision takes effect (the "effective
         round + jitter" contract).
     cooldown_until_round
         Round number after which this edge can fire again for this
@@ -126,13 +119,12 @@ class GovernanceController:
       - a GovernanceLog (separately keyed; required for production)
       - a per-(actor, edge) cooldown registry (in-memory for Thread 12)
 
-    Cooldown semantics (§6.2.2):
+    Cooldown semantics:
       - When a transition fires with timing.cooldown_rounds > 0, the same
         edge cannot fire again for the same actor until current_round +
         cooldown_rounds has elapsed.
       - During cooldown, requests for that edge produce BLOCKED decisions
-        which are still logged. Per §7 this is critical to deterrence
-        legibility.
+        which are still logged — critical to deterrence legibility.
     """
 
     def __init__(
@@ -149,9 +141,9 @@ class GovernanceController:
         # cooldowns[(actor_id, edge_key)] = round_number_until_which_blocked
         self._cooldowns: dict[tuple[str, str], int] = {}
 
-        # Per-actor current institutional state. The paper treats each
-        # actor as having an independent institutional state (Active,
-        # Warning, Fined, ...). Default is "active".
+        # Per-actor current institutional state. Each actor has an
+        # independent institutional state (Active, Warning, Fined, ...).
+        # Default is "active".
         self._actor_states: dict[str, str] = {}
 
     # ------------------------------------------------------------------
@@ -225,7 +217,7 @@ class GovernanceController:
         from_state = self.actor_state(actor_entity_id)
 
         # ------------------------------------------------------------------
-        # Edge existence — the paper's first legality check.
+        # Edge existence — the first legality check.
         # ------------------------------------------------------------------
         try:
             transition: LegalTransition | None = graph.find_transition(
@@ -259,7 +251,7 @@ class GovernanceController:
             return self._record_and_return(decision)
 
         # ------------------------------------------------------------------
-        # Cooldown gate — paper §7 records 244 blocked requests for this.
+        # Cooldown gate — denied requests are logged, not silently dropped.
         # ------------------------------------------------------------------
         if self.in_cooldown(
             actor_entity_id=actor_entity_id,

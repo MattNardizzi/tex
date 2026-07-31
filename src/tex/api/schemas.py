@@ -1186,7 +1186,7 @@ class TEEAttestationDTO(BaseModel):
 class ConformalPredictionSetDTO(BaseModel):
     """Public DTO for the optional conformal prediction set.
 
-    Per arxiv 2605.06788 (Feng et al., May 7, 2026). Identifies a
+    Identifies a
     contiguous range of trajectory indices guaranteed (under CP
     exchangeability) to contain the decisive error with confidence
     ``1 - alpha``.
@@ -1237,7 +1237,7 @@ class CausalAttributionRequestDTO(BaseModel):
     ``include_tee_attestation=True`` requires either ``tee_jwt`` to be
     supplied or ``TEX_TEE_ATTESTATION_MODE=test`` to be set on the
     server. Setting ``include_conformal=True`` adds a conformal
-    prediction set (arxiv 2605.06788) bounding the decisive error to
+    prediction set bounding the decisive error to
     a contiguous range of trajectory indices with confidence
     ``1 - conformal_alpha``.
     """
@@ -1257,19 +1257,18 @@ class CausalAttributionRequestDTO(BaseModel):
     is provided. Auto-generated in test mode."""
 
     include_conformal: bool = False
-    """If True, compute a conformal prediction set per arxiv
-    2605.06788 (Feng et al., May 7, 2026). Adds the ``conformal_set``
+    """If True, compute a conformal prediction set.
+    Adds the ``conformal_set``
     field to the response."""
 
     conformal_alpha: float = Field(default=0.1, ge=0.001, le=0.999)
     """Miscoverage rate for the conformal prediction set. Target
-    coverage is ``1 - conformal_alpha``. Default 0.1 (90% coverage),
-    matching the paper's primary experimental setting."""
+    coverage is ``1 - conformal_alpha``. Default 0.1 (90% coverage)."""
 
     conformal_algorithm: str = Field(default="two_way_filtration", max_length=64)
     """Which conformal algorithm to apply. One of ``vanilla``,
     ``left_filtration``, ``right_filtration``, ``two_way_filtration``
-    (default, the paper's recommended choice)."""
+    (default)."""
 
 
 class CausalAttributionResponseDTO(BaseModel):

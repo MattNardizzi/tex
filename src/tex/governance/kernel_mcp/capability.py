@@ -1,26 +1,22 @@
 """
 MCP capability tokens.
 
-Reference: Son. "Governed MCP: Kernel-Level Tool Governance for AI Agents
-via Logit-Based Safety Primitives." arXiv:2604.16870 (Apr 2026).
-
 Each capability grants the holder the right to invoke a specific MCP tool
 (or tool family) with constrained parameters. Capabilities are unforgeable,
 revocable, and subject to least-privilege constraints.
 
-The Governed MCP paper's Section 4.2 specifies four trust tiers and notes
-that "each tool declares its minimum required tier; the gateway checks
-that the calling agent's tier is at least the required level". Tex
-implements that as a capability-augmented model: the trust tier lives on
-the agent (CapabilitySet.trust_tier) and the minimum-required tier lives
-on the capability (McpCapability.required_trust_tier). The syscall gate
-enforces the relation in Layer 2.
+The gate defines four trust tiers. Each tool declares its minimum
+required tier, and the gate checks that the calling agent's tier is at
+least the required level. Tex implements that as a capability-augmented
+model: the trust tier lives on the agent (CapabilitySet.trust_tier) and
+the minimum-required tier lives on the capability
+(McpCapability.required_trust_tier). The syscall gate enforces the
+relation in Layer 2.
 
 Capability signatures
 ---------------------
-The Governed MCP paper does not specify a signature scheme; Tex makes
-this pluggable via tex.pqcrypto.algorithm_agility (Rule 6: ECDSA today,
-ML-DSA-65 once liboqs lands). The signature_b64 field below stores the
+The signature scheme is pluggable via tex.pqcrypto.algorithm_agility
+(Rule 6: ECDSA today, ML-DSA-65 once liboqs lands). The signature_b64 field below stores the
 base64-encoded signature; verification is delegated to the capability
 issuer. Issuers SHOULD rotate keys regularly and revoke capabilities
 through CapabilitySet.revoke().
@@ -35,7 +31,7 @@ from datetime import datetime
 from typing import Literal
 
 
-# Trust tiers per Governed MCP paper Section 4.2.
+# Trust tiers for the syscall pipeline's Layer-2 check.
 # Ordered most-trusted to least-trusted; comparisons use tier_rank() below.
 TrustTier = Literal["System", "AiNative", "AiEnhanced", "Classic"]
 
@@ -98,12 +94,12 @@ class McpCapability:
         only that the field is non-empty.
     required_trust_tier:
         Minimum trust tier the calling agent must have to use this
-        capability (Governed MCP Layer 2). Defaults to "Classic" so
+        capability (pipeline Layer 2). Defaults to "Classic" so
         that a capability without an explicit trust requirement is
         usable by any agent.
     rate_limit_per_minute:
         Maximum invocations of this capability per 60-second window
-        (Governed MCP Layer 3). Default 60 = 1/sec average.
+        (pipeline Layer 3). Default 60 = 1/sec average.
     """
 
     capability_id: str
@@ -134,8 +130,8 @@ class CapabilitySet:
         Identity of the holding agent. Matched against
         McpCapability.issued_to.
     trust_tier:
-        Trust tier of the holding agent (Governed MCP Section 4.2:
-        System / AiNative / AiEnhanced / Classic).
+        Trust tier of the holding agent (ordered most- to
+        least-trusted: System / AiNative / AiEnhanced / Classic).
     revoked_capability_ids:
         Set of capability IDs that have been revoked. Revoked
         capabilities are present in ``capabilities`` for audit-trail

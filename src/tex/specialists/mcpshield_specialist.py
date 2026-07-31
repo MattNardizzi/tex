@@ -7,10 +7,10 @@ surfaces enumerated in the canonical MCP security literature.
 
 Reference
 ---------
-- arxiv 2604.05969v1 (MCPShield: Acharya & Gupta, 7 Apr 2026)
+- MCPShield formal model (src/tex/runtime/mcpshield/)
 
-  Unified MCP threat taxonomy: 7 threat categories, 23 attack vectors,
-  4 attack surfaces (client / protocol / server / host). Labeled
+  Unified MCP threat taxonomy across 4 attack surfaces (client /
+  protocol / server / host). Labeled
   transition system MMCP with trust-boundary annotations.
 
   Four fundamental security properties:
@@ -29,10 +29,6 @@ Reference
 
 - arxiv 2508.13220 (MCPSecBench) — 17 attack types, 4 attack surfaces.
   85%+ of identified attacks compromise at least one MCP platform.
-
-- arxiv 2603.18063 (MCP-38) — comprehensive threat taxonomy for MCP
-  systems mapping to STRIDE, OWASP LLM Top 10 2025, and OWASP Agentic
-  Top 10 2026.
 
 This specialist surfaces:
   - The four MCPShield property classes (P1-P4) as reason codes.
@@ -414,8 +410,8 @@ class McpShieldSpecialist:
                 rationale=(
                     "Specialist scans for the four MCPShield property "
                     "classes (tool integrity, data confinement, "
-                    "privilege boundedness, context isolation) per arxiv "
-                    "2604.05969 + the 8 MCP-protocol attack categories "
+                    "privilege boundedness, context isolation) "
+                    "plus the 8 MCP-protocol attack categories "
                     "from MCP-SafetyBench (arxiv 2512.15163) and "
                     "MCPSecBench (arxiv 2508.13220). No signals matched."
                 ),
@@ -461,7 +457,7 @@ class McpShieldSpecialist:
             confidence=round(confidence, 4),
             summary=summary,
             rationale=(
-                "Per arxiv 2604.05969 §IV, MCPShield formalizes MCP "
+                "MCPShield formalizes MCP "
                 "agent systems as labeled transition systems with trust-"
                 "boundary annotations and verifies four security "
                 "properties. This specialist surfaces lexical signals "

@@ -3,10 +3,7 @@ Tool execution receipt data model.
 
 Issued by the runtime AFTER a tool call completes. The LLM never holds the
 HMAC signing key — it can only reference receipt IDs the runtime issued.
-
-Reference
----------
-arxiv 2603.10060 — Tool Receipts, Not Zero-Knowledge Proofs (Basu, Mar 2026).
+(NabaOS-style tool receipts.)
 """
 
 from __future__ import annotations
@@ -27,9 +24,9 @@ class ToolExecutionReceipt(BaseModel):
     """
     An HMAC-SHA-256-signed receipt for a single tool invocation.
 
-    Per arxiv 2603.10060, the runtime (not the LLM) issues these receipts
-    after each tool call. ``hmac_signature`` is computed over the canonical
-    JSON of every other field (see ``canonical_signing_input``).
+    The runtime (not the LLM) issues these receipts after each tool
+    call. ``hmac_signature`` is computed over the canonical JSON of
+    every other field (see ``canonical_signing_input``).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

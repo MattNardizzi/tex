@@ -2,9 +2,9 @@
 
 A DERIVED presence claim is an estimate, not a sealed fact, so the gate attaches
 a *correctness floor*: the conformal lower bound on coverage (``1 - alpha``) and
-an HONEST ``coverage_mode``. We reuse the already-shipped, already-cited
-``tex.causal.conformal_attribution`` (Feng et al., arXiv:2605.06788;
-Angelopoulos & Bates 2023) rather than re-deriving the math.
+an HONEST ``coverage_mode``. We reuse the already-shipped
+``tex.causal.conformal_attribution`` (see Angelopoulos & Bates 2023 for
+the standard CP background) rather than re-deriving the math.
 
 The honest edge, surfaced not buried:
 

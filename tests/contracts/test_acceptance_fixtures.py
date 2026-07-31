@@ -10,13 +10,11 @@ This is the build's load-bearing acceptance test. If it passes, the
 contracts layer's real-world utility is demonstrated, regardless of
 how many unit tests around the edges are green.
 
-Reference
----------
-- arxiv 2602.22302 §6 (AgentContract-Bench) — the multi-domain coverage
-  pattern this fixture is modelled on. We don't ship the full 200
-  scenarios here; we ship a representative 5-contract slice for the
-  insurtech / regulated-outbound-AI-content domain that is Tex's
-  primary GTM focus.
+Coverage shape
+--------------
+A multi-domain coverage pattern: we ship a representative 5-contract
+slice for the insurtech / regulated-outbound-AI-content domain that is
+Tex's primary GTM focus.
 """
 
 from __future__ import annotations

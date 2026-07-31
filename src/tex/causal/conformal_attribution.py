@@ -1,10 +1,8 @@
 """
 Conformal Agent Error Attribution — uncertainty-aware attribution layer.
 
-Implements the filtration-based conformal prediction (CP) framework from
-arxiv 2605.06788 (Feng, Sui, Hou, Wu, Cresswell — Layer 6 AI / Dalhousie,
-May 7, 2026, code at github.com/layer6ai-labs/conformal-agent-error-
-attribution).
+Implements a filtration-based conformal prediction (CP) approach to
+error attribution.
 
 Where CHIEF/ARM (Thread 3 base) produces a *point prediction* of the
 root-cause step, conformal attribution produces a **contiguous
@@ -23,26 +21,26 @@ the region of uncertainty.
 
 Algorithm choices implemented
 -----------------------------
-Three of the four CP algorithms from §3.1 of the paper:
+Three CP set-construction algorithms:
 
-  1. **Vanilla CP** (§3.1.1) — the baseline. Picks all steps whose
+  1. **Vanilla CP** — the baseline. Picks all steps whose
      non-conformity score exceeds the calibrated threshold. Sets may
      be non-contiguous; useful as a reference / lower-bound on what
      filtration gains.
 
-  2. **Left (Right) Filtration** (§3.1.3) — contiguous prediction set
+  2. **Left (Right) Filtration** — contiguous prediction set
      anchored at the leftmost (rightmost) end of the trajectory,
      expanding inward until coverage threshold is met. Useful when
      the failure pattern is "decisive error happens early" (left)
      vs. "error compounds at the end" (right).
 
-  3. **Two-Way Filtration** (§3.1.4) — recommended in the paper as
-     producing the tightest contiguous sets in expectation. Anchors at
+  3. **Two-Way Filtration** — produces the tightest contiguous
+     sets in expectation. Anchors at
      the step with the highest score, expands left+right alternately
      until coverage threshold is met. This is the algorithm Tex's
      attribution engine returns by default.
 
-We deliberately skip §3.1.2 (Leaf-to-Root Tree Traversal) because
+We deliberately skip a leaf-to-root tree-traversal variant because
 Tex's traces are linear, not tree-structured — applying the tree
 algorithm to a linear trace degenerates to vanilla CP.
 
@@ -73,7 +71,7 @@ calibration data. The endpoint reports which mode produced the set.
 
 Scoring function
 ----------------
-Per the paper §3.2, the non-conformity score is task-specific. For
+The non-conformity score is task-specific. For
 Tex, the natural score per step is:
 
   * **When prefill SLM signals available**: per-step mean NLL (high
@@ -88,10 +86,10 @@ needs.
 
 References
 ----------
-- arxiv 2605.06788 (Feng et al., May 7 2026) §3.1, §3.2, §3.3
 - Standard CP introduction: Angelopoulos & Bates (2023), "A Gentle
   Introduction to Conformal Prediction"
-- MASPrism (arxiv 2605.07509) for the prefill-NLL scoring choice
+- MASPrism (``tex.causal.prefill_signals``) for the prefill-NLL
+  scoring choice
 """
 
 from __future__ import annotations
@@ -106,7 +104,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # Default miscoverage rate. 0.1 == 90% target coverage. Configurable
 # per-call via the endpoint's request flag, with this value as the
-# fallback default. Matches the paper's default experimental setting.
+# fallback default.
 DEFAULT_ALPHA: float = 0.1
 
 
@@ -332,7 +330,7 @@ def _load_calibration_scores() -> list[float] | None:
 
 
 # ---------------------------------------------------------------------------
-# Algorithm: Vanilla CP (§3.1.1)
+# Algorithm: Vanilla CP
 # ---------------------------------------------------------------------------
 
 
@@ -341,7 +339,7 @@ def _vanilla_set(
 ) -> tuple[int, int, list[_ScoredStep]]:
     """Vanilla CP: return all steps with score >= threshold.
 
-    May be non-contiguous (paper §3.1.1, Figure 2). We summarize as
+    May be non-contiguous. We summarize as
     ``(min_index, max_index, included_list)`` — the caller decides
     how to surface non-contiguity (we report the convex hull range
     plus the actual included list for fidelity).
@@ -353,7 +351,7 @@ def _vanilla_set(
 
 
 # ---------------------------------------------------------------------------
-# Algorithm: Left / Right Filtration (§3.1.3)
+# Algorithm: Left / Right Filtration
 # ---------------------------------------------------------------------------
 
 
@@ -362,7 +360,7 @@ def _left_filtration_set(
 ) -> tuple[int, int, list[_ScoredStep]]:
     """Left filtration: expand from index 0 rightward.
 
-    Per §3.1.3 of the paper: anchor at the leftmost step, expand
+    Anchor at the leftmost step, expand
     rightward until the cumulative maximum score exceeds the
     threshold. The resulting set is ``[0, end_index]`` — contiguous
     from the left, ordinal-aware.
@@ -389,7 +387,7 @@ def _right_filtration_set(
 ) -> tuple[int, int, list[_ScoredStep]]:
     """Right filtration: expand from index n-1 leftward.
 
-    Per §3.1.3: anchor at the rightmost step, expand leftward until
+    Anchor at the rightmost step, expand leftward until
     the cumulative max score (over the right tail being considered)
     exceeds the threshold. Set is ``[start_index, n-1]``.
 
@@ -410,7 +408,7 @@ def _right_filtration_set(
 
 
 # ---------------------------------------------------------------------------
-# Algorithm: Two-Way Filtration (§3.1.4) — Tex default
+# Algorithm: Two-Way Filtration — Tex default
 # ---------------------------------------------------------------------------
 
 
@@ -419,9 +417,6 @@ def _two_way_filtration_set(
 ) -> tuple[int, int, list[_ScoredStep]]:
     """Two-way filtration: anchor at peak, expand bidirectionally.
 
-    Per §3.1.4 (paper's recommended algorithm, produces tightest
-    contiguous sets on Who&When benchmark):
-
       1. Find ``i* = argmax_i score_i``, the trajectory step with
          the highest non-conformity score.
       2. Initialize ``[L, R] = [i*, i*]``.
@@ -429,8 +424,7 @@ def _two_way_filtration_set(
          higher-scoring neighbor, until the *minimum* score within
          ``[L, R]`` no longer drops below the threshold.
 
-    Step 3's stopping rule reverses the framing slightly from the
-    paper for clarity: equivalent to the paper's "cumulative-max
+    Step 3's stopping rule is equivalent to a "cumulative-max
     reaches threshold" formulation, but easier to reason about for
     contiguous sets.
 
@@ -438,8 +432,8 @@ def _two_way_filtration_set(
     the peak score and whose minimum included score still satisfies
     the threshold.
 
-    Default algorithm for Tex's endpoint because the paper's
-    experiments show it produces the smallest sets at the same
+    Default algorithm for Tex's endpoint because it produces the
+    smallest contiguous sets at the same
     coverage level — i.e. the most useful for auditors.
     """
     if not scored:
@@ -454,25 +448,18 @@ def _two_way_filtration_set(
     L, R = peak_index, peak_index
 
     # Step 2-3: expand until we've absorbed enough of the score mass.
-    # The paper's algorithm terminates when the included score range
+    # The algorithm terminates when the included score range
     # achieves the coverage condition. For transductive thresholds we
     # use the rule: expand until either (a) cumulative max of
     # included steps >= threshold AND we've included at least one
     # step with score >= threshold on each side that has neighbors,
     # or (b) we've consumed the whole trace.
     #
-    # A simpler equivalent rule that matches the paper's Figure 3
-    # behavior: expand greedily toward the neighbor with the higher
-    # score, until the smallest-score-step-in-set drops below the
-    # threshold *only if* the peak score itself is below threshold
-    # (degenerate). Otherwise keep expanding while neighbor scores
-    # are non-trivial.
-    #
     # We use this concrete rule: expand greedily while there are
     # neighbors with score >= threshold. Stop when both neighbors
     # (if any) have score < threshold. This produces a contiguous
     # set that contains exactly the high-score "plateau" around the
-    # peak, which is the paper's intent.
+    # peak — the intended behavior.
     while True:
         left_neighbor = L - 1
         right_neighbor = R + 1

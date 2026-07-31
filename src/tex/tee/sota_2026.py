@@ -59,9 +59,9 @@ The augmentations
     cover an entire H100 NVL or B200 8x system without 8 separate
     JWTs.
 
-8.  ``PersistentMemoryAttestation`` — addresses arxiv 2605.03213
-    §VI "end-to-end protection of persistent agent memory remains
-    an open problem". We carry SHA-3-256 digests of every persistent
+8.  ``PersistentMemoryAttestation`` — end-to-end protection of
+    persistent agent memory is an open problem in TEE attestation.
+    We carry SHA-3-256 digests of every persistent
     memory region (vector store snapshot, fine-tuned adapter, KV
     cache pinned to disk) at the moment of the decision. The
     digest list is signed inside the same envelope so any
@@ -101,8 +101,8 @@ The augmentations
       * a *fleet-uniqueness* nonce that hashes the operator's fleet
         ID into the binding so two operators running the same
         software/model/policy cannot replay each other's decisions.
-        This addresses the cross-deployment replay class identified
-        in CrossGuard (arxiv 2604.23280 §6.2).
+        This addresses the cross-deployment replay class the
+        CrossGuard binding pattern is designed against.
 """
 
 from __future__ import annotations
@@ -390,17 +390,16 @@ class MultiGpuBatch(BaseModel):
 
 
 # ===========================================================================
-# 8.  Persistent agent memory attestation — arxiv 2605.03213 §VI
+# 8.  Persistent agent memory attestation
 # ===========================================================================
 
 
 class PersistentMemoryRegion(BaseModel):
     """One persistent agent-memory region with its digest.
 
-    arxiv 2605.03213 (Forough et al., May 7 2026) flags persistent
-    agent memory — vector stores, fine-tuned adapters, KV caches —
-    as an open problem: "end-to-end protection of persistent agent
-    memory remains" unsolved. The standard composite envelope
+    End-to-end protection of persistent agent memory — vector
+    stores, fine-tuned adapters, KV caches — is an open problem.
+    The standard composite envelope
     attests the platform but says nothing about the on-disk state
     the agent loads back into RAM after a restart.
 

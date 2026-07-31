@@ -2,8 +2,8 @@
 Mini LTLf evaluator with RV-LTL 4-valued semantics.
 
 Vendored — stdlib only. Sized to cover the predicate vocabulary used by
-ABC behavioral contracts (arxiv 2602.22302) and the invariant-response
-template fragment from AgentVerify (arxiv-prep 2604.1029): atoms,
+ABC behavioral contracts and the invariant-response fragment of the
+AgentVerify internal template set: atoms,
 boolean connectives, and the temporal operators ``X / G / F / U`` plus
 the bounded-eventually operator ``F<=k`` that is essential for the
 ABC recovery-window semantics.
@@ -14,13 +14,13 @@ Why we vendor instead of using ltlf2dfa / logaut:
   * neither was approved in requirements.txt; the build prompt allowed a
     "vendored mini LTL evaluator (or python-ltl if approved)"
 
-Design choices (paper silent, engineering call):
+Design choices (engineering calls):
 
 1. **Finite-trace semantics (LTLf).** Agent traces are finite at
    evaluation time. We adopt the LTLf semantics of De Giacomo & Vardi
    (2013) where the "next" operator on the last position is false
    (strong-next ``X``). A weak-next ``Xw`` is provided for completeness
-   but defaults to false-on-end matching the paper's invariant-response
+   but defaults to false-on-end, matching the invariant-response
    workloads, where ``X q`` already discharges immediately upon p.
 
 2. **RV-LTL 4-valued verdicts** at each trace position
@@ -31,7 +31,7 @@ Design choices (paper silent, engineering call):
    4-valued verdict is exposed for callers that want it (e.g. the
    future SPRT certifier in ``tex.contracts.certification``).
 
-3. **Bounded eventually F<=k**. The ABC paper's k-recovery window is
+3. **Bounded eventually F<=k**. The ABC k-recovery window is
    the only reason finite-state RV-LTL is sufficient instead of full
    LTL: every "soft" constraint check has the form
    ``G(violated -> F<=k recovered)``. We compile this directly to a
@@ -45,14 +45,13 @@ Design choices (paper silent, engineering call):
 
 References
 ----------
-- arxiv 2602.22302 (Bhardwaj, AgentAssert / ABC) — contract structure,
-  (p,δ,k)-satisfaction, recovery window k.
 - Bauer, Leucker, Schallhart (2011), "Runtime Verification for LTL and
   TLTL", ACM TOSEM — RV-LTL 4-valued verdicts.
 - De Giacomo & Vardi (2013), "Linear Temporal Logic and Linear Dynamic
   Logic on Finite Traces", IJCAI — LTLf.
-- arxiv-prep 2604.1029 (AgentVerify) — 23 LTL templates for agent
-  safety; we cover the propositional fragment they use.
+- The ABC contract structure ((p,δ,k)-satisfaction, recovery window k)
+  and the AgentVerify LTL template set are Tex's internal contract
+  model; we cover the propositional fragment those templates use.
 """
 
 from __future__ import annotations

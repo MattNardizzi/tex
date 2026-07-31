@@ -27,8 +27,9 @@ Design properties
 References
 ----------
 - C2PA 2.4 §10.3 (claim signing) — drives the column shape.
-- arxiv 2604.24890 (NSA paper) §"Credentials expire and become
-  unverifiable" — this table is the retention anchor that
+- Tex C2PA attack matrix, cert-expiry-before-retention class
+  (credentials expire and become unverifiable) — this table is
+  the retention anchor that
   outlives the outer C2PA certificate. The
   ``tex.evidence_cosign.retention_anchor.record_hash`` field
   points back to a row in ``tex_evidence``; this table stores the

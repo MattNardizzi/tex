@@ -23,7 +23,7 @@ identity; instead we cluster the credential's per-session footprint vectors on
 the SPLIT-axis features and ask "how many distinct generative processes produced
 this superposition?" The pipeline (RESEARCH_LOG.md N1, P10/P11; account-sharing
 keystroke cluster-count literature, ResearchGate 247887278; anytime-valid
-e-values, arXiv 2603.19022):
+e-value testing):
 
   1. FEATURIZE each session footprint on the split axis:
        - tool-call grammar n-gram profile  (P10): a bag of {unigram, bigram} of
@@ -126,7 +126,7 @@ _BEHAVIORAL_COHORT_CAP: int = 256
 #: Anytime-valid significance level for declaring a mixture (>1 process). The
 #: e-value threshold is 1/alpha; alpha = 0.05 ⇒ commit k>1 only when the
 #: mixture-vs-single e-value exceeds 20. Ville's inequality bounds the
-#: false-split probability at alpha under optional stopping (arXiv 2603.19022).
+#: false-split probability at alpha under optional stopping.
 _SPLIT_ALPHA: float = 0.05
 
 #: The split-axis feature names carried for receipts.
@@ -485,8 +485,8 @@ def _mixture_evalue(dist: list[list[float]], labels: list[int]) -> float:
         e = L(k>1 fit) / L(k==1 fit)
 
     An e-value is a non-negative statistic whose expectation under the null
-    (one process) is <= 1, so by Ville's inequality P(e >= 1/alpha) <= alpha
-    (arXiv 2603.19022). We therefore declare a mixture only when ``e >= 1/alpha``
+    (one process) is <= 1, so by Ville's inequality P(e >= 1/alpha) <= alpha.
+    We therefore declare a mixture only when ``e >= 1/alpha``
     (e >= 20 at alpha = 0.05). A single agent's behavioral spread shrinks the
     multi-cluster residual variance only marginally, so its e-value stays well
     below 20 — the no-false-split guard.

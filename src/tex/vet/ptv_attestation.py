@@ -37,8 +37,8 @@ referenced in the draft) is also not yet shipped in any reference
 library — we implement the *attestation envelope shape* and produce a
 Schnorr-over-Ed25519 signed JWT in lieu of a real Groth16 proof,
 preserving the JSON wire format so a future swap-in of a real Groth16
-proof generator (e.g. ark-circom, ezkl, or the Tokamak SP1 zkVM
-stack used by zk-X509 in arxiv 2603.25190) is a drop-in replacement
+proof generator (e.g. ark-circom, ezkl, or a Tokamak SP1 zkVM
+stack of the zk-X509 shape) is a drop-in replacement
 behind ``generate_ptv_attestation``.
 
 The 200ms-on-commodity-edge-hardware claim from the draft is therefore
@@ -50,8 +50,8 @@ References
 *   draft-anandakrishnan-rats-ptv-agent-identity-00 — RATS-track,
     Standards.
 *   draft-anandakrishnan-ptv-attested-agent-identity-00 — Informational.
-*   arxiv 2603.25190 — zk-X509, demonstrates Groth16 over PKI at
-    300k-gas verification cost; provides the rationale for re-using
+*   zk-X509 (concept label) — Groth16 proofs over legacy PKI;
+    provides the rationale for re-using
     legacy PKI roots in PTV.
 *   **Chathurangi 2026** — Post-Quantum Traceable Anonymous Credentials
     from Lattices (IACR CIC, DOI 10.62056/ak5wl8n4e). The genuine

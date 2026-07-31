@@ -3,7 +3,7 @@ Tests for tex.drift.emergent_norm — collusion + shared-target detection.
 
 Acceptance: flag coordinated patterns on a 10-agent collusion fixture.
 References:
-  - arXiv:2604.01151 (multi-agent interpretability) — informs the
+  - Multi-agent interpretability side-channel framing — informs the
     detection approach; we ship the side-channel (action-stream) path.
   - PMLR v180 pp. 223–232 (Bonjour et al. 2022) — pairwise mutual
     information as the action-lockstep signal.

@@ -1,13 +1,12 @@
 """
-Eradication rule synthesizer (AIR §3 eradication phase).
+Eradication rule synthesizer (AIR eradication phase).
 
 Bleeding-edge frontier as of May 2026. **No shipping AI governance
 product implements this end-to-end with cryptographic attestation.**
 
 Background
 ----------
-Per AIR (arxiv 2602.11749, Xiao/Sun/Chen, Feb 12 2026) §3, the
-incident-response lifecycle has four phases:
+The AIR incident-response lifecycle has four phases:
 
   1. **Detect**: identify the incident from environment + context.
   2. **Contain**: stop the active incident (Tex Thread 8 covers this
@@ -17,10 +16,6 @@ incident-response lifecycle has four phases:
   4. **Eradicate**: synthesize a new guardrail rule from the incident
      context so the same incident class cannot recur. **This is what
      Thread 8.1 ships.**
-
-The AIR paper reports that LLM-generated rules can approach the
-effectiveness of developer-authored rules across domains, with
-detection/remediation/eradication success rates all > 90%.
 
 What Thread 8.1 ships
 ---------------------
@@ -58,8 +53,6 @@ FORBID.
 
 Reference
 ---------
-- arxiv 2602.11749 (AIR, Feb 12 2026) §3 eradication, §4 LLM-rule
-  generation effectiveness.
 - FRONTIER_DELTA_thread_8 §8 (deferred-from-Thread-8 item, now
   shipped in Thread 8.1).
 

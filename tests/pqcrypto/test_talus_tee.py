@@ -1,6 +1,6 @@
 """
 Tests for tex.pqcrypto.talus_tee — 1-round-online threshold ML-DSA with
-TEE attestation (TALUS-TEE per arxiv 2603.22109 v2, Mar 24 2026).
+TEE attestation (TALUS-TEE, internal design label).
 
 The cryptographic core is genuine Mithril running inside the TEE
 coordinator. These tests cover:
@@ -294,9 +294,9 @@ def test_talus_native_bcc_path_raises_not_implemented(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Setting TEX_TALUS_NATIVE_BCC=1 must raise NotImplementedError until
-    the TALUS paper authors release reference code (the paper has no
-    public implementation as of May 20, 2026).
+    Setting TEX_TALUS_NATIVE_BCC=1 must raise NotImplementedError while
+    no reference implementation of the native BCC+CEF path exists
+    (this backend is a structural shim).
     """
     monkeypatch.setenv("TEX_TALUS_ALLOW_INSECURE_TEE", "1")
     monkeypatch.setenv("TEX_TALUS_NATIVE_BCC", "1")

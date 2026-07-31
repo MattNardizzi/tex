@@ -22,11 +22,11 @@ The five engines (each a sub-package):
 
 | Engine | Defends | Reference cited in code |
 |---|---|---|
-| `clawguard/` | Tool-call boundary enforcement (cmd/file/net deny-by-default + secret redaction) | arxiv 2604.11790 (`clawguard/__init__.py:4`) |
-| `planguard/` | Indirect prompt injection via planning-consistency verification | arxiv 2604.10134 (`planguard/__init__.py:5`) |
+| `clawguard/` | Tool-call boundary enforcement (cmd/file/net deny-by-default + secret redaction) | unverifiable citation removed (`clawguard/__init__.py:4`) |
+| `planguard/` | Indirect prompt injection via planning-consistency verification | unverifiable citation removed (`planguard/__init__.py:5`) |
 | `agentarmor/` | Static program analysis (CFG/DFG/PDG + information-flow type system) over agent traces | arxiv 2508.01249 (`agentarmor/__init__.py:3`) |
-| `mage/` | Long-horizon / multi-turn threats via a safety-curated "shadow memory" + pre-action risk judge | arxiv 2605.03228 (`mage/__init__.py:4`) |
-| `mcpshield/` | Formal verification of MCP tool calls as a Labeled Transition System (4 security properties) | arxiv 2604.05969 (`mcpshield/__init__.py:3`, note: `lts_model.py:5` cites the same number) |
+| `mage/` | Long-horizon / multi-turn threats via a safety-curated "shadow memory" + pre-action risk judge | unverifiable citation removed (`mage/__init__.py:4`) |
+| `mcpshield/` | Formal verification of MCP tool calls as a Labeled Transition System (4 security properties) | unverifiable citation removed (`mcpshield/__init__.py:3`; `lts_model.py:5` carried the same label) |
 
 **Wiring summary:** All five are **LIVE**. Each engine is wrapped by a matching
 specialist in `tex/specialists/*_specialist.py`, those specialists are members of
@@ -202,7 +202,7 @@ What real logic looks like, by engine:
 In every case the LLM path is wrapped in `try/except` with a logged fall-through to the deterministic path — graceful degradation, not a stub.
 
 **Stale scaffolding markers (TODOs above already-implemented code) — overstatement risk, not missing logic:**
-- `boundary_enforcer.py:263-271`: `check_call` has `TODO(P0): apply base rules first ...` immediately followed by a docstring line *"Status: implemented per arxiv 2604.11790 §III-A pipeline"* — and the body is implemented.
+- `boundary_enforcer.py:263-271`: `check_call` has `TODO(P0): apply base rules first ...` immediately followed by a docstring line claiming implemented-per-paper status (the unverifiable citation label has been removed) — and the body is implemented.
 - `rule_set.py:91-103` (`BaseRuleSet.default`) and `:118-130` (`induce_from_objective`): `TODO(P0)` lists followed by `Status: implemented`.
 - `intent_verifier.py:73-78` and `isolated_planner.py:159-165`: `TODO(P1)` followed by `Status: implemented`.
 These TODOs are **misleading leftovers**; the code under them is real. Flagged so an auditor does not mistake the markers for missing implementation.
@@ -286,21 +286,18 @@ telemetry events; it does not write evidence records.
    does **nothing** by default. Correctly self-described, but worth flagging that
    the egress-allowlist is *off by default*.
 
-6. **Cited arxiv IDs are likely fabricated / future-dated.** The docstrings cite
-   arxiv numbers like `2604.11790` (ClawGuard), `2604.10134` (PlanGuard),
-   `2605.03228` (MAGE), `2604.05969` (MCPShield) with 2026 dates and named authors
-   (e.g. "Cisco co-author, May 4 2026"). The numeric prefixes (`2604`, `2605`) do
-   not correspond to real arxiv year-month codes (which would be `26xx` only from
-   2026). These are **claims, unverified** — treat the performance figures (e.g.
-   "ASR 72.8% → 0%", "95.75% TPR") as **unverified marketing claims copied into
-   docstrings**, not measured in this repo. The *algorithms* are real; the
-   *benchmark numbers* are not reproduced here.
+6. **Docstring citation labels were unverifiable and have been removed from the
+   code.** The ClawGuard/PlanGuard/MAGE/MCPShield docstrings carried paper-style
+   ids with 2026 dates and named authors that could not be matched to any real
+   publication. Treat the performance figures quoted alongside them as
+   **unverified marketing claims copied into docstrings**, not measured in this
+   repo. The *algorithms* are real; the *benchmark numbers* are not reproduced
+   here.
 
-7. **`MCPShield __init__` docstring cites a different arxiv number than its
-   module.** `mcpshield/__init__.py:3` says `arxiv 2604.05969` while the package
-   summary in `runtime/__init__.py:24` describes MCPShield without an arxiv id and
-   `lts_model.py:5` also says `2604.05969`. Minor inconsistency; both point at the
-   same (unverified) reference.
+7. **MCPShield's (now removed) citation label appeared in two files.**
+   `mcpshield/__init__.py:3` and `lts_model.py:5` carried the same unverifiable
+   label, while the package summary in `runtime/__init__.py:24` described
+   MCPShield without one. Minor inconsistency; no code consequence.
 
 8. **Defense-in-depth duplication is intentional, not dead code.** Each engine
    keeps its *own* copy of attack-signal regexes and security lattices rather than

@@ -24,8 +24,8 @@
 #                                            mented_in_this_thread state)
 #
 # Reference papers / specs:
-#   * arxiv 2603.18046  NANOZK (Wang, USC, Mar 17 2026)
-#   * arxiv 2602.17452  Jolt Atlas (Benno et al., Feb 19 2026)
+#   * NANOZK layerwise proving (internal design label)
+#   * Jolt Atlas lookup decomposition (internal design label)
 #   * eprint 2025/1184  zkGPT (Qu et al., USENIX Sec '25)
 #   * eprint 2026/683   VEIL (Dalal et al., Apr 7 2026)
 #   * SP1 Hypercube mainnet (Succinct, Feb 19 2026)

@@ -25,7 +25,7 @@ References
 ----------
 - ``tex.pqcrypto.quorum_ml_dsa`` for the underlying quorum primitives
 - ``tex.pqcrypto.evidence_chain_signer`` for the single-key path
-- Mithril (ePrint 2026/013) and TALUS (arxiv 2603.22109) for the MPC
+- Mithril (ePrint 2026/013) and the TALUS-TEE shape for the MPC
   threshold ML-DSA frontier that this design is forward-compatible with
 
 Priority

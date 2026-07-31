@@ -8,12 +8,12 @@ Causal Layer — Hierarchical Causal Graphs + Reference Monitor
 
 Two complementary mechanisms:
 
-  CHIEF (arxiv 2602.23701)
+  CHIEF
     Hierarchical causal graph over agent traces. OTAR parsing
     (Observation-Thought-Action-Result). Hierarchical oracle-guided
     backtracking + counterfactual screening for failure attribution.
 
-  ARM (arxiv 2604.04035) — Agentic Reference Monitor
+  ARM — Agentic Reference Monitor
     Treats DENIED actions as first-class graph nodes with counterfactual
     edges to subsequent actions that may have been causally influenced
     by the denial. Trust propagates through an integrity lattice.

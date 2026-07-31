@@ -1,9 +1,6 @@
 """
 STPA manifest YAML loader + coverage matrix builder.
 
-Reference: Doshi et al. "Towards Verifiably Safe Tool Use for LLM
-Agents." ICSE-NIER 2026 (arXiv:2601.08012).
-
 Loads a YAML document containing the STPA artifacts (Stakeholder,
 Loss, Hazard, SafetyConstraint, UCA, LossScenario, Requirement,
 Specification, MCPLabel) and produces:
@@ -416,7 +413,7 @@ class StpaCoverageMatrix:
          the spec's enforcement_modules.
 
     Step 1 is the direct mitigation chain; step 2 is the
-    requirement/specification chain from Doshi-2026.
+    requirement/specification chain.
 
     Attributes
     ----------

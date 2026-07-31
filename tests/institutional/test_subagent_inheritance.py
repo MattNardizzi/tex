@@ -188,7 +188,7 @@ class TestCustomRestrictiveness:
 
 class TestCanonicalRestrictiveness:
     def test_ordering_is_active_credited_warning_fined_suspended(self):
-        """The canonical ordering matches arxiv 2601.11369 Figure 2."""
+        """The canonical restrictiveness ordering is pinned."""
         assert CANONICAL_RESTRICTIVENESS["active"] == 0
         assert CANONICAL_RESTRICTIVENESS["credited"] == 0
         assert CANONICAL_RESTRICTIVENESS["warning"] == 1

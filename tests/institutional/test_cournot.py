@@ -1,42 +1,34 @@
 """
 Empirical Cournot-replication test.
 
-Replicates the directional finding of arxiv 2601.11369 (Bracale Syrnikov
-et al., 2026) — Institutional governance reduces collusion-tier across
+Directional test: institutional governance reduces collusion-tier across
 runs of repeated multi-commodity Cournot competition — using
 deterministic agent strategy stubs in place of LLM agents.
 
-The paper reports mean collusion tier 3.10 (Ungoverned) vs 1.82
-(Institutional), Cohen's d=1.28, severe-tier from 50% -> 5.6%.
-We do NOT attempt to replicate the *magnitude* (impossible without
+We do NOT attempt magnitude claims (impossible without
 real LLM agents). We assert the *direction* — that the manifest-
 declared escalation ladder, fed by the Oracle's tier classification,
 mechanically lowers per-run tier by suspending firms whose
 specialisation persists.
 
-Cournot environment per Section 5.2:
+Cournot environment:
   Two firms, two commodities (A, B)
   Linear inverse demand:  P_j = α - Q_j / β   with α=100, β=2
   Capacity:               κ = 100 per firm per round
-  Costs:                  c_1 = 40, c_2 = 50  (asymmetric — Lin et al.
-                          report 10/10 specialisation under (40,50)
-                          vs (50,40))
-  Horizon:                50 rounds (paper's T)
+  Costs:                  c_1 = 40, c_2 = 50  (asymmetric, chosen to
+                          induce reliable specialisation)
+  Horizon:                50 rounds
 
 Agent strategies (deterministic stubs):
   * Collusion-prone (CollusiveAgent): firm 1 dumps capacity into
-    commodity A, firm 2 into commodity B. Faithful proxy of the
-    Lin et al. failure mode that the paper itself replicates.
+    commodity A, firm 2 into commodity B. A deterministic proxy of
+    the specialisation failure mode.
   * Cournot-Nash baseline (NashAgent): each firm plays the closed-form
     NE quantities every round.
   * Compliance-aware (CompliantWhenSanctionedAgent): plays the
     collusive strategy when in state 'active', and falls back to the
-    Nash strategy when sanctioned. Models the responsiveness the
-    paper credits institutional governance with eliciting.
-
-Reference
----------
-arxiv 2601.11369 §5.2 / §5.3 / §6.3 / §7
+    Nash strategy when sanctioned. Models the responsiveness
+    institutional governance is designed to elicit.
 """
 
 from __future__ import annotations
@@ -68,7 +60,7 @@ COURNOT_MANIFEST = FIXTURES_DIR / "cournot_market.yaml"
 
 
 # ---------------------------------------------------------------------
-# Environment parameters (paper §5.2)
+# Environment parameters
 # ---------------------------------------------------------------------
 
 
@@ -100,7 +92,7 @@ def cournot_nash_quantities(
     capacity kappa.
 
     For independent commodity markets with constant MC, the unconstrained
-    NE quantity for firm i in commodity j is (paper §5.2):
+    NE quantity for firm i in commodity j is:
 
         q*_i,j = β · (α - 2·c_i + c_-i) / 3
 
@@ -139,7 +131,7 @@ def _market_clear(
 
 
 # ---------------------------------------------------------------------
-# Market-structure metrics (paper §5.3)
+# Market-structure metrics
 # ---------------------------------------------------------------------
 
 
@@ -170,13 +162,13 @@ def market_structure_metrics(
     history: list (per round) of [(q_A, q_B) for firm 1, (q_A, q_B)
     for firm 2].
 
-    Per paper §5.3:
+    Definitions:
       CV_i      = σ across commodities / μ across commodities (per firm)
       HHI_c     = Σ s_i² for commodity c (per round); we average over
                   rounds and take the mean across commodities.
       Excess    = (observed - Nash) / Nash   (Eq. 5/6)
 
-    We report run-level *maximum across firms* of CV_excess (paper's
+    We report run-level *maximum across firms* of CV_excess (the
     primary headline number).
     """
     n_rounds = len(history)
@@ -243,7 +235,7 @@ def collusive_strategy(
     *, firm_id: int, capacity: float = KAPPA, jitter_seed: int = 0
 ) -> tuple[float, float]:
     """
-    Faithful proxy of the Lin et al. (2024) market-division failure
+    Deterministic proxy of the market-division failure
     mode: firm 1 dumps capacity into commodity A, firm 2 into commodity B.
     Produces high CV/HHI excess.
 
@@ -275,8 +267,8 @@ def compliant_when_sanctioned_strategy(
 ) -> tuple[float, float]:
     """
     Plays collusive when in 'active', falls back to Nash quantities
-    otherwise. Suspended actors produce zero. This models the paper's
-    central empirical finding: agents respond to *consequences*, not to
+    otherwise. Suspended actors produce zero. This models the design's
+    central premise: agents respond to *consequences*, not to
     declarative prohibitions.
     """
     if institutional_state == "suspended":
@@ -319,8 +311,8 @@ def _windowed_metrics(
 ) -> tuple[float, float]:
     """
     Compute CV/HHI excess over the trailing ``window`` rounds.
-    Used by the Oracle to fire signals on a rolling basis (paper uses
-    a 30-round agent-side window; we use a tighter 5-round window for
+    Used by the Oracle to fire signals on a rolling basis (we use a
+    tighter 5-round window for
     governance signals so escalation can take effect within the 50-round
     horizon).
 
@@ -508,7 +500,7 @@ class TestCournotEnvironment:
         assert q1[0] > q1[1] * 5
         assert q2[1] > q2[0] * 5
 
-    def test_market_clears_at_paper_parameters(self) -> None:
+    def test_market_clears_at_fixture_parameters(self) -> None:
         q1 = collusive_strategy(firm_id=1)
         q2 = collusive_strategy(firm_id=2)
         pA, pB = _market_clear([q1, q2])
@@ -535,8 +527,8 @@ class TestMarketStructureMetrics:
             ])
         cv_ex, hhi_ex = market_structure_metrics(history)
         # Collusive specialisation (95/5 split) yields CV around 0.9.
-        # The paper's LLM agents push this higher (~1.4) because they
-        # discover even more extreme specialisations; deterministic
+        # LLM agents could push this higher by discovering even more
+        # extreme specialisations; deterministic
         # stubs at 95/5 give us a stable baseline.
         assert cv_ex > 0.7
         # And concentration well above Nash. Nash HHI = 0.5 (firms
@@ -555,11 +547,11 @@ class TestMarketStructureMetrics:
 class TestSingleRun:
     def test_ungoverned_collusive_run_lands_in_high_tier(self) -> None:
         """
-        Ungoverned + collusive strategy -> tier >= 3. The paper's LLM
-        agents reach tier 4 in 50% of runs because they push to more
+        Ungoverned + collusive strategy -> tier >= 3. LLM
+        agents could push to more
         extreme specialisation (close to 99/1); our deterministic 95/5
         stub reliably lands at tier 3 instead. Either is "strong
-        collusion" by the Table 1 definition.
+        collusion" by the tier definition.
         """
         cv_ex, hhi_ex, tier = run_ungoverned(seed=0)
         assert tier >= 3
@@ -591,9 +583,9 @@ class TestDirectionalReplication:
     Paired-runs comparison across N seeds. Asserts that the mean
     governed tier is *strictly less than* the mean ungoverned tier.
 
-    This is the directional analogue of arxiv 2601.11369 Cohen's d=1.28
-    result: institutional governance lowers per-run collusion-tier.
-    We do NOT replicate magnitude — that requires real LLM agents.
+    The directional claim: institutional governance lowers per-run
+    collusion-tier.
+    We do NOT claim magnitude — that requires real LLM agents.
     """
 
     def test_governed_mean_tier_strictly_less_than_ungoverned(self) -> None:
@@ -626,7 +618,6 @@ class TestDirectionalReplication:
         self,
     ) -> None:
         """
-        Paper Table 6: Tier >= 4 share drops from 50% to 5.6%.
         We assert directional: governed severe-tier share <= ungoverned.
         """
         N = 10

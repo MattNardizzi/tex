@@ -20,11 +20,9 @@ Reference
 
 Frontier delta (FRONTIER_DELTA_thread_4.md §1.3)
 -------------------------------------------------
-- arxiv 2605.03378v1 (ARGUS, Weng et al., 5 May 2026, **13 days old at
-  build time**) introduces "provenance-aware decision auditing" via an
+- ARGUS adds provenance-aware decision auditing via an
   influence provenance graph that tracks how untrusted context propagates
-  into agent decisions. Reports ASR 3.8% with 87.5% utility, robust to
-  adaptive white-box adversaries.
+  into agent decisions.
 
   We surface ARGUS-style provenance reason codes inside the AgentArmor
   specialist because AgentArmor's PDG already carries the information
@@ -33,9 +31,6 @@ Frontier delta (FRONTIER_DELTA_thread_4.md §1.3)
     - ARMOR_INFLUENCE_PROVENANCE_UNTRUSTED_TO_HIGH_INT
     - ARMOR_INFLUENCE_PROVENANCE_TAINTED_FLOW
     - ARMOR_INFLUENCE_PROVENANCE_UNJUSTIFIED_DECISION
-
-  This is what nobody has implemented yet — ARGUS is a paper-only result
-  as of mid-May 2026.
 
 Priority
 --------
@@ -171,8 +166,7 @@ class AgentArmorSpecialist:
     Two paths:
       1. Lexical scan for information-flow violation signals (untrusted
          → exec, secret → network, low integrity → high integrity) plus
-         ARGUS-style influence-provenance signals (paper-only frontier
-         per arxiv 2605.03378).
+         ARGUS-style influence-provenance signals.
 
       2. Optional PDG type-system dispatch: when metadata carries
          ``metadata['agentarmor']['annotated_pdg']`` (an annotated dict
@@ -221,7 +215,7 @@ class AgentArmorSpecialist:
                 _SEV_INTEGRITY_DOWNGRADE,
                 (ASI_GOAL_HIJACK, ASI_ROGUE_AGENT),
             ),
-            # ── ARGUS frontier reason codes (arxiv 2605.03378) ────────
+            # ── ARGUS influence-provenance reason codes ───────────────
             (
                 "ARMOR_INFLUENCE_PROVENANCE_UNTRUSTED_TO_HIGH_INT",
                 _ARGUS_UNTRUSTED_TO_HIGH_INT_PATTERNS,
@@ -284,8 +278,8 @@ class AgentArmorSpecialist:
                 rationale=(
                     "Specialist scans for information-flow violations per "
                     "arxiv 2508.01249 (AgentArmor type system) plus three "
-                    "ARGUS-style provenance signals per arxiv 2605.03378 "
-                    "(5 May 2026): untrusted→exec, secret→network, "
+                    "ARGUS-style provenance signals: "
+                    "untrusted→exec, secret→network, "
                     "integrity downgrade, and ARGUS untrusted-to-high-"
                     "integrity / tainted-flow / unjustified-decision "
                     "influence-provenance flows. No signals matched."
@@ -324,14 +318,13 @@ class AgentArmorSpecialist:
             confidence=round(confidence, 4),
             summary=summary,
             rationale=(
-                "Per arxiv 2508.01249 §III-C, AgentArmor enforces "
+                "Per arxiv 2508.01249, AgentArmor enforces "
                 "information-flow rules over a PDG of agent runtime "
                 "traces. This specialist surfaces lexical signals for "
                 "the canonical IFC violations (untrusted→exec, "
                 "secret→network, integrity downgrade) plus three "
-                "ARGUS-style influence-provenance reasons (arxiv "
-                "2605.03378, 5 May 2026) — the first specialist judge "
-                "to expose ARGUS-frontier provenance facts inline with "
+                "ARGUS-style influence-provenance reasons, exposing "
+                "provenance facts inline with "
                 "AgentArmor type checking."
             ),
             evidence=tuple(all_evidence),

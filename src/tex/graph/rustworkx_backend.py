@@ -2,16 +2,13 @@
 rustworkx graph backend.
 
 Tex's ``InMemoryTemporalKG`` is networkx-backed (``MultiDiGraph``).
-networkx is correct but pure-Python; BFS / reachability over the
-provenance graph dominates per-request latency once the graph passes a
-few thousand edges (per AgentSys arxiv 2602.07398 §6.3, the same
-result we observe in Tex profiling).
+networkx is correct but pure-Python; in Tex profiling, BFS /
+reachability over the provenance graph dominates per-request latency
+once the graph passes a few thousand edges.
 
 rustworkx (formerly retworkx) is a Rust-backed drop-in. The IBM /
 Qiskit benchmarks (2024) show 5-50× speedups on the BFS / shortest-
-path operations Tex actually performs. As of May 2026 no agent-
-governance product uses it; Microsoft Agent Governance Toolkit still
-ships networkx.
+path operations Tex actually performs.
 
 This module is *conditional*: it imports rustworkx if installed and
 exposes a fast traversal API; otherwise it falls back to a networkx

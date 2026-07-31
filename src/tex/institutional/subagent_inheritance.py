@@ -1,16 +1,13 @@
 """
 Subagent state inheritance for the institutional governance layer.
 
-Post-cutoff motivation (May 8, 2026): arxiv 2605.08460 (Cai/Zhang/Hei,
-"When Child Inherits: Modeling and Exploiting Subagent Spawn in
-Multi-Agent Networks") shows that when one agent in a multi-agent
-network is compromised, delegated subagents inherit the compromise — and
-existing defenses do not propagate sanction or quarantine state across
-spawn relationships. Their experiments demonstrate a class of attacks
-where the parent agent passes its compromised state to spawned children
-who continue acting under a clean reputation.
+Motivation: when one agent in a multi-agent network is compromised or
+sanctioned, delegated subagents can inherit the compromise — and a
+defense that does not propagate sanction or quarantine state across
+spawn relationships can be defeated by a parent that passes its work to
+spawned children who continue acting under a clean reputation.
 
-Mapped onto Tex's institutional layer (arxiv 2601.11369): if an actor
+Mapped onto Tex's institutional layer: if an actor
 is in ``fined`` or ``suspended`` and spawns a subagent, the subagent
 must inherit at least the *most restrictive* state in its parent chain.
 Otherwise the institutional regime is trivially defeated by spawning a
@@ -52,13 +49,6 @@ The walk stops at a default depth of 32 ancestors. A spawn chain longer
 than 32 is almost certainly a configuration error; we cap rather than
 walk indefinitely. The bound is exposed as a constructor argument so
 tests can lower it for verification.
-
-Reference
----------
-- arxiv 2605.08460 (Cai/Zhang/Hei, May 8 2026): subagent-spawn
-  compromise in multi-agent networks
-- arxiv 2601.11369 (Bracale Syrnikov et al., Jan 2026) §4.2: legal-state
-  ordering used to define "most restrictive"
 """
 
 from __future__ import annotations
@@ -75,9 +65,6 @@ from tex.observability.telemetry import emit_event
 # this map are treated as restrictiveness 0 ("unknown — least
 # restrictive"). Manifests using non-canonical state ids should call
 # ``EffectiveStateResolver`` with an override mapping.
-#
-# Reference: arxiv 2601.11369 §4.2 (Figure 2: state graph) and Appendix
-# C (notice templates ordered by severity).
 CANONICAL_RESTRICTIVENESS: dict[str, int] = {
     "active": 0,
     "credited": 0,  # rehabilitation overlay — no more restrictive than active

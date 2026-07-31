@@ -1,10 +1,8 @@
 """
 MCPShield Property Verifier.
 
-Reference: arxiv 2604.05969 (Acharya & Gupta), §IV.
-
 Implements the four fundamental security properties of the MCP transition
-system, each with the decidability rationale claimed by the paper:
+system, each with its decidability rationale:
 
   Property 1 (Tool Integrity).
       ∀ transitions t with action='tool_invoke' over tool T,
@@ -35,7 +33,7 @@ API:
 
 For backwards compatibility ``property_ltl`` accepts a property name
 (``'tool_integrity'`` etc.) or one of a small set of canonical
-LTL-shaped strings the paper uses informally. Unknown identifiers raise
+LTL-shaped aliases. Unknown identifiers raise
 ``ValueError`` rather than silently returning False.
 
 Counterexample paths are tuples of human-readable transition descriptions

@@ -15,7 +15,7 @@
 #   7. loads the vendored CPSA shapes (G1-G5 all satisfied)
 #   8. builds the four-layer signed manifest in one pass
 #   9. verifies the outer signature, the cosign attack-defense matrix,
-#      the cross-layer watermark audit (arxiv 2603.02378), the
+#      the cross-layer watermark audit (desync detection), the
 #      attestation EAT JWT, and the formal-verification assertion
 #  10. prints a green report
 #
@@ -306,7 +306,7 @@ ok("outer COSE_Sign1 signature valid")
 cosign = verify_evidence_cosign(signed, expected_full_file_sha256=body_sha)
 assert cosign.is_valid, cosign.issues
 ok(f"cosign v2 valid ({cosign.cosign_algorithm}, key {cosign.cosign_key_id})")
-ok("all arxiv 2604.24890 attack classes defended:")
+ok("all C2PA attack-matrix classes defended:")
 for attack, defended in cosign.defenses_satisfied:
     marker = "✓" if defended else "✗"
     info(f"  {marker}  {attack}", "defended" if defended else "FAILED")
@@ -318,7 +318,7 @@ wm_assertion = next(
 )
 audit = cross_layer_audit(watermark_assertion=wm_assertion)
 assert audit.is_consistent, audit.issues
-ok(f"cross-layer audit consistent (arxiv 2603.02378 desync defense)")
+ok("cross-layer audit consistent (desync defense)")
 info("  audit issues", ", ".join(audit.issues) or "(none)")
 
 # 9d. Attestation EAT JWT.
@@ -350,8 +350,8 @@ banner("✓ Thread 6 — durable content credentials demo PASSED")
 print()
 print("  Four bleeding-edge layers, all under one outer signature:")
 print()
-print("    1. tex.evidence_cosign       (Thread 5: 6 NSA-paper attacks closed)")
-print("    2. tex.evidence_watermark    (arxiv 2605.12456 + 2603.02378)")
+print("    1. tex.evidence_cosign       (Thread 5: 6 attack-matrix classes closed)")
+print("    2. tex.evidence_watermark    (soft binding + cross-layer audit)")
 print("    3. tex.evidence_attestation  (C2PA Attestation §, RFC 9334 RATS)")
 print("    4. tex.formal_verification   (CPSA v4.4.5 G1-G5 proven sound)")
 print()

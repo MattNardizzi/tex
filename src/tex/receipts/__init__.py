@@ -15,18 +15,12 @@ source per the Nyaya Shastra pramana taxonomy:
   - abhava (absence)
   - ungrounded opinion
 
-Reference
----------
-arxiv 2603.10060 — "Tool Receipts, Not Zero-Knowledge Proofs: Practical
-Hallucination Detection for AI Agents", Abhinaba Basu, 9 Mar 2026.
-
 Threat model
 ------------
 Closes the gap where an LLM fabricates tool calls or misstates output counts.
 The LLM does NOT have access to the HMAC signing key, so any claim referencing
-a non-existent receipt ID is immediately detectable. Per the paper, this
-catches 94.2% of fabricated tool references, 87.6% of count misstatements,
-and 91.3% of false absence claims, with <15ms verification overhead.
+a non-existent receipt ID is immediately detectable, and verification is a
+cheap MAC check rather than a proof verification.
 
 Priority
 --------

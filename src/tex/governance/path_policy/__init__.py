@@ -1,9 +1,6 @@
 """
 Runtime Governance via Policies on Paths.
 
-Reference: Kaptein, Khan & Podstavnychy. "Runtime Governance for AI Agents:
-Policies on Paths." arXiv:2603.16586 (Mar 2026).
-
 Formalizes governance over FULL agent paths, not just single tool calls.
 A path is a sequence of (state, action, observation) tuples. Path policies
 allow Tex to express constraints like:

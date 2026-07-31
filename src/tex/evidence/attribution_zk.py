@@ -1,7 +1,7 @@
 """
 PTV-shaped Groth16 attestation envelope for attribution computations.
 
-Wraps a NanoZK-style (arxiv 2603.18046, Mar 2026) layerwise Groth16
+Wraps a NanoZK-style layerwise Groth16
 proof that the prefill SLM forward pass was executed on the claimed
 model. The wire format follows
 ``draft-anandakrishnan-ptv-attested-agent-identity-00`` (Mar 2026)
@@ -40,15 +40,15 @@ The verifier path that previously dead-ended at
 ``nanozk_verifier_not_implemented_in_this_thread`` is now live for
 the new ``tex:nanozk-layerwise-2026`` method tag. Envelopes built
 via ``build_envelope_with_layerwise_proof`` carry a
-``LayerProofSet`` (hash-chained, Fisher-selected, VEIL-wrapped per
-ePrint 2026/683) in the ``proof`` field, and the verifier routes
+``LayerProofSet`` (hash-chained, Fisher-selected, VEIL-wrapped)
+in the ``proof`` field, and the verifier routes
 through ``tex.nanozk.verify_layer_proof_set``. The legacy
 ``groth16-2026`` path remains unchanged for backward compatibility.
 
 What's deliberately a stub
 --------------------------
-The Groth16 prover. NanoZK is a research paper (Mar 2026), not yet
-an open reference implementation. EZKL is closer to production but
+The Groth16 prover. There is no production-grade NanoZK prover
+backend wired yet. EZKL is closer to production but
 has its own toolchain. Wiring a real prover requires a NanoZK or
 EZKL backend that's outside this thread's scope.
 
@@ -68,8 +68,6 @@ format and verifier are real; the prover is plumbed and waiting.
 
 References
 ----------
-- arxiv 2603.18046 (NanoZK, Mar 2026)
-- arxiv 2605.03581 (ZK-Value LSH-Shapley, May 2026)
 - draft-anandakrishnan-ptv-attested-agent-identity-00 (Mar 2026)
 - draft-anandakrishnan-rats-ptv-agent-identity-00 (Apr 2026)
 """
@@ -105,9 +103,6 @@ PTV_METHOD_PROOF_PENDING: str = "proof_pending"
 #   set_root, all base64-safe.
 #
 # References:
-#   * arxiv 2603.18046 (NANOZK, Mar 17 2026)
-#   * arxiv 2602.17452 (Jolt Atlas, Feb 19 2026)
-#   * eprint 2026/683  (VEIL, Apr 7 2026)
 #   * draft-anandakrishnan-ptv-attested-agent-identity-00 §B.2 —
 #     this is a Tex-private extension; the PTV draft accepts
 #     vendor-specific method strings under the

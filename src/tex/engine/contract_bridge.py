@@ -19,14 +19,14 @@ Thread 1.5 — session-scoped enforcement + ledger replay
 -------------------------------------------------------
 The original Thread 1 build used a single global ``ContractEnforcer`` and
 passed an empty ``recent_window`` to ``check_pre``. That produced correct
-hard-violation FORBID semantics but did NOT honour the ABC paper's
-session-scoped (p, δ, k)-satisfaction (arxiv 2602.22302 §3.3 Def 3.7):
+hard-violation FORBID semantics but did NOT honour the ABC contract
+model's session-scoped (p, δ, k)-satisfaction:
 
   * The enforcer's internal ``_soft_pending`` recovery counter is keyed
     by ``(agent_id, contract_id, kind, idx)`` — so agents are correctly
     isolated from each other, but multiple sessions of the same agent
-    were sharing recovery state. That violates the paper's notion of a
-    "session-bounded" satisfaction window.
+    were sharing recovery state. That violates the contract model's
+    notion of a "session-bounded" satisfaction window.
   * Soft-recovery contracts of the form ``G(p -> F<=k recovered)`` could
     not be evaluated against history because the enforcer started fresh
     every request and had no view of prior soft violations.
@@ -48,17 +48,16 @@ Thread 1.5 fixes both:
      in a *previous* request will have its recovery deadline tracked
      forward across the request boundary.
 
-Source-paper alignment
-----------------------
-  * arxiv 2602.22302 §3 (ABC 6-tuple) — drives the violated_clause split.
-  * arxiv 2602.22302 §3.3 Def 3.7 — (p, δ, k)-satisfaction; per-session
-    enforcer state is what makes this measurable across requests.
-  * arxiv 2602.22302 §5.3 — pre-check loop matches the per-turn enforcement loop.
+Contract-model alignment
+------------------------
+  * The ABC 6-tuple drives the violated_clause split.
+  * (p, δ, k)-satisfaction — per-session enforcer state is what makes
+    this measurable across requests.
+  * The pre-check loop matches the per-turn enforcement loop.
   * arxiv 2411.14581 §3 (LTL3 finite-trace semantics) — three-valued runtime
     verdicts (true / false / inconclusive) map to PERMIT / FORBID / ABSTAIN.
-  * arxiv 2601.22136 (StepShield) — temporal-detection metrics; the
-    per-session ``step_index`` now accumulates across requests as the
-    paper requires.
+  * The StepShield temporal-detection metrics need the per-session
+    ``step_index``, which now accumulates across requests.
 
 Ledger-replay limitations (documented honestly)
 ------------------------------------------------
@@ -193,7 +192,7 @@ class SessionEnforcerRegistry:
     dataclasses so cloning them across enforcer instances is free; what
     differs per-instance is the ``_soft_pending`` recovery state, the
     ``_step_index`` counter, and the historical compliance scores.
-    These are the pieces the ABC paper §3.3 Def 3.7 calls
+    These are the pieces the ABC contract model treats as
     "session-scoped" — they must NOT be shared across sessions.
 
     The "default" key (no agent_id) reproduces pre-Thread-1.5 behaviour
@@ -362,7 +361,7 @@ def _ledger_window_for(
     them into a chronological ``ProposedEvent`` window.
 
     When ``session_id`` is set, the window is filtered to entries from
-    that session — matching the ABC paper's session-scoped semantics.
+    that session — matching the ABC session-scoped semantics.
     """
     if not hasattr(action_ledger, "list_for_agent"):
         return ()

@@ -6,13 +6,10 @@ implicit unfairness) that no single agent's behavior makes visible.
 
 Approach
 --------
-arXiv:2604.01151 ("Detecting Multi-Agent Collusion Through Multi-Agent
-Interpretability", Schroederdewitt, Rose, Cullen 2026) achieves 1.0 AUROC
-in-distribution and 0.60–0.86 zero-shot using **white-box** linear probes
-on per-agent activations. The paper itself notes that in highly
-adversarial settings without activation access, "collusion detection may
-be limited to side channel attacks that indirectly measure the
-consequences of covert coordination" (Anwar et al. 2026, cited in §6).
+White-box collusion detection uses linear probes on per-agent
+activations. In highly adversarial settings without activation access,
+collusion detection may be limited to side channels that indirectly
+measure the consequences of covert coordination.
 
 Tex's drift layer operates on the *event stream*, not on agent
 activations. We therefore implement the side-channel detection track:
@@ -29,21 +26,20 @@ activations. We therefore implement the side-channel detection track:
      Flagged when the per-target Z-score exceeds
      ``target_convergence_threshold`` and ≥ ``min_cluster_size`` distinct
      agents are involved. Catches the institutional-AI "resource
-     capture" emergent norm from arXiv:2601.11369 (Cournot table game).
+     capture" emergent norm (Cournot table game).
 
 References
 ----------
-- arXiv:2604.01151 (Schroederdewitt et al. 2026) — multi-agent
-  interpretability for white-box collusion detection. The white-box
-  upgrade path is documented as a TODO below.
+- Multi-agent interpretability for white-box collusion detection.
+  The white-box upgrade path is documented as a TODO below.
 - arXiv:2510.04303 (Audit the Whisper, 2026) — covert-channel auditing
   with calibrated false-positive guarantees on COLLUDEBENCH/CASE/Perfect
   Collusion. TODO upgrade path documented.
 - PMLR v180 pp. 223–232 (Bonjour et al. 2022) — mutual information
   between actions as the canonical behavioral collusion signal. This is
   what we ship today.
-- arXiv:2601.11369 (Bracale, Syrnikov et al. 2026) — institutional AI
-  governance graphs; the four Cournot signals (S1–S4) it fires. Tex's
+- Institutional AI governance graphs; the four Cournot signals
+  (S1–S4) they fire. Tex's
   drift tracer is complementary to those four; see
   ``tex.institutional.oracle`` for S1–S4.
 
@@ -181,15 +177,8 @@ class EmergentNormTracer:
               ``_detect_shared_target_convergence``. Price-fixing and
               full collusive-equilibrium detection are deferred to the
               institutional/oracle thresholding layer (see
-              ``tex.institutional.oracle`` signals S1–S4 from
-              arXiv:2601.11369), which consumes the patterns this method
-              returns.
-        TODO(P1): cite arxiv 2604.01151 for multi-agent collusion detection
-                  via interpretability signals
-            — Done in module docstring. Tex does not have white-box agent
-              activations, so we ship the side-channel (action stream)
-              detector path the paper calls out as the fallback when
-              activation access is unavailable.
+              ``tex.institutional.oracle`` signals S1–S4), which
+              consumes the patterns this method returns.
         TODO(P1): upgrade to white-box probe pathway when Tex deployments
             land where activation streams are available — would lift
             AUROC from the 0.6–0.86 zero-shot range we expect from

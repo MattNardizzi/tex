@@ -12,23 +12,20 @@ Design references
   Intervention Mechanisms: three-tier playbook (reward shaping ->
   policy patching -> link throttling); Stage 1 responsibility heap;
   Stage 3 system-wide failsafe.
-- arxiv 2602.11749 (AIR, Xiao/Sun/Chen, Feb 12 2026): incident response
-  vocabulary (detect / contain / recover / eradicate). Tex's
-  ``Intervention.rationale`` field is formatted with this vocabulary
-  so AIR-compatible tooling can join across.
-- arxiv 2604.07833 v2 (Embodied Agents Runtime Governance, Apr 10
-  2026): intervention taxonomy spanning bounded retry, controller
-  mode switching, recovery capability invocation, Human Override
-  Interface escalation. Tex's seven ``InterventionKind``s map this
-  taxonomy onto an agent-runtime surface.
-- arxiv 2604.17562 (SafeAgent, Liu et al., Apr 19 2026): closest
-  design-pattern neighbor (runtime controller + context-aware
-  decision core with risk/utility/consequence operators). Tex's
-  wedge over SafeAgent is the AAF cost-bound theorem itself; this
-  engine implements the analytical guarantee SafeAgent's heuristic
-  framework lacks.
-- arxiv 2601.11369 §6.2.2 (Bracale/Syrnikov, Jan 2026): sanction
-  ladder + cost_to_actor / cost_to_system field model.
+- AIR incident-response lifecycle vocabulary (detect / contain /
+  recover / eradicate). Tex's ``Intervention.rationale`` field is
+  formatted with this vocabulary so incident-response tooling can
+  join across.
+- Intervention taxonomy spanning bounded retry, controller mode
+  switching, recovery capability invocation, and human-override
+  escalation. Tex's seven ``InterventionKind``s map this taxonomy
+  onto an agent-runtime surface.
+- Unlike heuristic runtime-controller designs (context-aware
+  risk/utility/consequence operators), this engine implements the
+  AAF cost-bound theorem itself — an analytical guarantee rather
+  than a heuristic.
+- Institutional sanction ladder + cost_to_actor / cost_to_system
+  field model (``tex.institutional.sanctions``).
 
 Signing
 -------
@@ -62,14 +59,14 @@ from tex.intervention.kinds import Intervention, InterventionKind
 from tex.observability.telemetry import emit_event
 
 
-# AIR (arxiv 2602.11749) lifecycle phases. Used in Intervention.rationale
-# so downstream tooling (AIR-style consumers, EU AI Act Art. 50 auditors)
-# can join across the vocabulary boundary without depending on AIR
-# itself.
+# AIR lifecycle phases. Used in Intervention.rationale
+# so downstream tooling (incident-response consumers, EU AI Act Art. 50
+# auditors) can join across the vocabulary boundary without depending
+# on any external framework.
 _PHASE_CONTAIN: str = "contain"
 _PHASE_RECOVER: str = "recover"
 _PHASE_HOLD: str = "hold"  # human-approval gate; not yet contained
-_PHASE_ERADICATE: str = "eradicate"  # Thread 8.1: AIR §3 eradication
+_PHASE_ERADICATE: str = "eradicate"  # Thread 8.1: AIR eradication phase
 
 
 # Mapping from InterventionKind to AIR phase. Kept conservative: every
@@ -92,7 +89,7 @@ _LOG_KIND_INTERVENTION: str = "intervention_applied"
 
 
 def air_phase_for(kind: InterventionKind) -> str:
-    """Return the AIR (arxiv 2602.11749) lifecycle phase for a kind."""
+    """Return the AIR lifecycle phase for a kind."""
     return _KIND_TO_PHASE.get(kind, _PHASE_CONTAIN)
 
 
@@ -617,7 +614,7 @@ class InterventionEngine:
             "applied_at": datetime.now(UTC).isoformat(),
             "references": (
                 "arxiv:2512.18561v3 §5.4 Theorem 5; "
-                "arxiv:2602.11749 §3 IR vocabulary; "
-                "arxiv:2604.07833v2 intervention taxonomy"
+                "AIR incident-response lifecycle vocabulary; "
+                "runtime intervention taxonomy"
             ),
         }

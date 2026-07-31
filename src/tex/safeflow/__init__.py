@@ -27,10 +27,10 @@ same ACID-style guarantees that databases have had for forty years:
 Status as of May 2026
 ---------------------
 - SAFEFLOW: paper-only. No reference implementation released.
-- Atomix (arxiv 2602.14849, Feb 17 2026): open-source transactional
-  tool use, but no integration with policy frontends.
-- LogAct (arxiv 2604.07988, Apr 9 2026): agentic WAL for shared
-  multi-agent logs; complementary, not competing.
+- Atomix: transactional tool use, but no integration with policy
+  frontends.
+- LogAct: agentic WAL for shared multi-agent logs; complementary,
+  not competing.
 
 This implementation is the first SAFEFLOW realization wired into a
 governance reference monitor. The WAL ties into Tex's existing

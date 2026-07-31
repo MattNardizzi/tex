@@ -25,15 +25,8 @@ this thread combines exist in research and standards drafts as of
 May 18, 2026 but have not been assembled in any published
 implementation or shipping product.
 
-Source-paper alignment (Phase 0 v2 deeper sweep, 16 searches):
+Standards alignment:
 
-  arxiv 2602.23701 (CHIEF)                     Feb 2026
-  arxiv 2603.25001 (Rethinking Failure Attribution) Mar 2026
-  arxiv 2604.04035 (ARM, Causality Laundering)     Apr 2026
-  arxiv 2605.07509 (MASPrism, prefill SLM)          May  7, 2026
-  arxiv 2605.03581 (ZK-Value LSH-Shapley)           May  2, 2026
-  arxiv 2603.18046 (NanoZK layerwise Groth16)       Mar 2026
-  arxiv 2509.08682 (AAAI 2026 CDC-MAS + Shapley)    accepted 2026
   draft-kamimura-scitt-refusal-events-02            Jan 29, 2026
   draft-anandakrishnan-ptv-attested-agent-identity-00 Mar 2026
   draft-ietf-scitt-architecture-22                  Oct 2025

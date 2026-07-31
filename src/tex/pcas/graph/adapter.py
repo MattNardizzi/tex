@@ -3,14 +3,14 @@ PCAS dependency-graph adapter.
 
 PCAS evaluates policies over a *dependency graph* whose nodes are
 events (messages, tool calls, data) and whose edges capture causal
-relationships (PCAS §3, §4.4.2). Tex already maintains two such graphs:
+relationships. Tex already maintains two such graphs:
 
 - ``tex.graph.temporal_kg.InMemoryTemporalKG`` — the broad temporal
   knowledge graph (Zep/Graphiti-inspired) that records entities and
   events with bi-temporal attributes.
 - ``tex.governance.private_data_exec.ifc.provenance.ProvenanceGraph`` —
-  the ARM-style four-edge provenance graph wired in Thread 11 (arxiv
-  2604.04035: ``DirectOutput``, ``InputTo``, ``FieldOf``,
+  the four-edge provenance graph wired in Thread 11
+  (``DirectOutput``, ``InputTo``, ``FieldOf``,
   ``Counterfactual`` edges over ``Call``/``Data``/``DataField``/
   ``DeniedAction`` nodes).
 
@@ -19,8 +19,8 @@ evaluator. The projection is the *only* place we couple the policy
 runtime to Tex's graph internals; swapping a backend (e.g. rustworkx)
 requires only re-implementing this adapter.
 
-Schema (PCAS §4.5.1 subset)
----------------------------
+Schema
+------
 - ``action(action_id, kind, actor, payload_hash)``
 - ``message(msg_id, sender, receiver, content_hash)``
 - ``tool_call(call_id, tool, caller, args_hash, result_hash)``

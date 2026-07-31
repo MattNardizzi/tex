@@ -1,22 +1,19 @@
 """
 SCCAL — Semantic-Geometric Coupled-dynamics Cascading-risk AuditIng Layer.
 
-Thread 9. Reference: arxiv 2603.13325 (Auditing Cascading Risks in
-Multi-Agent Systems via Semantic-Geometric Co-evolution, ICLR 2026
-Workshop on Principled Design for Trustworthy AI). Background:
-arxiv 2605.11645 (GeomHerd, Ollivier-Ricci curvature on agent-action
-graphs) for the geometric component.
+Thread 9. Audits cascading risks in multi-agent systems via
+semantic-geometric co-evolution; the geometric component (GeomHerd)
+computes Ollivier-Ricci curvature on agent-action graphs.
 
 What this module does
 ---------------------
 Computes a forward-looking systemic-risk signal by tracking how the
 *semantic flow* (what agents are saying/doing) and the *geometric
-curvature* of the interaction graph co-evolve. Per the SCCAL paper:
-
-    "Curvature anomalies systematically precede explicit semantic
-     violations by several interaction turns, enabling proactive
-     intervention. The local nature of Ricci curvature provides
-     principled interpretability for root-cause attribution."
+curvature* of the interaction graph co-evolve. The design hypothesis:
+curvature anomalies precede explicit semantic violations by several
+interaction turns, enabling proactive intervention, and the local
+nature of Ricci curvature gives principled interpretability for
+root-cause attribution.
 
 The signal is the *consistency violation* between two predictors:
   * ψ — Geometry-Aware Semantic Predictor: given current geometry,
@@ -39,7 +36,7 @@ unsafe-state transition has happened.
 We fuse both in ``risk_evaluator.score_fused()``: PCTL gives PAC
 bounds on retrospective probability; SCCAL gives the "structural
 weather forecast" that fires several turns ahead. The fusion is the
-wedge — neither paper proposes the composition.
+wedge — the composition is Tex's own.
 
 Pure NumPy, deterministic, no external deps.
 """
@@ -89,8 +86,8 @@ class SCCALSignal(BaseModel):
     n_nodes: int = Field(..., ge=0)
     n_edges: int = Field(..., ge=0)
     # Per-edge attribution: edges with the most negative curvature are
-    # the most likely cascade bottlenecks (per Sia et al. 2019, also
-    # cited by the SCCAL paper). We expose the top-K for root-cause.
+    # the most likely cascade bottlenecks (per Sia et al. 2019).
+    # We expose the top-K for root-cause.
     top_negative_curvature_edges: tuple[tuple[str, str, float], ...] = Field(
         default=(),
         description="(source, target, ORC) for the K most-negative edges.",
@@ -370,7 +367,7 @@ def _coupled_violation(
     """
     Coupled-dynamics consistency violation.
 
-    SCCAL paper §3.4: ψ predicts semantic flow from geometry,
+    SCCAL design: ψ predicts semantic flow from geometry,
     ϕ predicts geometry from semantic flow; their consistency is the
     co-evolutionary signal. In stable collaboration, low geometric
     tension (curvature near zero) should match low semantic tension
@@ -407,16 +404,15 @@ def _coupled_violation(
 # =============================================================================
 # Thread 9.1: Curvature-gated attention recurrence
 # =============================================================================
-# The SCCAL paper specifies a curvature-gated recurrent architecture where
-# attention weights between agents are *multiplicatively modulated* by edge
-# curvature (structural stability). Connects to "Gating Enables Curvature"
-# (arxiv 2604.14702, Apr 2026): multiplicative gating is what enables
+# SCCAL uses a curvature-gated recurrent architecture where attention
+# weights between agents are *multiplicatively modulated* by edge
+# curvature (structural stability); multiplicative gating is what enables
 # non-flat representational geometry. We implement the recurrence with
 # Glorot-init gates trained nowhere — we use the gating *mechanism* (not
-# a learned parameter set) since the paper's contribution is the math, not
+# a learned parameter set) since the contribution is the math, not
 # specific weight values.
 #
-# Mechanism (paper §3.3):
+# Mechanism:
 #   Let g_ij(t) = sigmoid(c_ij) be the curvature gate for edge (i, j)
 #   at time t.  Standard softmax attention assigns weight α_ij to neighbor
 #   j of i. The curvature-gated update is:
@@ -455,7 +451,7 @@ def curvature_gated_attention_step(
     """
     One step of bidirectional curvature-gated attention recurrence.
 
-    Implements the SCCAL paper's coupled-dynamics mechanism: the
+    Implements SCCAL's coupled-dynamics mechanism: the
     geometry-aware semantic predictor (ψ) and the semantic-aware
     geometry predictor (ϕ) each propagate node states via attention
     that is multiplicatively gated by curvature (for ψ) or semantic
@@ -496,8 +492,8 @@ def curvature_gated_attention_step(
     # ψ predictor: curvature-gated attention for semantic flow.
     # Edges with positive curvature (herding) get MORE weight to dampen
     # tension; edges with negative curvature (bridges) get LESS weight,
-    # which is paradoxical in the paper's sign convention. Re-reading
-    # §3.3: gate = sigmoid(kappa), so positive kappa → high gate weight
+    # which looks paradoxical at first glance. The intended convention:
+    # gate = sigmoid(kappa), so positive kappa → high gate weight
     # (information flows freely in stable regions), negative kappa →
     # low gate weight (bridges throttle).
     gate_sem = _sigmoid(2.0 * kappa) * mask
@@ -552,9 +548,9 @@ def curvature_gated_recurrence(
     Run T steps of the curvature-gated bidirectional attention recurrence
     and return (mean_divergence_over_horizon, final_semantic_state).
 
-    SCCAL paper §3.5 reports that the divergence accumulated over a
-    short horizon is the forward-looking signal that fires several turns
-    before explicit semantic violation. We compute the *mean* (not max)
+    The divergence accumulated over a short horizon is the
+    forward-looking signal, designed to fire several turns before an
+    explicit semantic violation. We compute the *mean* (not max)
     over the horizon because a single spike can be a healthy
     disagreement that resolves; sustained divergence is the bad signal.
     """
@@ -594,8 +590,8 @@ def compute_sccal(
     Compute the SCCAL signal for the current interaction graph.
 
     Thread 9.1: when ``enable_curvature_gated_recurrence=True`` and a
-    real ``semantic_flow`` is provided, the SCCAL paper's full bidirectional
-    curvature-gated attention recurrence (§3.3) is run for
+    real ``semantic_flow`` is provided, the full bidirectional
+    curvature-gated attention recurrence is run for
     ``recurrence_steps`` steps. The mean divergence between the ψ (geometry-
     aware semantic) and ϕ (semantic-aware geometric) predictors is added
     to the composite score as the forward-looking forecast term.
@@ -617,7 +613,7 @@ def compute_sccal(
         Run the full bidirectional curvature-gated attention recurrence.
         Default True; set False for the pure-static-signal fallback.
     recurrence_steps : int
-        Horizon for the recurrence; SCCAL paper uses 4-8.
+        Horizon for the recurrence; 4-8 is the designed operating range.
 
     Returns
     -------

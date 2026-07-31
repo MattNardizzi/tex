@@ -1,21 +1,19 @@
 """
 MAGE Shadow Memory.
 
-Reference: arxiv 2605.03228 (Wang et al., Stony Brook + Cisco), May 2026.
-
 Inspired by the shadow stack abstraction (Burow et al., 2019), the shadow
 memory runs in parallel to the working context. Where working memory
 optimises for task completion (potentially diluting safety-critical signal
 across long horizons), shadow memory is curated for safety: it preserves
 red flags, observed injections, prior denials, and constraint deltas.
 
-Per Eq. 2 of the paper:
+The memory-manager relation is:
 
     m_t = M(m_{t-1}, s_{t-1})
 
 i.e. the shadow memory is iteratively distilled from the previous shadow
-state and the previous (action, observation, instruction) tuple. The full
-paper backs M with a small RL-trained LLM (M_θ); we expose that as a
+state and the previous (action, observation, instruction) tuple. M can be
+backed by an LLM (M_θ); we expose that as a
 pluggable callable and ship a deterministic offline implementation that
 selects entries via keyword-overlap relevance and applies an exponential
 TTL decay so stale signals do not dominate downstream judgments.
@@ -59,7 +57,7 @@ class ShadowMemoryEntry:
 
 
 # A relevance scorer takes (candidate_action, entry) and returns a score in
-# [0, 1]. Pluggable so the paper's RL-trained M_θ can substitute for the
+# [0, 1]. Pluggable so an LLM-backed M_θ can substitute for the
 # offline path.
 RelevanceScorer = Callable[[dict[str, Any], ShadowMemoryEntry], float]
 
@@ -110,9 +108,9 @@ class ShadowMemory:
 
     The TTL model: an entry's effective weight at turn ``t_now`` is
     ``risk_score * exp(-decay * (t_now - turn_index))``. Default decay is
-    ``ln(2) / half_life`` with a half life of 16 turns (paper §V notes
-    cross-turn signal must remain useful out to ~20 turns, so 16 turns is
-    a conservative half life).
+    ``ln(2) / half_life`` with a half life of 16 turns (cross-turn signal
+    must remain useful out to ~20 turns, so 16 turns is a conservative
+    half life).
     """
 
     def __init__(
@@ -169,7 +167,7 @@ class ShadowMemory:
         """Return the relevance-ranked subset of shadow memory for the given
         candidate action, after TTL decay weighting.
 
-        If an LLM distiller is wired (paper-faithful M_θ), it is preferred;
+        If an LLM distiller is wired (M_θ), it is preferred;
         otherwise the deterministic offline path runs:
 
           1. score each entry's relevance to the candidate action;

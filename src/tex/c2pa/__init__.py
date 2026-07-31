@@ -158,12 +158,12 @@ from tex.c2pa.timestamp import (
     parse_and_validate_response as parse_and_validate_tsa_response,
     v2_payload_digest,
 )
-from tex.c2pa.sherman_2026_defenses import (
-    ShermanAttackClass,
-    ShermanDefense,
-    ShermanDefensePosture,
-    assess_current_posture as assess_sherman_2026_posture,
-    render_buyer_dossier as render_sherman_buyer_dossier,
+from tex.c2pa.spec_gap_defenses import (
+    SpecGapAttackClass,
+    SpecGapDefense,
+    SpecGapDefensePosture,
+    assess_current_posture as assess_spec_gap_posture,
+    render_buyer_dossier as render_spec_gap_buyer_dossier,
 )
 from tex.c2pa.durable_credentials import (
     DurableLayer,
@@ -275,12 +275,12 @@ __all__ = [
     "build_tsa_request_der",
     "parse_and_validate_tsa_response",
     "v2_payload_digest",
-    # May 2026 frontier — Sherman 2026 defense matrix (arxiv 2604.24890)
-    "ShermanAttackClass",
-    "ShermanDefense",
-    "ShermanDefensePosture",
-    "assess_sherman_2026_posture",
-    "render_sherman_buyer_dossier",
+    # May 2026 frontier — C2PA spec-gap defense matrix
+    "SpecGapAttackClass",
+    "SpecGapDefense",
+    "SpecGapDefensePosture",
+    "assess_spec_gap_posture",
+    "render_spec_gap_buyer_dossier",
     # May 2026 frontier — durable content credentials (TrustMark)
     "DurableLayer",
     "DurableMarkingResult",

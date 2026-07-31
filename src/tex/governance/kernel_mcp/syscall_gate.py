@@ -1,50 +1,43 @@
 """
 MCP syscall gate.
 
-Reference: Son. "Governed MCP: Kernel-Level Tool Governance for AI Agents
-via Logit-Based Safety Primitives." arXiv:2604.16870 (Apr 2026), Section
-4.2 (Six-Layer Pipeline) and Section 4.5 (FAIL-CLOSED Semantics).
-
 Every MCP tool call traverses six layers in fixed order:
 
   Layer 1: schema validation        — JSON-RPC parse + tool-spec match
   Layer 2: trust tier check          — agent tier >= tool's required tier
   Layer 3: rate limit                — per-capability token bucket
   Layer 4: adversarial pre-filter   — regex DFA for prompt-injection patterns
-  Layer 5: semantic gate (ProbeLogits) — kernel-resident logit gate
+  Layer 5: semantic gate             — pluggable logit-based safety hook
   Layer 6: constitutional policy match — N-principle policy evaluation
 
 Tex implementation scope
 ------------------------
-Tex runs in userspace and cannot reproduce Anima OS's ring-0 kernel
-placement. We therefore implement the five non-inference layers
-(1, 2, 3, 4, 6) faithfully and provide a pluggable hook for Layer 5
-(ProbeLogits / any semantic gate). The default Layer-5 hook returns
-"allow" (no-op) but is configurable to FAIL-CLOSED — when a semantic
-gate is required-but-unavailable, every call is denied. This is the
-behavior the paper specifies in Section 4.5.
+Tex runs in userspace, not in a ring-0 kernel module. The five
+non-inference layers (1, 2, 3, 4, 6) are implemented directly, and
+Layer 5 is a pluggable hook for any semantic gate. The default Layer-5
+hook returns "allow" (no-op) but is configurable to FAIL-CLOSED — when
+a semantic gate is required-but-unavailable, every call is denied.
 
-Tex extensions vs. the paper
-----------------------------
-1. SSRF guard. The paper's Layer 6 mentions "no web_post may target a
-   private RFC1918 address". Tex hardens this into a comprehensive
-   layer that resists IPv6 bypass classes documented in CVE-2026-44232
-   and the BlueRock 2026 finding that 36.7% of public MCP servers are
-   SSRF-vulnerable: IPv4-mapped IPv6 (::ffff:169.254.169.254), NAT64
-   well-known prefix (64:ff9b::), IPv6 ULA (fc00::/7), link-local
-   (fe80::/10), deprecated site-local (fec0::/10), the AWS IMDS IPv6
-   endpoint fd00:ec2::254, GCP metadata.google.internal, etc.
+Design notes
+------------
+1. SSRF guard. Beyond the baseline rule that no web_post may target a
+   private RFC1918 address, Tex hardens this into a comprehensive
+   layer that resists the IPv6 bypass classes documented in
+   CVE-2026-44232: IPv4-mapped IPv6
+   (::ffff:169.254.169.254), NAT64 well-known prefix (64:ff9b::),
+   IPv6 ULA (fc00::/7), link-local (fe80::/10), deprecated site-local
+   (fec0::/10), the AWS IMDS IPv6 endpoint fd00:ec2::254, GCP
+   metadata.google.internal, etc.
 
-2. Outbound-secret pattern detection. The paper does not enumerate the
-   exact regex set. Tex uses GitHub's published secret-scanning patterns
-   plus high-confidence patterns for AWS, Stripe, GitHub, Slack, Google
-   API keys, JWT envelope, and PEM private-key blocks.
+2. Outbound-secret pattern detection. Tex uses GitHub's published
+   secret-scanning patterns plus high-confidence patterns for AWS,
+   Stripe, GitHub, Slack, Google API keys, JWT envelope, and PEM
+   private-key blocks.
 
-3. Audit chain hashing. The paper specifies Blake3. Tex's broader
-   evidence chain uses SHA-256 (Rule 6: signing pluggable, hashing
-   currently SHA-256). The gate emits structured audit events; the
-   on-disk Blake3 chain integration is a TODO for the durable-storage
-   thread, marked with arxiv 2604.16870 §4.2 in the docstring.
+3. Audit chain hashing. Tex's broader evidence chain uses SHA-256
+   (Rule 6: signing pluggable, hashing currently SHA-256). The gate
+   emits structured audit events; the on-disk Blake3 chain integration
+   is a TODO for the durable-storage thread.
 
 Priority: P1.
 """
@@ -75,16 +68,15 @@ from tex.observability import telemetry
 # Layer 4: adversarial pre-filter
 # ---------------------------------------------------------------------------
 #
-# The Governed MCP paper (Section 4.2) describes Layer 4 as "an O(n) regex
-# DFA scan ... for known prompt-injection and encoding-attack patterns:
-# 'ignore previous instructions', base64-encoded payloads with suspicious
-# length, ROT13-encoded keywords, authority-impersonation phrases ('ADMIN
-# OVERRIDE'), and instruction-hierarchy attacks ('system: ...')."
+# Layer 4 is an O(n) regex DFA scan for known prompt-injection and
+# encoding-attack patterns: 'ignore previous instructions',
+# base64-encoded payloads with suspicious length, ROT13-encoded
+# keywords, authority-impersonation phrases ('ADMIN OVERRIDE'), and
+# instruction-hierarchy attacks ('system: ...').
 #
-# The exact patterns are not enumerated in the paper. The set below is
-# Tex's choice based on the OWASP LLM-Top-10 indirect-prompt-injection
-# entry, the Greshake et al. 2023 taxonomy, and post-2024 jailbreak
-# corpora. Patterns are case-insensitive.
+# The set below is Tex's choice based on the OWASP LLM-Top-10
+# indirect-prompt-injection entry, the Greshake et al. 2023 taxonomy,
+# and post-2024 jailbreak corpora. Patterns are case-insensitive.
 
 _PROMPT_INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE | re.DOTALL)
@@ -172,7 +164,7 @@ def _scan_outbound_secrets(text: str) -> tuple[str, ...]:
 # SSRF guard
 # ---------------------------------------------------------------------------
 #
-# Resists IPv6 bypass classes documented in CVE-2026-44232 (Oct 2026).
+# Resists the IPv6 bypass classes documented in CVE-2026-44232.
 
 # Cloud metadata IPv6 addresses we block alongside RFC1918 / link-local.
 _BLOCKED_LITERAL_HOSTS: frozenset[str] = frozenset(
@@ -336,11 +328,11 @@ class McpAuditRecord:
     """
     A single audit record for an MCP syscall decision.
 
-    Per Governed MCP §4.2, each record contains (timestamp, agent_id,
-    tool_name, arg_hash, deciding_layer, verdict, prev_hash). The
-    paper specifies Blake3; Tex defers to the broader pluggable-hash
-    decision (Rule 6) and emits SHA-256-based prev_hash today, with a
-    TODO to switch to Blake3 once the durable-storage thread lands.
+    Each record contains (timestamp, agent_id, tool_name, arg_hash,
+    deciding_layer, verdict, prev_hash). Tex defers to the broader
+    pluggable-hash decision (Rule 6) and emits SHA-256-based prev_hash
+    today, with a TODO to switch to Blake3 once the durable-storage
+    thread lands.
     """
 
     timestamp: datetime
@@ -390,7 +382,7 @@ def _fail_closed_semantic_gate(
 @dataclass(frozen=True, slots=True)
 class ConstitutionalPrinciple:
     """
-    A 'principle' in the Governed MCP Layer-6 constitutional policy.
+    A 'principle' in the Layer-6 constitutional policy.
 
     Each principle is a predicate over (agent, tool, arguments) — it
     returns None if the principle is satisfied, or a denial reason
@@ -424,9 +416,9 @@ class McpSyscallGate:
     """
     Single-entry kernel-style gate for ALL MCP tool calls.
 
-    Per the Governed MCP paper, this is the equivalent of seccomp for
-    MCP: every ``call_tool`` traverses six layers in fixed order before
-    being allowed to reach the actual MCP server.
+    This is the equivalent of seccomp for MCP: every ``call_tool``
+    traverses six layers in fixed order before being allowed to reach
+    the actual MCP server.
     """
 
     def __init__(
@@ -566,7 +558,7 @@ class McpSyscallGate:
             return "missing-tool-name"
         if not isinstance(tool_input, dict):
             return "tool-input-not-dict"
-        # Payload size bound. Per Governed MCP §4.2, JSON payloads are
+        # Payload size bound. Well-formed tool-call JSON payloads are
         # typically <1 KB; we cap at 64 KB by default.
         try:
             payload_bytes = len(json.dumps(tool_input).encode("utf-8"))
@@ -725,7 +717,7 @@ class McpSyscallGate:
         # SHA-256 of the canonical input. Per Rule 6, the hash algorithm
         # is intended to be pluggable via tex.pqcrypto.algorithm_agility;
         # for now we use SHA-256 to match the rest of Tex. Switching to
-        # Blake3 (paper §4.2) is tracked as a TODO citing arxiv 2604.16870.
+        # Blake3 is tracked as a TODO for the durable-storage thread.
         import hashlib
 
         canonical_input = json.dumps(tool_input, sort_keys=True, default=str).encode("utf-8")

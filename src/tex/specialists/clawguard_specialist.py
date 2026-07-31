@@ -7,22 +7,18 @@ pipeline. The boundary enforcer's deterministic verdicts (DENY/ALLOW/
 AMBIGUOUS) are converted into structured SpecialistResult evidence that the
 SpecialistBundle aggregator and downstream router consume.
 
-Reference
----------
-- arxiv 2604.11790v1 (ClawGuard, Zhao et al., 13 Apr 2026)
-
-  Three primary IPI attack channels the paper enumerates:
+Design
+------
+  Three primary IPI attack channels ClawGuard defends:
     1. Web and local content injection
     2. MCP server injection
     3. Skill file injection
   Defended by user-confirmed rule sets at every tool-call boundary.
-  Reports AgentDojo IPI ASR 0.6-3.1% → 0.0%; MCPSafeBench 36.5-46.1%
-  → 7.1-11.2% across five SOTA LLMs.
 
 Frontier delta (FRONTIER_DELTA_thread_4.md §1.3, §6)
 ----------------------------------------------------
-ARGUS (arxiv 2605.03378, May 5 2026) provides "provenance-aware decision
-auditing" — newer than ClawGuard and orthogonal. We surface ARGUS-style
+ARGUS provides provenance-aware decision
+auditing — orthogonal to ClawGuard. We surface ARGUS-style
 provenance reason codes here for content patterns ClawGuard would flag as
 boundary violations driven by untrusted observation propagation. The full
 ARGUS influence-provenance graph stays in AgentArmorSpecialist where the
@@ -141,7 +137,7 @@ _SKILL_INJECTION_PATTERNS: tuple[str, ...] = (
     "skill.md inject",
 )
 
-# ARGUS-style provenance signal patterns (frontier delta, arxiv 2605.03378).
+# ARGUS-style provenance signal patterns (frontier delta).
 # These match content where the *justification* for an action is being
 # manufactured inside the observation itself — the influence-provenance
 # bridge between an untrusted observation and a privileged decision.
@@ -313,11 +309,11 @@ class ClawGuardSpecialist:
                 confidence=_CONF_FLOOR,
                 summary="No ClawGuard IPI boundary signals detected.",
                 rationale=(
-                    "Specialist scans for indirect prompt injection per arxiv "
-                    "2604.11790: instruction injection, tool-hijack IPI, "
+                    "Specialist scans for indirect prompt injection "
+                    "signals: instruction injection, tool-hijack IPI, "
                     "observation-trust violations, skill file injection, and "
                     "ARGUS-style influence-provenance unjustified-decision "
-                    "patterns (arxiv 2605.03378). No signals matched."
+                    "patterns. No signals matched."
                 ),
                 evidence=tuple(),
                 matched_policy_clause_ids=tuple(),
@@ -353,10 +349,10 @@ class ClawGuardSpecialist:
             confidence=round(confidence, 4),
             summary=summary,
             rationale=(
-                "Per arxiv 2604.11790 §III-A, ClawGuard enforces boundary "
+                "ClawGuard enforces boundary "
                 "constraints at every tool-call. This specialist surfaces "
-                "the four paper attack channels plus an ARGUS-style "
-                "(arxiv 2605.03378) influence-provenance signal as "
+                "the canonical IPI attack channels plus an ARGUS-style "
+                "influence-provenance signal as "
                 "specialist evidence inside Tex's six-layer pipeline."
             ),
             evidence=tuple(all_evidence),

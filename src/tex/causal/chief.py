@@ -1,5 +1,5 @@
 """
-CHIEF — Hierarchical Causal Graph (arxiv 2602.23701).
+CHIEF — Hierarchical Causal Graph.
 
 Three components:
   1. Graph constructor — decompose tasks into subtasks; OTAR parsing;
@@ -11,18 +11,18 @@ Three components:
 
 Implementation notes
 --------------------
-* The paper's RAG-based task decomposition (§4.1.1) and LLM-based
-  oracle synthesizer (§4.2.1) are LLM-driven; here we expose
+* RAG-based task decomposition and LLM-based
+  oracle synthesis are LLM-driven; here we expose
   ``HierarchicalCausalGraph`` as a deterministic structural builder
   that consumes traces with explicit ``subtask_id`` annotations. For
   traces without subtasks, a heuristic decomposer groups consecutive
   steps that share the same ``agent_id`` into a subtask. Replacing the
   heuristic with an LLM-driven decomposer is a future-thread P1 task
   and is annotated in the relevant TODOs.
-* "Counterfactual re-execution" in §4.3 is operationalised here as a
-  graph-mask reachability test rather than literal LLM replay (the
-  paper's ablation §6.4 confirms the structural variant is the
-  load-bearing component for both agent- and step-level accuracy).
+* "Counterfactual re-execution" is operationalised here as a
+  graph-mask reachability test rather than literal LLM replay — the
+  structural variant is the load-bearing component for both agent-
+  and step-level attribution.
 
 Priority: P1.
 """
@@ -53,7 +53,7 @@ from tex.observability.telemetry import emit_event
 
 
 # Anomaly markers used by the deterministic semantic evaluator that
-# replaces F_eval (§4.2.2). Conservative — only obvious failure tokens.
+# replaces F_eval. Conservative — only obvious failure tokens.
 _ANOMALY_MARKERS: tuple[str, ...] = (
     "error",
     "failed",
@@ -90,8 +90,8 @@ _SHAPLEY_EXACT_THRESHOLD: int = 6
 #   n ≤ 24   → m = 60   (~3ms p99)
 #   n ≤ 50   → m = 30   (~4ms p99)
 # Above n = 50 we cap at 30 samples and accept slightly higher
-# variance; n > 50 declared upstreams is unusual (ABC §3.3 typical
-# k = 3).
+# variance; n > 50 declared upstreams is unusual (the ABC contract's
+# typical k = 3).
 _SHAPLEY_MC_SAMPLE_BANDS: tuple[tuple[int, int], ...] = (
     (12, 120),
     (24, 60),
@@ -151,8 +151,7 @@ class FastAttribution(BaseModel):
     estimator with ``num_samples = 200`` — keeps p99 latency under
     the 5ms spec budget even at n = 50 upstreams).
 
-    For collective-agency cases per arxiv 2605.00248 §4 (Causal
-    Foundations of Collective Agency, Jørgensen et al. Apr 30 2026)
+    For collective-agency cases
     the Shapley vector identifies which subset of upstreams forms
     the operative collective; the aggregate ``confidence`` field
     is the sum of Shapley shares (always in [0, 1] by the efficiency
@@ -210,8 +209,6 @@ class _ParsedStep(BaseModel):
 class HierarchicalCausalGraph:
     """
     CHIEF Hierarchical Causal Graph builder + backtracking attribution.
-
-    Reference: arxiv 2602.23701.
     """
 
     def __init__(
@@ -222,26 +219,26 @@ class HierarchicalCausalGraph:
         self._screener = screener or CounterfactualScreener()
 
     # ------------------------------------------------------------------
-    # 1. Graph construction (§4.1)
+    # 1. Graph construction
     # ------------------------------------------------------------------
 
     def build_from_trace(self, trace_events: tuple[dict, ...]) -> HCGResult:
         """
-        TODO(P1, arxiv:2602.23701 §4.1.1): OTAR parse — extract Observation,
+        TODO(P1): OTAR parse — extract Observation,
                   Thought, Action, Result per step
             - DONE: deterministic parser in ``tex.causal._otar.parse_otar``
               handles Tex-native, Who&When, and marker-delimited content.
-        TODO(P1, arxiv:2602.23701 §4.1.1): decompose task into hierarchical
+        TODO(P1): decompose task into hierarchical
                   subtask nodes
             - DONE: explicit ``subtask_id`` is honoured if present;
               otherwise we fall back to grouping consecutive steps by
-              ``agent_id``. RAG-based LLM decomposition (paper Appx. A)
+              ``agent_id``. RAG-based LLM decomposition
               is left for a future thread.
-        TODO(P1, arxiv:2602.23701 §4.1.2): draw data-dependency edges
+        TODO(P1): draw data-dependency edges
                   between steps
             - DONE: E_step edges materialise upstream_step_ids and inline
               variable references parsed from OTAR.observation.
-        TODO(P1, arxiv:2602.23701 §4.1.2): emit hierarchical causal graph
+        TODO(P1): emit hierarchical causal graph
             - DONE: returns an HCGResult wrapping a networkx.DiGraph.
         """
         if not isinstance(trace_events, tuple):
@@ -251,8 +248,7 @@ class HierarchicalCausalGraph:
         graph: nx.DiGraph = nx.DiGraph()
 
         # Subtask nodes — collected in first-seen order (preserves the
-        # turn-based linearity of the underlying trace per §3 problem
-        # formulation).
+        # turn-based linearity of the underlying trace).
         subtask_order: list[str] = []
         subtask_members: dict[str, list[str]] = {}
         subtask_step_ids: dict[str, list[str]] = {}
@@ -298,7 +294,7 @@ class HierarchicalCausalGraph:
                 kind=NodeKind.SUBTASK.value,
             )
 
-        # E_sub: adjacency between subtasks in temporal order (§4.1.2).
+        # E_sub: adjacency between subtasks in temporal order.
         for i in range(len(subtask_order) - 1):
             edge = CausalEdge(kind=EdgeKind.SUB)
             graph.add_edge(
@@ -333,7 +329,7 @@ class HierarchicalCausalGraph:
 
             # E_agt — connect this agent's prior step to the current one
             # if both are in the same subtask (inter-agent collaboration
-            # pattern from §4.1.2). When agent_id changes within a
+            # pattern). When agent_id changes within a
             # subtask, we still emit an E_agt edge from the previous
             # step in the subtask to capture the orchestrator→executor
             # handoff pattern that drives the planner-control attribution.
@@ -350,7 +346,7 @@ class HierarchicalCausalGraph:
             last_step_per_agent[step.agent_id] = step.step_id
 
             # Subtask membership edges (V_sub → V_agt). Not in the
-            # paper's three-letter taxonomy, but useful for navigation;
+            # three-tier edge taxonomy, but useful for navigation;
             # we mark them with EdgeKind.SUB so they don't pollute
             # E_step / E_agt traversals downstream.
             sub_id = subtask_node_id(step.subtask_id)
@@ -390,19 +386,19 @@ class HierarchicalCausalGraph:
         """
         Returns ``(root_cause_event_id, confidence)``.
 
-        TODO(P1, arxiv:2602.23701 §4.2): top-down oracle-guided
+        TODO(P1): top-down oracle-guided
                   backtracking
             - DONE: subtask candidates collected in reverse topological
               order; agent and step candidates drilled down within them.
-              The LLM-based F_eval (§4.2.2) is approximated by a
+              The LLM-based F_eval is approximated by a
               deterministic semantic evaluator that flags steps whose
-              OTAR result contains an anomaly marker, mirroring the
-              paper's binary 0/1 evaluator output.
-        TODO(P1, arxiv:2602.23701 §4.3): counterfactual re-execution at
+              OTAR result contains an anomaly marker, mirroring a
+              binary 0/1 evaluator output.
+        TODO(P1): counterfactual re-execution at
                   each candidate node
             - DONE: delegates to ``CounterfactualScreener.screen_detailed``
               which runs the four-stage progressive screen.
-        TODO(P1, arxiv:2602.23701 §4.3.4): distinguish root causes from
+        TODO(P1): distinguish root causes from
                   propagated symptoms
             - DONE: data-flow stage masks each candidate and checks
               failure reachability; deviation-aware stage suppresses
@@ -411,14 +407,14 @@ class HierarchicalCausalGraph:
         graph = _resolve_graph(causal_graph)
         failure_event_id = self._resolve_failure_id(graph, observed_failure)
 
-        # ---- Subtask Level (§4.2.2) ----
+        # ---- Subtask Level ----
         # Reverse-topological traversal restricted to subtask nodes. We
         # use a sentinel "all subtasks" pass for traces that lack rich
         # subtask annotation: any subtask containing the failure step
         # is automatically a candidate.
         candidate_subtasks = self._candidate_subtasks(graph, failure_event_id)
 
-        # ---- Agent Level (§4.2.2) + Step Level ----
+        # ---- Agent Level + Step Level ----
         candidate_agents = self._candidate_agent_steps(
             graph, candidate_subtasks, failure_event_id
         )
@@ -427,11 +423,11 @@ class HierarchicalCausalGraph:
             # step itself as the candidate. The screener will sort it.
             candidate_agents = [failure_event_id]
 
-        # ---- Counterfactual Attribution (§4.3) ----
+        # ---- Counterfactual Attribution ----
         # Among candidates, select the *earliest* (smallest timestep) one
-        # that the screener confirms as a true root cause. This matches
-        # the paper's Eq. (1): root cause = arg min_t over decisive
-        # errors. Ties broken by higher confidence.
+        # that the screener confirms as a true root cause: root cause
+        # = arg min_t over decisive errors. Ties broken by higher
+        # confidence.
         best_id: str | None = None
         best_confidence: float = 0.0
         best_timestep: int | None = None
@@ -502,9 +498,8 @@ class HierarchicalCausalGraph:
           line) — Shapley-value generalisation of blameworthiness to
           multi-agent settings; the right framework when multiple
           upstreams jointly enabled a downstream event.
-        - **Jørgensen et al. 2026** (arxiv 2605.00248, Apr 30 2026,
-          "Causal Foundations of Collective Agency") — causal-game
-          formalism in which Shapley shares identify which subset of
+        - **Collective agency** — in a causal-game framing, Shapley
+          shares identify which subset of
           agents constitutes a collective agent. ``fast_attribute``
           uses the same axiomatic basis on a per-event scale.
 
@@ -559,8 +554,8 @@ class HierarchicalCausalGraph:
           ~3ms worst case.
         - n > 50: same 200-sample budget; per-sample work grows
           linearly. Practical engine-side cap is 32 upstreams since
-          ``ProposedEvent`` rarely declares more (ABC §3.3 typical
-          ``recovery_window_k`` is 3).
+          ``ProposedEvent`` rarely declares more (the ABC contract's
+          typical ``recovery_window_k`` is 3).
 
         Parameters
         ----------
@@ -868,11 +863,11 @@ def _string_or(value: Any, *, default: str) -> str:
 
 def _has_anomaly(payload: AgentNode) -> bool:
     """
-    Deterministic substitute for the LLM-based F_eval (§4.2.2).
+    Deterministic substitute for the LLM-based F_eval.
 
     Marks a step as anomalous if any OTAR component contains a known
-    failure token. Conservative — only obvious tokens — but matches the
-    paper's binary 0/1 evaluator output and keeps the test suite
+    failure token. Conservative — only obvious tokens — but matches a
+    binary 0/1 evaluator output and keeps the test suite
     deterministic. The LLM-based evaluator is the natural drop-in via
     a future-thread P1 strategy parameter on HierarchicalCausalGraph.
     """

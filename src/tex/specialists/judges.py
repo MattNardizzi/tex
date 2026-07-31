@@ -363,36 +363,32 @@ def default_specialist_judges() -> tuple[SpecialistJudge, ...]:
         # ── Thread 4: runtime defense specialists ────────────────────────
         # Deterministic-DENY-class first (short-circuit on enforcer DENY /
         # formal property failure).
-        ClawGuardSpecialist(),           # arxiv 2604.11790
-        McpShieldSpecialist(),           # arxiv 2604.05969
+        ClawGuardSpecialist(),           # tool-call boundary enforcement
+        McpShieldSpecialist(),           # formal MCP property verification
         # Voting-class. Probabilistic / heuristic; the PDP fusion layer
         # combines these with the deterministic signal stream.
-        PlanGuardSpecialist(),           # arxiv 2604.10134 + InjecAgent
-        MageSpecialist(),                # arxiv 2605.03228 (4 May 2026)
-        AgentArmorSpecialist(),          # arxiv 2508.01249 + ARGUS arxiv
-                                         # 2605.03378 (5 May 2026, frontier)
-        ArgusSpecialist(),               # arxiv 2605.03378 standalone IPG +
+        PlanGuardSpecialist(),           # plan consistency + InjecAgent
+        MageSpecialist(),                # shadow-memory pre-action judge
+        AgentArmorSpecialist(),          # arxiv 2508.01249 + ARGUS-style
+                                         # provenance reason codes
+        ArgusSpecialist(),               # standalone IPG +
                                          # counterfactual tests
-        AttriGuardSpecialist(),          # arxiv 2603.10749 (Mar 2026) —
-                                         # action-level causal attribution
-        VigilSpecialist(),               # arxiv 2601.05755v2 (Jan 2026) —
-                                         # verify-before-commit + SIREN signal
+        AttriGuardSpecialist(),          # action-level causal attribution
+        VigilSpecialist(),               # verify-before-commit + SIREN signal
         # ── Thread 11: Information-Flow Control wired-in ──────────────
         # Deterministic IFC specialist combining ARM provenance graph
-        # + counterfactual edges (arxiv 2604.04035, Apr 2026), FIDES
+        # + counterfactual edges, FIDES
         # dual-axis lattice (arxiv 2505.23643), NeuroTaint cross-
-        # session taint (arxiv 2604.23374), CA-CI six-tuple norm
-        # matching (IEEE S&P 2026), and Rule of Two corrective check
+        # session taint, CA-CI six-tuple norm
+        # matching, and Rule of Two corrective check
         # (Meta Oct 2025 + Towards AI Nov 2025 EchoLeak counter-
         # example). Voting-class signal that fuses with the
         # deterministic-DENY class above.
         IfcSpecialist(),                 # Thread 11 — see CLAIMS.md
-        # ── Thread 12: frontier modules (May 2026) ────────────────────
+        # ── Thread 12: frontier modules ───────────────────────────────
         # PCAS Datalog reference monitor over the IFC provenance graph.
-        # First production-grade implementation (arxiv 2602.16708 §4-§5
-        # was paper-only; Microsoft Agent Governance Toolkit ships no
-        # Datalog frontend). Deterministic FORBID on toxic-flow rules.
-        PcasSpecialist(),                # Thread 12 — arxiv 2602.16708
+        # Deterministic FORBID on toxic-flow rules.
+        PcasSpecialist(),                # Thread 12 — Datalog toxic-flow
         # CaMeL dual-LLM capability interpreter. First fusion with
         # Datalog policy frontend over a shared provenance graph
         # (arxiv 2503.18813, SentinelAI ext. arxiv 2505.22852).

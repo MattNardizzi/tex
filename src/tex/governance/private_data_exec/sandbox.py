@@ -1,9 +1,6 @@
 """
 Private-data sandbox.
 
-Reference: Stanley, Verma, Tsai, Kallas, Kumar. "An AI Agent Execution
-Environment to Safeguard User Data." arXiv:2604.19657 (Apr 2026).
-
 Constrains the agent's view of user data and enforces:
   - No persistence of user data beyond session (the data dict is cleared
     on sandbox exit)
@@ -13,9 +10,9 @@ Constrains the agent's view of user data and enforces:
     ``data.<field>`` lookups; only fields actually read enter the taint
     set)
 
-GAAP architecture (paper §3.3)
-------------------------------
-GAAP's runtime has five interrelated parts:
+GAAP-style architecture
+-----------------------
+The runtime has five interrelated parts:
 
   1. IFC Core              — taint tracking through a code artifact
   2. Private Data DB       — encapsulated user data, agent cannot read raw
@@ -25,10 +22,10 @@ GAAP's runtime has five interrelated parts:
 
 Tex implements an in-process MVP of all five for this thread. Production
 deployment SHOULD upgrade the IFC core to a separate-process / WASM
-sandbox per the paper's full threat model (§3.2: "the user prompt, model
-provider, and model context [are] fully untrusted"). The current
-implementation is sufficient for the acceptance criterion ("records every
-egress event") but is NOT a substitute for a real isolation boundary.
+sandbox, treating the user prompt, model provider, and model context as
+fully untrusted. The current implementation is sufficient for the
+acceptance criterion ("records every egress event") but is NOT a
+substitute for a real isolation boundary.
 
 Security caveat
 ---------------
@@ -39,8 +36,8 @@ is well-understood to be defeatable by a sufficiently-motivated attacker
 (``().__class__.__bases__[0].__subclasses__()`` etc.). Production
 deployments where the agent program may be adversarial MUST replace the
 exec with a real isolation boundary — RestrictedPython, a subprocess, a
-WASM runtime, or a TEE per the paper's vision. This is documented as a
-TODO citing arxiv 2604.19657 §3.2.
+WASM runtime, or a TEE. This is documented as a TODO on
+``execute_with_user_data``.
 
 Priority: P1.
 """
@@ -57,17 +54,15 @@ from tex.observability import telemetry
 
 
 # ---------------------------------------------------------------------------
-# Permission specification (GAAP §4.3)
+# Permission specification
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class PermissionSpec:
     """
-    A user-authored permission specification.
-
-    Per GAAP §3.2: "a permission specification is an allow/deny flag for
-    a pair of a private data name and an external party."
+    A user-authored permission specification: an allow/deny flag for a
+    pair of a private data name and an external party.
     """
 
     data_name: str
@@ -93,14 +88,13 @@ class PermissionDatabase:
     def lookup(self, data_name: str, party: str) -> bool | None:
         """
         Return True if disclosure is permitted, False if denied, None if
-        no decision exists yet (caller should prompt the user, per
-        GAAP §3.1.1 step 5).
+        no decision exists yet (caller should prompt the user).
         """
         return self.entries.get((data_name, party))
 
 
 # ---------------------------------------------------------------------------
-# Disclosure log (GAAP §3.3.4 / §4.5)
+# Disclosure log
 # ---------------------------------------------------------------------------
 
 
@@ -109,11 +103,10 @@ class DisclosureRecord:
     """
     One recorded disclosure of user data to an external party.
 
-    Per GAAP §1: "GAAP introduces a disclosure log that records all prior
-    disclosures of private data to external services ... allowing it to
-    track and prevent unintended data flows that occur across tasks and
-    tool calls. This log can also be used for compliance in accordance
-    to government and other regulations."
+    The disclosure log records all prior disclosures of private data to
+    external services, allowing Tex to track and prevent unintended data
+    flows that occur across tasks and tool calls. The log can also be
+    used for regulatory-compliance evidence.
     """
 
     record_id: str
@@ -139,7 +132,7 @@ class DisclosureLog:
 
 
 # ---------------------------------------------------------------------------
-# Annotation framework (GAAP §3.3.5 / §4.4)
+# Annotation framework
 # ---------------------------------------------------------------------------
 
 
@@ -148,15 +141,15 @@ class ToolAnnotation:
     """
     A user-curated annotation describing which data flows a tool exposes.
 
-    Per GAAP §3.3.5: "GAAP develops an annotation framework that can be
-    used to describe the associated parties and data flows for each
-    method of each MCP service ... users can import to use with GAAP."
+    The annotation framework describes the associated parties and data
+    flows for each method of each MCP service; users curate and import
+    these annotations for the tools they use.
     """
 
     tool_name: str
     external_party: str
     declassifies: tuple[str, ...] = ()  # data names this tool may disclose
-    output_is_private: bool = True  # GAAP §3.1.2: outputs default to private
+    output_is_private: bool = True  # tool outputs default to private
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +161,10 @@ class _Tainted:
     """
     A user-data value carrying a taint set of source data names.
 
-    Per GAAP §3.1.2 / §4.1: "GAAP achieves [taint tracking] by (1)
-    requiring the agent to generate code that performs the desired task,
-    and (2) applying Information Flow Control to determine how that
-    code accesses and discloses private user data."
+    Taint tracking works by (1) requiring the agent to generate code
+    that performs the desired task, and (2) applying Information Flow
+    Control to determine how that code accesses and discloses private
+    user data.
 
     This class wraps a value and propagates taint through string
     concatenation, formatting, and the egress() helper. It is NOT a
@@ -312,12 +305,12 @@ class PrivateDataSandbox:
         permissions: PermissionDatabase | None = None,
         annotations: tuple[ToolAnnotation, ...] = (),
         disclosure_log: DisclosureLog | None = None,
-        # When True, missing permissions raise PermissionError (GAAP
-        # §3.1.1 step 4); when False, we record the disclosure as
-        # disallowed and the agent program receives None. The paper's
-        # default behavior is interactive (step 5: "GAAP pauses ...
-        # asks the user"), but we don't have a user in-process; raising
-        # is the closest defensible default for a non-interactive run.
+        # When True, missing permissions raise PermissionError; when
+        # False, we record the disclosure as disallowed and the agent
+        # program receives None. The interactive alternative (pause and
+        # ask the user) needs a user in-process, which we don't have;
+        # raising is the closest defensible default for a
+        # non-interactive run.
         deny_unspecified: bool = True,
     ) -> None:
         self._permissions = permissions or PermissionDatabase()
@@ -348,7 +341,7 @@ class PrivateDataSandbox:
           disclosures:   tuple of DisclosureRecord produced during run
           taints_seen:   set of data field names that were ever read
 
-        Implementation steps (matching GAAP §3.1.1):
+        Implementation steps:
 
           1. Create the ephemeral execution environment.
           2. Inject minimized user data behind the _DataView indirection.
@@ -357,10 +350,10 @@ class PrivateDataSandbox:
           4. Capture the return value; destroy the data view; clear locals.
           5. Emit summary telemetry.
 
-        TODO(arxiv:2604.19657 §3.2): replace exec() with a real
-            isolation boundary. The current implementation will not
-            withstand a determined adversary inside agent_program; see
-            module-level "Security caveat".
+        TODO: replace exec() with a real isolation boundary. The
+            current implementation will not withstand a determined
+            adversary inside agent_program; see module-level
+            "Security caveat".
         """
         if not isinstance(user_data, dict):
             raise PrivateDataSandboxError("user_data must be a dict")
@@ -377,8 +370,8 @@ class PrivateDataSandbox:
             taints = sorted(_taints_of(value))
             taints_seen.update(taints)
             # If the value carries no taint, this is a public payload —
-            # GAAP §3.2 allows public disclosures unconditionally (the
-            # paper's threat model only protects "private user data").
+            # public disclosures are allowed unconditionally (the
+            # threat model only protects private user data).
             if not taints:
                 rec = DisclosureRecord(
                     record_id=str(uuid4()),

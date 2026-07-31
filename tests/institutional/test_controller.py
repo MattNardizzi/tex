@@ -264,7 +264,7 @@ class TestActorStateTransitions:
 
 
 # ---------------------------------------------------------------------
-# Cooldown gating — paper §7 records 244 BLOCKED suspension requests
+# Cooldown gating — repeated suspension requests must come back BLOCKED
 # ---------------------------------------------------------------------
 
 
@@ -302,8 +302,8 @@ class TestCooldownGating:
         """
         Build a manifest with a self-loop sanctioned edge so we can
         repeatedly request the SAME edge and observe BLOCKED.
-        Replicates the spirit of paper §7 (244 blocked suspension
-        requests).
+        Repeated requests against the same sanctioned edge inside the
+        cooldown window must be BLOCKED.
         """
         manifest = {
             "graph_id": "cooldown_test",
@@ -487,7 +487,7 @@ class TestDecisionProvenance:
         assert len(log) == before + 2
 
     def test_blocked_decisions_are_logged(self) -> None:
-        """Paper §7 requires BLOCKED traversals to be logged for audit."""
+        """BLOCKED traversals must be logged for audit."""
         controller, _, log = _build_engine(with_log=True)
         assert log is not None
         before = len(log)

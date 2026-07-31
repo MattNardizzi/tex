@@ -6,23 +6,23 @@ six-layer PDP as a deterministic specialist judge.
 
 Reference stack
 ---------------
-- ARM (arxiv 2604.04035, Apr 2026)  — provenance graph + counterfactual
-                                       edges; primary anchor.
-- FIDES (arxiv 2505.23643)          — dual-axis (integrity × type)
-                                       label lattice; declassification
-                                       rule.
-- GAAP (arxiv 2604.19657, Apr 2026) — permission DB + disclosure log,
-                                       the parent module this layer
-                                       sits on top of.
-- NeuroTaint (arxiv 2604.23374)     — cross-session causal taint.
-- CA-CI (IEEE S&P 2026)             — six-tuple contextual integrity
-                                       (sender, receiver, subject,
-                                       information_type, transmission
-                                       principle, purpose).
+- ARM model                — provenance graph + counterfactual
+                             edges; primary anchor.
+- FIDES (arxiv 2505.23643) — dual-axis (integrity × type)
+                             label lattice; declassification
+                             rule.
+- GAAP layer               — permission DB + disclosure log,
+                             the parent module this layer
+                             sits on top of.
+- NeuroTaint               — cross-session causal taint.
+- CA-CI                    — six-tuple contextual integrity
+                             (sender, receiver, subject,
+                             information_type, transmission
+                             principle, purpose).
 - Rule of Two (Meta Oct 2025) +     — lethal-trifecta corrective check
   EchoLeak counterexample             (private data is also a source).
   (Towards AI Nov 2025)
-- Five Eyes guidance (Apr 30 2026) — cryptographic attestation +
+- Five Eyes guidance (May 2026)     — cryptographic attestation +
                                        runtime enforcement mandate.
 
 Where this fits in the specialist suite
@@ -252,13 +252,13 @@ class IfcSpecialist:
                     "No IFC flow violation detected on the proposed action."
                 ),
                 rationale=(
-                    "Per ARM (arxiv 2604.04035) + FIDES (arxiv 2505.23643) "
-                    "+ NeuroTaint (arxiv 2604.23374) + CA-CI (IEEE S&P 2026): "
+                    "Per ARM provenance + FIDES (arxiv 2505.23643) "
+                    "+ NeuroTaint cross-session taint + CA-CI norm matching: "
                     "the provenance graph for this request shows no untrusted-"
                     "to-sensitive flow, no counterfactual chain from any "
                     "denied action, no cross-session taint carry, and no "
-                    "permitted-norm mismatch. Implements the GAAP-paper "
-                    "evidence layer (arxiv 2604.19657) beyond GAAP's own "
+                    "permitted-norm mismatch. Implements a disclosure-"
+                    "evidence layer beyond GAAP's own "
                     "single-axis taint."
                 ),
                 evidence=tuple(),
@@ -310,9 +310,9 @@ class IfcSpecialist:
         )
 
         rationale_lines = [
-            "Per ARM (arxiv 2604.04035) provenance + FIDES (arxiv "
-            "2505.23643) dual-lattice IFC + NeuroTaint (arxiv "
-            "2604.23374) cross-session + CA-CI (IEEE S&P 2026) norm "
+            "Per ARM provenance + FIDES (arxiv "
+            "2505.23643) dual-lattice IFC + NeuroTaint "
+            "cross-session + CA-CI norm "
             "matching, the provenance graph for this request exposes "
             f"{len(verdict.violations)} distinct violation(s):",
         ]

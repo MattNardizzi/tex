@@ -12,7 +12,6 @@ typed entity and every edge is a typed temporal event.
 References
 ----------
 - Zep / Graphiti temporal-aware knowledge graph
-- arxiv 2602.05665 (Graph-based Agent Memory: Taxonomy, Techniques, Applications)
 
 Backends
 --------

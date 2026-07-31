@@ -24,8 +24,7 @@ Three jobs, in order:
    evaluator processes them in order, treating each stratum as a
    semi-naive fixpoint.
 
-Reference: arxiv 2602.16708 §3 (well-typed policies); Apt-Blair-Walker
-1988; Abiteboul-Hull-Vianu ch.15.
+Reference: Apt-Blair-Walker 1988; Abiteboul-Hull-Vianu ch.15.
 """
 
 from __future__ import annotations

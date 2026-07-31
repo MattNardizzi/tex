@@ -27,9 +27,8 @@ This is the Risk-Controlling Prediction Sets (RCPS) construction of Bates,
 Angelopoulos, Lei, Malik & Jordan, "Distribution-Free, Risk-Controlling
 Prediction Sets" (JACM 2021), specialised to a one-sided monotone risk, with
 the tightened Hoeffding-Bentkus upper confidence bound. It is the same family
-the 2026 selective-risk-control line builds on (Conformal Selective Acting,
-arXiv 2605.20270; Selective Conformal Risk Control, arXiv 2512.12844; SCOPE,
-arXiv 2602.13110). Tex uses split conformal prediction for *specialist
+the selective-risk-control line builds on (Selective Conformal Risk
+Control, arXiv 2512.12844). Tex uses split conformal prediction for *specialist
 escalation* already (``specialists/conformal_escalation.py``); this applies the
 same rigour to the object that actually matters — the final verdict.
 
@@ -184,7 +183,7 @@ class CRCCertificate(BaseModel):
     # and becomes a region with its own coverage statement.
     #
     # Construction follows the same RCPS / Hoeffding-Bentkus machinery as the
-    # permit side (SCRC, arXiv 2512.12844; SCOPE, arXiv 2602.13110 — bound the
+    # permit side (SCRC, arXiv 2512.12844 — bound the
     # error among the verdicts actually acted on). Fields default to the
     # one-sided posture so older certificates and tests remain valid.
     alpha_forbid: float = Field(

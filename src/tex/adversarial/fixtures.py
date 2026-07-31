@@ -220,7 +220,7 @@ _INJECAGENT_FIXTURES: tuple[AttackFixture, ...] = (
 # ── MCPSafeBench — MCP-specific protocol attacks ─────────────────────────
 #
 # Fixtures rewritten to match real attack-payload shape per arxiv
-# 2604.05969 (Acharya & Gupta) and arxiv 2512.15163 (MCP-SafetyBench).
+# 2512.15163 (MCP-SafetyBench).
 # Tool descriptions, server responses, and capability requests carry
 # the malicious instructions inline, not descriptions of them.
 

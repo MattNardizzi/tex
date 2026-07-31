@@ -11,8 +11,8 @@ exists, weeks before the agent first runs. An SDK pinned in a lockfile predicts
 a future agent; an IaC resource with an attached IAM role declares its
 pre-runtime blast radius; a provenance-ABSENCE fraction is an assumption-free
 lower bound on un-attributable agents (RESEARCH_LOG.md §6 P8). [Qualys TotalAI
-MCP-as-shadow-IT 2026-03; AgentDiscover Scanner; Agentproof arXiv 2603.20356
-2026; CycloneDX AIBOM v1.7 + SLSA/in-toto 2026.]
+MCP-as-shadow-IT 2026-03; AgentDiscover Scanner;
+CycloneDX AIBOM v1.7 + SLSA/in-toto 2026.]
 
 What this sensor recognizes (PURE PARSING, NO NETWORK):
 

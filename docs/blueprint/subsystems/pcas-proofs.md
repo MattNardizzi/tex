@@ -19,7 +19,7 @@ The `proofs` package is **NOT Python**: the `__init__.py` is a 37-line pure docs
 
 | File | Lines | Role |
 |------|------:|------|
-| `src/tex/pcas/__init__.py` | 152 | Package façade: re-exports AST / lexer / parser / stratify / runtime / adapter / monitor symbols; `__layer__=4` (execution governance). Docstring-heavy (arxiv 2602.16708 framing). |
+| `src/tex/pcas/__init__.py` | 152 | Package façade: re-exports AST / lexer / parser / stratify / runtime / adapter / monitor symbols; `__layer__=4` (execution governance). Docstring-heavy. |
 | `src/tex/pcas/language/__init__.py` | 1 | Empty package marker. |
 | `src/tex/pcas/language/ast.py` | 291 | Typed Pydantic-v2 AST: `Variable`, `Constant`, `Atom`, `NegatedAtom`, `HelperCall`, `Rule`, `Program`. All `frozen=True, extra='forbid'`. Floats forbidden by canonical-JSON contract. |
 | `src/tex/pcas/language/lexer.py` | 349 | Hand-rolled finite-state tokenizer with 1-indexed line/col, `%` line + `/* */` block comments, string escapes, signed-int heuristic, `@authorize`/`@deny` annotations. Raises structured `LexerError`. |
@@ -171,7 +171,7 @@ Exactly one external consumer (verified by `grep -rn "tex\.pcas" --include=*.py`
 - **Reference-monitor pattern** with three-state `{PERMIT, ABSTAIN, FORBID}` deny-wins / fail-closed semantics aligned to Tex's PDP.
 - **Pydantic v2 strict immutable models** (`frozen=True, extra='forbid'`) for the entire AST + adapter surface; canonical-JSON value discipline (no floats).
 - **Lean 4 / Mathlib4 mechanized proof** of capability-lattice monotonicity → information-flow non-interference (Volpano-Smith 1996; FIDES arxiv 2505.23643 framing).
-- **arxiv claims (claim, unverified against external source):** docstrings attribute the architecture to PCAS arxiv 2602.16708 (Palumbo et al., Wisconsin + Google) and claim "first production-grade implementation" + a Table-1 four-of-four superiority over the Microsoft Agent Governance Toolkit (pcas/__init__.py:11-19). The *Datalog engine itself is real and present*; the comparative-superiority and "paper-only / no released code" assertions are **marketing claims I cannot verify from this repo** and should be treated as such.
+- **Docstring citation labels were unverifiable and have been removed from the code:** the PCAS docstrings attributed the architecture to an external paper and claimed "first production-grade implementation" + a table-level four-of-four superiority over the Microsoft Agent Governance Toolkit (pcas/__init__.py:11-19). The *Datalog engine itself is real and present*; the comparative-superiority and "paper-only / no released code" assertions were **marketing claims that cannot be verified from this repo** and should be treated as such.
 
 ---
 

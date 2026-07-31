@@ -36,7 +36,6 @@ Priority: P0.
 References
 ----------
 - Zep / Graphiti temporal-aware knowledge graph
-- arxiv 2602.05665 (Graph-based Agent Memory: Taxonomy, Techniques, Applications)
 """
 
 from __future__ import annotations
@@ -86,7 +85,7 @@ class InMemoryTemporalKG:
     timeline; structural reads walk the graph; reproducible state hashes walk
     both and pipe them through Thread 2's canonicalizer.
 
-    Reference: Zep/Graphiti + arxiv 2602.05665.
+    Reference: Zep/Graphiti.
     """
 
     def __init__(self) -> None:
@@ -119,7 +118,7 @@ class InMemoryTemporalKG:
         TODO(P0): append-only entity registration  [done — versioned timeline]
         TODO(P1): pgvector embedding column on the Postgres mirror.
 
-        Reference: Zep/Graphiti + arxiv 2602.05665 (Graph-based Agent Memory).
+        Reference: Zep/Graphiti.
 
         ``attrs`` must contain a timezone-aware ``registered_at`` datetime
         which becomes the version timestamp. Subsequent re-adds must monotone-
@@ -197,7 +196,7 @@ class InMemoryTemporalKG:
         TODO(P0): assert ontology + ledger pre-existence of upstream [done]
         TODO(P1): pgvector embedding column on the Postgres mirror.
 
-        Reference: Zep/Graphiti + arxiv 2602.05665.
+        Reference: Zep/Graphiti.
 
         Validation
         ----------

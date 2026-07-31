@@ -67,13 +67,12 @@ that puts a free-running model in the speaking seat. Tex stays STT → determini
 | **NIST AI Agent Standards Initiative** (Feb 2026) — four focus areas: identification, authorization, **access delegation**, logging | The minimum security architecture for production agents | Tex's discovery→identity→PDP→sealed-log loop maps 1:1; delegation graph already exists |
 | **OWASP Top 10 for Agentic Applications 2026** (pub. 2025-12-10): Agent Goal Hijack, Tool Misuse, Identity & Privilege Abuse; principle of **"Least Agency"** | Practitioner threat model | Tex's specialist/runtime defenses (planguard/clawguard/agentarmor/mcpshield) target these classes |
 | **CSA Agentic Identity Governance Framework v1** | Agent-identity governance | Aligns with Tex's AID / agent registry |
-| **arXiv:2603.20953** "Before the Tool Call: Deterministic Pre-Action Authorization for Autonomous AI Agents" | Deterministic pre-action authorization | **Directly validates Tex's architecture** — a deterministic PDP/PEP that authorizes *before* the tool call |
+| **Deterministic pre-action authorization** (technique note, unattributed) | Authorize *before* the tool call, deterministically | **Directly matches Tex's architecture** — a deterministic PDP/PEP that authorizes *before* the tool call |
 
 Sources:
 [CSA NIST note](https://labs.cloudsecurityalliance.org/research/csa-research-note-nist-ai-agent-standards-initiative-2026040/),
 [OWASP ASI](https://genai.owasp.org/initiatives/agentic-security-initiative/),
-[CSA Agentic Identity GF](https://labs.cloudsecurityalliance.org/agentic/agentic-identity-governance-framework-v1/),
-[arXiv:2603.20953](https://arxiv.org/pdf/2603.20953).
+[CSA Agentic Identity GF](https://labs.cloudsecurityalliance.org/agentic/agentic-identity-governance-framework-v1/).
 
 **Verdict:** no code change required — Tex is *ahead* of the curve here (deterministic pre-action
 authorization is the thesis of the whole engine). Tracked as positioning, not a gap.

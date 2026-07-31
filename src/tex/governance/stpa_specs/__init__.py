@@ -3,8 +3,6 @@ STPA (System-Theoretic Process Analysis) Hazard Specifications.
 
 References
 ----------
-- Doshi et al. "Towards Verifiably Safe Tool Use for LLM Agents."
-  ICSE-NIER 2026 (arXiv:2601.08012, Jan 2026).
 - Leveson & Thomas. "STPA Handbook." MIT, 2018.
 
 Formal hazard analysis and safety specifications over data flows and tool
@@ -18,7 +16,7 @@ Classical STPA artifacts (Leveson handbook):
   Loss, Hazard, SafetyConstraint, UnsafeControlAction, LossScenario,
   UcaGuideWord
 
-Doshi-2026 extensions:
+Tex's LLM-agent extensions:
   Stakeholder, Requirement, Specification, EnforcementTier, MCPLabel
 
 Manifest loading + coverage matrix:
@@ -58,7 +56,7 @@ __all__ = [
     "SafetyConstraint",
     "UcaGuideWord",
     "UnsafeControlAction",
-    # Doshi-2026
+    # LLM-agent extensions
     "EnforcementTier",
     "MCPLabel",
     "Requirement",

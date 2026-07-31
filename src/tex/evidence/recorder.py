@@ -132,8 +132,9 @@ class EvidenceRecorder:
              keyed by this evidence record's ``record_id``,
           3. records the manifest SHA-256 hash under
              ``c2pa.manifest_hash`` in the evidence payload so the
-             chain is the retention anchor for the manifest (NSA paper
-             attack #5 — credentials expire before retention obligation).
+             chain is the retention anchor for the manifest (closes the
+             documented C2PA validator gap where credentials expire
+             before the retention obligation ends).
 
         When the verdict is FORBID and ``c2pa_context.refusal_reason``
         is non-empty, a SCITT refusal event is recorded under
@@ -428,12 +429,12 @@ class EvidenceRecorder:
         the audit trail needed to bind them back to their parent decision
         without trusting the chain order.
 
-        Source-paper alignment
-        ----------------------
-          * arxiv 2602.22302 §5.2 (AgentAssert evidence model) — each
+        Design alignment
+        ----------------
+          * AgentAssert evidence model — each
             contract violation is a discrete, signable, cryptographically
             chained event.
-          * arxiv 2602.22302 §3.3 (p, δ, k)-satisfaction — the
+          * (p, δ, k)-satisfaction — the
             ``recovery_deadline_step`` field surfaces the bound that
             scopes the violation's recovery window.
         """
@@ -505,15 +506,15 @@ class EvidenceRecorder:
         ``previous_hash`` alone; the parent link is a semantic
         cross-reference only.
 
-        Source-paper alignment
-        ----------------------
-        * arxiv 2602.23701 (CHIEF, Feb 2026) — hierarchical causal
+        Design alignment
+        ----------------
+        * CHIEF — hierarchical causal
           graph attribution
-        * arxiv 2604.04035 (ARM, Apr 2026) — causality laundering
+        * ARM — causality laundering
           surfacing
-        * arxiv 2605.07509 (MASPrism, May 7 2026) — prefill-stage
+        * MASPrism — prefill-stage
           signals
-        * arxiv 2605.03581 (ZK-Value LSH-Shapley, May 2026) — blame
+        * ZK-Value LSH-Shapley — blame
           distribution
         * draft-kamimura-scitt-refusal-events-02 (Jan 29 2026) — claim
           set extension point for ``event-type=ATTRIBUTE``

@@ -12,9 +12,6 @@ spot: until now every stream judged a single action in isolation, with no memory
 of the trace that led to it. Sequence-shaped attacks (cross-turn injection, plan
 hijacking, causality laundering) live exactly in that blind spot.
 
-Reference: Kaptein, Khan & Podstavnychy, "Runtime Governance for AI Agents:
-Policies on Paths," arXiv:2603.16586 (Mar 2026).
-
 Opt-in, deterministic, fail-closed
 -----------------------------------
 The PDP stays stateless. Path context arrives on the request:
@@ -42,13 +39,13 @@ underlying ``PathPolicyChecker`` is already fail-closed (malformed formulae and
 raising callables are treated as full violations), so this bridge inherits that
 property: a path block routes to FORBID, never to PERMIT.
 
-Severity mapping (paper Section 4.4)
-------------------------------------
-- ``block``  → paper-Block  → hard violation → PDP short-circuits to FORBID,
+Severity mapping (Pass / Steer / Block intervention outcomes)
+-------------------------------------------------------------
+- ``block``  → Block  → hard violation → PDP short-circuits to FORBID,
                joining the deterministic / structural FORBID floor.
-- ``warn``   → paper-Steer  → soft violation → promotes a router PERMIT to
+- ``warn``   → Steer  → soft violation → promotes a router PERMIT to
                ABSTAIN (human review), with findings + an uncertainty flag.
-- ``audit``  → paper-Pass-with-audit → an INFO finding only; verdict untouched.
+- ``audit``  → Pass-with-audit → an INFO finding only; verdict untouched.
 """
 
 from __future__ import annotations

@@ -33,12 +33,12 @@ Design rules
 
 References
 ----------
-- arxiv 2604.10134v1 (PlanGuard, Gong & Deng, Apr 2026) §IV-C2:
+- PlanGuard Stage II verification contract:
   M_verify(I, S_ref, a_act, r_act) -> {True, False}.
-- arxiv 2605.03228v1 (MAGE, Wang et al., 4 May 2026) §4.2.2: native
-  tool-call integration of memory manager and judge.
-- Five Eyes "Careful Adoption of Agentic AI Services" (1 May 2026):
-  fail-safe-by-default. Our timeout/error path matches.
+- MAGE dispatch shape: native tool-call integration of memory
+  manager and judge.
+- Fail-safe-by-default: the timeout/error path always falls back to
+  the deterministic verdict, never to PERMIT.
 - arxiv 2510.05244v2 (Nasr et al., "The Attacker Moves Second"):
   bypassed 12 prior defenses at >90% ASR using adaptive attacks.
   Counter: lexical screening + LLM Stage II + JSON output parsing

@@ -70,7 +70,7 @@ References
 - NIST FIPS 204 (ML-DSA) — primary signing algorithm at scale
 - RFC 8785 (JSON Canonicalization Scheme) — manifest canonicalization
 - NSA CNSA 2.0 — hybrid mode recommended through 2030 transition
-- arxiv 2603.10060 — NabaOS HMAC tool receipts (Basu, Mar 2026)
+- NabaOS-style HMAC tool receipts (tex.receipts)
 - arxiv 2506.20915 — ZKPROV (P1 dataset provenance, future thread)
 - arxiv 2512.15892 — VET Agent Identity Documents (P2, future thread)
 """

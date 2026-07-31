@@ -106,11 +106,11 @@ configurable to FAIL-CLOSED** (docstring, [syscall_gate.py:30-48](../../../src/t
 **The emission gate is the concrete, deterministic implementation of that
 Layer-5 seam.**
 
-> Honesty note on Layer 5: the cited paper's Layer 5 (`arXiv:2604.16870`,
-> *cited in-repo, UNVERIFIED-FROM-MEMORY* — I did not re-fetch it this session)
-> is a *learned semantic probe* over hidden states. What this doc proposes is a
+> Honesty note on Layer 5: the in-repo docstrings imagine Layer 5 as a
+> *learned semantic probe* over hidden states (that framing carried an
+> unverifiable citation, now removed). What this doc proposes is a
 > *deterministic structural mask* (an allowlist grammar). **Same insertion
-> point, different mechanism.** I do **not** claim to implement their semantic
+> point, different mechanism.** I do **not** claim to implement a semantic
 > probe; I claim a stronger, simpler structural floor at the same seam, with the
 > probe relegated to a future caution-only signal (§1.6).
 
@@ -497,8 +497,8 @@ shippable truth.
 - Confidential Containers (CoCo) + `runtimeClass` + KBS remote attestation; gVisor/Kata RuntimeClass isolation — https://confidentialcontainers.org/ ; https://www.systemshardening.com/articles/kubernetes/runtimeclass-gvisor-kata/
 - SPIFFE/SPIRE node attestation (`tpm_devid`, IEEE 802.1AR IDevID/LDevID), Keylime measured-boot node attestor — https://spiffe.io/docs/latest/ ; https://next.redhat.com/2025/01/24/spiffe-spire-and-keylime-software-identity-based-on-secure-machine-state/ ; https://github.com/bloomberg/spire-tpm-plugin
 
-*Cited in-repo, not re-fetched this session (UNVERIFIED-FROM-MEMORY):*
-- `arXiv:2604.16870` — *Governed MCP: Kernel-Level Tool Governance for AI Agents via Logit-Based Safety Primitives* (the Layer-5 logit-gate seam in `governance/kernel_mcp/syscall_gate.py`). The emission gate is the deterministic structural realisation of that seam; the capability rests on the design here, never on this citation.
+*Cited in-repo, unverifiable (citation removed):*
+- The "kernel-level tool governance via logit-based safety primitives" framing behind the Layer-5 logit-gate seam in `governance/kernel_mcp/syscall_gate.py` carried a docstring citation that could not be verified against any public source and has been removed. The emission gate is the deterministic structural realisation of that seam; the capability rests on the design here, never on any citation.
 
 ---
 

@@ -37,8 +37,6 @@ References
 ----------
 - Vovk, Gammerman, Shafer 2005 — original conformal prediction monograph.
 - Angelopoulos & Bates 2023 — practical CP for ML.
-- arxiv 2605.06788 (Feng et al., May 2026) — filtration-based CP Tex's
-  Thread 3 attribution uses; same exchangeability argument here.
 
 Priority: P0 — gates LLM-judge wiring for PlanGuard / MAGE.
 """

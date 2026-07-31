@@ -254,9 +254,8 @@ def test_verify_returns_all_thread6_fields(client, four_layer_manifest):
     assert set(data["formal_verification_goals"]) >= {"G1", "G2", "G3", "G4", "G5"}
 
     # Documentation references.
-    assert data["paper_reference"] == "arxiv:2604.24890"
-    assert "2603.02378" in data["durable_content_credentials_reference"]
-    assert "2605.12456" in data["durable_content_credentials_reference"]
+    assert data["paper_reference"] == "tex:c2pa-attack-matrix"
+    assert data["durable_content_credentials_reference"] == "tex:durable-credentials"
     assert "CPSA" in data["formal_verification_reference"]
 
 

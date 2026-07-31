@@ -7,7 +7,8 @@ C2PA verifier surface remains exactly what passes 53 tests today.
 This module is layered ON TOP: a caller verifies the outer C2PA
 signature first (via ``verify_manifest``), THEN calls
 ``verify_evidence_cosign`` to check the six-attack-defense
-assertion that closes the gaps identified in arxiv 2604.24890.
+assertion that closes the documented C2PA validator gaps tracked
+in Tex's C2PA attack matrix.
 
 Result type
 -----------
@@ -20,7 +21,7 @@ Result type
     ``defends_against.attacks`` field.
   - ``issues``: human-readable failure strings.
 
-The five attacks (paraphrased from arxiv 2604.24890 §"Key Findings"):
+The five attack classes (from Tex's C2PA attack matrix):
 
   1. ``timestamp_swap``               — outer trusted timestamp replaceable.
   2. ``revocation_skipped``           — revoked certs accepted by some validators.
@@ -154,7 +155,8 @@ def verify_evidence_cosign(
         equal this value. The caller (typically the
         ``/v1/c2pa/verify`` endpoint) computes the SHA-256 over the
         actual asset bytes and passes it in; that closes the
-        manifest-asset-mismatch corner case (NSA paper attack #4).
+        manifest-asset-mismatch corner case (attack #4 in Tex's
+        C2PA attack matrix).
     expected_canonicalization_version
         Defaults to ``COSIGN_CANONICALIZATION_VERSION``. A manifest
         signed under a different canonicalization version cannot

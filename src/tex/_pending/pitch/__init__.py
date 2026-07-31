@@ -32,7 +32,7 @@ References
   date and statute cited
 - FRONTIER_KNOWN_BYPASSES.md (repo) — CVEs and BlueRock figures
 - NIST FIPS 204 (ML-DSA), NSA CNSA 2.0 — signing primitives
-- arxiv 2603.10060 — NabaOS receipts
+- NabaOS-style HMAC tool receipts (tex.receipts)
 
 """
 

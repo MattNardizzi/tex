@@ -7,12 +7,11 @@ agent robustness against indirect prompt injection. It defines four
 task suites (Banking, Slack, Travel, Workspace) with 97 tasks and 629
 injection cases.
 
-As of May 2026 the leaderboard shows:
+Notable published defenses on this benchmark include:
 - CaMeL: 67% utility, 23% targeted-attack success rate (provable upper
   bound 23%).
 - DRIFT (arxiv 2410.04509): 75% utility, 12% ASR.
-- AgentSys (arxiv 2602.07398, Feb 7 2026): 89.4% utility, 0.78% ASR.
-- ASTRA (arxiv 2507.07417, May 2026): adaptive attacker; pushes
+- ASTRA (arxiv 2507.07417): adaptive attacker; pushes
   SecAlign-tuned models back to 21% ASR.
 
 Tex's published score
@@ -44,7 +43,7 @@ agent). Once `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set in the
 environment, `python -m tex.bench.agentdojo --model <model>` produces
 a publishable number.
 
-Reference: arxiv 2406.13352 AgentDojo; arxiv 2602.07398 AgentSys.
+Reference: arxiv 2406.13352 AgentDojo.
 """
 
 from tex.bench.agentdojo.harness import (

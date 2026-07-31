@@ -2,7 +2,7 @@
 AttriGuard Specialist Judge.
 
 Implements action-level causal attribution via parallel counterfactual
-re-execution, per arxiv 2603.10749 (Hu et al., March 2026).
+re-execution.
 
 Where AgentArmor and ARGUS perform *static* graph analysis on the
 agent's reasoning content, AttriGuard performs *behavioral* attribution
@@ -35,16 +35,13 @@ If a(o, action) >= attribution_threshold, AttriGuard tags this
 observation as the causal driver. Multiple driver observations →
 elevated risk + ASI06 (memory_poisoning) / ASI01 (goal_hijack) tags.
 
-References
-----------
-- arxiv 2603.10749 (Hu, Chen, Lin, March 2026) — AttriGuard: causal
+Design notes
+------------
+- AttriGuard: causal
   attribution-based defense for indirect prompt injection.
-- arxiv 2605.06788 (Feng et al., May 2026) — conformal CHIEF; AttriGuard
+- AttriGuard
   generalises CHIEF's per-step attribution to per-observation
   attribution.
-- Microsoft AGT v3.5.0 (May 2026) does *not* implement causal
-  attribution as a runtime defense; this places Tex ahead of the
-  best commercial governance platform.
 
 Performance: O(|obs| × |action|) per request, where |obs| is the number
 of candidate observation sentences (capped at 32) and |action| is the
@@ -357,10 +354,8 @@ class AttriGuardSpecialist:
                 "under control-attenuated views of its observations. "
                 "Observations whose attenuation would materially "
                 "change the action are flagged as causal drivers. "
-                "This implements arxiv 2603.10749 (Hu et al., March "
-                "2026) — runtime causal attribution. Microsoft AGT "
-                "v3.5.0 and other commercial governance platforms do "
-                "not ship this primitive as of May 2026."
+                "This implements runtime causal attribution at the "
+                "observation level."
             ),
             evidence=tuple(evidence),
             matched_policy_clause_ids=tuple([*deduped, *asi_tags]),

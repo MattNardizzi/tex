@@ -35,8 +35,6 @@ References as of May 18 2026
   https://docs.trustauthority.intel.com/main/articles/articles/ita/concept-attestation-tokens.html
 * draft-messous-eat-ai-01 (Feb 23 2026)
 * draft-ietf-rats-ear-03 (Mar 15 2026)
-* arxiv 2605.03213 (May 7 2026)
-* arxiv 2604.23280 (Apr 28 2026)
 """
 
 from __future__ import annotations
@@ -92,14 +90,14 @@ _ENV_ITA_API_KEY = "TEX_ITA_API_KEY"
 
 
 # --------------------------------------------------------------------------- #
-# CrossGuard nonce binding (arxiv 2604.23280)                                 #
+# CrossGuard nonce binding                                                    #
 # --------------------------------------------------------------------------- #
 
 
 def decision_bound_nonce(decision_id: str, request_id: str | None = None) -> str:
     """Derive a freshness nonce bound to a specific decision.
 
-    The pattern is from CrossGuard (arxiv 2604.23280, Apr 28 2026):
+    The CrossGuard pattern:
     binding the attestation nonce to a unique per-operation identifier
     prevents an attacker who captures one valid JWT from replaying it
     on a different decision.

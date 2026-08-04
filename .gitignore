@@ -88,3 +88,18 @@ B_SERIES_FRONTIER_BUILDLOG.md
 CLAUDE.md
 ROADMAP.md
 docs/internal/
+
+# Local agent + working directories. None of this belongs in a public repo:
+# runtime_local/ alone carries a ~1GB governor log, tmp/ holds scratch audit
+# material, and .claude/ is this machine's assistant configuration — including
+# guardrail notes about claims, which read very differently to an outsider than
+# they do to us.
+.claude/
+.codex/
+runtime_local/
+tmp/
+audits/
+demo/
+docs/tex-v2/
+launch/
+AGENTS.md

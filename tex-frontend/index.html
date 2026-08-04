@@ -424,7 +424,7 @@
     <button class="chrome-act" type="button" data-begin>Begin</button>
   </header>
 
-  <div id="venueTop">Presenting at DEF CON 34 · Las Vegas · Aug 2026</div>
+  <div id="venueTop"></div>
 
   <!-- ============ HERO — the turn ============ -->
   <section class="hero" id="hero" aria-label="Tex">
@@ -448,7 +448,7 @@
         <p class="name-line" id="nameLine">I am Tex.</p>
         <h2 class="head-line" id="headLine">I decide what your agents may do.<br>You will not supervise me.</h2>
         <a class="hero-see" id="heroSee" href="https://www.tex-deck.com/" target="_blank" rel="noopener" aria-label="See it — the film (opens in a new tab)">see it<span class="arr" aria-hidden="true">↗</span></a>
-        <p class="hero-venue" id="heroVenue">Presenting at DEF CON 34 · AI Village</p>
+        <p class="hero-venue" id="heroVenue"></p>
       </div>
     </div>
 
@@ -511,12 +511,12 @@
     <div class="beat-w">
       <p class="eyebrow">Evidence</p>
       <p class="line">Every decision I make, I sign. You can prove it without me.</p>
-      <p class="sub">A hash-chained record for every ruling — offline-verifiable, post-quantum sealed, shaped for a regulator. The proof doesn't depend on trusting me.</p>
+      <p class="sub">A hash-chained record for every ruling — offline-verifiable, signed ECDSA-P256, shaped for a regulator. The proof doesn't depend on trusting me.</p>
       <div class="evidence-reach">
         <button class="reach-target" id="reach" type="button" aria-label="Take a sealed record">reach to take one</button>
         <div class="hash" id="hash" role="status" aria-live="polite"><span></span></div>
       </div>
-      <p class="proof">Offline · post-quantum · regulator-shaped</p>
+      <p class="proof">Offline · signed · regulator-shaped · <a href="https://github.com/MattNardizzi/tex/tree/main/forge" target="_blank" rel="noopener">verify these yourself</a></p>
     </div>
   </section>
 
@@ -636,11 +636,18 @@
   }, { threshold: 0.32 });
   document.querySelectorAll(".beat, .spine, .coda").forEach((s) => io.observe(s));
 
-  /* ---- The object — a sealed record rises on reach, then dissolves. ---- */
+  /* ---- The object — a sealed record rises on reach, then dissolves.
+     These are REAL record hashes, in chain order, from the bundle published
+     at github.com/MattNardizzi/tex → forge/canonical_bundle.ecdsa.jsonl.
+     Anyone can check them: clone the repo, install two dependencies, run
+       PYTHONPATH=src python scripts/verify_it_yourself.py --forge-target --ecdsa
+     and the same hashes come back with chain intact and authorship pinned.
+     Never put an invented hash here. The whole beat is "prove it without me";
+     a number that verifies against nothing costs more than the beat is worth. */
   const SEALS = [
-    "9f2c4e7a1b8d63f50ae9c27d4b1f8e036a5c9d72e4b08f1a6c3d59e27b4a0f81",
-    "b7e1d903c4a86f25e0d71c9b4f3a8e62015d7c93a6b4e08f2d1c75a93e6b0c4d",
-    "3a6f9c02e7b14d85f0c93a7e1b6d4f82059c7e34a1b8d602f7c4e95a3b1d0e6f",
+    "26e2fe1c2cd9e92fe52682c1edc3f83a30c12483856389eb596c915d41c8a1d1",
+    "91f36109cd2e2e6823796a5f43c2336f65af0674e3d07c7f0334328011d26670",
+    "26fdb01c89939d5254e4e630cf9d2cc3a6fb1276d80eaa7522323bb6516ef66c",
   ];
   let sealIdx = 0;
   const hashWrap = $("hash"), hashSpan = hashWrap.querySelector("span");

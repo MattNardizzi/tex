@@ -373,6 +373,10 @@ def answer_question(
                 attestor=getattr(_state, "presence_attestor", None),  # the PRESENCE attestor (has .attest)
                 held_sink=getattr(_state, "held_decision_sink", None),
                 context=context,
+                # The router already parsed the question's asserted verdict
+                # ("forbid"/"held"/…). Hand it across the seam so the plan
+                # path can refuse to seal an answer to a DIFFERENT question.
+                asserted_verdict=intent.asserted_verdict,
             )
         except Exception:  # noqa: BLE001 — the plan path must never break the voice
             _logger.warning("presence plan path raised; falling through", exc_info=True)

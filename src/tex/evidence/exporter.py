@@ -10,7 +10,7 @@ from tex.domain.evidence import EvidenceRecord
 from tex.evidence.chain import (
     ChainVerificationResult,
     verify_evidence_chain,
-    verify_evidence_chain_slice,
+    verify_evidence_chain_slice_with_witnesses,
 )
 from tex.evidence.recorder import EvidenceRecorder
 
@@ -29,6 +29,16 @@ class EvidenceExportBundle:
     witness an external verifier uses to confirm slice continuity
     against the parent chain (Certificate-Transparency-style audit
     proof). For full-chain bundles the witness is ``None``.
+
+    ``link_witnesses`` carries one witness per bundled record: the
+    ``record_hash`` of that record's true predecessor in the GLOBAL
+    chain (``None`` for the global genesis). A per-decision slice is
+    generally NOT contiguous in the global chain — other decisions'
+    records interleave — so the first-record witness alone cannot
+    prove linkage for the rest of the slice. External verifiers
+    replay each witness against their own copy of the chain to
+    confirm every bundled record's anchoring. Empty for full-chain
+    bundles, where adjacency verification needs no witnesses.
     """
 
     export_name: str
@@ -37,6 +47,7 @@ class EvidenceExportBundle:
     verification: ChainVerificationResult
     records: tuple[EvidenceRecord, ...]
     prior_link_witness: str | None = None
+    link_witnesses: tuple[str | None, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Returns a fully JSON-serializable representation of the bundle."""
@@ -45,6 +56,7 @@ class EvidenceExportBundle:
             "record_count": self.record_count,
             "is_chain_valid": self.is_chain_valid,
             "prior_link_witness": self.prior_link_witness,
+            "link_witnesses": list(self.link_witnesses),
             "verification": {
                 "is_valid": self.verification.is_valid,
                 "record_count": self.verification.record_count,
@@ -258,33 +270,38 @@ class EvidenceExporter:
         policy_version: str | None = None,
     ) -> EvidenceExportBundle:
         """
-        Builds a slice bundle from filtered records, with an
-        inclusion-proof witness so the slice can be independently
-        verified against the parent chain.
+        Builds a slice bundle from filtered records, with one
+        inclusion-proof witness per record so the slice can be
+        independently verified against the parent chain.
 
-        The witness is the ``record_hash`` of the record immediately
-        preceding the first matched record in the global ordering of
-        the JSONL chain. When the first matched record is the global
-        genesis, the witness is ``None`` and the slice verifier treats
-        it as a genesis-rooted chain.
+        Each witness is the ``record_hash`` of the record immediately
+        preceding that slice record in the global ordering of the
+        chain (``None`` when the slice record is the global genesis).
+        Per-record witnesses matter because every evidence record's
+        ``previous_hash`` links to the GLOBAL chain head at write
+        time: on a busy estate a decision's records are interleaved
+        with other decisions' records, so the slice is NOT a
+        contiguous sub-range and record-to-record adjacency inside the
+        slice cannot be asserted. The verifier instead checks each
+        record's ``previous_hash`` against its true predecessor
+        resolved here from the store.
 
         This is the read-side equivalent of how Certificate
         Transparency, Sigstore Rekor, and Microsoft AGT's
         MerkleAuditChain expose audit proofs: external verifiers get
-        the slice and the witness, and can confirm continuity without
+        the slice and the witnesses, and can confirm anchoring without
         downloading the entire log.
 
-        Closes KNOWN_BUGS #5: single-record bundles for non-genesis
-        decisions now verify cleanly because the route handler
-        supplies the witness via this method.
+        Closes KNOWN_BUGS #5 (single-record bundles for non-genesis
+        decisions failed the genesis check) and its sequel: bundles
+        for decisions whose records interleave with other decisions'
+        records no longer report false ``chain_link_mismatch`` issues.
         """
         all_records = self._recorder.read_all()
-        index_by_record_hash: dict[str, int] = {
-            record.record_hash: idx for idx, record in enumerate(all_records)
-        }
 
         slice_records: list[EvidenceRecord] = []
-        for record in all_records:
+        link_witnesses: list[str | None] = []
+        for global_idx, record in enumerate(all_records):
             if self._matches_filters(
                 record,
                 record_type=record_type,
@@ -294,17 +311,15 @@ class EvidenceExporter:
                 policy_version=policy_version,
             ):
                 slice_records.append(record)
+                link_witnesses.append(
+                    all_records[global_idx - 1].record_hash
+                    if global_idx > 0
+                    else None
+                )
 
-        prior_link_witness: str | None = None
-        if slice_records:
-            first_global_idx = index_by_record_hash[slice_records[0].record_hash]
-            if first_global_idx > 0:
-                predecessor = all_records[first_global_idx - 1]
-                prior_link_witness = predecessor.record_hash
-
-        verification = verify_evidence_chain_slice(
+        verification = verify_evidence_chain_slice_with_witnesses(
             slice_records,
-            prior_link_witness=prior_link_witness,
+            link_witnesses=link_witnesses,
         )
 
         return EvidenceExportBundle(
@@ -313,7 +328,8 @@ class EvidenceExporter:
             is_chain_valid=verification.is_valid,
             verification=verification,
             records=tuple(slice_records),
-            prior_link_witness=prior_link_witness,
+            prior_link_witness=link_witnesses[0] if link_witnesses else None,
+            link_witnesses=tuple(link_witnesses),
         )
 
     def _build_verification(

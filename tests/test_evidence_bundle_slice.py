@@ -31,6 +31,16 @@ This test file proves five things:
    ``record_hash_mismatch``).
 5. A slice without a witness emits ``missing_prior_link_witness``
    so the caller knows the verdict is incomplete.
+6. INTERLEAVED slices verify honestly (Bug #5's sequel). Every
+   record's ``previous_hash`` links to the GLOBAL chain head at
+   write time, so on a busy estate a decision's records are
+   separated by other decisions' records — the per-decision slice
+   is not a contiguous sub-range. The single-witness verifier
+   asserted in-slice adjacency and reported false
+   ``chain_link_mismatch`` issues on every interleaved bundle.
+   ``verify_evidence_chain_slice_with_witnesses`` takes one witness
+   per record (the true global predecessor, resolved from the store
+   by ``build_slice_bundle``) and asserts no adjacency at all.
 """
 
 from __future__ import annotations
@@ -47,12 +57,29 @@ from tex.domain.verdict import Verdict
 from tex.evidence.chain import (
     verify_evidence_chain,
     verify_evidence_chain_slice,
+    verify_evidence_chain_slice_with_witnesses,
 )
 from tex.evidence.exporter import EvidenceExporter
 from tex.evidence.recorder import EvidenceRecorder
 
 
 # ─── fixtures: build a real 5-record chain on disk ────────────────────────
+
+
+def _make_decision(content: str) -> Decision:
+    return Decision(
+        decision_id=uuid4(),
+        request_id=uuid4(),
+        verdict=Verdict.PERMIT,
+        confidence=0.9,
+        final_score=0.1,
+        action_type="send_email",
+        channel="outbound_email",
+        environment="production",
+        content_excerpt=content,
+        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
+        policy_version="v1",
+    )
 
 
 @pytest.fixture()
@@ -70,22 +97,43 @@ def chain(recorder: EvidenceRecorder) -> tuple[list[Decision], EvidenceRecorder]
     """Records 5 decisions and returns the list of their domain objects."""
     decisions: list[Decision] = []
     for i in range(5):
-        content = f"decision content #{i}"
-        d = Decision(
-            decision_id=uuid4(),
-            request_id=uuid4(),
-            verdict=Verdict.PERMIT,
-            confidence=0.9,
-            final_score=0.1,
-            action_type="send_email",
-            channel="outbound_email",
-            environment="production",
-            content_excerpt=content,
-            content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-            policy_version="v1",
-        )
+        d = _make_decision(f"decision content #{i}")
         recorder.record_decision(d)
         decisions.append(d)
+    return decisions, recorder
+
+
+@pytest.fixture()
+def interleaved_chain(
+    recorder: EvidenceRecorder,
+) -> tuple[list[Decision], EvidenceRecorder]:
+    """
+    Three decisions whose evidence records INTERLEAVE in the global
+    chain — the busy-estate shape that produced false
+    ``chain_link_mismatch`` issues on every prod bundle.
+
+    Global chain order:
+
+        0  decision      d0
+        1  decision      d1
+        2  decision      d2
+        3  human_resolution  d0
+        4  human_resolution  d1
+        5  human_resolution  d2
+
+    Each decision's slice (e.g. d0 → global positions 0 and 3) is
+    non-contiguous: position 3's ``previous_hash`` points at position
+    2 (d2's record), not position 0.
+    """
+    decisions = [_make_decision(f"interleaved decision #{i}") for i in range(3)]
+    for d in decisions:
+        recorder.record_decision(d)
+    for d in decisions:
+        recorder.record_human_resolution(
+            d,
+            verdict="approved",
+            resolved_by="operator@tex.systems",
+        )
     return decisions, recorder
 
 
@@ -272,6 +320,149 @@ def test_internal_record_integrity_still_verified(
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# verify_evidence_chain_slice_with_witnesses — pure function tests
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_witnessed_empty_slice_is_valid() -> None:
+    """Empty slice with empty witnesses trivially verifies."""
+    result = verify_evidence_chain_slice_with_witnesses([], link_witnesses=[])
+    assert result.is_valid
+    assert result.record_count == 0
+
+
+def test_witnessed_non_contiguous_slice_validates(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """
+    The core regression. A non-contiguous subset of the chain
+    (records 0, 2, 4 — separated by records 1 and 3, exactly the
+    interleaved per-decision shape) verifies cleanly when each
+    record's true global predecessor is supplied as its witness.
+
+    ``verify_evidence_chain_slice`` reports ``chain_link_mismatch``
+    on this same input because it asserts in-slice adjacency.
+    """
+    _, recorder = chain
+    all_records = recorder.read_all()
+    subset = [all_records[0], all_records[2], all_records[4]]
+    witnesses = [
+        None,  # record 0 is the global genesis
+        all_records[1].record_hash,
+        all_records[3].record_hash,
+    ]
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        subset, link_witnesses=witnesses
+    )
+    assert result.is_valid, result.issues
+    assert result.record_count == 3
+
+    # The single-witness verifier misreports this exact subset — the
+    # false-positive this fix removes.
+    legacy = verify_evidence_chain_slice(subset, prior_link_witness=None)
+    legacy_codes = {issue.code for issue in legacy.issues}
+    assert "chain_link_mismatch" in legacy_codes
+
+
+def test_witnessed_slice_forged_witness_fails_at_right_index(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """A forged witness is flagged on the record it belongs to."""
+    _, recorder = chain
+    all_records = recorder.read_all()
+    subset = [all_records[0], all_records[2], all_records[4]]
+    witnesses = [None, "a" * 64, all_records[3].record_hash]
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        subset, link_witnesses=witnesses
+    )
+    assert not result.is_valid
+    mismatches = [
+        issue for issue in result.issues
+        if issue.code == "prior_link_witness_mismatch"
+    ]
+    assert len(mismatches) == 1
+    assert mismatches[0].index == 1
+
+
+def test_witnessed_slice_missing_witness_is_explicit(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """
+    A None witness for a non-genesis record is not silently passed
+    off as valid — same principle as ``missing_prior_link_witness``
+    in the single-witness verifier.
+    """
+    _, recorder = chain
+    all_records = recorder.read_all()
+    subset = [all_records[0], all_records[2]]
+    witnesses = [None, None]
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        subset, link_witnesses=witnesses
+    )
+    assert not result.is_valid
+    codes = {issue.code for issue in result.issues}
+    assert "missing_prior_link_witness" in codes
+
+
+def test_witnessed_slice_genesis_contradiction_is_flagged(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """A witness supplied for the genesis record is a contradiction."""
+    _, recorder = chain
+    all_records = recorder.read_all()
+    genesis = all_records[0]
+    assert genesis.previous_hash is None
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        [genesis], link_witnesses=["b" * 64]
+    )
+    assert not result.is_valid
+    codes = {issue.code for issue in result.issues}
+    assert "unexpected_previous_hash" in codes
+
+
+def test_witnessed_slice_length_mismatch_raises(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """
+    A partially witnessed slice cannot produce an audit-grade verdict;
+    the mismatch is rejected loudly rather than zipped away.
+    """
+    _, recorder = chain
+    all_records = recorder.read_all()
+
+    with pytest.raises(ValueError):
+        verify_evidence_chain_slice_with_witnesses(
+            [all_records[0], all_records[2]],
+            link_witnesses=[None],
+        )
+
+
+def test_witnessed_slice_tampered_record_still_caught(
+    chain: tuple[list[Decision], EvidenceRecorder]
+) -> None:
+    """
+    Per-record integrity runs unchanged: a tampered payload is caught
+    even when every witness is correct.
+    """
+    _, recorder = chain
+    all_records = recorder.read_all()
+    tampered = all_records[2].model_copy(
+        update={"payload_json": '{"tampered": true}'}
+    )
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        [tampered], link_witnesses=[all_records[1].record_hash]
+    )
+    assert not result.is_valid
+    codes = {issue.code for issue in result.issues}
+    assert "payload_sha256_mismatch" in codes
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # verify_evidence_chain — preserved behavior
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -402,6 +593,136 @@ def test_bundle_to_dict_exposes_witness(
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# EvidenceExporter.build_slice_bundle — interleaved-records regression
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def test_interleaved_decision_bundle_is_chain_valid(
+    interleaved_chain: tuple[list[Decision], EvidenceRecorder],
+    exporter: EvidenceExporter,
+) -> None:
+    """
+    Busy-estate regression. Each decision's records are interleaved
+    with other decisions' records in the global chain, so the
+    per-decision slice is non-contiguous. Before per-record
+    witnesses, every such bundle reported ``is_chain_valid: False``
+    with false ``chain_link_mismatch`` issues — one per record whose
+    global predecessor belonged to another decision.
+    """
+    decisions, _ = interleaved_chain
+
+    for d in decisions:
+        bundle = exporter.build_slice_bundle(
+            export_name=f"decision-{d.decision_id}",
+            decision_id=d.decision_id,
+        )
+        assert bundle.record_count == 2, (
+            f"expected decision + human_resolution for {d.decision_id}"
+        )
+        assert bundle.is_chain_valid, (
+            d.decision_id,
+            bundle.verification.issues,
+        )
+        codes = {issue.code for issue in bundle.verification.issues}
+        assert "chain_link_mismatch" not in codes
+
+
+def test_interleaved_bundle_witnesses_are_true_global_predecessors(
+    interleaved_chain: tuple[list[Decision], EvidenceRecorder],
+    exporter: EvidenceExporter,
+) -> None:
+    """
+    The exported witnesses must be the record hashes of each slice
+    record's actual predecessor in the global chain — that is what an
+    external verifier replays against its own copy of the log.
+    """
+    decisions, recorder = interleaved_chain
+    all_records = recorder.read_all()
+
+    # d0's records sit at global positions 0 and 3 (see fixture).
+    bundle = exporter.build_slice_bundle(
+        export_name="d0-bundle",
+        decision_id=decisions[0].decision_id,
+    )
+    assert bundle.link_witnesses == (
+        None,  # global genesis
+        all_records[2].record_hash,  # d2's decision record precedes d0's seal
+    )
+    assert bundle.prior_link_witness is None
+
+    # d1's records sit at global positions 1 and 4.
+    bundle = exporter.build_slice_bundle(
+        export_name="d1-bundle",
+        decision_id=decisions[1].decision_id,
+    )
+    assert bundle.link_witnesses == (
+        all_records[0].record_hash,
+        all_records[3].record_hash,
+    )
+    assert bundle.prior_link_witness == all_records[0].record_hash
+
+
+def test_interleaved_bundle_envelope_reports_link_witnesses(
+    interleaved_chain: tuple[list[Decision], EvidenceRecorder],
+    exporter: EvidenceExporter,
+) -> None:
+    """
+    The JSON envelope exposes ``link_witnesses`` aligned with
+    ``records`` so external verifiers get the full inclusion-proof
+    data, and ``is_chain_valid`` is honest.
+    """
+    decisions, _ = interleaved_chain
+    bundle = exporter.build_slice_bundle(
+        export_name="envelope-bundle",
+        decision_id=decisions[1].decision_id,
+    )
+    body = bundle.to_dict()
+
+    assert body["is_chain_valid"] is True
+    assert len(body["link_witnesses"]) == body["record_count"]
+    assert body["link_witnesses"] == list(bundle.link_witnesses)
+    assert body["prior_link_witness"] == body["link_witnesses"][0]
+
+
+def test_interleaved_tampered_record_fails_with_correct_witnesses(
+    interleaved_chain: tuple[list[Decision], EvidenceRecorder],
+    exporter: EvidenceExporter,
+) -> None:
+    """
+    Removing the adjacency assertion must not weaken tamper detection:
+    a record whose previous_hash was rewritten (and record_hash
+    recomputed, so per-record integrity holds) is still caught,
+    because the witness resolved from the store disagrees.
+    """
+    decisions, recorder = interleaved_chain
+    all_records = recorder.read_all()
+
+    from tex.evidence.chain import _build_record_hash  # noqa: PLC0415
+
+    # Rewrite d0's seal record to claim a different predecessor, with a
+    # consistent record_hash so only witness comparison can catch it.
+    original = all_records[3]
+    forged_previous = "c" * 64
+    forged = original.model_copy(
+        update={
+            "previous_hash": forged_previous,
+            "record_hash": _build_record_hash(
+                payload_sha256=original.payload_sha256,
+                previous_hash=forged_previous,
+            ),
+        }
+    )
+
+    result = verify_evidence_chain_slice_with_witnesses(
+        [all_records[0], forged],
+        link_witnesses=[None, all_records[2].record_hash],
+    )
+    assert not result.is_valid
+    codes = {issue.code for issue in result.issues}
+    assert "prior_link_witness_mismatch" in codes
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # /decisions/{id}/evidence-bundle — full HTTP round-trip
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -450,3 +771,59 @@ def test_evidence_bundle_endpoint_returns_valid_for_non_genesis_slice() -> None:
     assert body["prior_link_witness"] is not None
     assert len(body["prior_link_witness"]) == 64
     assert body["record_count"] >= 1
+
+
+def test_evidence_bundle_endpoint_valid_with_interleaved_records() -> None:
+    """
+    End-to-end busy-estate regression through the FastAPI route.
+
+    Two decisions are evaluated, then the FIRST is sealed — so the
+    first decision's evidence slice (decision record + seal record)
+    is interleaved by the second decision's record in the global
+    chain. Before per-record witnesses, this bundle reported
+    ``is_chain_valid: False`` with a false ``chain_link_mismatch``
+    on the seal record, whose global predecessor belongs to the
+    other decision. This is the exact shape observed on prod
+    (decision → human_resolution → outcome slices, each record
+    linking to the global chain head at write time).
+    """
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from tex.main import create_app
+
+    app = create_app()
+    client = TestClient(app)
+
+    def _evaluate(content: str) -> str:
+        response = client.post(
+            "/evaluate",
+            json={
+                "request_id": str(uuid4()),
+                "action_type": "send_email",
+                "channel": "outbound_email",
+                "environment": "production",
+                "content": content,
+            },
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["decision_id"]
+
+    first = _evaluate("interleave content one")
+    _ = _evaluate("interleave content two")
+
+    seal_response = client.post(
+        f"/decisions/{first}/seal",
+        json={"verdict": "approved", "resolved_by": "operator@tex.systems"},
+    )
+    assert seal_response.status_code == 201, seal_response.text
+
+    bundle_response = client.get(f"/decisions/{first}/evidence-bundle")
+    assert bundle_response.status_code == 200, bundle_response.text
+    body = bundle_response.json()
+
+    assert body["is_chain_valid"] is True, body.get("verification")
+    assert body["record_count"] >= 2
+    assert len(body["link_witnesses"]) == body["record_count"]
+    codes = {issue["code"] for issue in body["verification"]["issues"]}
+    assert "chain_link_mismatch" not in codes

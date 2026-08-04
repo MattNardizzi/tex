@@ -236,22 +236,29 @@ def evidence_bundle_for_decision(
     Return the hash-chained evidence bundle containing every record
     associated with a decision_id.
 
-    The bundle is a *slice* of the global chain. To enable
-    inclusion-proof verification against the parent chain, the bundle
-    envelope carries ``prior_link_witness`` — the ``record_hash`` of
-    the record immediately preceding the first record of the slice in
-    the global JSONL chain (``None`` if the slice begins at the chain
-    genesis). External verifiers reproduce this witness against their
-    own copy of the chain to confirm continuity, the same way
+    The bundle is a *slice* of the global chain, and on a busy estate
+    it is NOT a contiguous one: every record's ``previous_hash`` links
+    to the global chain head at write time, so a decision's records
+    are interleaved with other decisions' records. The bundle envelope
+    therefore carries ``link_witnesses`` — for each bundled record,
+    the ``record_hash`` of its true predecessor in the global chain
+    (``None`` for the global genesis) — plus ``prior_link_witness``,
+    the first record's witness, kept for envelope compatibility.
+    External verifiers reproduce the witnesses against their own copy
+    of the chain to confirm each record's anchoring, the same way
     Certificate Transparency clients and Sigstore Rekor verifiers
     consume audit proofs.
 
-    Until Thread 6 landed, this endpoint reported
-    ``is_chain_valid: False`` on every single-record bundle that was
-    not the global genesis, with the issue text "first record must
-    not contain a previous_hash" (KNOWN_BUGS #5). The verifier was
-    treating the slice's first record as if it were the chain genesis.
-    The fix is the witness pattern below.
+    Two false-invalid bugs are closed here. KNOWN_BUGS #5: every
+    single-record bundle that was not the global genesis reported
+    ``is_chain_valid: False`` with "first record must not contain a
+    previous_hash" — the verifier treated the slice's first record as
+    the chain genesis. Its sequel: multi-record bundles on a busy
+    estate reported false ``chain_link_mismatch`` issues because the
+    verifier asserted record-to-record adjacency *within* the slice,
+    which interleaving makes impossible. The fix is per-record
+    witness verification — integrity and true-predecessor linkage per
+    record, no adjacency assumption.
     """
     # Tenant binding: resolve the owning decision first and 403 a scoped key
     # whose tenant does not match. When the decision is not in the store (e.g.

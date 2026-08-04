@@ -201,6 +201,41 @@ class PostgresEvidenceMirror:
 
     # ------------------------------------------------------------------ reads / audit
 
+    def resolved_decision_ids(self) -> set[str]:
+        """
+        Every decision_id that carries >= 1 mirrored human_resolution record.
+
+        This is the durable seed behind ``EvidenceRecorder.resolved_decision_ids``:
+        the JSONL chain lives on local disk, which on Render resets on deploy,
+        so seals recorded before a deploy vanish from the file-built index and
+        resolved holds re-surface as "waiting". The mirror receives every
+        appended record (including human_resolutions) synchronously, so it is
+        the surviving copy the recorder rehydrates from.
+
+        Tenant-blind on purpose — the JSONL index it seeds has no tenant filter
+        either; candidate scoping happens at the caller.
+
+        Fail-open: an unreadable mirror yields the EMPTY set, so a resolved
+        hold may over-surface but a waiting one is never hidden.
+        """
+        if self._disabled:
+            return set()
+        try:
+            with with_connection(self._dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT DISTINCT decision_id FROM tex_evidence "
+                        "WHERE record_type = 'human_resolution'"
+                    )
+                    return {str(row[0]) for row in cur.fetchall()}
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "PostgresEvidenceMirror: resolved_decision_ids read failed (%s); "
+                "seeding from the local chain only.",
+                exc,
+            )
+            return set()
+
     def list_for_tenant(
         self,
         tenant_id: str,

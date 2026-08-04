@@ -36,8 +36,15 @@ from tex.api.agent_routes import (
     _resolve_discovery_ledger,
     _resolve_ledger,
     _resolve_registry,
+    _scope_governance_to_tenant,
 )
-from tex.api.auth import TexPrincipal, authenticate_request, enforce_tenant_match
+from tex.api.auth import (
+    RequireScope,
+    SCOPE_CROSS_TENANT,
+    TexPrincipal,
+    authenticate_request,
+    enforce_tenant_match,
+)
 from tex.stores.drift_events import DriftEventKind
 
 
@@ -242,6 +249,7 @@ def build_governance_history_router() -> APIRouter:
         response_model=SnapshotSummaryDTO,
         status_code=status.HTTP_201_CREATED,
         summary="Capture and persist a governance snapshot",
+        dependencies=[Depends(RequireScope("agent:write"))],
     )
     def capture_snapshot(
         request: Request,
@@ -253,7 +261,18 @@ def build_governance_history_router() -> APIRouter:
         # tenant ⇒ nothing to compare against) and when the principal is
         # anonymous or carries ``admin:cross_tenant``. This replaces the
         # earlier inline ad-hoc check (Thread 3 §migrated).
-        enforce_tenant_match(principal, payload.tenant_id)
+        resolved_tenant = enforce_tenant_match(principal, payload.tenant_id)
+        tenant_scope: str | None
+        if payload.tenant_id is not None and payload.tenant_id.strip():
+            tenant_scope = resolved_tenant
+        elif (
+            not principal.is_anonymous
+            and principal.tenant != "default"
+            and SCOPE_CROSS_TENANT not in principal.scopes
+        ):
+            tenant_scope = resolved_tenant
+        else:
+            tenant_scope = None
 
         store = _resolve_snapshot_store(request)
         registry = _resolve_registry(request)
@@ -266,6 +285,7 @@ def build_governance_history_router() -> APIRouter:
             action_ledger=action_ledger,
             discovery_ledger=discovery_ledger,
         )
+        gov = _scope_governance_to_tenant(gov, tenant_scope)
 
         # V16: bind to latest completed scan run when available.
         # This is the snapshot-to-scan binding the security buyer asks
@@ -285,12 +305,20 @@ def build_governance_history_router() -> APIRouter:
                 except Exception:  # noqa: BLE001
                     explicit = None
                 if explicit is not None:
+                    if tenant_scope is not None and (
+                        explicit.tenant_id.strip().casefold()
+                        != tenant_scope.strip().casefold()
+                    ):
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="scan run tenant does not match snapshot tenant",
+                        )
                     ledger_seq_start = explicit.ledger_seq_start
                     ledger_seq_end = explicit.ledger_seq_end
                     registry_state_hash = explicit.registry_state_hash
                     policy_version = policy_version or explicit.policy_version
-            elif payload.tenant_id is not None:
-                latest = scan_run_store.latest_completed_for_tenant(payload.tenant_id)
+            elif tenant_scope is not None:
+                latest = scan_run_store.latest_completed_for_tenant(tenant_scope)
                 if latest is not None:
                     scan_run_id = str(latest.run_id)
                     ledger_seq_start = latest.ledger_seq_start
@@ -306,7 +334,7 @@ def build_governance_history_router() -> APIRouter:
             ledger_seq_end=ledger_seq_end,
             registry_state_hash=registry_state_hash,
             policy_version=policy_version,
-            tenant_id=payload.tenant_id,
+            tenant_id=tenant_scope,
         )
         return _summary_from_record(record)
 

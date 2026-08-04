@@ -188,12 +188,20 @@ def rowset_from_leaf(tool_name: str, value: Any, refs: tuple[EvidenceRef, ...]) 
     # Force fleet scope for sources the read-tool doesn't tenant-filter (some entity tools
     # omit tenant_scope and would otherwise default to 'all' → a fleet fact sounding
     # tenant-scoped). This is the plan-layer defence for read_tools' entity-get omission.
-    fleet_only = tenant_scope == "fleet" or tool_name in _FLEET_SOURCE_TOOLS
+    # A read that REPORTS an applied tenant filter is trusted over the static set —
+    # a genuinely tenant-scoped count must not be spoken as "across all tenants".
+    fleet_only = tenant_scope == "fleet" or (
+        tool_name in _FLEET_SOURCE_TOOLS and not applied
+    )
 
     # Count-style leaf: authoritative scalar count + a witness sample of refs.
+    # A filter the leaf HONORED must be SPOKEN: the verdict rides as a phrasing
+    # qualifier so a forbid-count can never sound like a bare total.
     if tool_name in _LEAF_COUNT and "count" in value:
+        qualifier = _safe_qualifier(value.get("verdict"))
         return RowSet((), tuple(refs), tool_name, tenant_scope, applied,
-                      total=int(value["count"]), fleet_only=fleet_only)
+                      total=int(value["count"]), fleet_only=fleet_only,
+                      qualifiers=(qualifier,) if qualifier else ())
 
     # Single-entity leaf: present → one row; absent → zero rows (NOT an error).
     if tool_name in _LEAF_ENTITY:

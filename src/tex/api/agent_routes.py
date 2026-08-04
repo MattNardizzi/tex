@@ -979,6 +979,75 @@ def _build_governance(
     )
 
 
+def _scope_governance_to_tenant(
+    full: GovernanceResponse,
+    tenant_id: str | None,
+) -> GovernanceResponse:
+    """Return a governance response containing only ``tenant_id`` rows.
+
+    ``None`` deliberately preserves the estate-wide/operator view.  All
+    tenant-facing callers must pass an explicit tenant so counts, coverage
+    root, and signature are derived from exactly the rows the caller may see.
+    Keeping this transformation in one place prevents routes such as snapshot
+    capture and system-state from accidentally filtering only the visible
+    rows while retaining global aggregate counts.
+    """
+    if tenant_id is None:
+        return full
+
+    target = tenant_id.strip().casefold()
+    filtered_agents = [
+        row for row in full.agents
+        if (row.tenant_id or "").strip().casefold() == target
+    ]
+    states = Counter(row.governance_state for row in filtered_agents)
+    high_risk = [
+        row for row in filtered_agents
+        if (row.risk_band or "").upper() in {"HIGH", "CRITICAL"}
+    ]
+    counts = GovernanceCountsDTO(
+        total_agents=len(filtered_agents),
+        governed=states.get("GOVERNED", 0),
+        ungoverned=states.get("UNGOVERNED", 0),
+        partial=states.get("PARTIAL", 0),
+        unknown=states.get("UNKNOWN", 0),
+        high_risk_total=len(high_risk),
+        high_risk_ungoverned=sum(
+            1 for row in high_risk if row.governance_state == "UNGOVERNED"
+        ),
+        governed_with_forbids=sum(
+            1 for row in filtered_agents
+            if row.governance_state == "GOVERNED" and row.forbid_count > 0
+        ),
+    )
+
+    coverage_lines = sorted(
+        f"{row.agent_id or ''}|{row.reconciliation_key or ''}|{row.governance_state}"
+        for row in filtered_agents
+    )
+    coverage_root = hashlib.sha256(
+        "\n".join(coverage_lines).encode("utf-8")
+    ).hexdigest()
+    signature_payload = "|".join(
+        [
+            "governance",
+            str(counts.total_agents),
+            str(counts.governed),
+            str(counts.ungoverned),
+            str(counts.partial),
+            str(counts.unknown),
+            coverage_root,
+        ]
+    )
+    return GovernanceResponse(
+        counts=counts,
+        agents=filtered_agents,
+        coverage_root_sha256=coverage_root,
+        signature_hmac_sha256=_sign_summary(signature_payload),
+        generated_at=full.generated_at,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Router builder
 # ---------------------------------------------------------------------------
@@ -1110,58 +1179,7 @@ def build_agent_router() -> APIRouter:
         ):
             return full
 
-        target = principal.tenant.casefold()
-        filtered_agents = [
-            row for row in full.agents
-            if (row.tenant_id or "").casefold() == target
-        ]
-        # Recompute counts from filtered rows.
-        forbid_total = sum(row.forbid_count for row in filtered_agents)
-        states = Counter(row.governance_state for row in filtered_agents)
-        high_risk = [row for row in filtered_agents if row.risk_band == "HIGH"]
-        new_counts = GovernanceCountsDTO(
-            total_agents=len(filtered_agents),
-            governed=states.get("GOVERNED", 0),
-            ungoverned=states.get("UNGOVERNED", 0),
-            partial=states.get("PARTIAL", 0),
-            unknown=states.get("UNKNOWN", 0),
-            high_risk_total=len(high_risk),
-            high_risk_ungoverned=sum(
-                1 for row in high_risk if row.governance_state == "UNGOVERNED"
-            ),
-            governed_with_forbids=sum(
-                1 for row in filtered_agents
-                if row.governance_state == "GOVERNED" and row.forbid_count > 0
-            ),
-        )
-        # Recompute the coverage root over filtered agent ids/keys so
-        # the signature continues to bind exactly what we return.
-        coverage_inputs = [
-            str(row.agent_id) if row.agent_id is not None
-            else (row.reconciliation_key or "")
-            for row in filtered_agents
-        ]
-        coverage_root = hashlib.sha256(
-            ("|".join(sorted(coverage_inputs)) or "no-agents").encode("utf-8")
-        ).hexdigest()
-        signature_payload = "|".join(
-            [
-                str(new_counts.total_agents),
-                str(new_counts.governed),
-                str(new_counts.ungoverned),
-                str(new_counts.partial),
-                str(new_counts.unknown),
-                str(forbid_total),
-                coverage_root,
-            ]
-        )
-        return GovernanceResponse(
-            counts=new_counts,
-            agents=filtered_agents,
-            coverage_root_sha256=coverage_root,
-            signature_hmac_sha256=_sign_summary(signature_payload),
-            generated_at=full.generated_at,
-        )
+        return _scope_governance_to_tenant(full, principal.tenant)
 
     @router.get(
         "/{agent_id}/evidence_summary",

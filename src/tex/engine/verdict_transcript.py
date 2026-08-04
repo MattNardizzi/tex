@@ -5,10 +5,11 @@ Canonical verdict transcript + monotonicity witness.
 
 What this is
 ------------
-Tex's verdict pipeline (``engine/pdp.py``) is DETERMINISTIC: recognizers →
-retrieval → agent governance → judges → behavioral/path contracts → STRUCTURAL
-FORBID FLOOR → routing/fusion → monotone-lowering holds → CRC gate → seal. No
-LLM sits in the verdict path. This module turns that run into a *canonical,
+Tex's verdict pipeline (``engine/pdp.py``) is deterministic in structure:
+recognizers → retrieval → agent governance → judges → behavioral/path contracts
+→ STRUCTURAL FORBID FLOOR → routing/fusion → monotone-lowering holds → CRC gate
+→ seal. When a semantic LLM judge is configured it is bound lowering-only — it
+can veto a release, never grant one. This module turns that run into a *canonical,
 deterministic, hashable execution TRANSCRIPT* — an ordered record of each
 pipeline stage with ``{stage, signal_id, score-before, score-after, direction}``
 — and derives a MONOTONICITY WITNESS asserting the engine's two load-bearing

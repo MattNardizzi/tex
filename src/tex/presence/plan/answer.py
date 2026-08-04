@@ -107,6 +107,7 @@ def answer_with_plan(
     attestor: Any = None,
     held_sink: Any = None,
     context: Any = None,
+    asserted_verdict: str | None = None,
 ) -> AnswerEnvelope | None:
     """Compile → execute → speak. Returns an :class:`AnswerEnvelope` (an honest-abstain
     envelope when the model produced no usable plan), or ``None`` when the MODEL ITSELF is
@@ -169,6 +170,27 @@ def answer_with_plan(
     except Exception:  # noqa: BLE001 — composition/attestation must never break the voice
         _logger.warning("plan build_envelope raised; abstaining", exc_info=True)
         return AnswerEnvelope(spoken_text=templated_abstain, surface_object=None)
+
+    if envelope.verdicts and asserted_verdict:
+        # Relevance backstop. The truth gate proves every spoken VALUE; this
+        # proves the value speaks to the QUESTION. A question that asserts a
+        # verdict ("how many forbid actions…") must be answered by a claim that
+        # carries that verdict in its phrasing — a provable-but-unscoped total
+        # is the sealed-wrong-answer failure, so it abstains instead.
+        stem = asserted_verdict.strip().casefold()
+        stems = {"held": ("held", "hold"), "hold": ("hold", "held")}.get(stem, (stem,))
+        spoken = (envelope.spoken_text or "").casefold()
+        if not any(s in spoken for s in stems):
+            raise_presence_hold(
+                held_sink, (evaluation,), transcript=transcript,
+                decision_store=_resolve_decision_store(request),
+                tenant=tenant,
+            )
+            return AnswerEnvelope(
+                spoken_text=ABSTAIN_UNPROVABLE_TEXT,
+                prosody_plan=ProsodyPlan.from_tier(PresenceTier.ABSTAIN),
+                surface_object=None,
+            )
 
     if not envelope.verdicts:  # answer-level ABSTAIN → surface one hold
         raise_presence_hold(

@@ -20,14 +20,13 @@ estimates, so they carry a conformal ``correctness_floor`` and an honest
 See :mod:`tex.presence.gate.conformal`.
 
 Tenant scope — honest, not faked. Where a row carries a tenant
-(``AgentIdentity.tenant_id``, ``ConnectorHealth``/``ScanRun`` keyed by tenant)
-the recompute is scoped to the named tenant. But ``Decision`` and
-``ActionLedgerEntry`` carry NO tenant field in this codebase, so the
-``forbid/permit/abstain/action_total`` aggregates are GLOBAL over the store as it
-is partitioned upstream. We do not pretend otherwise: making those per-tenant is
-an upstream store change (a tenant column + a filtered ``find``), not something
-this gate can conjure. Run the voice ``/v1/ask`` path single-tenant, or add the
-tenant column, before treating those counts as tenant-isolated.
+(``AgentIdentity.tenant_id``, ``Decision.tenant_id`` via metadata,
+``ConnectorHealth``/``ScanRun`` keyed by tenant) the recompute is scoped to the
+named tenant — decisions with private+shared visibility (a tenant sees its own
+rows plus the shared "default" partition), the same rule the brain read-tools
+apply. ``ActionLedgerEntry`` still carries NO tenant field, so ``action_total``
+remains GLOBAL and its phrasing keeps disclosing that. A fleet view (tenant
+``None``/"default") keeps the deliberate cross-tenant aggregate, spoken as such.
 """
 
 from __future__ import annotations
@@ -112,22 +111,43 @@ def _plural(n: int, singular: str, plural: str) -> str:
 
 
 # ───────────────────────────────────────────────────────── AGGREGATE recomputes
+def _decision_tenant(tenant: str | None) -> str | None:
+    """The tenant to scope decision counts to, or None for the operator/fleet view.
+    Mirrors the read-tools' `_wanted_tenant` (kept local — the brain package
+    imports this gate, so the gate must not import the brain back)."""
+    if not isinstance(tenant, str):
+        return None
+    normalized = tenant.strip().casefold()
+    return None if normalized in ("", "default") else normalized
+
+
+def _decision_in_tenant(row: Any, wanted: str) -> bool:
+    """Private + shared visibility, same rule the read-tools apply: a tenant sees
+    its own decisions plus the unstamped/"default" (shared) partition."""
+    row_tenant = (getattr(row, "tenant_id", "default") or "default").strip().casefold()
+    return row_tenant == wanted or row_tenant == "default"
+
+
 def _count_decisions(verdict: Verdict, label: str):
     def _run(state: Any, tenant: str | None, target: UUID | None) -> Recompute:
         store = _store(state, "decision_store")
         if store is None or not hasattr(store, "find"):
             return Recompute(False, reason="decision_store-unavailable")
         rows = tuple(store.find(verdict=verdict))
+        wanted = _decision_tenant(tenant)
+        if wanted is not None:
+            rows = tuple(r for r in rows if _decision_in_tenant(r, wanted))
         n = len(rows)
         refs = tuple(ev.ref_for_decision(d) for d in rows[:EVIDENCE_CAP])
         truncated = n > EVIDENCE_CAP
         reason = f"sealed:{label}_count={n}" + (";witness-truncated" if truncated else "")
-        # Decision rows carry NO tenant field (see module banner), so this count
-        # is fleet-wide. Disclose that in the spoken phrasing — never let a global
-        # count sound tenant-scoped (mirrors _count_actions' "across all agents").
+        # Disclose the true scope in the spoken phrasing — a tenant-scoped count
+        # names the estate's view, and a fleet-wide count never sounds
+        # tenant-scoped (mirrors _count_actions' "across all agents").
+        scope = "for this estate" if wanted is not None else "across all tenants"
         phrase = (
             f"There {_plural(n, 'is', 'are')} {n} {label} "
-            f"{_plural(n, 'decision', 'decisions')} on record across all tenants."
+            f"{_plural(n, 'decision', 'decisions')} on record {scope}."
         )
         return Recompute(True, value=n, evidence=refs, canonical_phrase=phrase, reason=reason)
 

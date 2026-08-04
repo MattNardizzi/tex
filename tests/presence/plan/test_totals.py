@@ -22,12 +22,30 @@ def _run(plan):
 def test_decision_total_all():
     rc = _run(_count("human_decision.total"))
     assert rc.grounded and rc.value == 6  # 3 forbid + 2 permit + 1 abstain
-    assert "across all tenants" in rc.canonical_phrase  # fleet disclosure
+    # Tenant "acme" asked → the read is scoped to its estate (private + shared),
+    # so the fleet disclosure must NOT be spoken.
+    assert "across all tenants" not in rc.canonical_phrase
+
+
+def test_decision_total_fleet_view_discloses():
+    plan = _count("human_decision.total")
+    rc = execute_plan(plan, request=build_world(), tenant=None)  # operator/fleet view
+    assert rc.grounded and rc.value == 6
+    assert "across all tenants" in rc.canonical_phrase  # fleet disclosure stays honest
 
 
 def test_decision_total_by_verdict():
     rc = _run(_count("human_decision.total", verdict="FORBID"))
     assert rc.grounded and rc.value == WORLD_FACTS["forbid_total"]
+    # The honored filter is SPOKEN — a forbid count can never sound like a bare total.
+    assert "forbid" in rc.canonical_phrase.casefold()
+
+
+def test_action_total_refuses_verdict_filter():
+    # action_total cannot filter by verdict; answering the unfiltered total for a
+    # verdict question is the sealed-wrong-answer failure — it must refuse instead.
+    rc = _run(_count("execution.action_total", verdict="FORBID"))
+    assert not rc.grounded
 
 
 def test_evidence_record_total():

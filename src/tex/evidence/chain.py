@@ -170,7 +170,8 @@ def verify_evidence_chain_slice(
     issues.extend(
         _verify_witness_link(
             prior_link_witness=prior_link_witness,
-            first_record=first_record,
+            record=first_record,
+            index=0,
         )
     )
 
@@ -188,6 +189,87 @@ def verify_evidence_chain_slice(
             )
         )
         previous_record = record
+
+    return ChainVerificationResult(
+        is_valid=not issues,
+        record_count=len(normalized_records),
+        issues=tuple(issues),
+    )
+
+
+def verify_evidence_chain_slice_with_witnesses(
+    records: Iterable[EvidenceRecord],
+    *,
+    link_witnesses: Iterable[str | None],
+) -> ChainVerificationResult:
+    """
+    Verifies a *non-contiguous* slice of an append-only evidence chain
+    — records that belong together semantically (e.g. every record for
+    one decision_id) but are interleaved with other records in the
+    global chain.
+
+    Background. ``verify_evidence_chain_slice`` fixed KNOWN_BUGS #5 by
+    accepting a witness for the slice's *first* record, but it still
+    assumes records 1..n are chain-adjacent. That assumption is false
+    for a per-decision slice on a busy estate: each record's
+    ``previous_hash`` links to the global tenant chain head at write
+    time, so a decision's records are separated by other decisions'
+    records. The adjacency check then reports ``chain_link_mismatch``
+    on every interleaved record — a false "chain invalid" on records
+    whose underlying chain is genuinely intact.
+
+    This verifier generalizes the witness pattern from one witness to
+    one witness per record: ``link_witnesses[i]`` is the
+    ``record_hash`` of the record immediately preceding
+    ``records[i]`` in the GLOBAL chain (``None`` when ``records[i]``
+    is the global genesis). The caller resolves the true predecessors
+    from the store; a contiguous slice is simply the special case
+    where each witness happens to be the previous slice record's hash.
+
+    Checks per record:
+
+    - full per-record integrity (payload_sha256 match, record_hash
+      match, payload_json well-formedness) — a tampered record is
+      caught exactly as in the other verifiers;
+    - ``previous_hash`` equals the supplied witness — the same
+      ``missing_prior_link_witness`` / ``unexpected_previous_hash`` /
+      ``prior_link_witness_mismatch`` diagnostics as
+      ``verify_evidence_chain_slice``, indexed to the offending
+      record.
+
+    No adjacency between slice records is asserted, because none
+    exists to assert.
+
+    ``link_witnesses`` must have exactly one entry per record;
+    a length mismatch raises ``ValueError`` because a partially
+    witnessed slice cannot produce an audit-grade verdict.
+    """
+    normalized_records = tuple(records)
+    normalized_witnesses = tuple(
+        _normalize_witness(witness) if witness is not None else None
+        for witness in link_witnesses
+    )
+
+    if len(normalized_witnesses) != len(normalized_records):
+        raise ValueError(
+            "link_witnesses must supply exactly one witness (or None) "
+            f"per record: got {len(normalized_witnesses)} witnesses for "
+            f"{len(normalized_records)} records"
+        )
+
+    issues: list[ChainVerificationIssue] = []
+
+    for index, (record, witness) in enumerate(
+        zip(normalized_records, normalized_witnesses)
+    ):
+        issues.extend(_verify_record_integrity(record=record, index=index))
+        issues.extend(
+            _verify_witness_link(
+                prior_link_witness=witness,
+                record=record,
+                index=index,
+            )
+        )
 
     return ChainVerificationResult(
         is_valid=not issues,
@@ -359,15 +441,21 @@ def _verify_chain_link(
 def _verify_witness_link(
     *,
     prior_link_witness: str | None,
-    first_record: EvidenceRecord,
+    record: EvidenceRecord,
+    index: int,
 ) -> list[ChainVerificationIssue]:
     """
     Validates the relationship between an out-of-slice witness hash
-    and the first record of a slice.
+    and one slice record's ``previous_hash``.
+
+    Used at ``index=0`` by ``verify_evidence_chain_slice`` (contiguous
+    slices, single entry witness) and at every index by
+    ``verify_evidence_chain_slice_with_witnesses`` (interleaved
+    slices, one witness per record).
 
     Cases handled (see ``verify_evidence_chain_slice`` for narrative):
 
-    - Both ``None``: the slice claims to begin at genesis. Valid.
+    - Both ``None``: the record claims to be the chain genesis. Valid.
     - Witness ``None`` but record has ``previous_hash``: caller did
       not supply the necessary witness. Recoverable, but emits an
       ``missing_prior_link_witness`` issue so the audit verdict is
@@ -381,17 +469,17 @@ def _verify_witness_link(
     """
     issues: list[ChainVerificationIssue] = []
 
-    if prior_link_witness is None and first_record.previous_hash is None:
+    if prior_link_witness is None and record.previous_hash is None:
         return issues
 
-    if prior_link_witness is None and first_record.previous_hash is not None:
+    if prior_link_witness is None and record.previous_hash is not None:
         issues.append(
             ChainVerificationIssue(
-                index=0,
-                record_hash=first_record.record_hash,
+                index=index,
+                record_hash=record.record_hash,
                 code="missing_prior_link_witness",
                 message=(
-                    "slice does not begin at the chain genesis but no "
+                    "record does not sit at the chain genesis but no "
                     "prior_link_witness was supplied; pass the predecessor "
                     "record's record_hash to enable inclusion-proof "
                     "verification"
@@ -400,15 +488,15 @@ def _verify_witness_link(
         )
         return issues
 
-    if prior_link_witness is not None and first_record.previous_hash is None:
+    if prior_link_witness is not None and record.previous_hash is None:
         issues.append(
             ChainVerificationIssue(
-                index=0,
-                record_hash=first_record.record_hash,
+                index=index,
+                record_hash=record.record_hash,
                 code="unexpected_previous_hash",
                 message=(
-                    "prior_link_witness was supplied but the first slice "
-                    "record claims to be the chain genesis "
+                    "prior_link_witness was supplied but the record "
+                    "claims to be the chain genesis "
                     "(previous_hash is null)"
                 ),
             )
@@ -416,15 +504,15 @@ def _verify_witness_link(
         return issues
 
     # Both present
-    if prior_link_witness != first_record.previous_hash:
+    if prior_link_witness != record.previous_hash:
         issues.append(
             ChainVerificationIssue(
-                index=0,
-                record_hash=first_record.record_hash,
+                index=index,
+                record_hash=record.record_hash,
                 code="prior_link_witness_mismatch",
                 message=(
-                    "first slice record's previous_hash does not match "
-                    "the supplied prior_link_witness"
+                    "record's previous_hash does not match the supplied "
+                    "prior_link_witness"
                 ),
             )
         )

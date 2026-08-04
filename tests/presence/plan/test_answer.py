@@ -106,3 +106,36 @@ def test_surface_object_carries_the_evidence(populated_state):
     assert env.surface_object and env.surface_object.get("claims")
     row = env.surface_object["claims"][0]
     assert row["tier"] == "sealed" and row["evidence"]
+
+
+def _count_decisions_total_plan(**params) -> Plan:
+    return Plan(nodes=(
+        Leaf(node_id="a", tool="human_decision.total", params=params),
+        Op(node_id="n", kind=OpKind.COUNT, inputs=("a",)),
+    ), output="n")
+
+
+def test_asserted_verdict_backstop_abstains_on_unscoped_answer(populated_state):
+    # The question asserts FORBID but the (stub-compiled) plan answers a bare
+    # total. Provable ≠ relevant: sealing that answer would speak to a DIFFERENT
+    # question, so the envelope must abstain instead.
+    from tex.presence.plan.answer import ABSTAIN_UNPROVABLE_TEXT
+
+    env = answer_with_plan(
+        populated_state, transcript="how many forbid actions are there right now",
+        tenant="acme", compiler=_StubCompiler(_count_decisions_total_plan()),
+        templated_abstain=_ABSTAIN, asserted_verdict="FORBID",
+    )
+    assert env.spoken_text == ABSTAIN_UNPROVABLE_TEXT
+    assert not env.verdicts
+
+
+def test_asserted_verdict_spoken_when_plan_honors_it(populated_state):
+    # A verdict-honoring plan speaks the qualifier, so the backstop passes it.
+    env = answer_with_plan(
+        populated_state, transcript="how many forbid actions are there right now",
+        tenant="acme", compiler=_StubCompiler(_count_decisions_total_plan(verdict="FORBID")),
+        templated_abstain=_ABSTAIN, asserted_verdict="FORBID",
+    )
+    assert "forbid" in env.spoken_text.casefold()
+    assert env.verdicts and env.verdicts[0].tier is PresenceTier.SEALED

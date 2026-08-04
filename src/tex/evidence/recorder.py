@@ -644,6 +644,13 @@ class EvidenceRecorder:
         the index can only OVER-surface a hold (a resolved one shown again),
         never hide a waiting one. Chain verification still catches corruption
         through ``read_all``, which keeps its strict behavior.
+
+        Deploy survival: the JSONL chain lives on local disk, which resets on
+        a Render deploy — so the first index build also seeds from the durable
+        Postgres mirror when it offers ``resolved_decision_ids`` (see
+        ``_durable_resolved_ids``). Seals recorded before a deploy therefore
+        keep excluding their holds from "waiting" after the file is gone. An
+        unreadable mirror contributes the empty set (over-surface, never hide).
         """
         wanted: set[str] | None = None
         if candidate_ids is not None:
@@ -665,11 +672,17 @@ class EvidenceRecorder:
         defensive fallback to the payload's own ``decision_id``) — no pydantic
         validation, no payload decode for the 99% of lines that are not
         resolutions — so the one-time build stays cheap even on a long chain.
+
+        The index is the UNION of the durable mirror's resolutions (which
+        survive a deploy) and the local chain's (which include seals the
+        mirror's best-effort write may have dropped). Doing the mirror read
+        under the lock matches the write path, which already talks to the
+        mirror inside ``_append`` — and it happens once per process.
         """
         if self._resolved_ids_cache is not None:
             return self._resolved_ids_cache
 
-        resolved: set[str] = set()
+        resolved: set[str] = self._durable_resolved_ids()
         if self._path.exists():
             with self._path.open("r", encoding="utf-8") as handle:
                 for raw_line in handle:
@@ -694,6 +707,31 @@ class EvidenceRecorder:
 
         self._resolved_ids_cache = resolved
         return resolved
+
+    def _durable_resolved_ids(self) -> set[str]:
+        """Seeds the resolved-ids index from the durable mirror, fail-open.
+
+        The mirror is duck-typed (same idiom as the answers layer): any mirror
+        exposing ``resolved_decision_ids()`` — the Postgres mirror in
+        production — contributes the decision ids whose seals survived the
+        last deploy. A mirror without the method (or no mirror at all, the
+        dev default) contributes nothing and behavior is byte-identical to
+        the file-only build. A mirror that RAISES also contributes nothing:
+        an unreadable durable source must over-surface resolved holds, never
+        hide a waiting one.
+        """
+        reader = getattr(self._mirror, "resolved_decision_ids", None)
+        if not callable(reader):
+            return set()
+        try:
+            return {str(did) for did in reader() if did}
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "EvidenceRecorder: durable resolved-ids seed failed (%s); "
+                "building the index from the local chain only.",
+                exc,
+            )
+            return set()
 
     def decode_payload(self, record: EvidenceRecord) -> dict[str, Any]:
         """

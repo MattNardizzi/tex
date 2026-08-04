@@ -767,12 +767,20 @@ def _aggregate_recent_verdicts(state, request, *, tenant, **kwargs):
 # could not reach before these tools existed.
 # ─────────────────────────────────────────────────────────────────────────────
 def _decision_held(state, request, *, tenant, **kwargs):
-    """Decisions currently HELD for a human — the live queue, in-memory since boot."""
+    """Decisions currently HELD for a human — the live queue, in-memory since boot.
+    Tenant-scoped when the sink supports it (the vigil headline's pattern); a
+    ``None``/"default" caller keeps the operator/fleet view."""
     sink = _store(state, "held_decision_sink")
     if sink is None or not hasattr(sink, "peek"):
         return _unavailable("held_decision_sink")
     limit, _ = _resolve_limit(request, kwargs, _DEFAULT_RECENT)
-    items = list(sink.peek())
+    wanted = _wanted_tenant(tenant)
+    if wanted is not None and hasattr(sink, "peek_for_tenant"):
+        items = list(sink.peek_for_tenant(wanted))
+        scoped = True
+    else:
+        items = list(sink.peek())
+        scoped = False
     dicts = []
     for h in items[-limit:]:
         d = h.to_jsonable() if hasattr(h, "to_jsonable") else dict(h)
@@ -786,9 +794,13 @@ def _decision_held(state, request, *, tenant, **kwargs):
     value = {
         "held": dicts,
         "returned": len(dicts),
-        "tenant_scope": "fleet",
-        "tenant_filter_applied": False,
-        "note": "held decisions are in-memory since boot; no tenant column",
+        "tenant_scope": wanted if scoped else "fleet",
+        "tenant_filter_applied": scoped,
+        "note": (
+            f"live holds for tenant {wanted!r}, in-memory since boot"
+            if scoped
+            else "held decisions are in-memory since boot; operator/fleet view"
+        ),
         "read_complete": len(items) <= limit,
     }
     return value, refs
@@ -923,12 +935,16 @@ _WITNESS_CAP = 64  # rows bound as an auditable witness for a full-store count
 
 def _decision_total(state, request, *, tenant, **kwargs):
     """Exact count of ALL decisions (optional verdict filter) — no window, no clamp.
-    Fleet-wide (decision_store has no tenant column)."""
+    Tenant-scoped private+shared via ``Decision.tenant_id``; a ``None``/"default"
+    caller keeps the deliberate operator/fleet view."""
     store = _store(state, "decision_store")
     if store is None or not hasattr(store, "list_all"):
         return _unavailable("decision_store")
     verdict = _arg(request, kwargs, "verdict")
+    wanted = _wanted_tenant(tenant)
     rows = tuple(store.list_all())
+    if wanted is not None:
+        rows = tuple(r for r in rows if _decision_matches_tenant(r, wanted))
     if verdict is not None:
         rows = tuple(r for r in rows if _verdict_str(r.verdict) == _verdict_str(verdict))
     refs = tuple(
@@ -936,9 +952,13 @@ def _decision_total(state, request, *, tenant, **kwargs):
         for r in rows[:_WITNESS_CAP]
     )
     return (
-        {"count": len(rows), "verdict": verdict, "tenant_scope": "fleet",
-         "tenant_filter_applied": False, "witness": f"{len(refs)}-of-{len(rows)}",
-         "note": "decision_store has no tenant column; count is fleet-wide"},
+        {"count": len(rows), "verdict": verdict, "tenant_scope": wanted or "fleet",
+         "tenant_filter_applied": wanted is not None, "witness": f"{len(refs)}-of-{len(rows)}",
+         "note": (
+             f"scoped to tenant {wanted!r} (private + shared)"
+             if wanted is not None
+             else "operator/fleet view (no tenant scope requested)"
+         )},
         refs,
     )
 
@@ -969,6 +989,17 @@ def _execution_action_total(state, request, *, tenant, **kwargs):
     ledger = _store(state, "action_ledger")
     if ledger is None or not hasattr(ledger, "total_count"):
         return _unavailable("action_ledger")
+    # This total CANNOT honor a verdict filter. Refusing beats silently answering
+    # a different question — an unfiltered total spoken for "how many forbids"
+    # is exactly the sealed-but-wrong-answer failure. The compiler should route
+    # verdict-filtered counts to execution.action_count or human_decision.total.
+    if _arg(request, kwargs, "verdict") is not None:
+        return (
+            {"available": False,
+             "reason": "action_total cannot filter by verdict — use "
+                       "execution.action_count or human_decision.total"},
+            (),
+        )
     agent_id = _as_uuid(_arg(request, kwargs, "agent_id"))
     if agent_id is not None and hasattr(ledger, "count_for_agent"):
         n = int(ledger.count_for_agent(agent_id))
@@ -993,12 +1024,12 @@ _SPECS: tuple[tuple[str, str, Callable[..., Any]], ...] = (
     # execution
     ("execution.recent_actions", "Recent action-ledger entries (kwargs: agent_id, limit).", _exec_recent_actions),
     ("execution.action_count", "Count actions in a recent window (kwargs: agent_id, verdict, window).", _exec_action_count),
-    ("execution.action_total", "EXACT total of ALL actions (kwargs: agent_id) — no window. Use for 'how many actions in total / for agent X'. Fleet-wide.", _execution_action_total),
+    ("execution.action_total", "EXACT total of ALL actions (kwargs: agent_id) — no window. Use for 'how many actions in total / for agent X'. Fleet-wide. CANNOT filter by verdict — a forbid/permit count must use execution.action_count or human_decision.total.", _execution_action_total),
     # human_decision
     ("human_decision.get_decision", "Fetch one decision by id (kwargs: decision_id).", _decision_get),
     ("human_decision.recent_decisions", "Recent decisions (kwargs: verdict, limit). Fleet-wide.", _decision_recent),
-    ("human_decision.verdict_count", "Count decisions of a verdict in a recent window. Fleet-wide.", _decision_verdict_count),
-    ("human_decision.total", "EXACT count of ALL decisions (kwargs: verdict) — no window. Use for 'how many decisions/forbids/permits in total'. Fleet-wide.", _decision_total),
+    ("human_decision.verdict_count", "Count decisions of a verdict in a recent window (kwargs: verdict, window). Tenant-scoped.", _decision_verdict_count),
+    ("human_decision.total", "EXACT count of ALL decisions (kwargs: verdict) — no window. Use for 'how many decisions/forbids/permits in total / right now'. Tenant-scoped. Always pass verdict when the question names one (forbid/permit/abstain).", _decision_total),
     # evidence
     ("evidence.chain_head", "The head of the signed evidence hash-chain.", _evidence_chain_head),
     ("evidence.recent_records", "Recent evidence records (kwargs: record_type, limit). O(n) read.", _evidence_recent),
